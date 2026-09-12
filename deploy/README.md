@@ -299,9 +299,9 @@ cluster, none of which this chart can do for you because they live in the
    Prometheus needs no selector label, which is why
    `metrics.serviceMonitor.labels` is empty by default.
 
-`team-redbull/redbull-platform` carries both ConfigMaps in its Helmfile
-bootstrap layer (`charts/cluster-monitoring`), so on that cluster they are
-already applied and the remote-write URL is a Helmfile value.
+Neither ConfigMap is owned by any chart in `team-redbull/redbull-platform`
+— they are applied by hand, once, which is what the OpenShift docs
+describe. Step 1 is done on the sandbox; step 2 is not.
 
 **Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
 producing fresh servers at all — check `oc get jobs` and the newest pod's
