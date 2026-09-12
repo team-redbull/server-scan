@@ -104,9 +104,9 @@ is a real mistake, not a style preference.
    hand (convention 8). `/docs-sweep` is convention 11 as a checklist,
    and two read-only agents — `docs-drift-checker` and
    `stored-shape-reviewer` — review a diff for the two failure classes
-   this file records most often. `.mcp.json` adds a read-only MongoDB MCP
-   server pointed at the **dev stack only** (`localhost:27017`), never
-   the cluster.
+   this file records most often. There is deliberately no `.mcp.json`:
+   MCP servers (MongoDB, context7, …) are the operator's user-level
+   config, not the repo's.
 
    **The type checker is ty, not mypy** — mypy was removed on 2026-09-01
    after being measured against it (`docs/adr/0019-ty-replaces-mypy.md`,
@@ -1310,9 +1310,8 @@ quarterly, or before any release you care about:
 ## Where to continue right now
 
 **Most recent, 2026-09-13** — the Claude Code setup itself: `/gate`,
-`/docs-sweep`, three enforcing hooks, two review agents and a read-only
-MongoDB MCP server, all under `.claude/` and `.mcp.json` (tracked, per
-convention 4). See convention 7 for what each does. Nothing in the
+`/docs-sweep`, three enforcing hooks and two review agents, all under
+`.claude/` (tracked, per convention 4); MCP servers stay user-level. See convention 7 for what each does. Nothing in the
 platform changed.
 
 **Before that, 2026-09-12, later the same day** — staleness
