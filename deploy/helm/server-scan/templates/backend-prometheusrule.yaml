@@ -2,7 +2,15 @@
 {{- /*
 The alerts ADR-0029 exists for. Thresholds are values so an estate on a
 different collector cadence tunes them without editing this file.
+
+`required`, because Helm renders a missing value as an empty string with
+no warning: a values file that mis-nests these keys once produced
+`expr: server_scan:collector_silent_seconds >` — which helm lint, helm
+template and promtool (run on the chart's own defaults) all passed, and
+only OpenShift's PrometheusRule admission webhook rejected, at sync time.
 */ -}}
+{{- $stale := required "metrics.prometheusRule.staleServersThreshold must be set — check the values file's nesting" .Values.metrics.prometheusRule.staleServersThreshold }}
+{{- $silent := required "metrics.prometheusRule.silentForSeconds must be set — check the values file's nesting" .Values.metrics.prometheusRule.silentForSeconds }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -65,15 +73,15 @@ spec:
     - name: server-scan.fleet
       rules:
         - alert: ServerScanCollectorSilent
-          expr: server_scan:collector_silent_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
+          expr: server_scan:collector_silent_seconds > {{ $silent }}
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "Collector {{ "{{ $labels.source_provider }}" }} has not read any server for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
+            summary: "Collector {{ "{{ $labels.source_provider }}" }} has not read any server for over {{ $silent }}s"
             description: "Its CronJob is failing, suspended, or never ran. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
         - alert: ServerScanServersStale
-          expr: server_scan:servers_stale:max > {{ .Values.metrics.prometheusRule.staleServersThreshold }}
+          expr: server_scan:servers_stale:max > {{ $stale }}
           for: 30m
           labels:
             severity: warning
@@ -81,12 +89,12 @@ spec:
             summary: "{{ "{{ $value }}" }} {{ "{{ $labels.source_provider }}" }} servers not collected within INVENTORY_STALE_AFTER_SECONDS"
             description: "The collector is running but these servers are not being read — dead BMCs, rejected logins, or hosts dropped from the manager. `server_scan:servers_unreachable:max` says how many are the first kind."
         - alert: ServerScanClusterSilent
-          expr: server_scan:cluster_silent_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
+          expr: server_scan:cluster_silent_seconds > {{ $silent }}
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
+            summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ $silent }}s"
             description: "Its servers stay INSTALLED forever and nothing else notices. Check the openshift-membership release in that cluster."
         - alert: ServerScanCollectorRunPartial
           expr: server_scan:collector_last_run_partial:max == 1

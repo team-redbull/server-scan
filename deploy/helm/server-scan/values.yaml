@@ -277,6 +277,13 @@ metrics:
   prometheusRule:
     enabled: false
     labels: {}
+
+    # `server_scan_servers_stale` above this per collector fires
+    # ServerScanServersStale. 0 alerts on the first stale server.
+    staleServersThreshold: 10
+    # A collector or cluster that has not reported for this long fires
+    # ServerScanCollectorSilent / ServerScanClusterSilent. Two cycles.
+    silentForSeconds: 43200
   # Turns on OpenShift's user-workload monitoring by writing the
   # `cluster-monitoring-config` ConfigMap into openshift-monitoring —
   # the only thing that makes the ServiceMonitor above get scraped. OFF
@@ -289,12 +296,6 @@ metrics:
   # one place monitoring is meant to be configured from.
   userWorkloadMonitoring:
     enabled: false
-    # `server_scan_servers_stale` above this per collector fires
-    # ServerScanServersStale. 0 alerts on the first stale server.
-    staleServersThreshold: 10
-    # A collector or cluster that has not reported for this long fires
-    # ServerScanCollectorSilent / ServerScanClusterSilent. Two cycles.
-    silentForSeconds: 43200
 
 route:
   enabled: true

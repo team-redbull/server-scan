@@ -1338,6 +1338,20 @@ shipped. The deployment ones first:
   inventory file is the default source; **the credentials file is opt-in
   and empty by default because rendering it puts BMC passwords in git**,
   and `credentialsSecret` still wins.
+- **`helm template` passing proves nothing about a missing value.** Helm
+  renders an absent `.Values.x` as an empty string with no warning, so a
+  mis-nested values file (a block inserted between a map's `enabled` and
+  its other keys — done twice on 2026-09-13, in this repo's own
+  `values.yaml` and again in redbull-platform's copy) rendered
+  `expr: server_scan:collector_silent_seconds >` and sailed through
+  `helm lint`, `helm template` and `promtool`. Only OpenShift's
+  `prometheusrules.openshift.io` admission webhook rejected it, at Argo
+  sync time. Two things now stand in the way: every threshold the
+  PrometheusRule reads is wrapped in `required`, so the render fails
+  with a message naming the key; and **before pushing a chart change,
+  run it against the real cluster** — `helm template ... | oc apply
+  --dry-run=server -f -` exercises every admission webhook, which nothing
+  offline can.
 - **CI has a `helm` job** that lints every chart under `deploy/helm`
   (discovered, not listed) and `helm template`s each one under the value
   combinations the defaults never reach. It uses the runner's

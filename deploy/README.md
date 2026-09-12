@@ -318,6 +318,18 @@ cluster, none of which this chart can do for you because they live in the
 On the sandbox, step 1 is the chart's (`redbull-platform` sets
 `metrics.userWorkloadMonitoring.enabled: true`); step 2 is not configured.
 
+**Before pushing a change to this chart, dry-run it against the cluster:**
+
+```bash
+helm template server-scan deploy/helm/server-scan -n server-scan \
+  --set metrics.prometheusRule.enabled=true | oc apply --dry-run=server -f -
+```
+
+`helm lint` and `helm template` check syntax; the server-side dry-run
+runs every admission webhook, including OpenShift's PromQL parser for
+`PrometheusRule`s. A missing value renders as nothing and passes the
+first two — it has — and only the webhook catches it.
+
 **Query the `server_scan:` recording rules, not the raw gauges.** Every
 API replica exports the same fleet-wide gauges, so the raw series come
 back once per pod. The `PrometheusRule` records one de-duplicated series
