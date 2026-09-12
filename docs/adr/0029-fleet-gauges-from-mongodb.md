@@ -44,6 +44,35 @@ The API's `/metrics` endpoint exposes gauges derived from MongoDB:
 | `server_scan_servers_in_maintenance` | — | |
 | `server_scan_fleet_snapshot_failures_total` | — | The query itself failing |
 
+Added the same day, after the first set was live:
+
+| Gauge | Labels | Answers |
+|---|---|---|
+| `server_scan_policy_active` | `policy_key` | *What* is wrong — how many servers each health policy fires on. Needs `Health.active_policy_keys`, written at ingest since this ADR; documents from before carry none and simply do not count |
+| `server_scan_servers_partial` | `source_provider` | Servers the collector reached but could not fully read — a collector silently returning less |
+| `server_scan_collector_last_run_{timestamp_seconds,duration_seconds,servers_fetched,ingest_errors,collection_errors,partial}` | `source_provider` | The most recent run's own outcome, from `Manager.last_run`, which `tools.run_collector` (and the seeder) write at the end of every run. Catches a degraded run in minutes, where `servers_stale` needs the whole window |
+
+**`servers_partial` counts read failures, not structural gaps.** A first
+cut counted any server with a non-empty `unread_fields` and read 100% on
+every collector, because `hardware.memory.modules` is unread everywhere
+(DIMM detail is a platform-wide gap) and a bare BMC has no profile
+template. So a field is ignored when it is unread on *every* server of
+that collector — the collector never reports it — and counted only when
+the same collector reads it elsewhere. Data-driven, so it self-corrects
+when a collector starts reporting something, at the cost of one more
+aggregation per refresh. Two known limits: a mixed UCS fleet's blades
+(no PSUs of their own, beside racks that have them) count as partial on
+`hardware.power.psus`; and `unread_fields` itself conflates "could not
+read" with "genuinely absent" (a profile with no template), which this
+gauge inherits.
+
+`Manager.last_run` is the one stored-shape change with a wrinkle:
+`MongoManagerRepository.upsert` used to `replace_one` the whole document
+on every ingest, which would have wiped the record between runs. It is
+now a `$set` of the configuration fields, and `record_run` writes
+`last_run` separately, so a crashed run leaves the previous record in
+place — aging, which is the honest signal — rather than blanking it.
+
 Timestamps are Unix seconds with the `_timestamp_seconds` suffix — the
 Prometheus convention for "when" — so `time() - metric` is age and stays
 correct however late the scrape is.

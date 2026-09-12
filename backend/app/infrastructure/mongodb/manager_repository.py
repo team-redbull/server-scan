@@ -11,7 +11,7 @@ from typing import Any
 
 from pymongo.asynchronous.collection import AsyncCollection
 
-from app.domain.models.manager import Manager
+from app.domain.models.manager import Manager, ManagerRun
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.indexes import MANAGERS_COLLECTION
 
@@ -44,9 +44,24 @@ class MongoManagerRepository:
         Returns:
             Manager: The same manager, for chaining.
         """
-        doc = manager.model_dump(by_alias=True, mode="json")
-        await self._collection.replace_one({"_id": manager.id}, doc, upsert=True)
+        doc = manager.model_dump(by_alias=True, mode="json", exclude={"last_run"})
+        doc.pop("_id")
+        # `$set`, not replace: the config projection must not blank the
+        # run record `record_run` keeps beside it.
+        await self._collection.update_one({"_id": manager.id}, {"$set": doc}, upsert=True)
         return manager
+
+    async def record_run(self, manager_id: str, run: ManagerRun) -> None:
+        """
+        Store what a collector run reported, without touching its configuration.
+
+        Args:
+            manager_id (str): The manager the run was for.
+            run (ManagerRun): The run's outcome.
+        """
+        await self._collection.update_one(
+            {"_id": manager_id}, {"$set": {"last_run": run.model_dump(mode="json")}}
+        )
 
     async def get_by_id(self, manager_id: str) -> Manager | None:
         """

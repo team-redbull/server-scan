@@ -30,6 +30,22 @@ spec:
           expr: max by (namespace, source_provider) (server_scan_servers_stale)
         - record: server_scan:servers_unreachable:max
           expr: max by (namespace, source_provider) (server_scan_servers_unreachable)
+        - record: server_scan:servers_partial:max
+          expr: max by (namespace, source_provider) (server_scan_servers_partial)
+        - record: server_scan:policy_active:max
+          expr: max by (namespace, policy_key) (server_scan_policy_active)
+        - record: server_scan:collector_last_run_duration_seconds:max
+          expr: max by (namespace, source_provider) (server_scan_collector_last_run_duration_seconds)
+        - record: server_scan:collector_last_run_servers_fetched:max
+          expr: max by (namespace, source_provider) (server_scan_collector_last_run_servers_fetched)
+        - record: server_scan:collector_last_run_ingest_errors:max
+          expr: max by (namespace, source_provider) (server_scan_collector_last_run_ingest_errors)
+        - record: server_scan:collector_last_run_collection_errors:max
+          expr: max by (namespace, source_provider) (server_scan_collector_last_run_collection_errors)
+        - record: server_scan:collector_last_run_partial:max
+          expr: max by (namespace, source_provider) (server_scan_collector_last_run_partial)
+        - record: server_scan:collector_last_run_age_seconds
+          expr: time() - max by (namespace, source_provider) (server_scan_collector_last_run_timestamp_seconds)
         - record: server_scan:collector_last_seen_timestamp_seconds:max
           expr: max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)
         - record: server_scan:cluster_servers_held:max
@@ -72,6 +88,14 @@ spec:
           annotations:
             summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
             description: "Its servers stay INSTALLED forever and nothing else notices. Check the openshift-membership release in that cluster."
+        - alert: ServerScanCollectorRunPartial
+          expr: server_scan:collector_last_run_partial:max == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Collector {{ "{{ $labels.source_provider }}" }}'s last run did not see the whole fleet"
+            description: "The run exited PARTIAL: TLS failures, per-host budgets exceeded, or ingest errors — not merely dead BMCs. `server_scan:collector_last_run_collection_errors:max` and `:ingest_errors:max` say how many; the newest pod's log says which."
         - alert: ServerScanFleetSnapshotFailing
           expr: sum by (namespace) (increase(server_scan_fleet_snapshot_failures_total[15m])) > 0
           for: 15m

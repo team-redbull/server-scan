@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import time
 
 import structlog
 
@@ -24,7 +25,8 @@ from app.application.services.classification_service import ClassificationServic
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService
 from app.config import get_settings
-from app.domain.enums import OpenShiftState
+from app.domain.enums import ManagerType, OpenShiftState
+from app.domain.models.manager import ManagerRun
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.gpu_catalog import gpu_catalog
@@ -40,9 +42,10 @@ from app.infrastructure.mongodb.indexes import ensure_indexes
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
-from app.infrastructure.providers.fake.generator import list_managers, list_sites
+from app.infrastructure.providers.fake.generator import list_managers, list_sites, manager_id_for
 from app.infrastructure.providers.fake.openshift import openshift_for
 from app.infrastructure.providers.fake.provider import fake_providers
+from app.utils.timeutil import utcnow
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +126,10 @@ async def _run(*, count: int, seed: int) -> None:
         # the provider, so a single pass would label the whole fake fleet
         # with one collector that never found most of it.
         fetched = created = updated = errors = 0
+        manager_repo = MongoManagerRepository(mongo)
         for provider in fake_providers(seed=seed, count=count, sites=sites):
+            started_at = utcnow()
+            started = time.monotonic()
             summary = await ingest_service.ingest(
                 provider, sites=list_sites(sites), managers=list_managers()
             )
@@ -131,6 +137,22 @@ async def _run(*, count: int, seed: int) -> None:
             created += summary.created
             updated += summary.updated
             errors += summary.errors
+            # A run record per fake collector, so the seeded cluster shows
+            # the `collector_last_run_*` gauges too (ADR-0029).
+            await manager_repo.record_run(
+                manager_id_for(ManagerType(provider.provider_type)),
+                ManagerRun(
+                    started_at=started_at,
+                    finished_at=utcnow(),
+                    duration_seconds=time.monotonic() - started,
+                    servers_fetched=summary.fetched,
+                    servers_created=summary.created,
+                    servers_updated=summary.updated,
+                    ingest_errors=summary.errors,
+                    collection_errors=len(provider.collection_errors),
+                    partial=bool(summary.errors),
+                ),
+            )
 
         reported = await _seed_openshift(
             MongoServerRepository(mongo, cursor_secret=settings.cursor_secret)

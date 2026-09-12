@@ -229,7 +229,13 @@ ADR-0029 — `server_scan_servers_stale`, `server_scan_collector_last_seen_
 timestamp_seconds`, `server_scan_cluster_last_reported_timestamp_seconds`,
 `server_scan_servers_by_health` and friends. Those are the only things
 in this platform that can say a collector or a cluster's membership job
-has *stopped*, because a CronJob pod is never scraped.
+has *stopped*, because a CronJob pod is never scraped. Beside them:
+`server_scan_policy_active{policy_key}` says *what* is wrong across the
+fleet, `server_scan_servers_partial` says which collector is reaching
+servers but not fully reading them, and
+`server_scan_collector_last_run_*` carry each collector's most recent
+run — duration, servers fetched, errors, and whether it exited PARTIAL —
+so a degraded run shows up in minutes rather than after the stale window.
 
 The chart ships the two Prometheus Operator objects for them:
 

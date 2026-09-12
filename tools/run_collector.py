@@ -26,6 +26,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 import structlog
 
@@ -37,7 +38,7 @@ from app.config import get_settings
 from app.config.settings import Settings
 from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
-from app.domain.models.manager import Manager
+from app.domain.models.manager import Manager, ManagerRun
 from app.domain.ports.credentials import (
     CredentialResolver,
     ManagerConnection,
@@ -76,6 +77,7 @@ from app.infrastructure.providers.redfish.targets import (
     load_targets,
 )
 from app.infrastructure.providers.ucs_central.provider import UcsCentralProvider
+from app.utils.timeutil import utcnow
 
 logger = structlog.get_logger(__name__)
 
@@ -892,6 +894,47 @@ def _is_benign_collection_error(message: str) -> bool:
     return any(marker in message for marker in _BENIGN_COLLECTION_ERROR_MARKERS)
 
 
+async def _record_run(
+    manager_repo: MongoManagerRepository,
+    manager_id: str,
+    *,
+    started_at: datetime,
+    duration: float,
+    summary: IngestSummary,
+    collection_errors: int,
+    partial: bool,
+) -> None:
+    """
+    Write the run's outcome onto its Manager document, for the fleet gauges (ADR-0029).
+
+    Never raises: the exit code must reflect the collection, not this write.
+
+    Args:
+        manager_repo (MongoManagerRepository): Where the record goes.
+        manager_id (str): The manager this run was for.
+        started_at (datetime): When the run began.
+        duration (float): Wall-clock seconds the run took.
+        summary (IngestSummary): What ingestion reported.
+        collection_errors (int): Hosts the provider could not collect.
+        partial (bool): Whether the run will exit 3.
+    """
+    run = ManagerRun(
+        started_at=started_at,
+        finished_at=utcnow(),
+        duration_seconds=duration,
+        servers_fetched=summary.fetched,
+        servers_created=summary.created,
+        servers_updated=summary.updated,
+        ingest_errors=summary.errors,
+        collection_errors=collection_errors,
+        partial=partial,
+    )
+    try:
+        await manager_repo.record_run(manager_id, run)
+    except Exception as exc:
+        logger.warning("collector.record_run_failed", manager_id=manager_id, error=str(exc))
+
+
 async def _dry_run_one_manager(
     manager: Manager,
     *,
@@ -1331,6 +1374,7 @@ async def _run(
             # fails partway still report how long it took before dying —
             # exactly the run most worth seeing the duration of.
             run_start = time.monotonic()
+            run_started_at = utcnow()
             try:
                 outcome = await _run_one_manager(
                     manager,
@@ -1362,6 +1406,19 @@ async def _run(
                 f"created={summary.created} updated={summary.updated} errors={summary.errors} "
                 f"took={_format_duration(run_duration)}"
             )
+            hard_errors = [
+                m for m in outcome.collection_errors if not _is_benign_collection_error(m)
+            ]
+            partial = bool(hard_errors or summary.errors)
+            await _record_run(
+                manager_repo,
+                manager.id,
+                started_at=run_started_at,
+                duration=run_duration,
+                summary=summary,
+                collection_errors=len(outcome.collection_errors),
+                partial=partial,
+            )
             logger.info(
                 "collector.run_complete",
                 dry_run=False,
@@ -1374,11 +1431,8 @@ async def _run(
             )
             # A dead BMC or a rejected credential no longer makes the run
             # PARTIAL — see `_is_benign_collection_error`.
-            hard_errors = [
-                m for m in outcome.collection_errors if not _is_benign_collection_error(m)
-            ]
             benign_count = len(outcome.collection_errors) - len(hard_errors)
-            if hard_errors or summary.errors:
+            if partial:
                 # Exit 3, not 0: some servers were written, but this run did
                 # not see the whole fleet, for a reason worth a human
                 # looking at across many hosts (TLS, a per-host budget, an

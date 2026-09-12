@@ -429,7 +429,20 @@ class MongoServerRepository:
                             }
                         },
                     ],
+                    "unread_by_field": [
+                        {"$unwind": "$unread_fields"},
+                        {
+                            "$group": {
+                                "_id": {"provider": "$source_provider", "field": "$unread_fields"},
+                                "count": {"$sum": 1},
+                            }
+                        },
+                    ],
                     "by_health": [{"$group": {"_id": "$health.overall", "count": {"$sum": 1}}}],
+                    "by_policy": [
+                        {"$unwind": "$health.active_policy_keys"},
+                        {"$group": {"_id": "$health.active_policy_keys", "count": {"$sum": 1}}},
+                    ],
                     "in_maintenance": [
                         {"$match": {"maintenance.enabled": True}},
                         {"$count": "count"},
@@ -439,6 +452,8 @@ class MongoServerRepository:
         ]
         facets = await (await self._collection.aggregate(pipeline)).to_list(length=1)
         result = facets[0] if facets else {}
+        totals = {row["_id"]: int(row["total"]) for row in result.get("by_provider", [])}
+        partial = await self._partial_counts(totals, result.get("unread_by_field", []))
         return FleetSnapshot(
             by_provider=[
                 ProviderSnapshotRow(
@@ -446,6 +461,7 @@ class MongoServerRepository:
                     total=int(row["total"]),
                     stale=int(row["stale"]),
                     unreachable=int(row["unreachable"]),
+                    partial=partial.get(row["_id"], 0),
                     last_seen_at=row.get("last_seen_at"),
                 )
                 for row in result.get("by_provider", [])
@@ -463,8 +479,65 @@ class MongoServerRepository:
                 for row in result.get("by_health", [])
                 if row["_id"] is not None
             },
+            by_policy={str(row["_id"]): int(row["count"]) for row in result.get("by_policy", [])},
             in_maintenance=int(next(iter(result.get("in_maintenance", [])), {}).get("count", 0)),
         )
+
+    async def _partial_counts(
+        self, totals: dict[Any, int], unread_by_field: list[dict[str, Any]]
+    ) -> dict[Any, int]:
+        """
+        Count servers per collector with an unread field that collector CAN read.
+
+        A field unread on every one of a collector's servers is structural —
+        the collector never reports it — and is ignored (ADR-0029).
+
+        Args:
+            totals (dict[Any, int]): Servers per `source_provider`.
+            unread_by_field (list[dict[str, Any]]): The facet's per-(provider,
+                field) unread counts.
+
+        Returns:
+            dict[Any, int]: Partial-read servers per `source_provider`.
+        """
+        structural: dict[Any, list[str]] = {}
+        for row in unread_by_field:
+            provider, field = row["_id"]["provider"], row["_id"]["field"]
+            if int(row["count"]) >= totals.get(provider, 0):
+                structural.setdefault(provider, []).append(field)
+        if not totals:
+            return {}
+        # Which fields to ignore depends on the row's own provider, so the
+        # per-provider lists are folded into one `$switch` — which Mongo
+        # rejects with zero branches, hence the literal empty list.
+        ignored: Any = (
+            {
+                "$switch": {
+                    "branches": [
+                        {"case": {"$eq": ["$source_provider", provider]}, "then": fields}
+                        for provider, fields in structural.items()
+                    ],
+                    "default": [],
+                }
+            }
+            if structural
+            else []
+        )
+        pipeline: list[dict[str, Any]] = [
+            {"$match": {"unread_fields": {"$exists": True, "$ne": []}}},
+            {
+                "$project": {
+                    "source_provider": 1,
+                    "real": {"$setDifference": ["$unread_fields", ignored]},
+                }
+            },
+            {"$match": {"$expr": {"$gt": [{"$size": "$real"}, 0]}}},
+            {"$group": {"_id": "$source_provider", "count": {"$sum": 1}}},
+        ]
+        return {
+            row["_id"]: int(row["count"])
+            async for row in await self._collection.aggregate(pipeline)
+        }
 
     async def site_breakdown(self) -> list[SiteBreakdownRow]:
         """

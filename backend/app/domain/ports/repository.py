@@ -60,6 +60,8 @@ class ProviderSnapshotRow:
         stale (int): Of those, not seen since the caller's cutoff — a
             server never seen at all counts here too.
         unreachable (int): Of those, currently `reachable=False`.
+        partial (int): Servers whose most recent collection left
+            `unread_fields` non-empty — read, but not all of it.
         last_seen_at (str | None): The newest stored `last_seen_at`, as
             the raw ISO string, or `None` if no server was ever seen.
     """
@@ -68,6 +70,7 @@ class ProviderSnapshotRow:
     total: int
     stale: int
     unreachable: int
+    partial: int
     last_seen_at: str | None
 
 
@@ -96,12 +99,15 @@ class FleetSnapshot:
         by_cluster (list[ClusterSnapshotRow]): One row per cluster that
             holds at least one server.
         by_health (dict[str, int]): Servers per stored `health.overall`.
+        by_policy (dict[str, int]): Servers each health `policy_key` is
+            firing on.
         in_maintenance (int): Servers with maintenance enabled.
     """
 
     by_provider: list[ProviderSnapshotRow]
     by_cluster: list[ClusterSnapshotRow]
     by_health: dict[str, int]
+    by_policy: dict[str, int]
     in_maintenance: int
 
 

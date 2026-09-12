@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.domain.enums import HealthSeverity
 
@@ -33,3 +33,6 @@ class Health(BaseModel):
     connectivity: HealthSeverity = HealthSeverity.UNKNOWN
     power: HealthSeverity = HealthSeverity.UNKNOWN
     evaluated_at: datetime | None = None
+    # The `policy_key`s that fired, so "what is wrong across the fleet" is
+    # one aggregation (ADR-0029). Absent on documents written before it.
+    active_policy_keys: list[str] = Field(default_factory=list)

@@ -21,6 +21,8 @@ one-per-type model does not have.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 from app.domain.enums import ManagerType
@@ -33,6 +35,22 @@ from app.domain.models.common import AuditFields
 ALLOWED_PARENT_TYPES: dict[ManagerType, frozenset[ManagerType]] = {
     ManagerType.UCS_MANAGER: frozenset({ManagerType.UCS_CENTRAL}),
 }
+
+
+class ManagerRun(BaseModel):
+    """What the collector's most recent run reported — see ADR-0029."""
+
+    started_at: datetime
+    finished_at: datetime
+    duration_seconds: float
+    servers_fetched: int
+    servers_created: int
+    servers_updated: int
+    ingest_errors: int
+    collection_errors: int
+    # Exit 3: the run did not see the whole fleet for a reason worth a
+    # human looking at (tools.run_collector's PARTIAL decision).
+    partial: bool
 
 
 class Manager(BaseModel):
@@ -53,5 +71,8 @@ class Manager(BaseModel):
     bmc_credential_ref: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
     audit: AuditFields
+    # Run state, not configuration: written by `record_run`, never by the
+    # config projection `upsert`, so it survives between runs.
+    last_run: ManagerRun | None = None
 
     model_config = {"populate_by_name": True}

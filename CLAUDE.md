@@ -865,6 +865,13 @@ non-obvious enough to bite you.
   `max(last_seen_at)`, never `min` — one dead BMC must not make a healthy
   collector read as silent. A retired collector or cluster's label set is
   **cleared** on each refresh, not left at its last value.
+  **`servers_partial` ignores a field unread on every one of a
+  collector's servers** — that is the collector never reporting it, not a
+  read failure; counting it read 100% everywhere. **`Manager.last_run` is
+  written by `record_run` and survives `upsert`**, which is a `$set` of
+  config fields, not a replace — do not turn it back into `replace_one`.
+  `Health.active_policy_keys` is what `policy_active` aggregates; it is
+  set only through `pipeline.health_from_state`.
 - **The list cache is invalidated by maintenance writes and by nothing
   else** (ADR-0028). `GET /servers` pages (15s) and `/servers/facets`
   counts (60s) are cache-aside with no write invalidation on the ingest

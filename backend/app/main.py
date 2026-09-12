@@ -44,6 +44,7 @@ from app.infrastructure.mongodb.classification_rule_repository import (
 )
 from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolicyRepository
 from app.infrastructure.mongodb.indexes import ensure_indexes
+from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.redis import RedisClientHolder
 from app.infrastructure.singleflight import drain as drain_singleflight
@@ -100,6 +101,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.mongo = mongo
     app.state.fleet_gauges = FleetGaugeRefresher(
         MongoServerRepository(mongo, cursor_secret=settings.cursor_secret),
+        MongoManagerRepository(mongo),
         stale_after_seconds=settings.stale_after_seconds,
         min_interval_seconds=settings.metrics_fleet_refresh_seconds,
     )

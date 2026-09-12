@@ -51,6 +51,46 @@ servers_unreachable = Gauge(
     "Servers whose BMC could not be reached on the most recent collection",
     labelnames=("source_provider",),
 )
+servers_partial = Gauge(
+    "server_scan_servers_partial",
+    "Servers whose most recent collection could not read every field",
+    labelnames=("source_provider",),
+)
+policy_active = Gauge(
+    "server_scan_policy_active",
+    "Servers each health policy is currently firing on",
+    labelnames=("policy_key",),
+)
+collector_last_run_timestamp = Gauge(
+    "server_scan_collector_last_run_timestamp_seconds",
+    "Unix time a collector's most recent run finished",
+    labelnames=("source_provider",),
+)
+collector_last_run_duration = Gauge(
+    "server_scan_collector_last_run_duration_seconds",
+    "Wall-clock seconds the most recent run took",
+    labelnames=("source_provider",),
+)
+collector_last_run_fetched = Gauge(
+    "server_scan_collector_last_run_servers_fetched",
+    "Servers the most recent run fetched from the vendor",
+    labelnames=("source_provider",),
+)
+collector_last_run_ingest_errors = Gauge(
+    "server_scan_collector_last_run_ingest_errors",
+    "Servers the most recent run fetched but could not ingest",
+    labelnames=("source_provider",),
+)
+collector_last_run_collection_errors = Gauge(
+    "server_scan_collector_last_run_collection_errors",
+    "Hosts the most recent run could not collect, benign or not",
+    labelnames=("source_provider",),
+)
+collector_last_run_partial = Gauge(
+    "server_scan_collector_last_run_partial",
+    "1 if the most recent run exited PARTIAL (did not see the whole fleet)",
+    labelnames=("source_provider",),
+)
 collector_last_seen_timestamp = Gauge(
     "server_scan_collector_last_seen_timestamp_seconds",
     "Unix time a collector last successfully read any server",
