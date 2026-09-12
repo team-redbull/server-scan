@@ -277,6 +277,18 @@ metrics:
   prometheusRule:
     enabled: false
     labels: {}
+  # Turns on OpenShift's user-workload monitoring by writing the
+  # `cluster-monitoring-config` ConfigMap into openshift-monitoring —
+  # the only thing that makes the ServiceMonitor above get scraped. OFF
+  # by default for three reasons that all apply at once: it is
+  # OpenShift-specific, it is a cluster-wide setting written from an
+  # application chart into a namespace the chart does not otherwise
+  # own, and a cluster that already has that ConfigMap (the OpenShift
+  # docs tell admins to hand-write it) will collide unless it is adopted
+  # first — the template says how. Turn it on when this chart is the
+  # one place monitoring is meant to be configured from.
+  userWorkloadMonitoring:
+    enabled: false
     # `server_scan_servers_stale` above this per collector fires
     # ServerScanServersStale. 0 alerts on the first stale server.
     staleServersThreshold: 10

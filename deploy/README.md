@@ -257,7 +257,17 @@ nothing scrapes is the same as none. Three things have to be true on the
 cluster, none of which this chart can do for you because they live in the
 `openshift-monitoring` namespaces:
 
-1. **Enable user-workload monitoring**, once per cluster:
+1. **Enable user-workload monitoring**, once per cluster. The chart can
+   do this for you — `metrics.userWorkloadMonitoring.enabled: true`
+   writes the `cluster-monitoring-config` ConfigMap into
+   `openshift-monitoring` — so that a single `helm install` of this chart
+   is enough. It is off by default because it is a cluster-wide setting
+   written from an application chart into a namespace it does not
+   otherwise own, and because a cluster that already has that ConfigMap
+   collides: label the existing one with `app.kubernetes.io/instance:
+   <release>` so Argo adopts it, or delete it just before the sync.
+
+   By hand, it is this:
 
    ```yaml
    apiVersion: v1
@@ -270,10 +280,10 @@ cluster, none of which this chart can do for you because they live in the
        enableUserWorkload: true
    ```
 
-   After this the `openshift-user-workload-monitoring` namespace gains a
-   Prometheus that scrapes every `ServiceMonitor` in every user namespace,
-   and the metrics appear under **Observe → Metrics** in the console with
-   the `server-scan` project selected.
+   Either way, the `openshift-user-workload-monitoring` namespace then
+   gains a Prometheus that scrapes every `ServiceMonitor` in every user
+   namespace, and the metrics appear under **Observe → Metrics** in the
+   console with the `server-scan` project selected.
 
 2. **Remote-write to your own Prometheus/Thanos**, if you want them
    there too — same mechanism, the *user-workload* ConfigMap:
@@ -305,9 +315,8 @@ cluster, none of which this chart can do for you because they live in the
    Prometheus needs no selector label, which is why
    `metrics.serviceMonitor.labels` is empty by default.
 
-Neither ConfigMap is owned by any chart in `team-redbull/redbull-platform`
-— they are applied by hand, once, which is what the OpenShift docs
-describe. Step 1 is done on the sandbox; step 2 is not.
+On the sandbox, step 1 is the chart's (`redbull-platform` sets
+`metrics.userWorkloadMonitoring.enabled: true`); step 2 is not configured.
 
 **Query the `server_scan:` recording rules, not the raw gauges.** Every
 API replica exports the same fleet-wide gauges, so the raw series come

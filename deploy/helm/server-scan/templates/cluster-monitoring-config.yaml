@@ -1,0 +1,25 @@
+{{- if .Values.metrics.userWorkloadMonitoring.enabled }}
+{{- /*
+The one cluster-level switch without which the ServiceMonitor above is
+scraped by nothing: OpenShift's user-workload monitoring is off by default.
+It lives in openshift-monitoring, not this chart's namespace — Helm and
+Argo both honour an explicit metadata.namespace, and this is the whole
+reason the value is off by default (see values.yaml).
+
+Existing ConfigMap on the cluster: Argo adopts one that already carries
+its tracking label (`app.kubernetes.io/instance: <release>`); one without
+it fails the sync with "already exists" — label it first, or delete it.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-cluster-monitoring
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: server-scan
+data:
+  config.yaml: |
+    enableUserWorkload: true
+{{- end }}
