@@ -94,6 +94,20 @@ is a real mistake, not a style preference.
    for any frontend change). If `ruff format --check` fails, run
    `uv run ruff format .` and re-verify — don't hand-fix formatting.
 
+   **`/gate` runs all of that in CI's order** (`.claude/skills/gate/`,
+   since 2026-09-13), helm lint/template and the frontend included;
+   `--backend`, `--helm`, `--frontend` pick a subset. Three project hooks
+   in `.claude/settings.json` back the conventions that have actually
+   been broken: every Python edit is `ruff format`ted as it lands, a
+   `git commit` carrying an attribution trailer is refused (convention
+   2), and `scripts/comment-density-baseline.txt` cannot be edited by
+   hand (convention 8). `/docs-sweep` is convention 11 as a checklist,
+   and two read-only agents — `docs-drift-checker` and
+   `stored-shape-reviewer` — review a diff for the two failure classes
+   this file records most often. `.mcp.json` adds a read-only MongoDB MCP
+   server pointed at the **dev stack only** (`localhost:27017`), never
+   the cluster.
+
    **The type checker is ty, not mypy** — mypy was removed on 2026-09-01
    after being measured against it (`docs/adr/0019-ty-replaces-mypy.md`,
    which has the numbers and the rollback triggers). Three things follow
@@ -1295,7 +1309,13 @@ quarterly, or before any release you care about:
 
 ## Where to continue right now
 
-**Most recent work, 2026-09-12, later the same day** — staleness
+**Most recent, 2026-09-13** — the Claude Code setup itself: `/gate`,
+`/docs-sweep`, three enforcing hooks, two review agents and a read-only
+MongoDB MCP server, all under `.claude/` and `.mcp.json` (tracked, per
+convention 4). See convention 7 for what each does. Nothing in the
+platform changed.
+
+**Before that, 2026-09-12, later the same day** — staleness
 detection (ADR-0029), item 0 of the not-done list: fleet gauges on
 `/metrics`, a `ServiceMonitor` + `PrometheusRule` in the chart, and the
 frontend's nginx collapsed to three `location` blocks. Also the same day:
