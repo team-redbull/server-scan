@@ -62,6 +62,15 @@ compares byte-for-byte against the stored ISO strings (ADR-0006 — every
 stored datetime is a string, and a `datetime` in the query matches
 nothing).
 
+Every API replica exports the same fleet-wide gauges, so the raw series
+arrive once per pod. The `PrometheusRule` therefore records a
+de-duplicated `server_scan:<gauge>:max` per gauge — the series to query
+and to alert on; alerting on the raw series would fire once per replica.
+This is deliberate over the alternatives: computing the gauges on one
+elected replica adds leader election for a cosmetic gain, and dropping the
+`pod`/`instance` labels at scrape time makes two targets write one series,
+which Prometheus treats as conflicting samples.
+
 The Helm chart ships a `ServiceMonitor` and a `PrometheusRule` with four
 alerts (collector silent, servers stale, cluster silent, snapshot
 failing), both off by default because they need the `monitoring.coreos.com`

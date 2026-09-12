@@ -16,10 +16,40 @@ metadata:
     {{- end }}
 spec:
   groups:
+    # The fleet gauges describe the FLEET, not a pod, but every API replica
+    # exports them, so the raw series come back once per pod. These collapse
+    # them: `server_scan:<gauge>:max` is one series per label set, and what
+    # the alerts below read — an alert on the raw series would fire once
+    # per replica. Query these in the console, not the raw names.
+    - name: server-scan.fleet.rules
+      interval: 30s
+      rules:
+        - record: server_scan:servers:max
+          expr: max by (namespace, source_provider) (server_scan_servers)
+        - record: server_scan:servers_stale:max
+          expr: max by (namespace, source_provider) (server_scan_servers_stale)
+        - record: server_scan:servers_unreachable:max
+          expr: max by (namespace, source_provider) (server_scan_servers_unreachable)
+        - record: server_scan:collector_last_seen_timestamp_seconds:max
+          expr: max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)
+        - record: server_scan:cluster_servers_held:max
+          expr: max by (namespace, cluster) (server_scan_cluster_servers_held)
+        - record: server_scan:cluster_last_reported_timestamp_seconds:max
+          expr: max by (namespace, cluster) (server_scan_cluster_last_reported_timestamp_seconds)
+        - record: server_scan:servers_by_health:max
+          expr: max by (namespace, severity) (server_scan_servers_by_health)
+        - record: server_scan:servers_in_maintenance:max
+          expr: max by (namespace) (server_scan_servers_in_maintenance)
+        # Age in seconds, so a dashboard needs no arithmetic.
+        - record: server_scan:collector_silent_seconds
+          expr: time() - max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)
+        - record: server_scan:cluster_silent_seconds
+          expr: time() - max by (namespace, cluster) (server_scan_cluster_last_reported_timestamp_seconds)
+
     - name: server-scan.fleet
       rules:
         - alert: ServerScanCollectorSilent
-          expr: time() - server_scan_collector_last_seen_timestamp_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
+          expr: server_scan:collector_silent_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
           for: 10m
           labels:
             severity: warning
@@ -27,15 +57,15 @@ spec:
             summary: "Collector {{ "{{ $labels.source_provider }}" }} has not read any server for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
             description: "Its CronJob is failing, suspended, or never ran. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
         - alert: ServerScanServersStale
-          expr: server_scan_servers_stale > {{ .Values.metrics.prometheusRule.staleServersThreshold }}
+          expr: server_scan:servers_stale:max > {{ .Values.metrics.prometheusRule.staleServersThreshold }}
           for: 30m
           labels:
             severity: warning
           annotations:
             summary: "{{ "{{ $value }}" }} {{ "{{ $labels.source_provider }}" }} servers not collected within INVENTORY_STALE_AFTER_SECONDS"
-            description: "The collector is running but these servers are not being read — dead BMCs, rejected logins, or hosts dropped from the manager. `server_scan_servers_unreachable` says how many are the first kind."
+            description: "The collector is running but these servers are not being read — dead BMCs, rejected logins, or hosts dropped from the manager. `server_scan:servers_unreachable:max` says how many are the first kind."
         - alert: ServerScanClusterSilent
-          expr: time() - server_scan_cluster_last_reported_timestamp_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
+          expr: server_scan:cluster_silent_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
           for: 10m
           labels:
             severity: warning
@@ -43,7 +73,7 @@ spec:
             summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
             description: "Its servers stay INSTALLED forever and nothing else notices. Check the openshift-membership release in that cluster."
         - alert: ServerScanFleetSnapshotFailing
-          expr: increase(server_scan_fleet_snapshot_failures_total[15m]) > 0
+          expr: sum by (namespace) (increase(server_scan_fleet_snapshot_failures_total[15m])) > 0
           for: 15m
           labels:
             severity: warning

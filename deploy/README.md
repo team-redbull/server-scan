@@ -303,6 +303,16 @@ Neither ConfigMap is owned by any chart in `team-redbull/redbull-platform`
 — they are applied by hand, once, which is what the OpenShift docs
 describe. Step 1 is done on the sandbox; step 2 is not.
 
+**Query the `server_scan:` recording rules, not the raw gauges.** Every
+API replica exports the same fleet-wide gauges, so the raw series come
+back once per pod. The `PrometheusRule` records one de-duplicated series
+per gauge — `server_scan:servers_stale:max`, `server_scan:servers:max`,
+`server_scan:servers_by_health:max`, and so on — plus two ages that need
+no arithmetic, `server_scan:collector_silent_seconds` and
+`server_scan:cluster_silent_seconds`. Type `server_scan:` in Observe →
+Metrics and autocomplete lists them. The alerts read these too; an alert
+on a raw series would fire once per replica.
+
 **Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
 producing fresh servers at all — check `oc get jobs` and the newest pod's
 logs. `ServerScanServersStale` means it *is* running but some servers are
