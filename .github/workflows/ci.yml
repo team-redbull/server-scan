@@ -165,7 +165,9 @@ jobs:
           helm template ci-lint deploy/helm/server-scan > /dev/null
           helm template ci-lint deploy/helm/server-scan \
             --set frontend.enabled=true \
-            --set route.host=scan.apps.example.com > /dev/null
+            --set route.host=scan.apps.example.com \
+            --set metrics.serviceMonitor.enabled=true \
+            --set metrics.prometheusRule.enabled=true > /dev/null
           helm template ci-lint deploy/helm/server-scan \
             --set collectors.redfishStandalone.enabled=true \
             --set collectors.redfishStandalone.credentialsFile=files/redfish/credentials.toml \

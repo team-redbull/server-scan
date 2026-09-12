@@ -222,6 +222,96 @@ not on a pod delete, not on a rollout, not after a new release. A cluster
 here kept a v10-era API for hours after 11.0.0 published a working one, and
 deleting the pods would not have changed it. See "Image tags" above.
 
+## Metrics, and getting them into OpenShift's Observe page
+
+The API's `/metrics` carries the HTTP metrics plus the fleet gauges of
+ADR-0029 — `server_scan_servers_stale`, `server_scan_collector_last_seen_
+timestamp_seconds`, `server_scan_cluster_last_reported_timestamp_seconds`,
+`server_scan_servers_by_health` and friends. Those are the only things
+in this platform that can say a collector or a cluster's membership job
+has *stopped*, because a CronJob pod is never scraped.
+
+The chart ships the two Prometheus Operator objects for them:
+
+```yaml
+metrics:
+  serviceMonitor:
+    enabled: true          # scrapes <release>-api's Service, path /metrics
+  prometheusRule:
+    enabled: true          # ServerScanCollectorSilent, ServerScanServersStale,
+                           # ServerScanClusterSilent, ServerScanFleetSnapshotFailing
+    staleServersThreshold: 10
+    silentForSeconds: 43200
+```
+
+Both are **off by default** because they need the `monitoring.coreos.com`
+CRDs, which vanilla Kubernetes lacks. On OpenShift the CRDs always exist —
+but **user-workload monitoring is off by default**, and a ServiceMonitor
+nothing scrapes is the same as none. Three things have to be true on the
+cluster, none of which this chart can do for you because they live in the
+`openshift-monitoring` namespaces:
+
+1. **Enable user-workload monitoring**, once per cluster:
+
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: cluster-monitoring-config
+     namespace: openshift-monitoring
+   data:
+     config.yaml: |
+       enableUserWorkload: true
+   ```
+
+   After this the `openshift-user-workload-monitoring` namespace gains a
+   Prometheus that scrapes every `ServiceMonitor` in every user namespace,
+   and the metrics appear under **Observe → Metrics** in the console with
+   the `server-scan` project selected.
+
+2. **Remote-write to your own Prometheus/Thanos**, if you want them
+   there too — same mechanism, the *user-workload* ConfigMap:
+
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: user-workload-monitoring-config
+     namespace: openshift-user-workload-monitoring
+   data:
+     config.yaml: |
+       prometheus:
+         remoteWrite:
+           - url: "https://thanos-receive.example.com/api/v1/receive"
+             # writeRelabelConfigs keeps the payload to this app; drop it
+             # to forward every user-workload metric on the cluster.
+             writeRelabelConfigs:
+               - sourceLabels: [__name__]
+                 regex: "server_scan_.*|http_request.*|cache_operations_total|mongo_ping_failures_total"
+                 action: keep
+   ```
+
+   Auth (`basicAuth`, `authorization`, `tlsConfig`) goes under the same
+   entry, per the OpenShift docs for `remoteWrite`; the Secret it references
+   must be in `openshift-user-workload-monitoring`.
+
+3. **Nothing on the ServiceMonitor side.** OpenShift's user-workload
+   Prometheus needs no selector label, which is why
+   `metrics.serviceMonitor.labels` is empty by default.
+
+`team-redbull/redbull-platform` carries both ConfigMaps in its Helmfile
+bootstrap layer (`charts/cluster-monitoring`), so on that cluster they are
+already applied and the remote-write URL is a Helmfile value.
+
+**Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
+producing fresh servers at all — check `oc get jobs` and the newest pod's
+logs. `ServerScanServersStale` means it *is* running but some servers are
+not being read; `server_scan_servers_unreachable` on the same label says
+how many of those are a BMC that did not answer (the rest are rejected
+logins or hosts the manager dropped). `ServerScanClusterSilent` is the one
+that matters most for the membership jobs: without it a cluster that
+stopped reporting leaves its servers `INSTALLED` forever.
+
 ## Collectors (CronJobs)
 
 Real vendor collectors run as Kubernetes `CronJob`s, one per manager

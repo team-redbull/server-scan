@@ -241,6 +241,22 @@ any real collector exists.
   than the classification preview (no Mongo-native condition compilation
   exists yet), bounded by the same scope-filtered, capped candidate scan.
 
+## Fleet gauges: the answer to "did the collector stop"
+
+`app.observability.fleet_gauges` (ADR-0029). A CronJob pod is never
+scraped, so no collector can report its own absence; the API does it
+instead, from MongoDB, on each `/metrics` scrape throttled to once per
+30s. One `$facet` aggregation
+(`MongoServerRepository.fleet_snapshot`) yields per-collector totals,
+stale counts (`last_seen_at` older than `INVENTORY_STALE_AFTER_SECONDS`,
+or absent), unreachable counts and the newest `last_seen_at`; per-cluster
+held counts and the newest `openshift.last_reported_at`; the health mix;
+and the maintenance count. Timestamps are exported as Unix seconds
+(`*_timestamp_seconds`), so `time() - metric` is age. A failed query
+leaves the gauges at their last values and increments
+`server_scan_fleet_snapshot_failures_total`. The Helm chart ships a
+`ServiceMonitor` and a `PrometheusRule` for them, both opt-in.
+
 ## Ingestion wires both engines together (slice 2 + 3 integration)
 
 `app.application.services.ingest.IngestService` classifies and

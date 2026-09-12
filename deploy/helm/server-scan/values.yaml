@@ -252,9 +252,37 @@ config:
   nicOsNames: ""
   logLevel: INFO
   metricsEnabled: "true"
+  # A server not successfully collected for this long counts toward the
+  # `server_scan_servers_stale` gauge (ADR-0029). Two of the shared
+  # 6-hour collector cycles; match it to `collectors.*.schedule` if you
+  # change those.
+  staleAfterSeconds: "43200"
   defaultPageSize: "50"
   maxPageSize: "200"
   corsAllowedOrigins: ""
+
+# Prometheus Operator objects for the API's /metrics — the HTTP metrics
+# plus the fleet gauges (stale servers, collector liveness, cluster
+# liveness, health mix; ADR-0029). Both are OFF by default because they
+# need the monitoring.coreos.com CRDs, which vanilla Kubernetes does not
+# have; on OpenShift they always exist, so turn both on there and enable
+# user-workload monitoring once per cluster (deploy/README.md says how).
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # Extra labels, for a Prometheus whose `serviceMonitorSelector` needs
+    # one. OpenShift's user-workload Prometheus needs none.
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+    # `server_scan_servers_stale` above this per collector fires
+    # ServerScanServersStale. 0 alerts on the first stale server.
+    staleServersThreshold: 10
+    # A collector or cluster that has not reported for this long fires
+    # ServerScanCollectorSilent / ServerScanClusterSilent. Two cycles.
+    silentForSeconds: 43200
 
 route:
   enabled: true
@@ -339,7 +367,11 @@ collectors:
     # Changing either against a populated database reports errors rather than
     # replacing the fleet (servers correlate on (vendor, serial), so a new
     # seed is a second fleet); wipe the database first.
-    count: 1000
+    # 2500 is close to the operator's real estate. The generator is a
+    # deterministic sequence, so raising this against a populated database
+    # ADDS servers — the first 1000 of a 2500 run are byte-identical to a
+    # 1000 run. Changing the SEED is what makes a second fleet.
+    count: 2500
     seed: 42
 
     # Every 6 hours. Nothing about the data changes between runs — the point

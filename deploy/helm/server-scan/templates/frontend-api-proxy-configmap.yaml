@@ -49,33 +49,12 @@ data:
       proxy_set_header Host $host;
     }
 
-    # Prometheus scrapes this through the Service, in-cluster, and does
-    # not need the Route. It is here so a human can read it from a
-    # browser. `=` is an exact match: the SPA has no /metrics route to
-    # shadow, and an exact location cannot grow one by accident.
-    location = /metrics {
-      proxy_pass {{ $api }}/metrics;
-      proxy_http_version 1.1;
-      proxy_set_header Host $host;
-    }
-
-    # The OpenAPI page and the document it fetches. Both exact matches for
-    # the same reason; /docs in particular must not become a prefix, or a
-    # future SPA route under /docs/... would be swallowed.
-    location = /docs {
-      proxy_pass {{ $api }}/docs;
-      proxy_http_version 1.1;
-      proxy_set_header Host $host;
-    }
-
-    location = /redoc {
-      proxy_pass {{ $api }}/redoc;
-      proxy_http_version 1.1;
-      proxy_set_header Host $host;
-    }
-
-    location = /openapi.json {
-      proxy_pass {{ $api }}/openapi.json;
+    # The API's root-level paths, in one block: Prometheus does not need
+    # /metrics through here (the ServiceMonitor scrapes the Service), so
+    # these are all for a human with a browser. `~` and `$` make it exact
+    # per name, so a future SPA route under /docs/... is not swallowed.
+    location ~ ^/(metrics|docs|redoc|openapi\.json)$ {
+      proxy_pass {{ $api }};
       proxy_http_version 1.1;
       proxy_set_header Host $host;
     }

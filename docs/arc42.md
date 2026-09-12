@@ -412,6 +412,7 @@ collector does, and never call this platform's API.
 | **Error handling** | `exception_handlers` | RFC 9457 Problem Details, extended with a stable `code`, `request_id` and structured `details` (ADR-0002) |
 | **Persistence rules** | `infrastructure/mongodb` | Datetimes stored as ISO 8601 **strings**; range/cursor queries must compare against that type (ADR-0006 — this caused a real silent-wrong-results bug) |
 | **Search** | `domain/services/search_tokens` | Anchored, escaped prefix match over a multikey-indexed token array; structurally incapable of ReDoS or an unanchored scan (ADR-0004). Tokens are word-boundary **suffixes**, so the anchored query still finds a fragment from the middle of a name — `cisco-m6` matches `ocp-cisco-m6-bat-yam-…` (ADR-0025) |
+| **Staleness** | `observability/fleet_gauges` | `/metrics` carries gauges derived from MongoDB on scrape, throttled to once per 30s: servers not seen within `INVENTORY_STALE_AFTER_SECONDS` per collector, each collector's and each cluster's newest report as a Unix timestamp, the health mix. A CronJob pod is never scraped, so this is the only signal that a collector or membership job has *stopped* (ADR-0029). Shipped with a `ServiceMonitor` and four alerts |
 | **List cache** | `api/v1/servers` | Cache-aside pages (15s) and facet counts (60s), invalidated by **nothing on the ingest path** — five CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
 | **Pagination** | `domain/services/cursor` | Keyset only, HMAC-signed cursor bound to the filter/sort combination. A **nullable** sort field needs the null-aware clause: Mongo's range operators are type-bracketed, so a naive `$gt`/`$lt` cursor drops rows with no error (ADR-0026) |
 | **Caching** | `infrastructure/redis` | Cache-aside; revision-keyed detail entries; every method returns a miss on error rather than raising |
@@ -473,6 +474,7 @@ of it.
 | 0026 | Nullable sort fields need a null-aware cursor; retired indexes are dropped automatically |
 | 0027 | A value a collector could not read is never a health verdict — UNKNOWN is excluded from every policy's denominator |
 | 0028 | An operator write clears the cached list pages and facet counts; an ingest write still does not |
+| 0029 | Staleness is a set of gauges the API derives from MongoDB on scrape — the only thing that can say a CronJob stopped |
 
 ---
 

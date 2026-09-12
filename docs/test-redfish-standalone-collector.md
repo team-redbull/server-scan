@@ -334,8 +334,11 @@ the day it matters.
    6h). From `kube_cronjob_status_last_successful_time`. This one rule
    catches every total-failure mode — suspended CronJob, image pull
    failure, wrong credential, Mongo down.
-2. **Servers not seen recently.** Until the Mongo-derived gauges land,
-   this is a manual query:
+2. **Servers not seen recently.** Since 2026-09-12 this is a gauge —
+   `server_scan_servers_stale{source_provider="REDFISH_STANDALONE"}` — and
+   the `ServerScanServersStale` alert the chart ships (ADR-0029). The
+   manual query below is kept for a database with no Prometheus in front
+   of it:
 
 ```js
 // NOTE: last_seen_at is stored as an ISO 8601 STRING, not a BSON date

@@ -8,7 +8,9 @@ metadata:
     app.kubernetes.io/component: frontend
     app.kubernetes.io/part-of: server-scan
 spec:
-  host: {{ required "route.host must be set when frontend.enabled — see backend-route.yaml." .Values.route.host }}
+  {{- with .Values.route.host }}
+  host: {{ . }}
+  {{- end }}
   to:
     kind: Service
     name: {{ .Release.Name }}-frontend

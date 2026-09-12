@@ -8,7 +8,7 @@ mounted at `/metrics` with no extra wiring.
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 http_requests_total = Counter(
     "http_requests_total",
@@ -31,4 +31,51 @@ cache_operations_total = Counter(
     "cache_operations_total",
     "Cache operations by outcome",
     labelnames=("operation", "outcome"),
+)
+
+# Fleet gauges, refreshed from MongoDB on scrape — see ADR-0029 and
+# `app.observability.fleet_gauges`. The `_timestamp_seconds` pair follow
+# the Prometheus naming convention for "when", so `time() - metric` is age.
+servers_total = Gauge(
+    "server_scan_servers",
+    "Servers in the inventory, by the collector that owns them",
+    labelnames=("source_provider",),
+)
+servers_stale = Gauge(
+    "server_scan_servers_stale",
+    "Servers not successfully collected within INVENTORY_STALE_AFTER_SECONDS",
+    labelnames=("source_provider",),
+)
+servers_unreachable = Gauge(
+    "server_scan_servers_unreachable",
+    "Servers whose BMC could not be reached on the most recent collection",
+    labelnames=("source_provider",),
+)
+collector_last_seen_timestamp = Gauge(
+    "server_scan_collector_last_seen_timestamp_seconds",
+    "Unix time a collector last successfully read any server",
+    labelnames=("source_provider",),
+)
+cluster_servers_held = Gauge(
+    "server_scan_cluster_servers_held",
+    "Servers an OpenShift cluster reports holding",
+    labelnames=("cluster",),
+)
+cluster_last_reported_timestamp = Gauge(
+    "server_scan_cluster_last_reported_timestamp_seconds",
+    "Unix time an OpenShift cluster's membership job last reported",
+    labelnames=("cluster",),
+)
+servers_by_health = Gauge(
+    "server_scan_servers_by_health",
+    "Servers by overall health severity",
+    labelnames=("severity",),
+)
+servers_in_maintenance = Gauge(
+    "server_scan_servers_in_maintenance",
+    "Servers currently in maintenance mode",
+)
+fleet_snapshot_failures_total = Counter(
+    "server_scan_fleet_snapshot_failures_total",
+    "Fleet gauge refreshes that failed, leaving the previous values in place",
 )

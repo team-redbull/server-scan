@@ -151,6 +151,13 @@ class Settings(BaseSettings):
 
     # --- Metrics ---
     metrics_enabled: bool = True
+    # A server not successfully collected for this long counts toward
+    # `server_scan_servers_stale`. Default is two of the shared 6-hour
+    # collector cycles (ADR-0029).
+    stale_after_seconds: int = 43200
+    # Shortest gap between two MongoDB fleet-snapshot queries; scrapes in
+    # between serve the last values.
+    metrics_fleet_refresh_seconds: float = 30.0
 
     # --- Collectors (tools/run_collector.py, not the API process) ---
     #

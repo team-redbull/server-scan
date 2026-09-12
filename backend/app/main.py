@@ -44,9 +44,11 @@ from app.infrastructure.mongodb.classification_rule_repository import (
 )
 from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolicyRepository
 from app.infrastructure.mongodb.indexes import ensure_indexes
+from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.redis import RedisClientHolder
 from app.infrastructure.singleflight import drain as drain_singleflight
 from app.middleware.request_context import RequestContextMiddleware
+from app.observability.fleet_gauges import FleetGaugeRefresher
 from app.observability.metrics import http_request_duration_seconds, http_requests_total
 
 logger = structlog.get_logger(__name__)
@@ -96,6 +98,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         MongoHealthPolicyRepository(mongo), registry=build_default_registry()
     )
     app.state.mongo = mongo
+    app.state.fleet_gauges = FleetGaugeRefresher(
+        MongoServerRepository(mongo, cursor_secret=settings.cursor_secret),
+        stale_after_seconds=settings.stale_after_seconds,
+        min_interval_seconds=settings.metrics_fleet_refresh_seconds,
+    )
 
     redis = RedisClientHolder(settings)
     await redis.connect()
@@ -170,7 +177,11 @@ def create_app() -> FastAPI:
             return response
 
         @app.get("/metrics", include_in_schema=False)
-        async def metrics() -> Response:
+        async def metrics(request: Request) -> Response:
+            # Fleet gauges come from MongoDB, throttled — ADR-0029.
+            refresher: FleetGaugeRefresher | None = getattr(request.app.state, "fleet_gauges", None)
+            if refresher is not None:
+                await refresher.maybe_refresh()
             return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     return app

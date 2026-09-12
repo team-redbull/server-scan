@@ -13,12 +13,20 @@ on to stay an IXSCAN at every page.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+from pydantic import TypeAdapter
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.domain.models.server import Server
-from app.domain.ports.repository import Page, SiteBreakdownRow
+from app.domain.ports.repository import (
+    ClusterSnapshotRow,
+    FleetSnapshot,
+    Page,
+    ProviderSnapshotRow,
+    SiteBreakdownRow,
+)
 from app.domain.services.cursor import CursorPosition, decode_cursor, encode_cursor
 from app.domain.services.search import SORT_ACCESSORS, build_search_query, resolve_sort_field
 from app.errors import NotFoundError, RevisionConflictError
@@ -375,6 +383,88 @@ class MongoServerRepository:
                 )
             )
         return rows
+
+    async def fleet_snapshot(self, *, stale_before: datetime) -> FleetSnapshot:
+        """
+        Summarise the fleet for the Prometheus gauges (ADR-0029).
+
+        One `$facet` pass; the cutoff is rendered like the stored strings (ADR-0006).
+
+        Args:
+            stale_before (datetime): A server whose `last_seen_at` is older
+                than this — or absent — counts as stale.
+
+        Returns:
+            FleetSnapshot: Per-collector, per-cluster and per-health counts.
+        """
+        cutoff = TypeAdapter(datetime).dump_python(stale_before, mode="json")
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$facet": {
+                    "by_provider": [
+                        {
+                            "$group": {
+                                "_id": "$source_provider",
+                                "total": {"$sum": 1},
+                                # Missing and null both sort below any
+                                # string in BSON, so a never-seen server
+                                # is stale by this comparison.
+                                "stale": {
+                                    "$sum": {"$cond": [{"$lt": ["$last_seen_at", cutoff]}, 1, 0]}
+                                },
+                                "unreachable": {
+                                    "$sum": {"$cond": [{"$eq": ["$reachable", False]}, 1, 0]}
+                                },
+                                "last_seen_at": {"$max": "$last_seen_at"},
+                            }
+                        }
+                    ],
+                    "by_cluster": [
+                        {"$match": {"openshift.cluster_name": {"$type": "string"}}},
+                        {
+                            "$group": {
+                                "_id": "$openshift.cluster_name",
+                                "held": {"$sum": 1},
+                                "last_reported_at": {"$max": "$openshift.last_reported_at"},
+                            }
+                        },
+                    ],
+                    "by_health": [{"$group": {"_id": "$health.overall", "count": {"$sum": 1}}}],
+                    "in_maintenance": [
+                        {"$match": {"maintenance.enabled": True}},
+                        {"$count": "count"},
+                    ],
+                }
+            }
+        ]
+        facets = await (await self._collection.aggregate(pipeline)).to_list(length=1)
+        result = facets[0] if facets else {}
+        return FleetSnapshot(
+            by_provider=[
+                ProviderSnapshotRow(
+                    source_provider=row["_id"],
+                    total=int(row["total"]),
+                    stale=int(row["stale"]),
+                    unreachable=int(row["unreachable"]),
+                    last_seen_at=row.get("last_seen_at"),
+                )
+                for row in result.get("by_provider", [])
+            ],
+            by_cluster=[
+                ClusterSnapshotRow(
+                    cluster_name=str(row["_id"]),
+                    held=int(row["held"]),
+                    last_reported_at=row.get("last_reported_at"),
+                )
+                for row in result.get("by_cluster", [])
+            ],
+            by_health={
+                str(row["_id"]): int(row["count"])
+                for row in result.get("by_health", [])
+                if row["_id"] is not None
+            },
+            in_maintenance=int(next(iter(result.get("in_maintenance", [])), {}).get("count", 0)),
+        )
 
     async def site_breakdown(self) -> list[SiteBreakdownRow]:
         """

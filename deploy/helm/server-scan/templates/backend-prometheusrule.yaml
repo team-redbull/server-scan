@@ -1,0 +1,53 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- /*
+The alerts ADR-0029 exists for. Thresholds are values so an estate on a
+different collector cadence tunes them without editing this file.
+*/ -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-api
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: server-scan
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: server-scan.fleet
+      rules:
+        - alert: ServerScanCollectorSilent
+          expr: time() - server_scan_collector_last_seen_timestamp_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Collector {{ "{{ $labels.source_provider }}" }} has not read any server for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
+            description: "Its CronJob is failing, suspended, or never ran. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
+        - alert: ServerScanServersStale
+          expr: server_scan_servers_stale > {{ .Values.metrics.prometheusRule.staleServersThreshold }}
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ "{{ $value }}" }} {{ "{{ $labels.source_provider }}" }} servers not collected within INVENTORY_STALE_AFTER_SECONDS"
+            description: "The collector is running but these servers are not being read — dead BMCs, rejected logins, or hosts dropped from the manager. `server_scan_servers_unreachable` says how many are the first kind."
+        - alert: ServerScanClusterSilent
+          expr: time() - server_scan_cluster_last_reported_timestamp_seconds > {{ .Values.metrics.prometheusRule.silentForSeconds }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ .Values.metrics.prometheusRule.silentForSeconds }}s"
+            description: "Its servers stay INSTALLED forever and nothing else notices. Check the openshift-membership release in that cluster."
+        - alert: ServerScanFleetSnapshotFailing
+          expr: increase(server_scan_fleet_snapshot_failures_total[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The API cannot compute its fleet gauges"
+            description: "Every server_scan_* gauge is frozen at its last good value. Almost always MongoDB — check mongo_ping_failures_total."
+{{- end }}

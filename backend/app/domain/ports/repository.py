@@ -10,6 +10,7 @@ Mongo-specific cursor/query mechanics (`app.domain.services.search`,
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from app.domain.models.server import Server
@@ -47,6 +48,61 @@ class Page:
     next_cursor: str | None
     has_more: bool
     total_count: int | None  # only populated when the caller asked for it
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSnapshotRow:
+    """One collector's slice of `ServerRepository.fleet_snapshot`.
+
+    Attributes:
+        source_provider (str | None): The raw stored `source_provider`.
+        total (int): Servers this collector owns.
+        stale (int): Of those, not seen since the caller's cutoff — a
+            server never seen at all counts here too.
+        unreachable (int): Of those, currently `reachable=False`.
+        last_seen_at (str | None): The newest stored `last_seen_at`, as
+            the raw ISO string, or `None` if no server was ever seen.
+    """
+
+    source_provider: str | None
+    total: int
+    stale: int
+    unreachable: int
+    last_seen_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterSnapshotRow:
+    """One cluster's slice of `ServerRepository.fleet_snapshot`.
+
+    Attributes:
+        cluster_name (str): The stored `openshift.cluster_name`.
+        held (int): Servers the cluster currently holds.
+        last_reported_at (str | None): The newest `openshift.
+            last_reported_at` across them, raw ISO string.
+    """
+
+    cluster_name: str
+    held: int
+    last_reported_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FleetSnapshot:
+    """What `/metrics` reports about the fleet — see ADR-0029.
+
+    Attributes:
+        by_provider (list[ProviderSnapshotRow]): One row per collector.
+        by_cluster (list[ClusterSnapshotRow]): One row per cluster that
+            holds at least one server.
+        by_health (dict[str, int]): Servers per stored `health.overall`.
+        in_maintenance (int): Servers with maintenance enabled.
+    """
+
+    by_provider: list[ProviderSnapshotRow]
+    by_cluster: list[ClusterSnapshotRow]
+    by_health: dict[str, int]
+    in_maintenance: int
 
 
 class ServerRepository(Protocol):
@@ -155,5 +211,18 @@ class ServerRepository(Protocol):
 
         Returns:
             list[SiteBreakdownRow]: One row per distinct combination found.
+        """
+        ...
+
+    async def fleet_snapshot(self, *, stale_before: datetime) -> FleetSnapshot:
+        """
+        Summarise the fleet for the Prometheus gauges (ADR-0029).
+
+        Args:
+            stale_before (datetime): A server whose `last_seen_at` is older
+                than this — or absent — counts as stale.
+
+        Returns:
+            FleetSnapshot: Per-collector, per-cluster and per-health counts.
         """
         ...

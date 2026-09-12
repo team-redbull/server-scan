@@ -12,6 +12,7 @@ data:
   INVENTORY_NIC_OS_NAMES: {{ .Values.config.nicOsNames | quote }}
   INVENTORY_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   INVENTORY_METRICS_ENABLED: {{ .Values.config.metricsEnabled | quote }}
+  INVENTORY_STALE_AFTER_SECONDS: {{ .Values.config.staleAfterSeconds | quote }}
   INVENTORY_DEFAULT_PAGE_SIZE: {{ .Values.config.defaultPageSize | quote }}
   INVENTORY_MAX_PAGE_SIZE: {{ .Values.config.maxPageSize | quote }}
   INVENTORY_CORS_ALLOWED_ORIGINS: {{ .Values.config.corsAllowedOrigins | quote }}

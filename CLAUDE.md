@@ -638,16 +638,15 @@ for the full write-up and the two open questions it could not settle
 
 ### What's explicitly NOT done yet (in rough priority order the user has confirmed)
 
-0. **Staleness detection**, for every collector rather than only Redfish
-   — and, since 2026-09-10, for the **two OpenShift membership CronJobs
-   too**, which make it worse: a cluster that stops running its job leaves
-   its servers `INSTALLED` forever, and nothing notices. A CronJob pod is
-   never scraped by Prometheus, so no collector-side metric can report
-   its own absence — the only thing that can answer "40 hosts have been
-   failing for two weeks" is the API exposing gauges derived from
-   MongoDB's `last_seen_at` (written on every ingest, currently read by
-   nothing). Until that lands, staleness is the manual query in
-   `docs/test-redfish-standalone-collector.md` §6.
+0. ~~Staleness detection~~ — **done 2026-09-12, ADR-0029**, kept as a
+   standing note. `/metrics` now carries gauges the API derives from
+   MongoDB on scrape: `server_scan_servers_stale{source_provider}`,
+   `server_scan_collector_last_seen_timestamp_seconds{source_provider}`,
+   `server_scan_cluster_last_reported_timestamp_seconds{cluster}` and
+   friends, with a `ServiceMonitor` and four alerts in the chart. **What
+   is still open is the UI half** — a `stale` filter on the inventory —
+   and per-run collector counters (duration, ingested, errors), which a
+   scrape-derived gauge cannot carry and would need a push mechanism.
 1. ~~Live-hardware validation~~ — **done for all five collectors as of
    2026-09-08**, kept here as a standing note rather than deleted, the
    same as the seeded-shape item at the bottom of this file.
@@ -854,6 +853,18 @@ non-obvious enough to bite you.
   forward is not enough on a *first* ingest: `Hardware` has no "unknown"
   state, so an iLO-4 server that reported nothing stored `0` drives and
   rendered as a confident, real zero.
+- **The fleet gauges are computed from MongoDB on scrape, throttled**
+  (ADR-0029). `app.observability.fleet_gauges.FleetGaugeRefresher` runs
+  `MongoServerRepository.fleet_snapshot` at most once per
+  `INVENTORY_METRICS_FLEET_REFRESH_SECONDS`; scrapes in between serve
+  the last values, and a failed query leaves them in place. Three things
+  bite: the staleness cutoff must be rendered through Pydantic's JSON
+  serializer (a `datetime` compares against nothing — ADR-0006); a
+  never-seen server (`last_seen_at` absent) counts as **stale**, because
+  BSON sorts missing below any string; and collector liveness is
+  `max(last_seen_at)`, never `min` — one dead BMC must not make a healthy
+  collector read as silent. A retired collector or cluster's label set is
+  **cleared** on each refresh, not left at its last value.
 - **The list cache is invalidated by maintenance writes and by nothing
   else** (ADR-0028). `GET /servers` pages (15s) and `/servers/facets`
   counts (60s) are cache-aside with no write invalidation on the ingest
@@ -1277,7 +1288,16 @@ quarterly, or before any release you care about:
 
 ## Where to continue right now
 
-**Most recent work, 2026-09-12** — eight operator-requested changes, all
+**Most recent work, 2026-09-12, later the same day** — staleness
+detection (ADR-0029), item 0 of the not-done list: fleet gauges on
+`/metrics`, a `ServiceMonitor` + `PrometheusRule` in the chart, and the
+frontend's nginx collapsed to three `location` blocks. Also the same day:
+maintenance is switched only from the inventory list now (the detail page
+is read-only for it), the Name column is left-aligned with everything
+else centred, and the Helm chart's fake collector seeds 2,500 servers to
+match the operator's real estate.
+
+**Earlier the same day** — eight operator-requested changes, all
 shipped. The deployment ones first:
 
 - **The Helm chart is `deploy/helm/server-scan`**, renamed from
