@@ -545,11 +545,14 @@ class TestPartialFleetAndTheBreaker:
                 resources=minimal_service(), delays={"/redfish/v1/Systems": 10.0}
             ) as slow,
         ):
+            # 2s, not 0.2s: the fast host's ~15 round-trips overran 0.2s
+            # on a loaded CI runner (2026-09-13). The 10s slow host still
+            # never completes, so the shape is unchanged.
             provider = _provider(
                 fast.port,
                 _target(fast.port),
                 _target(slow.port),
-                run_budget_seconds=0.2,
+                run_budget_seconds=2.0,
             )
             servers = []
             async for server in provider.collect():
@@ -558,7 +561,7 @@ class TestPartialFleetAndTheBreaker:
                 # bare `async for` — an actual `await` between yields, so
                 # the deadline has a chance to land here rather than
                 # inside the generator.
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(3.0)
 
         assert len(servers) == 1
         assert any("run budget" in e for e in provider.collection_errors)
