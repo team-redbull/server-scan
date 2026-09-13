@@ -380,13 +380,22 @@ a handful of Mongo-selected candidates for a BMH-creation caller.
 
 1. **Remaining deployment/CD gaps.** CI publishes both images and pins
    redbull-platform's chart copy; Argo does the rest (ADR-0010, ADR-0031).
-   Still missing: rate limiting (`RateLimitedError` and the 429 mapping
-   exist, nothing raises them); a MongoDB backup — a single Bitnami pod
-   with a 20Gi PVC holds the whole source of truth, a `mongodump` CronJob
-   is the minimum; a dashboard over the gauges and recording rules already
-   scraped and alerted on; the UI half of staleness (a `stale` inventory
-   filter) and per-run collector counters, which a scrape-derived gauge
-   cannot carry. Redis being single and non-persistent is by design.
+   Still missing, in the operator's order (2026-09-13): **the UI half of
+   staleness** — a `?stale=true` inventory filter and a last-seen
+   indicator, so `ServerScanServersStale` firing becomes a list of names
+   rather than 40 rows that look healthy (the gauges, the alerts and the
+   `collector_last_run_*` per-run counters all exist already, ADR-0029 —
+   this entry used to say the counters needed a push path; they don't,
+   `Manager.last_run` carries them); **a concurrency cap on live rechecks**
+   — a per-`ManagerType` semaphore around `get_one()` plus the existing
+   429 `RateLimitedError` and a `rate_limited_total` counter, because a
+   retry-looping caller of `/servers/available` would exhaust a vendor
+   manager's session cap and fail the 06:00 collector login, not just slow
+   the API (do this before bmhgen goes to production); **a dashboard** over
+   the gauges and recording rules already scraped and alerted on. **Not
+   a gap:** MongoDB backup — production Mongo is an operated service in the
+   air-gapped estate, not the chart's Bitnami pod (operator, 2026-09-13);
+   Redis being single and non-persistent is by design.
 2. **Real authentication** — the release gate, explicitly last. There is
    no `AuthProvider` to swap out (convention 6): `app.dependencies.
    get_current_actor` returns a fixed `unauthenticated` `Actor`, so this
