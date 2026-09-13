@@ -57,12 +57,22 @@ far, in order:
     BMH-creation flow's own live vendor queries with a Mongo-backed lookup
     plus a live recheck of just the candidates it is about to return
     (`docs/adr/0032-available-server-lookup-api.md`).
+16. **The inventory page filters in the browser.** The real fleet is
+    ~2,500 servers (5,000 at most in one to two years), which as flat
+    rows is 187 KB gzipped — so the UI loads it once from
+    `GET /api/v1/servers/rows`, polls it every 30 s (a 304 when nothing
+    changed), and filters, sorts, searches and pages locally: every
+    click is a React commit, not a round trip, and search matches inside
+    a word. The API also gzips its responses now, and the frontend image
+    gzips its bundle (`docs/adr/0033-client-side-inventory-filtering.md`).
 
 The inventory table shows **Name, Installation, MCE, Cluster, Model,
 State** and a per-row maintenance switch, and sorts on Name, Model,
-Installation, Cluster and MCE. The last two are nullable — plenty of
-servers have no cluster — which needed a null-aware keyset cursor to page
-over without silently dropping rows
+Installation, Cluster and MCE — naturally (`srv-2` before `srv-10`), nulls
+last — and pages 50 rows at a time with page numbers, all in the browser
+over the whole fleet (`docs/adr/0033-client-side-inventory-filtering.md`).
+The API's own `GET /servers` still pages by keyset cursor for other
+callers; its two nullable sort fields needed a null-aware cursor
 (`docs/adr/0026-nullable-sort-fields.md`). MCE appears as a column only
 when a row on the page has one.
 
@@ -232,8 +242,9 @@ collector.md` of how the Cisco collector drives it once per domain.
 Five collectors exist today: `UCS_CENTRAL`, `INTERSIGHT`, `OPENMANAGE`,
 `ONEVIEW` and `REDFISH_STANDALONE`.
 
-**`INTERSIGHT` is the only one that reaches this platform's 10,000-server
-ceiling without qualification.** Every child object in Intersight's model
+**`INTERSIGHT` is the only one that reaches the platform's verified
+10,000-server headroom without qualification** (the estate itself is
+~2,500, at most 5,000 — see `CLAUDE.md`). Every child object in Intersight's model
 carries a reference back to its owner, so each sub-resource is listed
 once for the whole estate and joined in memory — one run costs on the
 order of a hundred requests whether the tenant holds fifty servers or ten
@@ -515,6 +526,7 @@ uv run lint-imports                # layering (pyproject.toml's [tool.importlint
 cd frontend
 npm run lint && npm run typecheck && npm run test -- --run && npm run build
 npm run test:e2e                  # Playwright — needs the dev stack + backend + frontend all running
+node scripts/bench-inventory.mjs http://localhost:4173 <label> 5   # the ADR-0033 UX benchmark, against `vite preview`
 ```
 
 Docstring coverage against CLAUDE.md's convention 8 is a real CI gate

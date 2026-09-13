@@ -40,7 +40,7 @@ alertable.
 | Priority | Goal | Why it dominates |
 |---|---|---|
 | 1 | **Correctness of reported state** | An inventory that is confidently wrong is worse than one that admits it does not know. This drives the `None`-means-unread contract, `parse_site_code` returning `None` rather than guessing, and recording classification conflicts instead of resolving them by luck. |
-| 2 | **Scale to the real estate: ~5,000 servers today, up to 10,000 planned** | The operator's figure (2026-09-13). Verified far beyond it, against genuine 50k datasets (ADR-0007), so the headroom is measured rather than assumed. It decides pagination, projections, caching and collector design. |
+| 2 | **Scale to the real estate: ~2,500 servers today, at most 5,000 within one to two years** | The operator's figure (corrected 2026-09-14; the earlier 5k→10k was an overestimate). The API is verified far beyond it, against genuine 10k and 50k datasets (ADR-0007), so the headroom is measured rather than assumed. The real figure is what decides the UI's design (ADR-0033: the fleet is filtered in the browser); the headroom decides the API's (keyset pagination, projections, caching). |
 | 3 | **Operability in an air-gapped site** | No internet at runtime *or* build time. Decides dependency choices, image bases, and how configuration reaches a deployment. |
 
 ### Stakeholders
@@ -62,7 +62,7 @@ sense against them.
 | Constraint | Consequence |
 |---|---|
 | **Air-gapped deployment.** No internet at runtime, and dependencies come from a local mirror. | `requirements.txt`/`pylock.toml` are generated exports (`docs/air-gap.md`); dependency versions are pinned to *what the mirror carries*, not to the newest release (`ucsmsdk==0.9.18`, `ucscsdk==0.9.0.8`). A 57.6 MB SDK is a real cost, which is why the Intersight collector does not use one (ADR-0017). |
-| **~5,000 servers today, up to 10,000 planned; verified at 50,000.** | Keyset pagination only, lean list projections, cache-aside Redis, and collector designs judged on requests-per-fleet rather than per-server. |
+| **~2,500 servers today, at most 5,000 in one to two years; the API verified at 10,000 and 50,000.** | Keyset pagination and lean projections on the API, cache-aside Redis, collector designs judged on requests-per-fleet rather than per-server — and, because the real fleet fits in a browser tab, an inventory UI that loads it once and filters locally (ADR-0033). |
 | **OpenShift/Kubernetes as the runtime.** | Helm chart; UBI9 base images; `Route` rather than `Ingress`; collectors are `CronJob`s. |
 | **Python ≥3.12** (ADR-0015). | The compatibility floor for the target platform's available interpreter. |
 | **Everything configurable must be configurable without a rebuild.** | Reinforced by ADR-0018: pushing a new image through an air-gapped mirror to rename a site is not acceptable, so the site list is configuration. |
@@ -503,6 +503,7 @@ of it.
 | 0030 | A health policy is scoped to a *set* of collectors (`manager_types`), `source_provider` is the manager type at evaluation, and the page groups by scope and sorts by severity |
 | 0031 | A release deploys itself: CI syncs the chart copy in redbull-platform and pins the image tags, Argo CD does the rest |
 | 0032 | `GET /servers/available` — Mongo-side ranking plus a per-candidate live recheck via a new `get_one()` on every provider; the API pod now holds the same manager credentials the CronJobs do |
+| 0033 | The inventory page filters, sorts, searches and pages in the browser from one polled, ETagged `GET /servers/rows`; the real fleet (2.5k, 5k at most) fits in a tab, and the measurements say so |
 
 ---
 
@@ -514,7 +515,7 @@ of it.
 Correctness ── never report a value that was not read
             ── deterministic classification and health resolution
             ── a partial collection run is distinguishable from a complete one
-Scalability ── 5k servers today, 10k planned; verified at 50k
+Scalability ── 2.5k servers today, 5k at most in 1–2 years; API verified at 10k/50k
 Operability ── air-gapped install; actionable failure messages
 Security    ── no user input reaches a regex/query engine unescaped; no secret ever logged
 Modifiability ─ a new vendor is a new module; a site rename is a config change
@@ -553,6 +554,7 @@ go stale — treat its date as load-bearing.
 
 | Risk | Detail |
 |---|---|
+| The inventory UI holds the whole fleet in the browser | Right at 2.5k–5k (187 KB gzipped, every operation under a frame — ADR-0033); wrong again somewhere past 20–30k rows, where parse time and heap grow linearly. The API keeps keyset pagination, so a larger estate means changing the page, not the platform. Measured at 10k and 50k in ADR-0033 so the ceiling is a number, not a guess. |
 | The Redfish collector does not reach 10k | ~25 round trips per BMC; supported range ~400–1000 hosts per CronJob, sharded beyond that. Stated in ADR-0016 rather than hidden. |
 | Intersight requires an on-prem appliance | A licensed Cisco product this platform does not control — a deployment dependency no other collector carries. |
 | **Intersight's DOWN/CRITICAL vocabulary is unconfirmed** | Validated against a live on-prem PVA on 2026-09-01 and again 2026-09-07 (19 servers): auth, name resolution, `TotalMemory`-as-MiB, `cpu_model`, per-drive storage and GPU catalog matching are all confirmed, and a GPU-catalog matching bug plus an `OperState`/`Health` `"OK"`-spelling gap (silently reading PSUs and drives as UNKNOWN) were found and fixed the same day (`docs/adr/0017`'s "A second field pass (2026-09-07)"). What is left is narrower: no PSU, GPU or drive on that tenant has ever reported a failure state, so the DOWN/CRITICAL side of that same vocabulary is still contract-only. Demoted from High: every headline unknown that ADR listed (auth, the unit assumption, field mapping) is now settled. |

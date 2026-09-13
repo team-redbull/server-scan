@@ -22,12 +22,16 @@ here on 2026-09-13 is `docs/notes/2026-09-13-claude-md-archive.md`.
 A production-grade, air-gapped bare-metal server inventory platform:
 MongoDB source of truth, FastAPI backend, React admin UI, Redis
 cache-aside, a regex classification engine, and a declarative health-
-policy engine. The real estate is **~5,000 physical servers today,
-growing to up to 10,000** (the operator's own figure, 2026-09-13); the
-platform was verified well past that, at 50,000
+policy engine. The real estate is **~2,500 physical servers today,
+at most 5,000 within the next one to two years** (the operator's own
+figure, corrected 2026-09-14 from an earlier "5k growing to 10k"); the
+API was verified well past that, at 10,000 and 50,000
 (`docs/adr/0007-scale-verification-and-request-coalescing.md`), so scale
 is a measured property with headroom, not a stretch goal to hand-wave
-about.
+about. **The 10k/50k datasets are test headroom, not the estate** — the
+inventory UI is deliberately built for the real 2.5k–5k (ADR-0033) and
+is measured at 10k/50k only to know where it stops being the right
+design.
 
 The original 75-section spec that kicked this project off was given as
 chat text early in the first session and was never saved as a repo file
@@ -49,7 +53,7 @@ is a real mistake, not a style preference.
    vendor docs, confirmed library behavior), not precedent. The user
    explicitly does not want technology reused just because it appeared
    in their own past projects (e.g. `dhcp_scope_manager`) — research
-   fresh for this project's actual constraints (air-gapped, 5k–10k scale)
+   fresh for this project's actual constraints (air-gapped, 2.5k–5k scale)
    every time.
 2. **Git: commit and push after each completed unit of work**, with
    clear, understandable commit messages. **The user must be the only
@@ -414,6 +418,14 @@ long form of every entry as of 2026-09-13 is
   `Server.unread_fields`; `reachable=False` is the whole-server version.
   Before this existed a 404'd sub-resource wrote zeros over good data and
   took a server from CRITICAL to HEALTHY (ADR-0016).
+- **A fleet-sized response never goes through `Server.model_validate`**
+  (ADR-0033). Validating the 5.4 KB domain document measured 544 ms for
+  2,504 servers; `GET /servers/rows` reads a Mongo projection into a flat
+  `ServerRow` in 16 ms. Its body must also be byte-stable for an unchanged
+  fleet — `generated_at` is the newest `updated_at`, never `utcnow()` — or
+  the weak ETag never yields a 304 and every 30 s poll re-downloads the
+  fleet. The inventory UI does its filtering from that one response;
+  `GET /servers`/`/facets` remain for API callers.
 - **`GET /servers/available` is the one endpoint that talks to a vendor
   manager** (ADR-0032). It ranks candidates in Mongo, then live-rechecks
   only the few it returns via `ServerInventoryProvider.get_one()` and
@@ -570,40 +582,30 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-13, evening — the stale filter, `INFO` retired, and a layering fix.**
-The inventory gained `?stale=true` (a `$$NOW`-based `$expr` so the cursor
-binding stays constant — `.claude/rules/mongodb.md`), a `stale` flag on
-every server response, a `stale` facet, a `Stale 20h` chip in the State
-column and a relative `Last seen` on the detail page (ADR-0029 update).
-`HealthSeverity.INFO` is gone: no shipped policy ever produced it; a
-stored `INFO` decodes as `HEALTHY`. And the morning's commit had made
-`app.api` import `tools.run_collector` — the CLI layer above it — which
-worked in the container and CI only because uvicorn's default `--app-dir .`
-puts the repo root on `sys.path`, and broke the README's documented
-`--app-dir backend` command; provider construction now lives in
-`app.infrastructure.providers.factory` and both callers import it from
-there. Verified in a real browser (Playwright against the seeded dev
-stack): a `Seen` column was built, measured to push Maintenance off a
-1440px viewport, and removed. Earlier the same day:
-
-**2026-09-13 — `GET /api/v1/servers/available`** (ADR-0032). A read API for
-`BareMetalHostUCS`'s BMH-creation flow to call instead of querying HP
-OneView / Cisco UCS Central / Dell OME / Cisco Intersight live itself:
-`?name=` for one exact server; `?pattern=` (a real MongoDB regex,
-capacity-token-aliased — `5tb` also matches a bare `hypershift` server,
-`10tb` a `hypershift-data` one) for a health-tiered, randomly drawn,
-`?count=`-bounded set; `?vendor=`/`?source_provider=` to narrow either.
-Each item is a purpose-built `AvailableServerItem` carrying only what
-`bmh-generator-operator` consumes (second commit, same day, after reading
-its generators). Candidates come from Mongo; only the few being returned are live-verified,
-via a new sixth abstract method `get_one(ServerIdentity)` on
-`ServerInventoryProvider` (implemented in all seven providers) and a new
-`IngestService.ingest_one`. The API pod now mounts the
-collector-credentials Secret for this; an unconfigured vendor degrades to
-trusting Mongo. Shipped with it: `INVENTORY_MAX_AVAILABLE_COUNT` and
-`INVENTORY_CAPACITY_ALIASES` (Helm `config.maxAvailableCount`/
-`.capacityAliases`), a `flake8-bugbear` allow for FastAPI `Query`/`Depends`
-defaults, and this CLAUDE.md restructure — three path-scoped rules under
-`.claude/rules/`, the history moved to `docs/notes/`. **Open:** Intersight's
-`get_one()` owner-relation `$filter`s have never run against a live tenant
-— the next `verify_intersight` pass should exercise one.
+**2026-09-14 — the inventory page moved into the browser (ADR-0033), and
+the delivery path got its compression.** The operator corrected the
+scale to **2,500 today, 5,000 at most in one to two years** (10k/50k are
+test headroom), and asked for a first-principles answer to "why not
+filter in the UI?". The research and measurements are in the ADR; the
+short version: the fleet as flat rows is 187 KB gzipped, every browser
+operation is under a frame, and the API's own list path would cost 618 ms
+per fleet-sized request because it validates `Server` per document — so
+a new `GET /servers/rows` reads a Mongo projection into a flat
+`ServerRow`, is cached as wire bytes under ADR-0028's invalidation, and
+carries a weak ETag (body byte-stable: `generated_at` is the newest
+`updated_at`, not the build time — the first version got that wrong and
+the idle benchmark window caught it). The frontend polls it every 30 s
+and does filter/search/sort/facets/paging in `features/inventory/rows.ts`;
+`cursor` became `page`; search is substring; sort is natural. Before/after
+was measured with a Playwright harness on the same seeded fleet (medians
+in the ADR): filter clicks 66–102 ms → 15–30 ms event-to-DOM, 11 API
+requests per session → 2, wall-display idle now refreshes on 304s.
+Shipped alongside: the API gzips responses over 1 KB (level 6, measured),
+nginx gzips the bundle (494 → 143 KB) and serves `index.html` as
+`no-cache`. The same harness at 10k and 50k is in the ADR (fine at 10k,
+wrong at 50k — 2.4 s first load; the operator's ceiling is 5k). A
+pre-commit verification pass (API hammer + UI walk, both in the ADR)
+caught a search-parity gap and a reflowing filter row, both fixed.
+**Open:** nothing from this unit; OpenShift-side options (Route HTTP/2
+needs a custom cert on the edge Route; router compression is now
+redundant) are noted in the ADR and deliberately not done.

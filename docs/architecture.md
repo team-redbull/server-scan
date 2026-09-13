@@ -213,6 +213,18 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
 
 ## Search, pagination, and caching (slice 1)
 
+- **The inventory UI no longer uses any of this per interaction** (ADR-0033,
+  2026-09-14): it loads the whole fleet as flat rows from
+  `GET /servers/rows` — a Mongo projection through `ServerRow.from_doc`,
+  never `Server.model_validate` (618 ms for 2,504 documents vs 27 ms) —
+  cached as wire bytes under the same ADR-0028 invalidation, served with a
+  weak ETag and `Cache-Control: no-cache`, and polled every 30 s (a 304
+  when unchanged; `generated_at` is the newest `updated_at`, not the build
+  time, precisely so the body is byte-stable). Filter, sort, substring
+  search, facet counts and paging then happen in the browser. Everything
+  below still holds for `GET /servers` and `GET /servers/facets`, which
+  API consumers and `/servers/available` use.
+
 - **Search** never sends user input to MongoDB as raw regex. A query is
   lowercased, escaped, and matched as an anchored prefix against
   `search_tokens` (`{"$regex": "^" + re.escape(q)}`) — index-assisted via a
@@ -276,7 +288,7 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   free-to-busy.
 - **List responses are a lean projection** (`ServerSummary`), not the
   persistence model: no `hardware` subdocument, since at the platform's
-  5k-today, 10k-ceiling estate (verified at 50k), shipping full hardware detail on
+  2.5k-today, 5k-ceiling estate (the API verified at 10k/50k), shipping full hardware detail on
   every row of a list response is pure waste. Full detail
   (`ServerDetail`) is fetched per-server on demand. Both are dedicated API
   schemas (`app/api/v1/schemas.py`), not `Server` returned as-is — this
@@ -822,7 +834,7 @@ and exposed via reclassify/recalculate endpoints.
   `Server.maintenance`, never `classification`/`health`, so a server can
   be simultaneously HOSTED_CLUSTER, CRITICAL, and in maintenance without
   the three concepts interfering.
-- **A maintenance write clears the cached list pages and facet counts**
+- **A maintenance write clears the cached list pages, facet counts and the `/servers/rows` body**
   (`_invalidate_list_cache`, ADR-0028) — the one write path that does.
   Ingest keeps paying the TTL. Without this the "Maintenance only" filter
   served a page computed before the write, so a server taken back out of
@@ -911,8 +923,9 @@ exists — the corrections there are the reason this paragraph reads the
 way it does now rather than the original ~40-line writeup.
 
 **Slice 6**: the 10k/50k performance pass — verifying, against real-scale
-data rather than test fixtures, that the platform's stated ~10k-with-
-headroom-to-50k target actually holds. See
+data rather than test fixtures, that the API holds far beyond the real
+estate (2.5k today, 5k at most; those figures were corrected down on
+2026-09-14, and the 10k/50k datasets are the headroom, not the target). See
 `docs/adr/0007-scale-verification-and-request-coalescing.md` for the full
 writeup; summary:
 

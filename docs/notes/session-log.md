@@ -8,6 +8,44 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**Before that, 2026-09-13, evening — the stale filter, `INFO` retired, and a layering fix.**
+The inventory gained `?stale=true` (a `$$NOW`-based `$expr` so the cursor
+binding stays constant — `.claude/rules/mongodb.md`), a `stale` flag on
+every server response, a `stale` facet, a `Stale 20h` chip in the State
+column and a relative `Last seen` on the detail page (ADR-0029 update).
+`HealthSeverity.INFO` is gone: no shipped policy ever produced it; a
+stored `INFO` decodes as `HEALTHY`. And the morning's commit had made
+`app.api` import `tools.run_collector` — the CLI layer above it — which
+worked in the container and CI only because uvicorn's default `--app-dir .`
+puts the repo root on `sys.path`, and broke the README's documented
+`--app-dir backend` command; provider construction now lives in
+`app.infrastructure.providers.factory` and both callers import it from
+there. Verified in a real browser (Playwright against the seeded dev
+stack): a `Seen` column was built, measured to push Maintenance off a
+1440px viewport, and removed. Earlier the same day:
+
+**2026-09-13 — `GET /api/v1/servers/available`** (ADR-0032). A read API for
+`BareMetalHostUCS`'s BMH-creation flow to call instead of querying HP
+OneView / Cisco UCS Central / Dell OME / Cisco Intersight live itself:
+`?name=` for one exact server; `?pattern=` (a real MongoDB regex,
+capacity-token-aliased — `5tb` also matches a bare `hypershift` server,
+`10tb` a `hypershift-data` one) for a health-tiered, randomly drawn,
+`?count=`-bounded set; `?vendor=`/`?source_provider=` to narrow either.
+Each item is a purpose-built `AvailableServerItem` carrying only what
+`bmh-generator-operator` consumes (second commit, same day, after reading
+its generators). Candidates come from Mongo; only the few being returned are live-verified,
+via a new sixth abstract method `get_one(ServerIdentity)` on
+`ServerInventoryProvider` (implemented in all seven providers) and a new
+`IngestService.ingest_one`. The API pod now mounts the
+collector-credentials Secret for this; an unconfigured vendor degrades to
+trusting Mongo. Shipped with it: `INVENTORY_MAX_AVAILABLE_COUNT` and
+`INVENTORY_CAPACITY_ALIASES` (Helm `config.maxAvailableCount`/
+`.capacityAliases`), a `flake8-bugbear` allow for FastAPI `Query`/`Depends`
+defaults, and this CLAUDE.md restructure — three path-scoped rules under
+`.claude/rules/`, the history moved to `docs/notes/`. **Open:** Intersight's
+`get_one()` owner-relation `$filter`s have never run against a live tenant
+— the next `verify_intersight` pass should exercise one.
+
 **Before that, 2026-09-13, late — the comment sweep.** Eight parallel
 agents cleared every one of the 701 comment-density violations and then
 deleted every short comment that merely restated the code: 193 files,

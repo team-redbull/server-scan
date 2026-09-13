@@ -17,6 +17,14 @@ Loaded only when a `frontend/` file is open.
   are media-query gated by default, so without it a dark page wears light
   badges on a light OS. **The check worth repeating:
   `grep -c prefers-color-scheme frontend/dist/assets/*.css` must be 0.**
+- **The inventory page owns the whole fleet** (ADR-0033): one polled
+  `GET /servers/rows`, then `features/inventory/rows.ts`'s pure functions
+  do filter/search/sort/facets/paging. Do not reintroduce a per-filter
+  request or a server-side page — a client-side filter over a server-side
+  page silently filters only the loaded rows (the TanStack guide's one
+  hard rule). A new row field goes in `ServerRow` on both sides and in
+  `_ROW_PROJECTION`; the row must stay small (~520 B) and the body
+  byte-stable for an unchanged fleet, or the ETag/304 stops working.
 - **Maintenance is switched only from the inventory list** (per-row
   switch); the detail page shows it read-only. One place, on purpose.
 - **The inventory table has no width to spare at 1440px** — with the MCE
