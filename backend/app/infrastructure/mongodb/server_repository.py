@@ -12,6 +12,7 @@ on to stay an IXSCAN at every page.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -291,6 +292,57 @@ class MongoServerRepository:
         return Page(
             items=items, next_cursor=next_cursor, has_more=has_more, total_count=total_count
         )
+
+    async def find_one_by_name(
+        self, name_normalized: str, *, filters: dict[str, object]
+    ) -> Server | None:
+        """
+        Look up one server by its normalized name, case-insensitively (ADR-0032).
+
+        Args:
+            name_normalized (str): The caller's name, already run through
+                `app.domain.services.normalize.normalize_text`.
+            filters (dict[str, object]): Extra whitelisted filters
+                (`vendor`/`source_provider`) to combine with the name match.
+
+        Returns:
+            Server | None: The matching document, or `None`.
+        """
+        doc = await self._collection.find_one({**filters, "name_normalized": name_normalized})
+        return Server.model_validate(doc) if doc is not None else None
+
+    async def sample_available_tier(
+        self,
+        *,
+        filters: dict[str, object],
+        severity: str,
+        size: int,
+        exclude_ids: Sequence[str] = (),
+    ) -> list[Server]:
+        """
+        Randomly draw up to `size` servers matching `filters` at one health severity (ADR-0032).
+
+        Args:
+            filters (dict[str, object]): Name/vendor/source_provider and
+                assignability filters, without a `health.overall` clause.
+            severity (str): The `HealthSeverity` value this draw is
+                restricted to.
+            size (int): Maximum candidates to draw.
+            exclude_ids (Sequence[str]): `_id`s already drawn and rejected,
+                excluded from this draw so a replacement round doesn't
+                repeat them.
+
+        Returns:
+            list[Server]: Up to `size` randomly drawn matching servers.
+        """
+        if size <= 0:
+            return []
+        match: dict[str, object] = {**filters, "health.overall": severity}
+        if exclude_ids:
+            match["_id"] = {"$nin": list(exclude_ids)}
+        pipeline: list[dict[str, Any]] = [{"$match": match}, {"$sample": {"size": size}}]
+        docs = await (await self._collection.aggregate(pipeline)).to_list(length=size)
+        return [Server.model_validate(doc) for doc in docs]
 
     async def count(self, filters: dict[str, object]) -> int:
         """

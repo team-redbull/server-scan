@@ -34,6 +34,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-api-config
+            # `GET /servers/available`'s live recheck needs the same manager
+            # logins the collector CronJobs already hold (ADR-0032). An
+            # unconfigured value degrades to trusting Mongo — see
+            # `EnvConnectionResolver` — so this is safe to mount unconditionally.
+            - secretRef:
+                name: {{ .Values.collectors.existingSecret | default (printf "%s-collector-credentials" .Release.Name) }}
           livenessProbe:
             httpGet:
               path: /health/live

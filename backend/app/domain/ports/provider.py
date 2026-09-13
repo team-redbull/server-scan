@@ -17,6 +17,10 @@ no `site_id`, what each tuple's keys mirror — is in docs/architecture.md,
 
 `ServerInventoryProvider` is an `ABC`, not a `Protocol` — see ADR-0023 for
 why, and for the mechanism behind `_list_servers`' exact signature.
+
+`get_one()` is the sixth method, added by ADR-0032 for a live single-server
+recheck: it takes a `ServerIdentity` and fetches that one server directly,
+never by re-running `_list_servers()` and filtering.
 """
 
 from __future__ import annotations
@@ -60,6 +64,21 @@ class ProviderNic:
     speed_mbps: int | None
     link_state: str
     location: str | None = None  # the BMC's own placement id (an iDRAC FQDD), or None
+
+
+@dataclass(frozen=True, slots=True)
+class ServerIdentity:
+    """
+    Whatever `get_one` needs to re-locate one already-ingested server.
+
+    Built from a stored `Server` document; each provider reads only the
+    field it correlates on (docs/adr/0032-available-server-lookup-api.md).
+    """
+
+    serial: str | None = None
+    external_id: str | None = None
+    host: str | None = None
+    name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,5 +207,22 @@ class ServerInventoryProvider(ABC):
 
         Yields:
             ProviderServer: One server, already vendor-normalized.
+        """
+        ...
+
+    @abstractmethod
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Fetch one server's current state by identity, never by re-running `_list_servers()`.
+
+        For a live single-server recheck; see ADR-0032.
+
+        Args:
+            identity (ServerIdentity): Whichever field this provider
+                correlates on is set; the rest may be `None`.
+
+        Returns:
+            ProviderServer | None: The current state, or `None` if the
+                server can no longer be found.
         """
         ...

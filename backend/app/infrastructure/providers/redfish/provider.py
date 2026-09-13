@@ -28,7 +28,7 @@ import structlog
 
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.redfish.client import (
     RedfishAuthError,
     RedfishClient,
@@ -140,6 +140,36 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         if not self._targets:
             raise ValueError("Redfish inventory is empty; there is nothing to collect.")
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Fetch one server's current state from its own BMC (ADR-0032).
+
+        Already single-host in shape, so this reuses `_collect_systems`
+        for just the one matching target.
+
+        Args:
+            identity (ServerIdentity): `host` selects the target;
+                `serial` disambiguates when one BMC reports more than one
+                `ComputerSystem`.
+
+        Returns:
+            ProviderServer | None: The current state, or `None` if
+                `host` isn't in this run's configured targets, or the BMC
+                reports no matching system.
+        """
+        target = next((t for t in self._targets if t.host == identity.host), None)
+        if target is None:
+            return None
+        try:
+            servers = await self._collect_systems(target)
+        except (RedfishError, ValueError):
+            return None
+        if not servers:
+            return None
+        if identity.serial is not None:
+            return next((s for s in servers if s.serial == identity.serial), servers[0])
+        return servers[0]
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """

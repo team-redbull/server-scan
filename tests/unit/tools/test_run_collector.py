@@ -37,6 +37,7 @@ from app.domain.ports.provider import (
     ProviderAttachment,
     ProviderNic,
     ProviderServer,
+    ServerIdentity,
     ServerInventoryProvider,
 )
 from app.infrastructure.providers.oneview.provider import OneViewProvider
@@ -399,6 +400,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 for name in ("ocp4-prod-tlv-infra-01", "ocp4-hypershift-five-01"):
                     yield ProviderServer(external_id=f"dn/{name}", vendor="cisco", name=name)
@@ -424,6 +428,9 @@ class TestDryRun:
 
             async def health_check(self) -> None:
                 return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
 
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
@@ -453,6 +460,9 @@ class TestDryRun:
 
             async def health_check(self) -> None:
                 return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
 
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
@@ -503,6 +513,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
                     external_id="sys/rack-unit-3",
@@ -537,6 +550,9 @@ class TestDryRun:
 
             async def health_check(self) -> None:
                 return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
 
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
@@ -589,6 +605,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
                     external_id="sys/rack-unit-3",
@@ -626,6 +645,9 @@ class TestDryRun:
 
             async def health_check(self) -> None:
                 return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
 
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
@@ -679,6 +701,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
                     external_id="sys/rack-unit-3",
@@ -723,6 +748,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 yield ProviderServer(
                     external_id="redfish://bmc-1/redfish/v1/Systems/1",
@@ -765,6 +793,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 for i in range(10):
                     yield ProviderServer(external_id=f"dn/{i}", vendor="cisco", name=f"srv-{i}")
@@ -790,6 +821,9 @@ class TestDryRun:
 
             async def health_check(self) -> None:
                 return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
 
             async def _list_servers(self) -> Any:
                 for i in range(10):
@@ -819,6 +853,9 @@ class TestDryRun:
             async def health_check(self) -> None:
                 return None
 
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
             async def _list_servers(self) -> Any:
                 requested.append(0)
                 yield ProviderServer(external_id="dn/0", vendor="cisco", name="srv-0")
@@ -844,6 +881,9 @@ class TestDryRun:
 
             async def health_check(self) -> None:
                 return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
 
             async def _list_servers(self) -> Any:
                 try:
@@ -982,6 +1022,9 @@ class TestNameFilter:
 
         async def health_check(self) -> None:
             self.health_checked += 1
+
+        async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+            raise NotImplementedError
 
         async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
             try:

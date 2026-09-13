@@ -9,6 +9,9 @@ a stable seam (see "How data actually gets in" below).
 **New to this codebase, including a fresh Claude Code session picking
 this up?** Read [`CLAUDE.md`](CLAUDE.md) first — it has the current
 status, the standing project conventions, and exactly where to continue.
+Area-specific traps live beside the code they guard, in
+`.claude/rules/` (collectors, storage/queries, frontend), and the
+session-by-session history in `docs/notes/session-log.md`.
 
 ## Status
 
@@ -50,6 +53,10 @@ far, in order:
     cluster and report which servers it is actually using, which is the
     one question no vendor manager can answer
     (`docs/adr/0024-openshift-cluster-membership.md`).
+15. **`GET /api/v1/servers/available`** — a read API that replaces a
+    BMH-creation flow's own live vendor queries with a Mongo-backed lookup
+    plus a live recheck of just the candidates it is about to return
+    (`docs/adr/0032-available-server-lookup-api.md`).
 
 The inventory table shows **Name, Installation, MCE, Cluster, Model,
 State** and a per-row maintenance switch, and sorts on Name, Model,
@@ -203,8 +210,14 @@ standalone".
 ```
 
 MongoDB is the only thing that ties a collector run to what the UI shows
-— a collector never talks to the API, and the API never talks to a
-vendor manager directly. Adding a new vendor is: write a `ServerInventoryProvider`
+— a collector never talks to the API. **The one exception, since
+ADR-0032:** `GET /api/v1/servers/available` (for a BMH-creation caller
+that needs a server's current state, not last night's) live-rechecks a
+handful of already-Mongo-selected candidates by calling the same
+`ServerInventoryProvider.get_one()` a collector's bulk pass would, and
+persists the result through the same `IngestService` — the API pod holds
+the same manager credentials the CronJobs do for exactly this. Every
+other endpoint is still MongoDB-only. Adding a new vendor is: write a `ServerInventoryProvider`
 implementation for it (see `app.infrastructure.providers.ucs_manager` as
 the reference), register it in `tools/run_collector.py`, and add a
 CronJob to `deploy/helm/server-scan` — nothing in the API, the

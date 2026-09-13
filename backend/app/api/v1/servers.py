@@ -37,9 +37,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from tools.run_collector import build_provider_for_manager_type
 
 from app.api.v1.maintenance_schemas import MaintenanceEnableRequest
 from app.api.v1.schemas import (
+    AvailableServerItem,
+    AvailableServersResponse,
     PageInfo,
     ServerDetail,
     ServerFacets,
@@ -47,28 +50,45 @@ from app.api.v1.schemas import (
     ServerSummary,
 )
 from app.application.services.audit_service import AuditService
+from app.application.services.available_servers import (
+    AvailableServersNotFoundError,
+    AvailableServersService,
+)
 from app.application.services.classification_service import ClassificationService
 from app.application.services.health_policy_service import HealthPolicyService
+from app.application.services.ingest import IngestService
 from app.application.services.maintenance_service import MaintenanceService
 from app.application.services.pipeline import classification_from_result, health_from_state
 from app.config import Settings, get_settings
 from app.dependencies import get_current_actor, get_mongo_holder, get_redis_holder, get_request_id
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, Vendor
 from app.domain.models.audit_event import Actor, EventType
 from app.domain.ports.regex_engine import RegexEngine
 from app.domain.services.classification import ClassifiableServer
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.services.search import build_filter_query, resolve_sort_field
+from app.domain.value_objects.capacity_aliases import capacity_alias_catalog
+from app.domain.value_objects.gpu_catalog import gpu_catalog
 from app.domain.value_objects.nic_names import nic_name_catalog
-from app.errors import NotFoundError, PageSizeTooLargeError, ValidationAppError
+from app.domain.value_objects.site import site_catalog
+from app.errors import (
+    AvailableCountTooLargeError,
+    AvailableLookupConflictingParamsError,
+    AvailableServerNotFoundError,
+    NotFoundError,
+    PageSizeTooLargeError,
+    ValidationAppError,
+)
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
 from app.infrastructure.mongodb.classification_rule_repository import (
     MongoClassificationRuleRepository,
 )
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolicyRepository
+from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
+from app.infrastructure.mongodb.site_repository import MongoSiteRepository
 from app.infrastructure.redis.cache import (
     FACETS_TTL_SECONDS,
     LIST_PAGE_TTL_SECONDS,
@@ -236,6 +256,69 @@ async def _maintenance_service(
     return MaintenanceService(server_repo=server_repo, audit=audit)
 
 
+async def _ingest_service(
+    mongo: Annotated[MongoClientHolder, Depends(get_mongo_holder)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    server_repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+    classification_service: Annotated[ClassificationService, Depends(_classification_service)],
+    health_service: Annotated[HealthPolicyService, Depends(_health_policy_service)],
+    audit: Annotated[AuditService, Depends(_audit_service)],
+) -> IngestService:
+    """
+    Build the ingest pipeline `GET /servers/available`'s live recheck writes through.
+
+    Args:
+        mongo (MongoClientHolder): The shared Mongo client holder.
+        settings (Settings): Supplies the site and GPU catalogs.
+        server_repo (MongoServerRepository): The server repository.
+        classification_service (ClassificationService): Classifies a
+            freshly rechecked server.
+        health_service (HealthPolicyService): Health-evaluates it.
+        audit (AuditService): Records any transition a recheck causes.
+
+    Returns:
+        IngestService: A service bound to those dependencies.
+    """
+    return IngestService(
+        server_repo=server_repo,
+        site_repo=MongoSiteRepository(mongo),
+        manager_repo=MongoManagerRepository(mongo),
+        sites=site_catalog(settings.sites),
+        gpu_catalog=gpu_catalog(settings.gpu_models),
+        classification_service=classification_service,
+        health_service=health_service,
+        audit=audit,
+    )
+
+
+async def _available_servers_service(
+    repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+    ingest_service: Annotated[IngestService, Depends(_ingest_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AvailableServersService:
+    """
+    Build the `GET /servers/available` resolver for one request.
+
+    Args:
+        repo (MongoServerRepository): The server repository.
+        ingest_service (IngestService): Runs a live recheck's fetched
+            record through the ingest pipeline.
+        settings (Settings): Supplies the capacity-alias catalog and
+            resolves each manager type's provider.
+
+    Returns:
+        AvailableServersService: A service bound to those dependencies.
+    """
+    return AvailableServersService(
+        repo=repo,
+        ingest=ingest_service,
+        provider_factory=lambda manager_type: build_provider_for_manager_type(
+            manager_type, settings=settings
+        ),
+        capacity_aliases=capacity_alias_catalog(settings.capacity_aliases),
+    )
+
+
 def _revision_pointer_key(server_id: str) -> str:
     """Build the cache key mapping a server ID to its current revision.
 
@@ -392,6 +475,108 @@ async def server_facets(
     )
     await cache.set(cache_key, facets.model_dump(mode="json"), ttl_seconds=FACETS_TTL_SECONDS)
     return facets
+
+
+# Before `/servers/{server_id}`: FastAPI matches in declaration order, and
+# `available` would otherwise be swallowed as a `server_id` path value.
+@router.get("/servers/available", response_model=AvailableServersResponse)
+async def available_servers(
+    service: Annotated[AvailableServersService, Depends(_available_servers_service)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    name: str | None = Query(default=None),
+    pattern: str | None = Query(default=None),
+    count: int | None = Query(default=None, ge=1),
+    vendor: Vendor | None = Query(default=None),
+    source_provider: ManagerType | None = Query(default=None),
+) -> AvailableServersResponse:
+    """
+    Find one or more assignable, live-verified servers for a BMH-creation caller.
+
+    Exactly one of `name`/`pattern` selects the lookup mode — see ADR-0032.
+
+    Args:
+        service (AvailableServersService): Resolves both lookup modes.
+        cache (CacheClient): Invalidated for every server a live recheck writes.
+        settings (Settings): Supplies `max_available_count` and the NIC
+            OS-name mapping for the returned `ServerDetail`s.
+        name (str | None): Exact, case-insensitive server name.
+        pattern (str | None): A MongoDB regex against `Server.name`.
+        count (int | None): Pattern mode only; how many servers to return.
+        vendor (Vendor | None): Restrict to one vendor.
+        source_provider (ManagerType | None): Restrict to one collector.
+
+    Returns:
+        AvailableServersResponse: Always list-shaped, `name` mode returning
+            at most one item.
+
+    Raises:
+        AvailableLookupConflictingParamsError: Neither or both of `name`/
+            `pattern` were given, or `count` was given with `name`.
+        AvailableCountTooLargeError: `count` exceeds `settings.max_available_count`.
+        AvailableServerNotFoundError: Nothing could be returned at all —
+            see `AvailableServersNotFoundError`'s reason in the detail.
+    """
+    if (name is None) == (pattern is None):
+        raise AvailableLookupConflictingParamsError(
+            "Exactly one of `name` or `pattern` must be given."
+        )
+    if name is not None and count is not None:
+        raise AvailableLookupConflictingParamsError(
+            "`count` only applies to `pattern` mode, since `name` always resolves to at "
+            "most one server."
+        )
+
+    extra_filters = build_filter_query(
+        {
+            key: value.value
+            for key, value in (("vendor", vendor), ("source_provider", source_provider))
+            if value is not None
+        }
+    )
+    nic_names = nic_name_catalog(settings.nic_os_names)
+
+    try:
+        if name is not None:
+            result = await service.lookup_by_name(name, extra_filters=extra_filters)
+            results = [result]
+            mode, requested = "name", 1
+        else:
+            effective_count = count if count is not None else 1
+            if effective_count > settings.max_available_count:
+                raise AvailableCountTooLargeError(
+                    f"count must not exceed {settings.max_available_count}.",
+                    details={
+                        "max_available_count": settings.max_available_count,
+                        "count": effective_count,
+                    },
+                )
+            assert pattern is not None  # narrowed by the xor check above
+            outcome = await service.lookup_by_pattern(
+                pattern, count=effective_count, extra_filters=extra_filters
+            )
+            results = outcome.items
+            mode, requested = "pattern", outcome.requested
+    except AvailableServersNotFoundError as exc:
+        raise AvailableServerNotFoundError(exc.reason) from exc
+
+    for result in results:
+        await _invalidate_detail_cache(result.server.id, cache)
+    if results:
+        await _invalidate_list_cache(cache)
+
+    return AvailableServersResponse(
+        items=[
+            AvailableServerItem(
+                server=ServerDetail.from_server(result.server, nic_names),
+                live_recheck_performed=result.live_recheck_performed,
+            )
+            for result in results
+        ],
+        mode=mode,
+        requested=requested,
+        returned=len(results),
+    )
 
 
 @router.get("/servers/{server_id}", response_model=ServerDetail)

@@ -20,7 +20,7 @@ import structlog
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.ucs_central.client import UcsCentralClient
 from app.infrastructure.providers.ucs_common import TEMPLATE_TYPES
 from app.infrastructure.providers.ucs_manager.provider import UcsManagerProvider
@@ -281,6 +281,83 @@ class UcsCentralProvider(ServerInventoryProvider):
             await client.login()
         finally:
             await client.logout()
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Find one service profile in Central, then recheck only its own domain (ADR-0032).
+
+        Mirrors `BareMetalHostUCS`'s own `ucs_server_strategy.get_server_info`.
+
+        Args:
+            identity (ServerIdentity): `name` is the service profile name.
+
+        Returns:
+            ProviderServer | None: The current state, with a
+                domain-qualified `external_id`, or `None` when the name
+                no longer resolves to a domain and physical node.
+        """
+        if not identity.name:
+            return None
+        client = self._client_factory()
+        try:
+            await client.login()
+            ls_servers = await client.query_classid("lsServer")
+            domains = await client.query_classid("computeSystem")
+        finally:
+            await client.logout()
+
+        match = next(
+            (
+                mo
+                for mo in ls_servers
+                if str(getattr(mo, "type", "") or "") not in TEMPLATE_TYPES
+                and str(getattr(mo, "name", "") or "").upper() == identity.name.upper()
+            ),
+            None,
+        )
+        if match is None:
+            return None
+        domain_key = str(getattr(match, "domain", "") or "").strip()
+        pn_dn = str(getattr(match, "pn_dn", "") or "").strip()
+        if not domain_key or not pn_dn:
+            return None
+
+        domain_mo = next(
+            (
+                mo
+                for mo in domains
+                if domain_key
+                in (
+                    str(getattr(mo, "name", "") or ""),
+                    str(getattr(mo, "id", "") or ""),
+                    str(getattr(mo, "address", "") or ""),
+                )
+            ),
+            None,
+        )
+        if domain_mo is None:
+            return None
+        endpoint = (
+            str(getattr(domain_mo, "address", "") or "").strip()
+            or str(getattr(domain_mo, "name", "") or "").strip()
+        )
+        if not endpoint:
+            return None
+
+        target = DomainTarget(
+            domain_id=str(getattr(domain_mo, "id", "") or ""),
+            name=str(getattr(domain_mo, "name", "") or ""),
+            endpoint=endpoint,
+        )
+        domain_provider = self._domain_provider_factory(target)
+        fresh = await domain_provider.get_one(
+            ServerIdentity(external_id=pn_dn, serial=identity.serial)
+        )
+        if fresh is None:
+            return None
+        return replace(
+            fresh, external_id=central_external_id(fresh.external_id, domain_id=target.domain_id)
+        )
 
     async def _plan(self) -> tuple[list[DomainTarget], dict[str, Any]]:
         """

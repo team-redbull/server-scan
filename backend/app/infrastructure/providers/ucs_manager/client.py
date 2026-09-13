@@ -193,3 +193,30 @@ class UcsManagerClient:
             self._handle.query_classid, class_id, what=f"query_classid({class_id!r})"
         )
         return list(result) if result else []
+
+    async def query_dn(self, dn: str, *, hierarchy: bool = False) -> list[Any]:
+        """
+        Resolve one managed object by DN, optionally with its whole subtree (ADR-0032).
+
+        `hierarchy=True` is `ucsmsdk`'s own documented behaviour: one round
+        trip returns the object and every descendant MO as a flat list.
+
+        Args:
+            dn (str): The object's distinguished name.
+            hierarchy (bool): Whether to also fetch every descendant MO.
+
+        Returns:
+            list[Any]: `[]` when `dn` no longer resolves; the object alone
+                (`hierarchy=False`) or the object plus every descendant
+                (`hierarchy=True`) otherwise.
+
+        Raises:
+            UcsManagerConnectionError: On an XML API error, a network
+                failure, or the call exceeding its deadline.
+        """
+        result = await self._with_timeout(
+            self._handle.query_dn, dn, hierarchy, what=f"query_dn({dn!r}, hierarchy={hierarchy})"
+        )
+        if result is None:
+            return []
+        return list(result) if hierarchy else [result]

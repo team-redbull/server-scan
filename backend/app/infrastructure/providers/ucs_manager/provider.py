@@ -5,12 +5,14 @@ See docs/cisco-collectors.md, "Shared object model and DN joins".
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.ucs_common import (
     bmc_interface as _bmc_interface,
 )
@@ -89,6 +91,69 @@ class UcsManagerProvider(ServerInventoryProvider):
         client = self._new_client()
         try:
             await client.login()
+        finally:
+            await client.logout()
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Fetch one compute unit and its whole subtree via one hierarchical `query_dn` (ADR-0032).
+
+        `lsServer`/`networkElement`/`topSystem` stay whole-domain queries — see ADR-0032.
+
+        Args:
+            identity (ServerIdentity): `external_id` is this domain's own
+                DN for the `computeBlade`/`computeRackUnit`.
+
+        Returns:
+            ProviderServer | None: The current state, or `None` when the
+                DN no longer resolves or is no longer equipped.
+        """
+        if not identity.external_id:
+            return None
+        client = self._new_client()
+        try:
+            await client.login()
+            mos = await client.query_dn(identity.external_id, hierarchy=True)
+            server_mo = next((mo for mo in mos if mo.dn == identity.external_id), None)
+            if server_mo is None or not _is_equipped(server_mo):
+                return None
+
+            by_class: dict[str, list[Any]] = defaultdict(list)
+            for mo in mos:
+                by_class[getattr(mo, "_class_id", "")].append(mo)
+
+            ls_servers = await client.query_classid("lsServer")
+            profile_by_dn, template_dn_by_name = _partition_profiles(ls_servers)
+            network_elements = await client.query_classid("networkElement")
+            switches_by_id = {
+                str(getattr(mo, "id", "")): mo for mo in network_elements if getattr(mo, "id", "")
+            }
+            top_system = await client.query_classid("topSystem")
+            cluster_name = (
+                str(getattr(top_system[0], "name", "") or "") or None if top_system else None
+            )
+
+            return compute_unit_to_provider_server(
+                server_mo,
+                manager_id=self._manager.id,
+                profile_by_dn=profile_by_dn,
+                template_dn_by_name=template_dn_by_name,
+                mgmt_if=_bmc_interface(by_class.get("mgmtIf", []), server_dn=server_mo.dn),
+                mgmt_ip_by_parent_dn=_management_ip_by_parent_dn(
+                    (
+                        *by_class.get("vnicIpV4PooledAddr", []),
+                        *by_class.get("vnicIpV4StaticAddr", []),
+                    )
+                ),
+                ext_eth_ifs=by_class.get("adaptorExtEthIf", []),
+                host_eth_ifs=by_class.get("adaptorHostEthIf", []),
+                cpu_units=by_class.get("processorUnit", []),
+                disk_units=by_class.get("storageLocalDisk", []),
+                psu_units=by_class.get("equipmentPsu", []),
+                card_units=by_class.get("graphicsCard", []),
+                switches_by_id=switches_by_id,
+                cluster_name=cluster_name,
+            )
         finally:
             await client.logout()
 

@@ -1229,6 +1229,15 @@ format. The field-level rules a new collector has to honour:
   the numbers, since that is what an operator reads to tell a lost
   connection from a paging ceiling. Subclasses with their own `__init__`
   must call `super().__init__()`.
+- **`get_one(ServerIdentity) -> ProviderServer | None`** (ADR-0032) is the
+  sixth abstract method, added for `GET /servers/available`'s live
+  recheck. `ServerIdentity` carries whichever field a provider correlates
+  on (`serial`, `external_id`, `host`, `name`); the contract is a
+  single-object fetch — a scoped query, a direct-by-URI/DN read, or a
+  single-host recollect — never `_list_servers()` re-run and filtered.
+  `tools.run_collector.build_provider_for_manager_type` is the one place
+  that turns a `ManagerType` into a constructed provider for this path,
+  shared with the CLI's own resolution.
 
 `ConnectivityFacts` (`fabric_paths_total/up/down`, `fabrics_present`)
 are derived from the attachments once at ingest and stored, so health

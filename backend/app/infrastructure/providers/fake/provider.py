@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.domain.value_objects.site import SiteCatalog
 from app.infrastructure.providers.fake.generator import (
     COLLECTOR_TYPES,
@@ -31,6 +31,7 @@ class FakeProvider(ServerInventoryProvider):
         count: int,
         provider_type: str,
         sites: SiteCatalog | None = None,
+        get_one_overrides: dict[str, ProviderServer] | None = None,
     ) -> None:
         """Store the parameters that determine which fake servers this instance yields.
 
@@ -43,12 +44,19 @@ class FakeProvider(ServerInventoryProvider):
                 `ManagerType` value.
             sites (SiteCatalog | None): The sites whose codes appear in
                 generated hostnames, or None for the shipped default.
+            get_one_overrides (dict[str, ProviderServer] | None): Test-only
+                seam, keyed by `external_id` — `get_one` returns the
+                override instead of regenerating the fleet, so a test can
+                simulate a live recheck that downgrades a candidate
+                (docs/adr/0032-available-server-lookup-api.md). Never set
+                in production wiring.
         """
         super().__init__()
         self._seed = seed
         self._count = count
         self.provider_type = provider_type
         self._sites = sites
+        self._get_one_overrides = get_one_overrides or {}
 
     async def health_check(self) -> None:
         """No real backend to check — the fake provider is always healthy."""
@@ -63,6 +71,30 @@ class FakeProvider(ServerInventoryProvider):
         for server in generate_servers(seed=self._seed, count=self._count, sites=self._sites):
             if provider_type_for(server) == self.provider_type:
                 yield server
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """Find one already-generated server by identity, regenerating the deterministic fleet.
+
+        Args:
+            identity (ServerIdentity): `external_id`, `serial` or `name`,
+                tried in that order.
+
+        Returns:
+            ProviderServer | None: The matching server, an injected
+                override, or `None` if none of the identity fields match.
+        """
+        if identity.external_id in self._get_one_overrides:
+            return self._get_one_overrides[identity.external_id]
+        for server in generate_servers(seed=self._seed, count=self._count, sites=self._sites):
+            if provider_type_for(server) != self.provider_type:
+                continue
+            if identity.external_id and server.external_id == identity.external_id:
+                return server
+            if identity.serial and server.serial == identity.serial:
+                return server
+            if identity.name and server.name == identity.name:
+                return server
+        return None
 
 
 def fake_providers(

@@ -44,7 +44,7 @@ from app.domain.ports.credentials import (
     ManagerConnection,
     ManagerNotConfiguredError,
 )
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.bmc_address import parse_bmc_address
@@ -420,6 +420,48 @@ PROVIDER_FACTORIES: dict[ManagerType, Callable[..., ServerInventoryProvider]] = 
 }
 
 
+def build_provider_for_manager_type(
+    manager_type: ManagerType, *, settings: Settings
+) -> ServerInventoryProvider:
+    """
+    Build a provider for one manager type, for a live single-server recheck.
+
+    `_run()`'s own resolution, minus its dry-run/reporting concerns (ADR-0032).
+
+    Args:
+        manager_type (ManagerType): Which collector to build.
+        settings (Settings): Process-wide settings to resolve credentials
+            from.
+
+    Returns:
+        ServerInventoryProvider: The constructed collector, unwrapped (no
+            name filter — `get_one()` correlates by identity, not by name).
+
+    Raises:
+        ManagerNotConfiguredError: This manager type has no connection
+            configured on this process, naming the missing variable(s).
+        NotImplementedError: `manager_type` has no entry in
+            `PROVIDER_FACTORIES` (`UCS_MANAGER`, reached only through
+            `UCS_CENTRAL`).
+    """
+    credential_resolver = EnvConnectionResolver(settings)
+    if manager_type in _ENDPOINTLESS_TYPES:
+        connection = ManagerConnection(
+            endpoint=settings.redfish_inventory_file, username="", password=""
+        )
+    else:
+        connection = credential_resolver.resolve(manager_type)
+    if manager_type is ManagerType.UCS_CENTRAL:
+        resolve_login(settings, ManagerType.UCS_MANAGER)
+    manager = manager_for(manager_type, connection)
+    return _build_provider(
+        manager,
+        credential_resolver=credential_resolver,
+        timeout_seconds=settings.collector_connect_timeout_seconds,
+        settings=settings,
+    )
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
     Parse this CLI's arguments.
@@ -533,6 +575,10 @@ class _NameFilteredProvider(ServerInventoryProvider):
     async def health_check(self) -> None:
         """Delegate to the wrapped collector's own health check."""
         await self._inner.health_check()
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """Delegate to the wrapped collector — a live recheck isn't name-filtered."""
+        return await self._inner.get_one(identity)
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """

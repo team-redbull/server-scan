@@ -16,7 +16,8 @@ not.
 | `docs/architecture.md` | the subsystem section for what was touched |
 | `docs/arc42.md` | **§9 ADR index — a new ADR needs a row or nothing links to it**; §5 deployable units, §7 deployment, §8 quality table, §11 risks, §12 glossary |
 | `deploy/README.md` | charts, values, CronJobs — including its opening sentence |
-| `CLAUDE.md` | "Key technical facts" for a new trap; "Where to continue right now" for what was just finished |
+| `CLAUDE.md` | "Key technical facts" for a *cross-cutting* trap; "Where to continue right now" holds only the newest unit of work — move the previous one to `docs/notes/session-log.md` |
+| `.claude/rules/*.md` | a collector / storage-query / frontend trap goes in `collectors.md`, `mongodb.md` or `frontend.md`, not CLAUDE.md |
 | `.env.example` | any new or renamed variable |
 
 Also: a new decision needs an ADR under `docs/adr/` with the code

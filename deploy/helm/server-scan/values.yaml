@@ -260,6 +260,18 @@ config:
   defaultPageSize: "50"
   maxPageSize: "200"
   corsAllowedOrigins: ""
+  # Caps `?count=` on GET /servers/available, so a caller can't
+  # accidentally pay the live-recheck cost of the whole matching fleet
+  # in one call. See docs/adr/0032-available-server-lookup-api.md.
+  maxAvailableCount: "20"
+  # `token:alias` pairs: a `?pattern=` that is exactly one configured
+  # token also matches the alias regex — a `hypershift`-named server
+  # carries no explicit capacity token but is a 5tb machine, and
+  # `hypershift-data` a 10tb one. The negative lookahead keeps `5tb` from
+  # also matching `hypershift-data`. Empty falls back to this same value
+  # as the shipped default. Same comma-splitting gotcha as `sites` above
+  # applies to `--set`.
+  capacityAliases: "5tb:hypershift(?!-data),10tb:hypershift-data"
 
 # Prometheus Operator objects for the API's /metrics — the HTTP metrics
 # plus the fleet gauges (stale servers, collector liveness, cluster

@@ -9,6 +9,7 @@ Mongo-specific cursor/query mechanics (`app.domain.services.search`,
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -200,6 +201,49 @@ class ServerRepository(Protocol):
 
         Returns:
             int: The number of matching servers.
+        """
+        ...
+
+    async def find_one_by_name(
+        self, name_normalized: str, *, filters: dict[str, object]
+    ) -> Server | None:
+        """
+        Look up one server by its normalized name, case-insensitively (ADR-0032).
+
+        Args:
+            name_normalized (str): The caller's name, already run through
+                `app.domain.services.normalize.normalize_text`.
+            filters (dict[str, object]): Extra whitelisted filters
+                (`vendor`/`source_provider`) to combine with the name match.
+
+        Returns:
+            Server | None: The matching document, or `None`.
+        """
+        ...
+
+    async def sample_available_tier(
+        self,
+        *,
+        filters: dict[str, object],
+        severity: str,
+        size: int,
+        exclude_ids: Sequence[str] = (),
+    ) -> list[Server]:
+        """
+        Randomly draw up to `size` servers matching `filters` at one health severity (ADR-0032).
+
+        Args:
+            filters (dict[str, object]): Name/vendor/source_provider and
+                assignability filters, without a `health.overall` clause.
+            severity (str): The `HealthSeverity` value this draw is
+                restricted to.
+            size (int): Maximum candidates to draw.
+            exclude_ids (Sequence[str]): `_id`s already drawn and rejected,
+                excluded from this draw so a replacement round doesn't
+                repeat them.
+
+        Returns:
+            list[Server]: Up to `size` randomly drawn matching servers.
         """
         ...
 

@@ -37,7 +37,7 @@ import structlog
 from app.domain.enums import ManagerType, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.domain.value_objects.bmc_address import parse_bmc_address
 from app.infrastructure.providers.openmanage.client import OmeClient
 from app.infrastructure.providers.openmanage.mapping import (
@@ -58,6 +58,19 @@ _PROVIDER_TYPE = ManagerType.OPENMANAGE.value
 
 # Both leave a server unmeasured — docs/dell-collectors.md, "Collection flow".
 _UNCOLLECTED_MARKERS = (UNREACHABLE_MARKER, AUTH_REJECTED_MARKER)
+
+
+def _odata_literal(value: str) -> str:
+    """
+    Escape a string for use inside an OData `eq '...'` filter literal.
+
+    Args:
+        value (str): The raw value (a service tag or a profile/device name).
+
+    Returns:
+        str: `value` with every single quote doubled, OData's own escape.
+    """
+    return value.replace("'", "''")
 
 
 def _is_uncollected(message: str, host: str) -> bool:
@@ -182,6 +195,79 @@ class OpenManageProvider(ServerInventoryProvider):
         """
         async with self._new_client():
             return
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Locate one device via OME, then measure only its own iDRAC (ADR-0032).
+
+        Args:
+            identity (ServerIdentity): `serial` (the Dell service tag) is
+                tried first, falling back to `name` (the profile name).
+
+        Returns:
+            ProviderServer | None: The current state, `reachable=False`
+                when OME knows the profile but its iDRAC gave nothing, or
+                `None` when neither `serial` nor `name` resolves a profile.
+        """
+        async with self._new_client() as client:
+            identity_ome = await self._discover_one(client, identity)
+        if identity_ome is None or not identity_ome.idrac_ip:
+            return None
+
+        target = self._target_for(identity_ome)
+        redfish = self._redfish_provider_factory([target])
+        server = await redfish.get_one(ServerIdentity(host=target.host, serial=identity_ome.serial))
+        if server is None:
+            return self._unreachable_server(identity_ome)
+        return self._merged(server, {identity_ome.idrac_ip: identity_ome})
+
+    async def _discover_one(
+        self, client: OmeClient, identity: ServerIdentity
+    ) -> OmeIdentity | None:
+        """
+        Resolve one profile+device pair by service tag, falling back to profile name.
+
+        Args:
+            client (OmeClient): The logged-in OME client.
+            identity (ServerIdentity): `serial`/`name` to search by.
+
+        Returns:
+            OmeIdentity | None: The joined identity, or `None` when
+                neither field resolves a profile.
+        """
+        device: dict[str, Any] = {}
+        if identity.serial:
+            tag = _odata_literal(identity.serial)
+            devices = await client.get_all(
+                f"/DeviceService/Devices?$filter=DeviceServiceTag eq '{tag}'"
+            )
+            device = devices[0] if devices else {}
+
+        profile: dict[str, Any] | None = None
+        display_name = str(device.get("DeviceName") or "")
+        if display_name:
+            profiles = await client.get_all(
+                f"/ProfileService/Profiles?$filter=TargetName eq '{_odata_literal(display_name)}'"
+            )
+            profile = profiles[0] if profiles else None
+
+        if profile is None and identity.name:
+            profiles = await client.get_all(
+                f"/ProfileService/Profiles?$filter=ProfileName eq '{_odata_literal(identity.name)}'"
+            )
+            profile = profiles[0] if profiles else None
+            if profile is not None and not device:
+                display_name = str(profile.get("TargetName") or "")
+                if display_name:
+                    devices = await client.get_all(
+                        "/DeviceService/Devices?$filter="
+                        f"DeviceName eq '{_odata_literal(display_name)}'"
+                    )
+                    device = devices[0] if devices else {}
+
+        if profile is None:
+            return None
+        return identity_from_profile(profile=profile, device=device)
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """

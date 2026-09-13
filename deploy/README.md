@@ -416,6 +416,18 @@ Those values render into a single `Secret`
 (`templates/collector-credentials-secret.yaml`) and reach the pod as
 `INVENTORY_*` environment variables via `envFrom`.
 
+**Since `docs/adr/0032-available-server-lookup-api.md`, the API
+Deployment mounts this same Secret too** (`backend-deployment.yaml`), not
+only the collector CronJobs — `GET /api/v1/servers/available`'s live
+recheck needs the same manager credentials a collector does. This is not
+a separate toggle: an unconfigured value degrades to the API trusting
+Mongo for that candidate, the same way a collector already treats it, so
+mounting it is safe even where a deployment has not configured every
+vendor. The standalone Redfish collector's per-host TOML files
+(`inventoryFile`/`credentialsFile`, below) are the one exception —
+deliberately **not** mounted onto the API pod, since that would put every
+BMC password within reach of the pod the Route exposes.
+
 **Do not commit real passwords to `values.yaml`.** Pass them at install
 time (`--set collectors.ucsManager.password=...`), from a values file kept
 out of git (`-f secrets.yaml`), or — for production — set

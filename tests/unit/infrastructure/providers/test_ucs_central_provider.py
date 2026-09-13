@@ -43,7 +43,7 @@ from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.ucs_central.provider import (
     DomainTarget,
     UcsCentralProvider,
@@ -140,6 +140,12 @@ class FakeDomainProvider(ServerInventoryProvider):
 
     async def health_check(self) -> None:
         return None
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """Return the stored server whose `external_id` matches, or `None`."""
+        if self._error is not None:
+            raise self._error
+        return next((s for s in self._servers if s.external_id == identity.external_id), None)
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         try:

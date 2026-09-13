@@ -231,6 +231,14 @@ ignore = [
 # section underlines, which nothing in this codebase uses).
 convention = "google"
 
+[tool.ruff.lint.flake8-bugbear]
+# B008 only recognizes stdlib types as immutable, so an enum-typed FastAPI
+# `Query(...)` default (`Vendor | None`, `ManagerType | None`) trips it —
+# `Query`/`Depends` are read once per request by FastAPI's own dependency
+# injection, not mutated, so the call-in-default they sit in is safe by
+# construction (ADR-0032).
+extend-immutable-calls = ["fastapi.Query", "fastapi.Depends"]
+
 [tool.ruff.lint.flake8-annotations]
 # Set explicitly rather than inherited, for the same reason the ty rule
 # severities are: an upstream default flip must not be able to move this

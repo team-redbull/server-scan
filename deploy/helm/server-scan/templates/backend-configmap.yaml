@@ -16,3 +16,5 @@ data:
   INVENTORY_DEFAULT_PAGE_SIZE: {{ .Values.config.defaultPageSize | quote }}
   INVENTORY_MAX_PAGE_SIZE: {{ .Values.config.maxPageSize | quote }}
   INVENTORY_CORS_ALLOWED_ORIGINS: {{ .Values.config.corsAllowedOrigins | quote }}
+  INVENTORY_MAX_AVAILABLE_COUNT: {{ .Values.config.maxAvailableCount | quote }}
+  INVENTORY_CAPACITY_ALIASES: {{ .Values.config.capacityAliases | quote }}

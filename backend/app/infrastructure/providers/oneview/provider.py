@@ -46,11 +46,12 @@ import structlog
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.oneview.client import (
     DEFAULT_PAGE_SIZE,
     EXPANDED_PAGE_SIZE,
     OneViewClient,
+    OneViewConnectionError,
 )
 from app.infrastructure.providers.oneview.mapping import (
     DEVICES,
@@ -67,6 +68,36 @@ from app.infrastructure.providers.oneview.mapping import (
 logger = structlog.get_logger(__name__)
 
 _PROVIDER_TYPE = ManagerType.ONEVIEW.value
+
+
+async def _fetch_subresource(
+    client: OneViewClient, uri: str, resource: str
+) -> list[dict[str, Any]] | None:
+    """
+    Fetch one server's own per-server subresource collection, containing its failure.
+
+    Shared by `_power_supplies`, `_processors` and `get_one` (docs/hpe-collectors.md).
+
+    Args:
+        client (OneViewClient): The logged-in client.
+        uri (str): The owning server-hardware URI.
+        resource (str): `"powerSupplies"` or `"processors"`.
+
+    Returns:
+        list[dict[str, Any]] | None: The rows, or `None` if the call
+            failed or reported a state other than `Collected`.
+    """
+    try:
+        body = await client.get_json(f"{uri}/{resource}")
+        data = body.get("data")
+        rows = data.get("Members") if isinstance(data, dict) else data
+        if body.get("collectionState") != "Collected" or not isinstance(rows, list):
+            return None
+        return [row for row in rows if isinstance(row, dict)]
+    except Exception:
+        # Parse included on purpose — docs/hpe-collectors.md, "Power supplies".
+        return None
+
 
 _SERVER_PROFILES = "/rest/server-profiles"
 _SERVER_PROFILE_TEMPLATES = "/rest/server-profile-templates"
@@ -185,6 +216,66 @@ class OneViewProvider(ServerInventoryProvider):
         """
         async with self._client_factory():
             return
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Fetch one server directly by its hardware URI (ADR-0032).
+
+        Three direct-by-URI fetches — hardware, profile, template — never
+        the bulk `get_all` paths `_list_servers` uses.
+
+        Args:
+            identity (ServerIdentity): `external_id` is this server's
+                `/rest/server-hardware/{id}` URI.
+
+        Returns:
+            ProviderServer | None: The current state, or `None` when the
+                URI is missing, no longer resolves, or carries no profile.
+        """
+        if not identity.external_id:
+            return None
+        async with self._client_factory() as client:
+            try:
+                hardware = await client.get_json(identity.external_id)
+            except OneViewConnectionError:
+                return None
+            hardware_uri = str(hardware.get("uri") or "")
+            profile_uri = str(hardware.get("serverProfileUri") or "")
+            if not hardware_uri or not profile_uri:
+                return None
+            try:
+                raw_profile = await client.get_json(profile_uri)
+            except OneViewConnectionError:
+                return None
+
+            template_names: dict[str, str] = {}
+            template_uri = raw_profile.get("serverProfileTemplateUri")
+            if template_uri:
+                try:
+                    template = await client.get_json(str(template_uri))
+                except OneViewConnectionError:
+                    template = {}
+                name = template.get("name")
+                if name:
+                    template_names[str(template_uri)] = str(name)
+            profile = profile_from(raw_profile, template_names=template_names)
+            if profile is None:
+                return None
+
+            power_supplies = subresource_data(hardware, POWER_SUPPLIES)
+            if power_supplies is None and self._collect_psus:
+                power_supplies = await _fetch_subresource(client, hardware_uri, "powerSupplies")
+            processors = subresource_data(hardware, PROCESSORS)
+            if processors is None and self._collect_cpu_threads:
+                processors = await _fetch_subresource(client, hardware_uri, "processors")
+
+        return server_from(
+            hardware=hardware,
+            profile=profile,
+            manager_id=self._manager.id,
+            power_supplies=power_supplies,
+            processors=processors,
+        )
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """
@@ -348,28 +439,8 @@ class OneViewProvider(ServerInventoryProvider):
         semaphore = asyncio.Semaphore(self._psu_concurrency)
 
         async def fetch(uri: str) -> tuple[str, list[dict[str, Any]] | None]:
-            """
-            Fetch one server's power supplies, containing its failure.
-
-            Args:
-                uri (str): The server-hardware URI.
-
-            Returns:
-                tuple[str, list[dict[str, Any]] | None]: The URI and its
-                    rows, or `None` if the call failed or reported a
-                    state other than `Collected`.
-            """
-            try:
-                async with semaphore:
-                    body = await client.get_json(f"{uri}/powerSupplies")
-                data = body.get("data")
-                rows = data.get("Members") if isinstance(data, dict) else data
-                if body.get("collectionState") != "Collected" or not isinstance(rows, list):
-                    return uri, None
-                return uri, [row for row in rows if isinstance(row, dict)]
-            except Exception:
-                # Parse included on purpose — docs/hpe-collectors.md, "Power supplies".
-                return uri, None
+            async with semaphore:
+                return uri, await _fetch_subresource(client, uri, "powerSupplies")
 
         failures = 0
         results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)
@@ -432,28 +503,8 @@ class OneViewProvider(ServerInventoryProvider):
         semaphore = asyncio.Semaphore(self._cpu_threads_concurrency)
 
         async def fetch(uri: str) -> tuple[str, list[dict[str, Any]] | None]:
-            """
-            Fetch one server's processors, containing its failure.
-
-            Args:
-                uri (str): The server-hardware URI.
-
-            Returns:
-                tuple[str, list[dict[str, Any]] | None]: The URI and its
-                    rows, or `None` if the call failed or reported a
-                    state other than `Collected`.
-            """
-            try:
-                async with semaphore:
-                    body = await client.get_json(f"{uri}/processors")
-                data = body.get("data")
-                rows = data.get("Members") if isinstance(data, dict) else data
-                if body.get("collectionState") != "Collected" or not isinstance(rows, list):
-                    return uri, None
-                return uri, [row for row in rows if isinstance(row, dict)]
-            except Exception:
-                # Parse included on purpose — same as `_power_supplies.fetch`.
-                return uri, None
+            async with semaphore:
+                return uri, await _fetch_subresource(client, uri, "processors")
 
         failures = 0
         results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)

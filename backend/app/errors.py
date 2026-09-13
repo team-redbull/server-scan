@@ -65,6 +65,9 @@ class ErrorCode:
     CONDITION_INVALID = "CONDITION_INVALID"
     MANAGER_HAS_CHILDREN = "MANAGER_HAS_CHILDREN"
     INVALID_MANAGER_HIERARCHY = "INVALID_MANAGER_HIERARCHY"
+    AVAILABLE_COUNT_TOO_LARGE = "AVAILABLE_COUNT_TOO_LARGE"
+    AVAILABLE_LOOKUP_CONFLICTING_PARAMS = "AVAILABLE_LOOKUP_CONFLICTING_PARAMS"
+    AVAILABLE_SERVER_NOT_FOUND = "AVAILABLE_SERVER_NOT_FOUND"
 
 
 def _slug(code: str) -> str:
@@ -299,3 +302,24 @@ class InvalidManagerHierarchyError(AppError):
 
     status_code = 422
     code = ErrorCode.INVALID_MANAGER_HIERARCHY
+
+
+class AvailableCountTooLargeError(AppError):
+    """422: `GET /servers/available`'s `count` exceeds `settings.max_available_count`."""
+
+    status_code = 422
+    code = ErrorCode.AVAILABLE_COUNT_TOO_LARGE
+
+
+class AvailableLookupConflictingParamsError(AppError):
+    """400: `GET /servers/available` was given an invalid `name`/`pattern`/`count` combination."""
+
+    status_code = 400
+    code = ErrorCode.AVAILABLE_LOOKUP_CONFLICTING_PARAMS
+
+
+class AvailableServerNotFoundError(AppError):
+    """404: `GET /servers/available` found no server it could return."""
+
+    status_code = 404
+    code = ErrorCode.AVAILABLE_SERVER_NOT_FOUND

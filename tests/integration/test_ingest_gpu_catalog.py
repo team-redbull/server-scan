@@ -13,7 +13,7 @@ import pytest
 
 from app.application.services.ingest import IngestService
 from app.domain.models.hardware import Gpu
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.domain.value_objects.gpu_catalog import GpuCatalog
 from app.domain.value_objects.site import site_catalog
 from app.infrastructure.mongodb import MongoClientHolder
@@ -40,6 +40,9 @@ class _OneShotProvider(ServerInventoryProvider):
 
     async def health_check(self) -> None:
         return
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        raise NotImplementedError
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         for server in self._servers:

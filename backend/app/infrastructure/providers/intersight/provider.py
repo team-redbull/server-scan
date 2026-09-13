@@ -23,7 +23,7 @@ import structlog
 
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.intersight import mapping
 from app.infrastructure.providers.intersight.client import (
     IntersightClient,
@@ -33,6 +33,20 @@ from app.infrastructure.providers.intersight.client import (
 logger = structlog.get_logger(__name__)
 
 _PROVIDER_TYPE = ManagerType.INTERSIGHT.value
+
+
+def _odata_literal(value: str) -> str:
+    """
+    Escape a string for use inside an OData `eq '...'` filter literal.
+
+    Args:
+        value (str): The raw value — here, always a reported serial.
+
+    Returns:
+        str: `value` with every single quote doubled, OData's own escape.
+    """
+    return value.replace("'", "''")
+
 
 _SUMMARY_FIELDS = (
     "Moid,Dn,Name,UserLabel,Model,Serial,Uuid,Vendor,TotalMemory,NumCpus,NumCpuCores,"
@@ -272,6 +286,257 @@ class IntersightProvider(ServerInventoryProvider):
             await client.health_check()
         finally:
             await client.aclose()
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Fetch one server via a scoped OData `$filter`, never the fleet-wide join tables.
+
+        The owner-relation filters are unverified against a live tenant — see ADR-0032.
+
+        Args:
+            identity (ServerIdentity): `serial` is tried first, falling
+                back to the Moid embedded in `external_id`
+                (`"intersight/<Moid>"`).
+
+        Returns:
+            ProviderServer | None: The current state, or `None` when
+                neither field resolves a server.
+        """
+        moid_hint = (
+            identity.external_id.removeprefix("intersight/")
+            if identity.external_id and identity.external_id.startswith("intersight/")
+            else None
+        )
+        filter_expr = (
+            f"Serial eq '{_odata_literal(identity.serial)}'"
+            if identity.serial
+            else f"Moid eq '{moid_hint}'"
+            if moid_hint
+            else None
+        )
+        if filter_expr is None:
+            return None
+
+        client = self._new_client()
+        try:
+            summary = await self._first(
+                client, "compute/PhysicalSummaries", select=_SUMMARY_FIELDS, filter_expr=filter_expr
+            )
+            if summary is None:
+                return None
+            server_moid = str(summary.get("Moid") or "")
+            if not server_moid:
+                return None
+
+            profile = await self._first(
+                client,
+                "server/Profiles",
+                select=_PROFILE_FIELDS,
+                filter_expr=(
+                    f"(AssociatedServer.Moid eq '{server_moid}') or "
+                    f"(AssignedServer.Moid eq '{server_moid}')"
+                ),
+            )
+            template = None
+            if profile is not None:
+                template_moid = mapping.moref(profile.get("SrcTemplate"))
+                if template_moid:
+                    template = await self._first(
+                        client,
+                        "server/ProfileTemplates",
+                        select=_TEMPLATE_FIELDS,
+                        filter_expr=f"Moid eq '{template_moid}'",
+                    )
+
+            board = await self._first(
+                client,
+                "compute/Boards",
+                select=_BOARD_FIELDS,
+                filter_expr=self._direct_owner_filter(server_moid),
+            )
+            board_moid = str(board.get("Moid") or "") if board else None
+
+            adapter_units = await self._all(
+                client,
+                "adapter/Units",
+                select=_ADAPTER_UNIT_FIELDS,
+                filter_expr=self._direct_owner_filter(server_moid),
+            )
+            adapter_filter = self._in_filter(
+                "AdapterUnit.Moid", [str(u.get("Moid")) for u in adapter_units if u.get("Moid")]
+            )
+            ext_interfaces = (
+                await self._all(
+                    client,
+                    "adapter/ExtEthInterfaces",
+                    select=_EXT_IF_FIELDS,
+                    filter_expr=adapter_filter,
+                )
+                if adapter_filter
+                else []
+            )
+            host_interfaces = (
+                await self._all(
+                    client,
+                    "adapter/HostEthInterfaces",
+                    select=_HOST_IF_FIELDS,
+                    filter_expr=adapter_filter,
+                )
+                if adapter_filter
+                else []
+            )
+
+            board_filter = self._owner_filter(server_moid, board_moid)
+            controllers = await self._all(
+                client,
+                "storage/Controllers",
+                select=_STORAGE_CONTROLLER_FIELDS,
+                filter_expr=board_filter,
+            )
+            disk_filter = self._in_filter(
+                "StorageController.Moid", [str(c.get("Moid")) for c in controllers if c.get("Moid")]
+            )
+            disks = (
+                await self._all(
+                    client, "storage/PhysicalDisks", select=_DISK_FIELDS, filter_expr=disk_filter
+                )
+                if disk_filter
+                else []
+            )
+
+            cards = await self._all(
+                client, "graphics/Cards", select=_CARD_FIELDS, filter_expr=board_filter
+            )
+            processors = await self._all(
+                client, "processor/Units", select=_PROCESSOR_FIELDS, filter_expr=board_filter
+            )
+            psus = await self._all(
+                client,
+                "equipment/Psus",
+                select=_PSU_FIELDS,
+                filter_expr=f"ComputeRackUnit.Moid eq '{server_moid}'",
+            )
+
+            mgmt_controller = await self._first(
+                client,
+                "management/Controllers",
+                select=_MGMT_CONTROLLER_FIELDS,
+                filter_expr=self._direct_owner_filter(server_moid),
+            )
+            management_interface = None
+            if mgmt_controller is not None and mgmt_controller.get("Moid"):
+                management_interface = await self._first(
+                    client,
+                    "management/Interfaces",
+                    select=_MGMT_INTERFACE_FIELDS,
+                    filter_expr=f"ManagementController.Moid eq '{mgmt_controller['Moid']}'",
+                )
+
+            return mapping.to_provider_server(
+                summary,
+                provider_type=self.provider_type,
+                manager_id=self._manager.id,
+                profile=profile,
+                template=template,
+                ext_interfaces=ext_interfaces,
+                host_interfaces=host_interfaces,
+                disks=disks,
+                cards=cards,
+                processors=processors,
+                psus=psus,
+                management_interface=management_interface,
+            )
+        finally:
+            await client.aclose()
+
+    @staticmethod
+    def _direct_owner_filter(server_moid: str) -> str:
+        """
+        The `$filter` for a class that carries `ComputeBlade`/`ComputeRackUnit` directly.
+
+        Args:
+            server_moid (str): The owning server's `Moid`.
+
+        Returns:
+            str: An OData expression matching either relationship.
+        """
+        return (
+            f"(ComputeBlade.Moid eq '{server_moid}') or (ComputeRackUnit.Moid eq '{server_moid}')"
+        )
+
+    @classmethod
+    def _owner_filter(cls, server_moid: str, board_moid: str | None) -> str:
+        """
+        The `$filter` for a class that may carry `ComputeBoard` instead of a direct relationship.
+
+        Args:
+            server_moid (str): The owning server's `Moid`.
+            board_moid (str | None): Its `compute.Board`'s `Moid`, if found.
+
+        Returns:
+            str: An OData expression matching the direct relationship or,
+                when a board was found, `ComputeBoard`.
+        """
+        direct = cls._direct_owner_filter(server_moid)
+        if board_moid is None:
+            return direct
+        return f"{direct} or (ComputeBoard.Moid eq '{board_moid}')"
+
+    @staticmethod
+    def _in_filter(field: str, moids: list[str]) -> str | None:
+        """
+        An OData `$filter` matching any of a list of Moids on one relationship field.
+
+        Args:
+            field (str): The relationship field, e.g. `"AdapterUnit.Moid"`.
+            moids (list[str]): The Moids to match; empty means nothing to filter for.
+
+        Returns:
+            str | None: The OR'd expression, or `None` when `moids` is empty.
+        """
+        if not moids:
+            return None
+        return " or ".join(f"{field} eq '{moid}'" for moid in moids)
+
+    @staticmethod
+    async def _first(
+        client: Any, resource: str, *, select: str, filter_expr: str
+    ) -> Mapping[str, Any] | None:
+        """
+        The first row matching a scoped `$filter`, or `None`.
+
+        Args:
+            client (Any): The Intersight client.
+            resource (str): Path under `/api/v1`.
+            select (str): `$select` field list.
+            filter_expr (str): `$filter` expression.
+
+        Returns:
+            Mapping[str, Any] | None: The first matching row, or `None`.
+        """
+        async for row in client.list_all(resource, select=select, filter_expr=filter_expr):
+            return row
+        return None
+
+    @staticmethod
+    async def _all(
+        client: Any, resource: str, *, select: str, filter_expr: str
+    ) -> list[Mapping[str, Any]]:
+        """
+        Every row matching a scoped `$filter`.
+
+        Args:
+            client (Any): The Intersight client.
+            resource (str): Path under `/api/v1`.
+            select (str): `$select` field list.
+            filter_expr (str): `$filter` expression.
+
+        Returns:
+            list[dict[str, Any]]: The matching rows, empty if none.
+        """
+        return [
+            row async for row in client.list_all(resource, select=select, filter_expr=filter_expr)
+        ]
 
     def _mode_filter(self) -> str | None:
         """

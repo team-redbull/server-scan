@@ -167,8 +167,14 @@ ServerInventoryProvider (ABC)                       # ADR-0023
     ├── collect() -> AsyncGenerator[ProviderServer]  # template method
     ├── collection_errors() -> tuple[str, ...]
     ├── health_check() -> None                       # abstract
+    ├── get_one(ServerIdentity) -> ProviderServer | None  # abstract, ADR-0032
     └── _list_servers() -> AsyncGenerator[...]       # abstract
 ```
+
+`get_one()` (ADR-0032) is the single-server counterpart to `collect()`:
+a live recheck for `GET /servers/available` fetches one server directly
+(a scoped query, a direct-by-URI/DN fetch, or a single-host recollect,
+per provider) rather than re-running the bulk path and filtering.
 
 The membership jobs deliberately do **not** sit behind this seam. It
 exists to normalise a *vendor* into `ProviderServer` for `IngestService`;
@@ -331,6 +337,7 @@ can be legitimately shadowed.
 OpenShift namespace                        (chart: deploy/helm/server-scan)
 ├── Deployment  backend API (N replicas)  ── Service ─┐
 │      envFrom: <release>-api-config (ConfigMap)   ← INVENTORY_SITES lives here
+│      envFrom: <release>-collector-credentials    ← ADR-0032's live recheck
 │      env:     Mongo/Redis URIs from a Secret      │
 ├── Deployment  frontend (nginx + SPA)  ── Service ──┴── Route  ← the ONLY one
 │      nginx proxies /api/ and /health/ to the API Service, so the
@@ -405,6 +412,16 @@ collector does, and never call this platform's API.
   Argo CD rolls it out. The gitops `values.yaml` stays the hand-edited
   override file; a runner cannot run the server-side dry-run, so that
   remains a habit for chart changes.
+- **The API pod holds vendor manager credentials for the first time since
+  ADR-0012** (ADR-0032): `backend-deployment.yaml` now also mounts
+  `<release>-collector-credentials`, the same Secret every collector
+  CronJob already reads, so `GET /servers/available` can live-recheck a
+  candidate before returning it. Not gated behind a values toggle — an
+  unconfigured value degrades to trusting Mongo (`ManagerNotConfiguredError`),
+  the same way a collector treats one today. The standalone Redfish
+  collector's per-host TOML files are deliberately **not** mounted here,
+  to avoid putting every BMC password within reach of the pod the Route
+  exposes; that collector's candidates always trust Mongo.
 
 ---
 
@@ -481,6 +498,7 @@ of it.
 | 0029 | Staleness is a set of gauges the API derives from MongoDB on scrape — the only thing that can say a CronJob stopped |
 | 0030 | A health policy is scoped to a *set* of collectors (`manager_types`), `source_provider` is the manager type at evaluation, and the page groups by scope and sorts by severity |
 | 0031 | A release deploys itself: CI syncs the chart copy in redbull-platform and pins the image tags, Argo CD does the rest |
+| 0032 | `GET /servers/available` — Mongo-side ranking plus a per-candidate live recheck via a new `get_one()` on every provider; the API pod now holds the same manager credentials the CronJobs do |
 
 ---
 
@@ -511,6 +529,7 @@ Modifiability ─ a new vendor is a new module; a site rename is a config change
 | Q7 | Two classification rules tie and disagree | Winner is deterministic (lowest id); the disagreement is persisted in `conflicts[]` so the authoring mistake surfaces. |
 | Q8 | A collector is pointed at a wrong/half-configured vendor | Fails before any connection with a message naming the exact variables to set (exit 2). |
 | Q9 | A new vendor collector is added | New provider module + factory entry + CronJob. No change to API, engines or frontend. |
+| Q10 | `GET /servers/available` is called for a manager type this process has no credentials for | The live recheck is skipped for that candidate and it is returned trusting the last stored document — never a hard error (ADR-0032). |
 
 ---
 
@@ -523,7 +542,7 @@ go stale — treat its date as load-bearing.
 
 | Risk | Detail |
 |---|---|
-| **No authentication at all** | Every endpoint is open to anyone who can reach the Route, including all write endpoints. Deliberate and confirmed, but it is the release gate and nothing should go to production without it. |
+| **No authentication at all** | Every endpoint is open to anyone who can reach the Route, including all write endpoints. Since ADR-0032, that now includes `GET /servers/available`, whose live recheck can write to a vendor manager's own inventory data (Mongo) using credentials the API pod holds. Deliberate and confirmed, but it is the release gate and nothing should go to production without it. |
 | **No staleness detection** | A CronJob pod is never scraped, so no metric can report its own absence. Nothing today answers "40 hosts have been failing for two weeks". `last_seen_at` is written on every ingest and read by nothing. Since 2026-09-10 this covers the **membership jobs** too, where it bites harder: a cluster that stops running its job leaves every server it holds `INSTALLED` forever, so the inventory quietly overstates how much capacity is in use. Top item on the not-done list. |
 
 ### Medium
@@ -537,6 +556,7 @@ go stale — treat its date as load-bearing.
 | Mongo HA/backup and Redis persistence | Documented as "the platform's problem"; nobody has actually stood either up. |
 | Manual dependency maintenance | Dependabot was deliberately removed (ADR-0013), making pin currency and CVE checks a standing quarterly chore. |
 | **OneView's GPU field mapping is still unverified** | Validated against a live appliance 2026-09-07 (821 servers) — core count and profile paging both confirmed correct, and a real storage-mapping bug was found and fixed the same day — but that estate has no GPU-bearing HPE server, so the GPU product-name-matching rules (ADR-0022, "GPU matching") remain built against realistic spellings, not observed ones. Demoted from High: every other headline unknown that ADR listed is now settled. |
+| **Intersight's `get_one()` owner-relation filters are unverified** | `ComputeBlade.Moid eq '...'`-style nested-property `$filter`s (ADR-0032) mirror the relation shape the fleet-wide join already parses from full rows, but have never been exercised as a filter expression against a live tenant. Affects only `GET /servers/available`'s live recheck for Intersight-sourced servers — the bulk collector's own join is untouched and unaffected. |
 
 ### Low / accepted
 

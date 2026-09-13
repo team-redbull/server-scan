@@ -224,6 +224,22 @@ class ServerDetail(BaseModel):
         )
 
 
+class AvailableServerItem(BaseModel):
+    """One `GET /servers/available` result: a full server plus this call's own metadata."""
+
+    server: ServerDetail
+    live_recheck_performed: bool
+
+
+class AvailableServersResponse(BaseModel):
+    """`GET /servers/available`'s envelope — always a list (ADR-0032)."""
+
+    items: list[AvailableServerItem]
+    mode: str
+    requested: int
+    returned: int
+
+
 class ServerFacets(BaseModel):
     """
     How many servers each filter option would match, for one view.

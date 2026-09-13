@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     max_page_size: int = 200
     cursor_secret: str = _INSECURE_DEV_CURSOR_SECRET
 
+    max_available_count: int = 20
+
+    capacity_aliases: str = ""
+
     sites: str = ""
 
     # The field name must equal the env var suffix — deploy/README.md,

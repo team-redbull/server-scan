@@ -398,7 +398,7 @@ class IngestService:
         async for provider_server in provider.collect():
             summary.fetched += 1
             try:
-                created = await self._ingest_one(
+                _server, created = await self._ingest_one(
                     provider_server,
                     provider_type=provider.provider_type,
                     ruleset=ruleset,
@@ -427,6 +427,32 @@ class IngestService:
         )
         return summary
 
+    async def ingest_one(self, ps: ProviderServer, *, provider_type: str) -> Server:
+        """
+        Run one already-fetched provider record through the full ingest pipeline.
+
+        For a live single-server recheck; see ADR-0032.
+
+        Args:
+            ps (ProviderServer): The freshly fetched record for one server.
+            provider_type (str): The collector's `ManagerType` value.
+
+        Returns:
+            Server: The persisted, re-evaluated server.
+        """
+        ruleset = (
+            await self._classification_service.load_ruleset()
+            if self._classification_service is not None
+            else []
+        )
+        policies = (
+            await self._health_service.load_policies() if self._health_service is not None else []
+        )
+        server, _created = await self._ingest_one(
+            ps, provider_type=provider_type, ruleset=ruleset, policies=policies
+        )
+        return server
+
     async def _find_by_vendor_serial(self, vendor: Vendor, serial_normalized: str) -> Server | None:
         page = await self._server_repo.list_page(
             filters={
@@ -449,7 +475,7 @@ class IngestService:
         provider_type: str,
         ruleset: list[ClassificationRule],
         policies: list[HealthPolicy],
-    ) -> bool:
+    ) -> tuple[Server, bool]:
         """
         Normalize, correlate and upsert one provider record.
 
@@ -464,8 +490,8 @@ class IngestService:
                 load_policies`'s docstring for why.
 
         Returns:
-            bool: True if a new server document was created, False if an
-                existing one was updated.
+            tuple[Server, bool]: The persisted server, and `True` if it
+                was newly created, `False` if an existing one was updated.
         """
         # No fallback vendor: an unrecognized value is a provider bug to surface.
         try:
@@ -517,10 +543,10 @@ class IngestService:
             )
             await self._server_repo.upsert(server)
             await self._emit_transition_events(existing, server)
-            return False
+            return server, False
 
         await self._emit_transition_events(existing, server)
-        return existing is None
+        return server, existing is None
 
     async def _emit_transition_events(self, existing: Server | None, server: Server) -> None:
         """
