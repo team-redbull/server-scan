@@ -606,7 +606,12 @@ nginx gzips the bundle (494 → 143 KB) and serves `index.html` as
 `no-cache`. The same harness at 10k and 50k is in the ADR (fine at 10k,
 wrong at 50k — 2.4 s first load; the operator's ceiling is 5k). A
 pre-commit verification pass (API hammer + UI walk, both in the ADR)
-caught a search-parity gap and a reflowing filter row, both fixed.
+caught a search-parity gap and a reflowing filter row, both fixed. Then
+at the operator's request: `GET /servers/facets` deleted (nothing called
+it; `feat!:`), every dropdown option counts — `(0)` included, sites too —
+the State column sorts by severity, and a pre-existing bug where two
+filter changes under ~100 ms apart lost the first was fixed by building
+the next URL from the live location.
 **Open:** nothing from this unit; OpenShift-side options (Route HTTP/2
 needs a custom cert on the edge Route; router compression is now
 redundant) are noted in the ADR and deliberately not done.

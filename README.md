@@ -68,9 +68,11 @@ far, in order:
 
 The inventory table shows **Name, Installation, MCE, Cluster, Model,
 State** and a per-row maintenance switch, and sorts on Name, Model,
-Installation, Cluster and MCE — naturally (`srv-2` before `srv-10`), nulls
-last — and pages 50 rows at a time with page numbers, all in the browser
-over the whole fleet (`docs/adr/0033-client-side-inventory-filtering.md`).
+Installation, Cluster, MCE and State (by severity) — naturally (`srv-2`
+before `srv-10`), nulls last — and pages 50 rows at a time with page
+numbers, all in the browser over the whole fleet; every filter option
+shows its count under the current filters, `(0)` included
+(`docs/adr/0033-client-side-inventory-filtering.md`).
 The API's own `GET /servers` still pages by keyset cursor for other
 callers; its two nullable sort fields needed a null-aware cursor
 (`docs/adr/0026-nullable-sort-fields.md`). MCE appears as a column only
@@ -573,7 +575,8 @@ from going stale.
 
 ```
 backend/app/     FastAPI service — domain/application/infrastructure/api layers
-frontend/        Vite + React + TypeScript SPA
+frontend/        Vite + React + TypeScript SPA; scripts/bench-inventory.mjs is the
+                 ADR-0033 UX benchmark
 tests/           unit / integration / api tests
 tools/           operational CLIs: fake-data seeder, index/load verification,
                  the real-collector runner (tools/run_collector.py)

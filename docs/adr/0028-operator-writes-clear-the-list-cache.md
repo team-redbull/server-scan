@@ -45,7 +45,10 @@ pre-write page came back.
 list page and facet count. Nothing else does.**
 
 `_invalidate_list_cache` calls `CacheClient.delete_matching` over
-`keys.list_and_facets_patterns()`. Three properties are load-bearing:
+`keys.list_and_facets_patterns()` (renamed `list_cache_patterns()` on
+2026-09-14, when `/servers/facets` was removed and the `/servers/rows`
+body joined the list pages under it — ADR-0033). Three properties are
+load-bearing:
 
 - **It is on the operator path only, never on ingest.** `IngestService`
   and every collector keep paying the TTL. This is the whole reason the

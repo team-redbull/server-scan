@@ -313,9 +313,9 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
 - **TTLs are per resource shape**, not one `cache_default_ttl_seconds`:
   a server detail document is 60s (low churn, per document), a list page
   15s (any write to any server in the result set stales it, and it is
-  cheap to recompute), and facet counts 60s — an aggregation over every
-  server matching a filter, read once per filter change rather than per
-  scroll. The site overview's `si:4:sites:stats` is 30s for the same
+  cheap to recompute), and the whole-fleet `/servers/rows` body 15s for
+  the same reason (facet counts, once a 60s aggregation, are computed in
+  the browser since 2026-09-14). The site overview's `si:4:sites:stats` is 30s for the same
   reason: `site_breakdown` is a full collection scan with no index to
   help a grouping without a match stage, and five collectors change its
   numbers continuously, so there is no clean event to invalidate on.
