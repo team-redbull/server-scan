@@ -317,6 +317,7 @@ _SLOT_PORTS = 2
 # Dell's identity from the appliance but its hardware from the server's
 # own iDRAC (ADR-0020), reusing the Redfish mapping unchanged.
 _FQDD_COLLECTORS = (ManagerType.OPENMANAGE, ManagerType.REDFISH_STANDALONE)
+_FABRIC_COLLECTORS = (ManagerType.UCS_CENTRAL, ManagerType.INTERSIGHT)
 
 # Environment segment some UPI hostnames carry (`ocp4-prod-tlv-infra-01`),
 # and some don't (`ocp4-nyc-control-plane-02`). Both real shapes.
@@ -1146,12 +1147,12 @@ def generate_servers(
             gpus = None
             psus = None
 
-        # Only Cisco has a fabric interconnect in front of it — both
-        # Cisco collectors report one — while a standalone BMC has nothing
-        # to attach, and an empty tuple keeps the seeded
-        # `connectivity.fabric_paths_down` policies from evaluating against
-        # fiction.
-        attachments = _build_attachments(rng, site_code=site_code) if vendor == "cisco" else ()
+        # Only the two fabric-interconnect collectors report attachments —
+        # the same set the seeded `connectivity.fabric_paths_down`
+        # policies are scoped to (docs/adr/0030).
+        attachments = (
+            _build_attachments(rng, site_code=site_code) if collector in _FABRIC_COLLECTORS else ()
+        )
         template_name, template_external_id = _profile_template(rng, collector)
 
         yield ProviderServer(

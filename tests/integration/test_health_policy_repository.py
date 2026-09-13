@@ -230,6 +230,49 @@ async def test_bootstrap_resyncs_a_stale_system_policy_but_keeps_its_enabled_fla
     assert stored.revision == stale.revision + 1
 
 
+async def test_a_pre_adr_0030_scalar_manager_type_document_still_loads(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """Every document written before ADR-0030 carries `scope.manager_type`
+    (null, or a single string) rather than `scope.manager_types`.
+    """
+    repo = MongoHealthPolicyRepository(mongo_holder)
+    for policy, legacy in (
+        (_make_policy("legacy-null-scope"), None),
+        (_make_policy("legacy-string-scope"), "UCS_CENTRAL"),
+    ):
+        doc = policy.model_dump(mode="json", by_alias=True)
+        doc["scope"] = {"site_id": None, "vendor": None, "manager_type": legacy}
+        await mongo_holder.db[HEALTH_POLICIES_COLLECTION].insert_one(doc)
+
+    null_scoped = await repo.get_by_name("legacy-null-scope")
+    string_scoped = await repo.get_by_name("legacy-string-scope")
+    assert null_scoped is not None and null_scoped.scope.manager_types == []
+    assert string_scoped is not None and string_scoped.scope.manager_types == ["UCS_CENTRAL"]
+    assert string_scoped.scope.matches(vendor="cisco", manager_type="UCS_CENTRAL", site_id=None)
+
+
+async def test_bootstrap_resyncs_a_default_stored_with_the_old_unscoped_shape(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A deployed database holds the fabric defaults with `scope.manager_type:
+    null`; startup must give them ADR-0030's collector scope, not keep the
+    stored one.
+    """
+    repo = MongoHealthPolicyRepository(mongo_holder)
+    generated = next(p for p in default_system_policies() if p.scope.manager_types)
+    doc = generated.model_dump(mode="json", by_alias=True)
+    doc["scope"] = {"site_id": None, "vendor": None, "manager_type": None}
+    await mongo_holder.db[HEALTH_POLICIES_COLLECTION].insert_one(doc)
+
+    assert await ensure_default_health_policies(repo, registry=REGISTRY) >= 1
+
+    stored = await repo.get_by_name(generated.name)
+    assert stored is not None
+    assert stored.id == generated.id
+    assert stored.scope.manager_types == generated.scope.manager_types
+
+
 async def test_bootstrap_is_a_no_op_once_the_policies_match_the_code(
     mongo_holder: MongoClientHolder,
 ) -> None:

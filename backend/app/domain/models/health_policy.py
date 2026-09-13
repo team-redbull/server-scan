@@ -15,6 +15,7 @@ choice (the same `policy_key` value) rather implicit merge logic.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -33,7 +34,25 @@ class PolicyScope(BaseModel):
 
     site_id: str | None = None
     vendor: str | None = None
-    manager_type: str | None = None
+    manager_types: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_manager_type(cls, data: Any) -> Any:
+        """
+        Accept the pre-ADR-0030 scalar `manager_type` key a stored document may carry.
+
+        Args:
+            data (Any): The raw input, a dict for a stored document.
+
+        Returns:
+            Any: The input with `manager_type` folded into `manager_types`.
+        """
+        if isinstance(data, dict) and "manager_type" in data:
+            data = dict(data)
+            legacy = data.pop("manager_type")
+            data.setdefault("manager_types", [] if legacy is None else [legacy])
+        return data
 
     def specificity(self) -> int:
         """
@@ -44,7 +63,7 @@ class PolicyScope(BaseModel):
         """
         return (
             (4 if self.site_id is not None else 0)
-            + (2 if self.manager_type is not None else 0)
+            + (2 if self.manager_types else 0)
             + (1 if self.vendor is not None else 0)
         )
 
@@ -62,7 +81,7 @@ class PolicyScope(BaseModel):
         """
         if self.vendor is not None and self.vendor != vendor:
             return False
-        if self.manager_type is not None and self.manager_type != manager_type:
+        if self.manager_types and manager_type not in self.manager_types:
             return False
         return not (self.site_id is not None and self.site_id != site_id)
 

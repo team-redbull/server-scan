@@ -42,7 +42,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.application.services.audit_service import SYSTEM_INGEST_ACTOR, AuditService
 from app.application.services.pipeline import classification_from_result, health_from_state
-from app.domain.enums import LinkState, MediaType, Vendor
+from app.domain.enums import LinkState, ManagerType, MediaType, Vendor
 from app.domain.models.audit_event import EventType
 from app.domain.models.classification import Classification
 from app.domain.models.classification_rule import ClassificationRule
@@ -899,13 +899,7 @@ class IngestService:
             classifiable = ClassifiableServer(
                 name=ps.name,
                 vendor=vendor,
-                # No `manager_type` on `Server`/`ProviderServer` today (only
-                # `manager_id`) — a manager-scoped classification rule
-                # cannot currently match during ingest. Documented gap, not
-                # silently wrong: the same limitation is already recorded
-                # in `ClassificationService`'s and `HealthPolicyService`'s
-                # own docstrings.
-                manager_type=None,
+                manager_type=ManagerType(provider_type),
                 site_id=site_id,
                 serial=ps.serial,
                 model=ps.model,

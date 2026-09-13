@@ -125,11 +125,11 @@ export interface EvidenceField {
 export interface PolicyScope {
   site_id: string | null;
   vendor: string | null;
-  manager_type: ManagerType | null;
+  manager_types: ManagerType[];
 }
 
 export function emptyPolicyScope(): PolicyScope {
-  return { site_id: null, vendor: null, manager_type: null };
+  return { site_id: null, vendor: null, manager_types: [] };
 }
 
 export interface PolicyStats {

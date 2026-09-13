@@ -25,7 +25,9 @@ far, in order:
 4. Maintenance windows and an append-only audit trail.
 5. Classification-rule and health-policy UIs — since made read-only and
    merged into one page; rules and policies ship with the platform, so
-   every deployment classifies and scores identically.
+   every deployment classifies and scores identically. Policies are
+   shown grouped by what they apply to — general ones first, then per
+   vendor/collector — and ordered by severity within each group.
 6. A 10k/50k-scale performance pass (real index-coverage verification and
    load testing, not just fixture-sized tests).
 7. Playwright E2E coverage of the critical admin flows.

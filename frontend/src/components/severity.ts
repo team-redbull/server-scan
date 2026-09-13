@@ -44,3 +44,14 @@ export const SEVERITY_GLYPH: Record<HealthSeverity, string> = {
 export function isHealthSeverity(value: string): value is HealthSeverity {
   return value in SEVERITY_GLYPH;
 }
+
+/** Most to least severe. The one ordering anything that sorts by severity
+ * uses, so two lists can never rank the same tiers differently. */
+export const SEVERITY_ORDER: readonly HealthSeverity[] = [
+  "CRITICAL",
+  "MAJOR",
+  "WARNING",
+  "INFO",
+  "HEALTHY",
+  "UNKNOWN",
+];

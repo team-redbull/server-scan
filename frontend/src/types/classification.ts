@@ -15,6 +15,17 @@ export type ManagerType =
   | "ONEVIEW"
   | "REDFISH_STANDALONE";
 
+/** Every `ManagerType`, as a person names it. Vendor-free on purpose, so a
+ * label can sit beside its vendor without repeating it. */
+export const MANAGER_TYPE_LABELS: Record<ManagerType, string> = {
+  UCS_CENTRAL: "UCS Central",
+  UCS_MANAGER: "UCS Manager",
+  INTERSIGHT: "Intersight",
+  OPENMANAGE: "OpenManage",
+  ONEVIEW: "OneView",
+  REDFISH_STANDALONE: "Redfish standalone",
+};
+
 export type RuleSource =
   | "SITE_CUSTOM"
   | "MANAGER_CUSTOM"

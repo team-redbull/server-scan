@@ -35,28 +35,63 @@ const RULES_RESPONSE = {
   ],
 };
 
+function policy(
+  id: string,
+  name: string,
+  severity: string,
+  scope: { vendor: string | null; manager_types: string[]; site_id: string | null },
+) {
+  return {
+    id,
+    name,
+    category: "storage",
+    severity,
+    policy_key: `storage.${id}`,
+    mode: "THRESHOLD",
+    enabled: true,
+    system: true,
+    condition: {
+      metric: "storage.failed_drive_count",
+      operator: "GTE",
+      value: 1,
+      all_of: null,
+      any_of: null,
+      not: null,
+      equals: null,
+    },
+    scope,
+  };
+}
+
+// Deliberately out of both section and severity order, so the page has
+// to sort them rather than inherit the database's order.
 const POLICIES_RESPONSE = {
   items: [
-    {
-      id: "policy_1",
-      name: "failed drive",
-      category: "storage",
-      severity: "CRITICAL",
-      policy_key: "storage.failed_drive",
-      mode: "THRESHOLD",
-      enabled: true,
-      system: true,
-      condition: {
-        metric: "storage.failed_drive_count",
-        operator: "GTE",
-        value: 1,
-        all_of: null,
-        any_of: null,
-        not: null,
-        equals: null,
-      },
-      scope: { vendor: "dell", manager_type: null, site_id: null },
-    },
+    policy("policy_1", "failed drive", "CRITICAL", {
+      vendor: "dell",
+      manager_types: [],
+      site_id: null,
+    }),
+    policy("policy_2", "general warning", "WARNING", {
+      vendor: null,
+      manager_types: [],
+      site_id: null,
+    }),
+    policy("policy_3", "general critical", "CRITICAL", {
+      vendor: null,
+      manager_types: [],
+      site_id: null,
+    }),
+    policy("policy_4", "general major", "MAJOR", {
+      vendor: null,
+      manager_types: [],
+      site_id: null,
+    }),
+    policy("policy_5", "cisco vnic down", "MAJOR", {
+      vendor: "cisco",
+      manager_types: ["UCS_CENTRAL", "INTERSIGHT"],
+      site_id: null,
+    }),
   ],
 };
 
@@ -149,9 +184,8 @@ describe("RulesPage", () => {
   it("renders a health policy's condition as readable text", async () => {
     renderRulesPage();
 
-    expect(
-      await screen.findByText("storage.failed_drive_count GTE 1"),
-    ).toBeInTheDocument();
+    const conditions = await screen.findAllByText("storage.failed_drive_count GTE 1");
+    expect(conditions).toHaveLength(POLICIES_RESPONSE.items.length);
   });
 
   it("renders an unscoped rule as unscoped rather than blank", async () => {
@@ -159,6 +193,36 @@ describe("RulesPage", () => {
 
     expect(await screen.findByText("(unscoped)")).toBeInTheDocument();
     expect(screen.getByText("site=tlv")).toBeInTheDocument();
-    expect(screen.getByText("vendor=dell")).toBeInTheDocument();
+  });
+
+  it("groups health policies by scope, General first", async () => {
+    // The section heading says the scope, so the row does not have to.
+    renderRulesPage();
+
+    const general = await screen.findByRole("heading", { name: "General" });
+    const dell = screen.getByRole("heading", { name: "Dell" });
+    const cisco = screen.getByRole("heading", { name: "Cisco — UCS Central, Intersight" });
+    expect(precedes(general, dell)).toBe(true);
+    expect(precedes(general, cisco)).toBe(true);
+    expect(precedes(dell, cisco)).toBe(true);
+    expect(precedes(screen.getByText("general major"), dell)).toBe(true);
+    expect(precedes(dell, screen.getByText("cisco vnic down"))).toBe(true);
+    expect(precedes(dell, screen.getByText("failed drive"))).toBe(true);
+    expect(screen.queryByText("vendor=dell")).not.toBeInTheDocument();
+  });
+
+  it("sorts each section by severity: CRITICAL, MAJOR, WARNING", async () => {
+    renderRulesPage();
+
+    const critical = await screen.findByText("general critical");
+    const major = screen.getByText("general major");
+    const warning = screen.getByText("general warning");
+    expect(precedes(critical, major)).toBe(true);
+    expect(precedes(major, warning)).toBe(true);
   });
 });
+
+/** Whether `a` comes before `b` in document order. */
+function precedes(a: HTMLElement, b: HTMLElement): boolean {
+  return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}

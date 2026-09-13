@@ -86,6 +86,20 @@ export function siteOptions(
 
 export const VENDORS: readonly Vendor[] = ["dell", "cisco", "hp", "standalone"];
 
+const VENDOR_LABELS: Record<string, string> = {
+  dell: "Dell",
+  cisco: "Cisco",
+  hp: "HPE",
+  standalone: "Standalone",
+};
+
+/** A vendor with no label of its own renders under its own name rather
+ * than being dropped or lumped into an "Other" bucket — a vendor the UI
+ * has never heard of is exactly the one worth seeing by name. */
+export function vendorLabel(vendor: string): string {
+  return VENDOR_LABELS[vendor] ?? vendor;
+}
+
 /** How a server is reached, which is a different question from who built
  * it. A Dell reached at its own BMC is still `vendor: "dell"`; what makes
  * it unmanaged is `source_provider: "REDFISH_STANDALONE"`. Values match

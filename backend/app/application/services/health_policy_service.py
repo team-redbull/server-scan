@@ -59,7 +59,7 @@ from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolic
 # validity — see that module's docstring).
 _SCOPE_REQUIREMENTS: dict[str, str] = {
     "SITE_CUSTOM": "site_id",
-    "MANAGER_CUSTOM": "manager_type",
+    "MANAGER_CUSTOM": "manager_types",
     "VENDOR_CUSTOM": "vendor",
 }
 _KNOWN_SOURCES = frozenset(
@@ -75,14 +75,14 @@ def _validate_scope_source_coherence(policy: HealthPolicy) -> None:
         raise ValidationAppError(f"Unknown source {source!r}.", details={"source": source})
 
     required_field = _SCOPE_REQUIREMENTS.get(source)
-    if required_field is not None and getattr(scope, required_field) is None:
+    if required_field is not None and not getattr(scope, required_field):
         raise ValidationAppError(
             f"{source} policies must set scope.{required_field}.",
             details={"source": source, "missing_field": required_field},
         )
 
     if source == "GLOBAL_CUSTOM" and (
-        scope.site_id is not None or scope.manager_type is not None or scope.vendor is not None
+        scope.site_id is not None or scope.manager_types or scope.vendor is not None
     ):
         raise ValidationAppError(
             "GLOBAL_CUSTOM policies must not set any scope field.",
@@ -202,11 +202,9 @@ class HealthPolicyService:
         Evaluate against an already-loaded policy set (`load_policies`).
 
         The ingest-loop counterpart to `evaluate_server`, which loads its
-        own policy set on every call. `manager_type` is always passed as
-        `None`: `Server` carries no `manager_type` field today (only
-        `manager_id`), so any policy scoped to a `manager_type` cannot
-        currently match any server — a known gap in the `Server` schema,
-        not something this method papers over.
+        own policy set on every call. `Server.source_provider` is the
+        collector's `ManagerType` value and is what manager-scoped
+        policies match against.
 
         Args:
             server (Server): The server to evaluate.
@@ -223,6 +221,6 @@ class HealthPolicyService:
             policies,
             self._registry,
             vendor=server.identity.vendor.value,
-            manager_type=None,
+            manager_type=server.source_provider,
             site_id=server.site_id,
         )

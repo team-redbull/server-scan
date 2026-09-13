@@ -89,7 +89,7 @@ def test_the_source_filter_offers_nothing_unimplemented() -> None:
 
 
 def test_the_manager_type_union_carries_every_member() -> None:
-    """`RuleScope.manager_type` and `PolicyScope.manager_type` are typed by
+    """`RuleScope.manager_type` and `PolicyScope.manager_types` are typed by
     this union, so a missing member mistypes a scope the API really
     returns and the Rules page really renders.
 

@@ -187,6 +187,15 @@ any real collector exists.
 
 ## Health policy engine (slice 3)
 
+- **A policy's scope names a set of collectors, not one** (ADR-0030).
+  `PolicyScope.manager_types` lists the `ManagerType` values a policy
+  applies to; empty means every server. The two fabric-path defaults are
+  scoped to `[UCS_CENTRAL, INTERSIGHT]` — servers a fabric interconnect
+  owns — and every other default is general. `Server.source_provider` is
+  what the engine compares against, so a manager-scoped policy really
+  does match now; before ADR-0030 every evaluation passed `None` and such
+  a policy matched nothing. The read-only page groups policies by scope
+  ("General" first) and sorts each group CRITICAL → MAJOR → WARNING.
 - **The override problem** — a site policy must be able to *replace* a
   global default, not just add another alert beside it, while unrelated
   policies keep firing independently — is solved by `policy_key` families

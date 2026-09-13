@@ -18,7 +18,7 @@ registerable candidates, never to shadow each other.
 
 from __future__ import annotations
 
-from app.domain.enums import HealthSeverity
+from app.domain.enums import HealthSeverity, ManagerType, Vendor
 from app.domain.models.health_policy import EvidenceField, HealthPolicy, PolicyScope
 from app.domain.services.health.conditions import Condition
 from app.utils.ids import new_id
@@ -35,6 +35,11 @@ def default_system_policies() -> list[HealthPolicy]:
             a new id — building, not persisting, is this function's job.
     """
     now = utcnow()
+    # Only a fabric interconnect has fabric paths — see docs/adr/0030.
+    fabric_scope = PolicyScope(
+        vendor=Vendor.CISCO.value,
+        manager_types=[ManagerType.UCS_CENTRAL.value, ManagerType.INTERSIGHT.value],
+    )
 
     # `id=` (the field name), not `_id=` (its Mongo alias): both are valid
     # at runtime under `HealthPolicy`'s `populate_by_name=True`, but
@@ -53,7 +58,7 @@ def default_system_policies() -> list[HealthPolicy]:
         condition=Condition(metric="connectivity.fabric_paths_down", operator="EQ", value=1),
         evidence=[EvidenceField(key="down", metric="connectivity.fabric_paths_down")],
         message_template="{down} UCS fabric path is down",
-        scope=PolicyScope(),
+        scope=fabric_scope,
         source="SYSTEM_DEFAULT",
         priority=100,
         system=True,
@@ -71,7 +76,7 @@ def default_system_policies() -> list[HealthPolicy]:
         condition=Condition(metric="connectivity.fabric_paths_down", operator="GTE", value=2),
         evidence=[EvidenceField(key="down", metric="connectivity.fabric_paths_down")],
         message_template="{down} UCS fabric paths are down",
-        scope=PolicyScope(),
+        scope=fabric_scope,
         source="SYSTEM_DEFAULT",
         priority=100,
         system=True,

@@ -12,14 +12,19 @@ each provider builds them, and the assertion is on what the facts say.
 
 from __future__ import annotations
 
-from app.domain.enums import HealthSeverity, LinkState
+from typing import Any, cast
+
+from app.application.services.health_policy_service import HealthPolicyService
+from app.domain.enums import HealthSeverity, LinkState, Vendor
+from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import Gpu, Hardware, Power, Psu, Storage, StorageDrive
 from app.domain.models.network import NetworkInfo, NetworkInterface
-from app.domain.models.server import Server
+from app.domain.models.server import Identity, Server
 from app.domain.services.health.evaluate import evaluate_health
 from app.domain.services.health.facts import extract_facts
 from app.domain.services.health.health_policy_defaults import default_system_policies
 from app.domain.services.health.metrics import build_default_registry
+from app.utils.timeutil import utcnow
 
 
 def _metrics_in(condition: object) -> list[str]:
@@ -261,3 +266,51 @@ class TestUnknownIsNotAVerdict:
         assert facts["storage.data_bad_disk_count"] == 0
         assert facts["power.failed_psu_count"] == 0
         assert facts["gpu.failed_count"] == 0
+
+
+class TestManagerScopedDefaults:
+    """The fabric policies are scoped to the two fabric-interconnect collectors (ADR-0030)."""
+
+    @staticmethod
+    def _connectivity_severity(source_provider: str) -> HealthSeverity | None:
+        """
+        Evaluate the seeded defaults for a Cisco server with two fabric paths down.
+
+        Args:
+            source_provider (str): The collector that wrote the server.
+
+        Returns:
+            HealthSeverity | None: The `connectivity` category severity, or
+                None when no connectivity policy fired.
+        """
+        now = utcnow()
+        server = Server(
+            id="srv_fabric",
+            name="ocp4-prod-tlv-compute-01",
+            identity=Identity(vendor=Vendor.CISCO),
+            source_provider=source_provider,
+            connectivity=Connectivity(
+                facts=ConnectivityFacts(fabric_paths_total=2, fabric_paths_down=2)
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        state = service.evaluate_with_policies(server, default_system_policies())
+        category = state.categories.get("connectivity")
+        return category.severity if category is not None else None
+
+    def test_fires_for_a_ucs_central_server(self) -> None:
+        assert self._connectivity_severity("UCS_CENTRAL") == HealthSeverity.CRITICAL
+
+    def test_fires_for_an_intersight_server(self) -> None:
+        assert self._connectivity_severity("INTERSIGHT") == HealthSeverity.CRITICAL
+
+    def test_does_not_fire_for_a_oneview_server(self) -> None:
+        assert self._connectivity_severity("ONEVIEW") != HealthSeverity.CRITICAL
+
+    def test_every_other_default_is_unscoped(self) -> None:
+        scoped = {p.name for p in default_system_policies() if p.scope.specificity() > 0}
+        assert scoped == {"UCS fabric path down (warning)", "UCS fabric paths down (critical)"}

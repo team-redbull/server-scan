@@ -475,6 +475,7 @@ of it.
 | 0027 | A value a collector could not read is never a health verdict — UNKNOWN is excluded from every policy's denominator |
 | 0028 | An operator write clears the cached list pages and facet counts; an ingest write still does not |
 | 0029 | Staleness is a set of gauges the API derives from MongoDB on scrape — the only thing that can say a CronJob stopped |
+| 0030 | A health policy is scoped to a *set* of collectors (`manager_types`), `source_provider` is the manager type at evaluation, and the page groups by scope and sorts by severity |
 
 ---
 

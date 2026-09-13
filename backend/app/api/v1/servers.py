@@ -53,6 +53,7 @@ from app.application.services.maintenance_service import MaintenanceService
 from app.application.services.pipeline import classification_from_result, health_from_state
 from app.config import Settings, get_settings
 from app.dependencies import get_current_actor, get_mongo_holder, get_redis_holder, get_request_id
+from app.domain.enums import ManagerType
 from app.domain.models.audit_event import Actor, EventType
 from app.domain.ports.regex_engine import RegexEngine
 from app.domain.services.classification import ClassifiableServer
@@ -534,7 +535,7 @@ async def reclassify_server(
     classifiable = ClassifiableServer(
         name=server.name,
         vendor=server.identity.vendor,
-        manager_type=None,  # Server carries no manager_type field today
+        manager_type=ManagerType(server.source_provider) if server.source_provider else None,
         site_id=server.site_id,
         serial=server.identity.serial,
         model=server.model,
