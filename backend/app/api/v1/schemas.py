@@ -25,8 +25,6 @@ preference:
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
@@ -42,7 +40,6 @@ from app.domain.models.network import BmcInfo, NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.server import Identity, ProfileTemplate, Server
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
-from app.infrastructure.mongodb.server_repository import FacetRow
 
 
 class ConnectivitySummary(BaseModel):
@@ -479,80 +476,3 @@ class AvailableServersResponse(BaseModel):
     mode: str
     requested: int
     returned: int
-
-
-class ServerFacets(BaseModel):
-    """
-    How many servers each filter option would match, for one view.
-
-    Counts are within the filters already applied, and an option with no
-    match is absent, not zero — docs/architecture.md, "Search, pagination".
-
-    Attributes:
-        total (int): Servers matching the current filters.
-        vendor (dict[str, int]): Counts by `identity.vendor`.
-        source_provider (dict[str, int]): Counts by collector.
-        installation_type (dict[str, int]): Counts by classification.
-        health_overall (dict[str, int]): Counts by health severity.
-        maintenance (dict[str, int]): Counts keyed `"true"`/`"false"`,
-            strings because JSON object keys cannot be booleans.
-        stale (dict[str, int]): Same keying; servers unseen past the
-            staleness window, or never seen.
-    """
-
-    total: int
-    vendor: dict[str, int] = Field(default_factory=dict)
-    source_provider: dict[str, int] = Field(default_factory=dict)
-    installation_type: dict[str, int] = Field(default_factory=dict)
-    health_overall: dict[str, int] = Field(default_factory=dict)
-    maintenance: dict[str, int] = Field(default_factory=dict)
-    openshift_state: dict[str, int] = Field(default_factory=dict)
-    stale: dict[str, int] = Field(default_factory=dict)
-
-    @classmethod
-    def from_rows(cls, rows: Iterable[FacetRow]) -> ServerFacets:
-        """
-        Sum the grouped rows into one marginal per dimension.
-
-        Args:
-            rows (Iterable[FacetRow]): `MongoServerRepository.
-                facet_breakdown`'s output.
-
-        Returns:
-            ServerFacets: The per-option counts.
-        """
-        totals: dict[str, Counter[str]] = {
-            "vendor": Counter(),
-            "source_provider": Counter(),
-            "installation_type": Counter(),
-            "health_overall": Counter(),
-            "maintenance": Counter(),
-            "openshift_state": Counter(),
-            "stale": Counter(),
-        }
-        total = 0
-        for row in rows:
-            total += row.count
-            for dimension, value in (
-                ("vendor", row.vendor),
-                ("source_provider", row.source_provider),
-                ("installation_type", row.installation_type),
-                ("health_overall", row.health_overall),
-                ("maintenance", "true" if row.maintenance else "false"),
-                ("openshift_state", row.openshift_state),
-                ("stale", "true" if row.stale else "false"),
-            ):
-                # `None` counts in `total` but under no option: no filter
-                # value would select it.
-                if value is not None:
-                    totals[dimension][str(value)] += row.count
-        return cls(
-            total=total,
-            vendor=dict(totals["vendor"]),
-            source_provider=dict(totals["source_provider"]),
-            installation_type=dict(totals["installation_type"]),
-            health_overall=dict(totals["health_overall"]),
-            maintenance=dict(totals["maintenance"]),
-            openshift_state=dict(totals["openshift_state"]),
-            stale=dict(totals["stale"]),
-        )

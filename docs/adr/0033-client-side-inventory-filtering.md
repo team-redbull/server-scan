@@ -131,9 +131,13 @@ endpoint and does everything else locally.
 - The maintenance switch patches the row in the cached fleet before
   invalidating, so under "Maintenance only" the row leaves at once.
 
-`GET /servers` and `GET /servers/facets` **stay** for API consumers
-(`/servers/available` ranks with the same filter whitelist; scripts page
-with cursors). The UI simply no longer calls them.
+`GET /servers` **stays** for API consumers (`/servers/available` ranks
+with the same filter whitelist; scripts page with cursors).
+`GET /servers/facets` was **deleted** the same day: nothing called it once
+the UI counted locally, and an open endpoint that runs a full-collection
+`$group` on demand is not worth keeping for a hypothetical caller. Its
+counts were verified equal to the browser's, option by option, before
+removal ("What the verification pass found").
 
 ## Consequences
 

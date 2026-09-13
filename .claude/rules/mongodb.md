@@ -40,12 +40,12 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   collection. `GET /servers/available`'s `?pattern=` is a deliberate,
   bounded exception — a real `$regex` on `name` (ADR-0032).
 - **The list cache is invalidated by operator writes and nothing else**
-  (ADR-0028): `/servers` pages (15s), `/servers/facets` (60s) and the
-  `/servers/rows` body (15s, ADR-0033) get no invalidation on the ingest
-  path, since five CronJobs write continuously.
+  (ADR-0028): `/servers` pages (15s) and the `/servers/rows` body (15s,
+  ADR-0033) get no invalidation on the ingest path, since five CronJobs
+  write continuously.
   Maintenance and `GET /servers/available`'s live recheck call
   `_invalidate_list_cache`. **Do not extend this to ingest.** `SCAN MATCH`
-  has no brace alternation (`{list,facets}` matches nothing), and it must
+  has no brace alternation (`{a,b}` matches nothing), and it must
   never become `KEYS`.
 - **Redis is cache-aside only**; every read degrades to Mongo on any Redis
   failure. Never make it a correctness dependency. Pagination is keyset

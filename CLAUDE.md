@@ -425,7 +425,8 @@ long form of every entry as of 2026-09-13 is
   fleet — `generated_at` is the newest `updated_at`, never `utcnow()` — or
   the weak ETag never yields a 304 and every 30 s poll re-downloads the
   fleet. The inventory UI does its filtering from that one response;
-  `GET /servers`/`/facets` remain for API callers.
+  `GET /servers` remains for API callers; `/servers/facets` was deleted
+  once nothing called it.
 - **`GET /servers/available` is the one endpoint that talks to a vendor
   manager** (ADR-0032). It ranks candidates in Mongo, then live-rechecks
   only the few it returns via `ServerInventoryProvider.get_one()` and

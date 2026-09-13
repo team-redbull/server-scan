@@ -167,19 +167,19 @@ async def test_the_maintenance_filter_reflects_a_write_immediately(
     assert (await client.get(query)).json()["items"] == []
 
 
-async def test_a_maintenance_write_refreshes_the_facet_counts(
+async def test_a_maintenance_write_refreshes_the_rows_body(
     app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
 ) -> None:
-    """The counts beside the filter are cached on the same key family."""
+    """The cached whole-fleet rows body is cleared on the same key family (ADR-0028)."""
     client, repo, _policy_repo = app_context
-    server = await repo.upsert(_make_server("srv-maint-facets"))
+    server = await repo.upsert(_make_server("srv-maint-rows"))
 
-    before = (await client.get("/api/v1/servers/facets")).json()["maintenance"]
-    assert before.get("true", 0) == 0
+    (before,) = (await client.get("/api/v1/servers/rows")).json()["items"]
+    assert before["maintenance"]["enabled"] is False
 
     await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "x"})
-    after = (await client.get("/api/v1/servers/facets")).json()["maintenance"]
-    assert after.get("true", 0) == 1
+    (after,) = (await client.get("/api/v1/servers/rows")).json()["items"]
+    assert after["maintenance"] == {"enabled": True, "reason": "x"}
 
 
 async def test_enable_maintenance_records_maintenance_enabled_event(

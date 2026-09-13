@@ -222,8 +222,8 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   when unchanged; `generated_at` is the newest `updated_at`, not the build
   time, precisely so the body is byte-stable). Filter, sort, substring
   search, facet counts and paging then happen in the browser. Everything
-  below still holds for `GET /servers` and `GET /servers/facets`, which
-  API consumers and `/servers/available` use.
+  below still holds for `GET /servers`, which API consumers and
+  `/servers/available` use.
 
 - **Search** never sends user input to MongoDB as raw regex. A query is
   lowercased, escaped, and matched as an anchored prefix against
@@ -345,23 +345,17 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   event loop is not held. It composes with the raw-bytes cache above —
   the cache stores plain JSON, the middleware compresses on the way out.
   Measured 2026-09-14 against 2,504 seeded servers.
-- **`GET /servers/facets` counts within the filters already applied**, so
-  reading the vendor counts after picking a site describes that site, not
-  the estate — the number an operator is actually asking for, and why the
-  counts are per request rather than a fleet-wide cache. An option with
-  no match is absent rather than zero, so the UI can show it as
-  unavailable instead of selectable-but-empty. The repository answers it
-  with one `$group` over a composite key rather than a `$facet` per
-  dimension: the key's cardinality is bounded by the enums, not the
-  estate (4 vendors x 5 collectors x 4 installation types x 5 severities
-  x 2 maintenance states x 3 OpenShift states x 2 stale states, ~9,600
-  rows at absolute worst and a tiny fraction in practice), and each dimension's counts are
-  the marginals summed out of it. `site_id` is deliberately not in the
-  key — it is usually already a filter by the time these numbers are
-  wanted, and the site overview answers the per-site question. The route
-  is declared before `/servers/{server_id}` because FastAPI matches in
-  declaration order; the other way round `facets` is swallowed as a
-  server id.
+- **Facet counts are computed in the browser, not by Mongo** (since
+  2026-09-14). `GET /servers/facets` — one `$group` over a composite key
+  of every filter dimension, cached 60 s, invalidated with the list pages
+  — was deleted the same day the UI stopped calling it: `facetCounts` in
+  `frontend/src/features/inventory/rows.ts` is one pass over the
+  already-filtered rows (4.5 ms for 2,504) and gives the same numbers
+  (verified option-by-option against the endpoint before its removal,
+  ADR-0033). Keeping an unauthenticated route that lets anyone trigger a
+  full-collection aggregation on demand had no remaining justification.
+  The one design fact worth keeping from it: an option with no match is
+  absent rather than zero, so the UI shows it as unavailable.
 - **`GET /sites` pivots one `$group` into a card per configured site**,
   seeding every site from `INVENTORY_SITES` first so the response shape
   never depends on what the database happens to hold — the UI renders a

@@ -1,6 +1,6 @@
 """API tests for `GET /api/v1/servers/available` — both lookup modes, param
-validation, and the route-ordering trap `/servers/facets` already has a
-comment about. See docs/adr/0032-available-server-lookup-api.md.
+validation, and the route-ordering trap the `/servers/available` route
+comment describes. See docs/adr/0032-available-server-lookup-api.md.
 
 No vendor credentials are configured in this test environment, so every
 candidate's `source_provider` degrades to trusting the stored document

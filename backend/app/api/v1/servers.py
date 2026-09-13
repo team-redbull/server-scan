@@ -46,7 +46,6 @@ from app.api.v1.schemas import (
     AvailableServersResponse,
     PageInfo,
     ServerDetail,
-    ServerFacets,
     ServerListResponse,
     ServerRowsResponse,
     ServerSummary,
@@ -93,15 +92,13 @@ from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
 from app.infrastructure.providers.factory import build_provider_for_manager_type
 from app.infrastructure.redis.cache import (
-    FACETS_TTL_SECONDS,
     LIST_PAGE_TTL_SECONDS,
     SERVER_DETAIL_TTL_SECONDS,
     CacheClient,
 )
 from app.infrastructure.redis.client import RedisClientHolder
 from app.infrastructure.redis.keys import (
-    facets_key,
-    list_and_facets_patterns,
+    list_cache_patterns,
     list_key,
     rows_key,
     server_key,
@@ -460,53 +457,6 @@ async def list_servers(
     return ServerListResponse.model_validate(response_dict)
 
 
-# Before `/servers/{server_id}`: FastAPI matches in declaration order.
-@router.get("/servers/facets", response_model=ServerFacets)
-async def server_facets(
-    request: Request,
-    repo: Annotated[MongoServerRepository, Depends(_server_repo)],
-    cache: Annotated[CacheClient, Depends(_cache_client)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    search: str | None = Query(default=None),
-) -> ServerFacets | Response:
-    """
-    How many servers each filter option would match, under the current filters.
-
-    Takes the same filter and `?search=` parameters as `GET /servers`, so a
-    caller passes its current query through unchanged.
-
-    Args:
-        request (Request): Carries the raw filter query parameters.
-        repo (MongoServerRepository): The server repository.
-        cache (CacheClient): Cache-aside for the aggregation.
-        settings (Settings): Supplies the staleness window.
-        search (str | None): The same free-text search `GET /servers` takes.
-
-    Returns:
-        ServerFacets | Response: One count per option, plus the matching
-            total — a raw cached JSON body on a cache hit (see
-            `list_servers`'s docstring for why), the validated model on a
-            miss.
-    """
-    raw_filters = _extract_raw_filters(request)
-    mongo_filters = build_filter_query(
-        raw_filters, stale_after_seconds=settings.stale_after_seconds
-    )
-
-    cache_key = facets_key(stable_hash({"filters": mongo_filters, "search": search}))
-    cached = await cache.get_raw(cache_key)
-    if cached is not None:
-        return Response(content=cached, media_type="application/json")
-
-    facets = ServerFacets.from_rows(
-        await repo.facet_breakdown(
-            filters=mongo_filters, search=search, stale_after_seconds=settings.stale_after_seconds
-        )
-    )
-    await cache.set(cache_key, facets.model_dump(mode="json"), ttl_seconds=FACETS_TTL_SECONDS)
-    return facets
-
-
 def _weak_etag(body: bytes) -> str:
     """
     A weak validator for a response body (RFC 9110 §8.8.3).
@@ -753,14 +703,14 @@ async def _invalidate_detail_cache(server_id: str, cache: CacheClient) -> None:
 
 
 async def _invalidate_list_cache(cache: CacheClient) -> None:
-    """Drop every cached list page and facet count after an operator write.
+    """Drop every cached list page and the rows body after an operator write.
 
     The two maintenance endpoints only — never ingest. ADR-0028 says why.
 
     Args:
         cache (CacheClient): The cache client.
     """
-    await cache.delete_matching(*list_and_facets_patterns())
+    await cache.delete_matching(*list_cache_patterns())
 
 
 @router.post("/servers/{server_id}/reclassify", response_model=ServerDetail)

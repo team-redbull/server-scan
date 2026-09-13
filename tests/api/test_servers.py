@@ -395,21 +395,6 @@ async def test_list_is_cache_stable_on_second_read(
     assert second.headers["content-type"] == "application/json"
 
 
-async def test_facets_is_cache_stable_on_second_read(
-    app_context: tuple[AsyncClient, MongoServerRepository],
-) -> None:
-    client, repo = app_context
-    await repo.upsert(_make_server(1, name="facets-cache-test"))
-
-    first = await client.get("/api/v1/servers/facets")
-    second = await client.get("/api/v1/servers/facets")
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert first.json() == second.json()
-    assert second.headers["content-type"] == "application/json"
-
-
 async def test_get_detail_404_for_missing_server(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
@@ -465,8 +450,8 @@ async def test_stale_flag_and_filter_follow_last_seen_at(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
     """`stale` is derived per response from `last_seen_at` (ADR-0029); `?stale=true`
-    selects the same set Mongo-side, a never-seen server included, and the facet
-    counts it.
+    selects the same set Mongo-side, a never-seen server included, and the rows
+    body carries the flag.
     """
     client, repo = app_context
     settings = get_settings()
@@ -489,8 +474,8 @@ async def test_stale_flag_and_filter_follow_last_seen_at(
     fresh_only = (await client.get("/api/v1/servers", params={"stale": "false"})).json()
     assert [s["name"] for s in fresh_only["items"]] == ["stale-test-fresh"]
 
-    facets = (await client.get("/api/v1/servers/facets")).json()
-    assert facets["stale"] == {"true": 2, "false": 1}
+    rows = (await client.get("/api/v1/servers/rows")).json()["items"]
+    assert sum(row["stale"] for row in rows) == 2
 
     detail = (await client.get(f"/api/v1/servers/{old.id}")).json()
     assert detail["stale"] is True

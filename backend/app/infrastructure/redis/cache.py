@@ -32,7 +32,6 @@ logger = structlog.get_logger(__name__)
 
 # Per resource shape, not `cache_default_ttl_seconds` (docs/architecture.md, "caching").
 SERVER_DETAIL_TTL_SECONDS = 60
-FACETS_TTL_SECONDS = 60
 LIST_PAGE_TTL_SECONDS = 15
 
 # redis-py raises the stdlib `TimeoutError`, not a `RedisError`, on socket timeouts.

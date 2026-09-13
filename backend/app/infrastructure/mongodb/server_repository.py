@@ -13,7 +13,6 @@ on to stay an IXSCAN at every page.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -33,7 +32,6 @@ from app.domain.services.search import (
     SORT_ACCESSORS,
     build_search_query,
     resolve_sort_field,
-    stale_cutoff_expr,
 )
 from app.errors import NotFoundError, RevisionConflictError
 from app.infrastructure.mongodb.client import MongoClientHolder
@@ -90,33 +88,6 @@ def _cursor_position_clause(
         legs.append({sort_field: None})
     legs.append(tie)
     return {"$or": legs}
-
-
-@dataclass(frozen=True, slots=True)
-class FacetRow:
-    """
-    One combination of filterable values and how many servers share it.
-
-    Attributes:
-        vendor (str | None): `identity.vendor`.
-        source_provider (str | None): The collector that found them.
-        installation_type (str | None): `classification.installation_type`.
-        health_overall (str | None): `health.overall`.
-        maintenance (bool): Whether maintenance is enabled.
-        openshift_state (str | None): `openshift.lifecycle_state`.
-        stale (bool): Whether `last_seen_at` is older than the caller's
-            window, or absent.
-        count (int): How many servers.
-    """
-
-    vendor: str | None
-    source_provider: str | None
-    installation_type: str | None
-    health_overall: str | None
-    maintenance: bool
-    openshift_state: str | None
-    stale: bool
-    count: int
 
 
 _ROW_PROJECTION: dict[str, int] = {
@@ -398,68 +369,6 @@ class MongoServerRepository:
             int: The number of matching servers.
         """
         return await self._collection.count_documents(dict(filters))
-
-    async def facet_breakdown(
-        self, *, filters: dict[str, object], search: str | None, stale_after_seconds: int
-    ) -> list[FacetRow]:
-        """
-        Per-combination server counts for one filtered view, in one round trip.
-
-        One `$group` over a composite key whose cardinality the enums bound;
-        why, and why `site_id` is not in it: docs/architecture.md, "caching".
-
-        Args:
-            filters (dict[str, object]): The same Mongo filter document
-                `list_page` receives, so the counts describe exactly the
-                page being looked at.
-            search (str | None): The same search string, applied the same
-                way.
-            stale_after_seconds (int): The staleness window for the `stale`
-                dimension, evaluated on Mongo's clock (`stale_cutoff_expr`).
-
-        Returns:
-            list[FacetRow]: One row per non-empty combination.
-        """
-        match: dict[str, object] = dict(filters)
-        if search:
-            match.update(build_search_query(search))
-
-        pipeline: list[dict[str, Any]] = []
-        if match:
-            pipeline.append({"$match": match})
-        pipeline.append(
-            {
-                "$group": {
-                    "_id": {
-                        "vendor": "$identity.vendor",
-                        "source_provider": "$source_provider",
-                        "installation_type": "$classification.installation_type",
-                        "health_overall": "$health.overall",
-                        "maintenance": "$maintenance.enabled",
-                        "openshift_state": "$openshift.lifecycle_state",
-                        "stale": {"$lt": ["$last_seen_at", stale_cutoff_expr(stale_after_seconds)]},
-                    },
-                    "count": {"$sum": 1},
-                }
-            }
-        )
-
-        rows: list[FacetRow] = []
-        async for doc in await self._collection.aggregate(pipeline):
-            key = doc["_id"]
-            rows.append(
-                FacetRow(
-                    vendor=key.get("vendor"),
-                    source_provider=key.get("source_provider"),
-                    installation_type=key.get("installation_type"),
-                    health_overall=key.get("health_overall"),
-                    maintenance=bool(key.get("maintenance")),
-                    openshift_state=key.get("openshift_state"),
-                    stale=bool(key.get("stale")),
-                    count=int(doc["count"]),
-                )
-            )
-        return rows
 
     async def fleet_snapshot(self, *, stale_before: datetime) -> FleetSnapshot:
         """

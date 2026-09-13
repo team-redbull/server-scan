@@ -46,21 +46,14 @@ def list_key(filter_hash: str, cursor_hash: str) -> str:
     return f"si:{_NAMESPACE_VERSION}:list:{filter_hash}:{cursor_hash}"
 
 
-def list_and_facets_patterns() -> tuple[str, ...]:
+def list_cache_patterns() -> tuple[str, ...]:
     """
-    The globs matching every cached list page and facet count.
-
-    Two patterns, because Redis `SCAN MATCH` has no brace alternation — a
-    `{list,facets}` glob matches the literal string and so nothing at all.
+    The globs matching every cached list page and the whole-fleet rows body.
 
     Returns:
         tuple[str, ...]: `SCAN MATCH` patterns.
     """
-    return (
-        f"si:{_NAMESPACE_VERSION}:list:*",
-        f"si:{_NAMESPACE_VERSION}:facets:*",
-        rows_key(),
-    )
+    return (f"si:{_NAMESPACE_VERSION}:list:*", rows_key())
 
 
 def rows_key() -> str:
@@ -71,19 +64,3 @@ def rows_key() -> str:
         str: The cache key.
     """
     return f"si:{_NAMESPACE_VERSION}:rows"
-
-
-def facets_key(filter_hash: str) -> str:
-    """
-    The cache key for one filtered view's facet counts.
-
-    No cursor component, unlike `list_key`: the counts describe the whole
-    filtered set, so every page of the same query shares one entry.
-
-    Args:
-        filter_hash (str): A stable hash of the filters and search string.
-
-    Returns:
-        str: The key.
-    """
-    return f"si:{_NAMESPACE_VERSION}:facets:{filter_hash}"
