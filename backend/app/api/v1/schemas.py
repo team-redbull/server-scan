@@ -31,13 +31,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import Vendor
+from app.domain.enums import HealthSeverity, ManagerType, Vendor
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import Hardware
 from app.domain.models.health import Health
 from app.domain.models.maintenance import Maintenance
-from app.domain.models.network import NetworkInfo
+from app.domain.models.network import BmcInfo, NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.server import Identity, ProfileTemplate, Server
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
@@ -130,6 +130,29 @@ class ServerListResponse(BaseModel):
 _NO_NIC_NAMES = NicNameCatalog(names_by_kind={})
 
 
+def _nic_os_names(server: Server, nic_names: NicNameCatalog) -> dict[str, str]:
+    """
+    The OS-level name for each of a server's interfaces, where one is known.
+
+    Args:
+        server (Server): The stored document.
+        nic_names (NicNameCatalog): The configured FQDD-to-OS-name mapping.
+
+    Returns:
+        dict[str, str]: `NetworkInterface.name` -> OS name. Dell from the
+            catalog, Cisco positionally (`cisco_eno_names`); an interface
+            with no known name is absent rather than guessed.
+    """
+    names = {
+        interface.name: os_name
+        for interface in server.network.interfaces
+        if (os_name := nic_names.os_name_for(interface.name)) is not None
+    }
+    if server.identity.vendor == Vendor.CISCO:
+        names.update(cisco_eno_names([interface.name for interface in server.network.interfaces]))
+    return names
+
+
 class ServerDetail(BaseModel):
     """Full server detail.
 
@@ -182,16 +205,7 @@ class ServerDetail(BaseModel):
         Returns:
             ServerDetail: The response model.
         """
-        nic_os_names = {
-            interface.name: os_name
-            for interface in server.network.interfaces
-            if (os_name := nic_names.os_name_for(interface.name)) is not None
-        }
-        if server.identity.vendor == Vendor.CISCO:
-            # Positional, not configured — see `cisco_eno_names`.
-            nic_os_names.update(
-                cisco_eno_names([interface.name for interface in server.network.interfaces])
-            )
+        nic_os_names = _nic_os_names(server, nic_names)
         return cls(
             id=server.id,
             schema_version=server.schema_version,
@@ -224,11 +238,96 @@ class ServerDetail(BaseModel):
         )
 
 
-class AvailableServerItem(BaseModel):
-    """One `GET /servers/available` result: a full server plus this call's own metadata."""
+class AvailableInterface(BaseModel):
+    """One NIC as a BMH/NMState generator needs it: hardware name, MAC, placement, OS name."""
 
-    server: ServerDetail
+    name: str
+    mac: str | None
+    location: str | None
+    os_name: str | None
+
+
+def bmc_vendor_for(vendor: Vendor, source_provider: str | None) -> str | None:
+    """
+    The BMC-driver vocabulary a BMH generator keys its `bmc.address` scheme on.
+
+    `INTERSIGHT` is a fourth value beside `HP`/`DELL`/`CISCO` — ADR-0032's 2026-09-13 update.
+
+    Args:
+        vendor (Vendor): `identity.vendor`.
+        source_provider (str | None): The collector's `ManagerType` value.
+
+    Returns:
+        str | None: `HP`, `DELL`, `CISCO` or `INTERSIGHT`; `None` for a
+            `STANDALONE` machine, whose driver the caller must decide.
+    """
+    if vendor == Vendor.CISCO:
+        return "INTERSIGHT" if source_provider == ManagerType.INTERSIGHT.value else "CISCO"
+    if vendor == Vendor.DELL:
+        return "DELL"
+    if vendor == Vendor.HP:
+        return "HP"
+    return None
+
+
+class AvailableServerItem(BaseModel):
+    """
+    One `GET /servers/available` result — only what a BMH/NMState generator consumes.
+
+    Deliberately not `ServerDetail` (ADR-0032, 2026-09-13 update): the
+    caller builds a `BareMetalHost` and an `NMStateConfig`, nothing else.
+    """
+
+    id: str
+    name: str
+    vendor: Vendor
+    source_provider: str | None
+    bmc_vendor: str | None
+    bmc: BmcInfo
+    nic_macs: list[str]
+    interfaces: list[AvailableInterface]
+    site_id: str | None
+    health_overall: HealthSeverity
     live_recheck_performed: bool
+
+    @classmethod
+    def from_server(
+        cls, server: Server, *, nic_names: NicNameCatalog, live_recheck_performed: bool
+    ) -> AvailableServerItem:
+        """
+        Project one (freshly rechecked) server onto the generator-facing shape.
+
+        Args:
+            server (Server): The server as persisted by the live recheck, or
+                as stored when the recheck was skipped.
+            nic_names (NicNameCatalog): The configured FQDD-to-OS-name mapping.
+            live_recheck_performed (bool): Whether `get_one()` actually ran.
+
+        Returns:
+            AvailableServerItem: The response item.
+        """
+        os_names = _nic_os_names(server, nic_names)
+        return cls(
+            id=server.id,
+            name=server.name,
+            vendor=server.identity.vendor,
+            source_provider=server.source_provider,
+            bmc_vendor=bmc_vendor_for(server.identity.vendor, server.source_provider),
+            bmc=server.network.bmc,
+            nic_macs=list(server.identity.nic_macs),
+            interfaces=[
+                AvailableInterface(
+                    name=interface.name,
+                    mac=interface.mac,
+                    location=interface.location,
+                    os_name=os_names.get(interface.name),
+                )
+                for interface in server.network.interfaces
+            ],
+            site_id=server.site_id,
+            health_overall=server.health.overall,
+            live_recheck_performed=live_recheck_performed,
+        )
 
 
 class AvailableServersResponse(BaseModel):

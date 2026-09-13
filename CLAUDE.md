@@ -413,7 +413,11 @@ long form of every entry as of 2026-09-13 is
   only the few it returns via `ServerInventoryProvider.get_one()` and
   persists through `IngestService.ingest_one`. An unconfigured manager
   type degrades to trusting Mongo, never errors, and the response says
-  per item whether a recheck ran. **The API pod therefore mounts the
+  per item whether a recheck ran. **The item is `AvailableServerItem`,
+  not `ServerDetail`** — only what a BMH/NMState generator consumes
+  (`bmc_vendor` in bmhgen's own `HP`/`DELL`/`CISCO`/`INTERSIGHT`
+  vocabulary, bare BMC host, ordered MACs, per-interface `os_name`); do
+  not grow it back into a full detail. **The API pod therefore mounts the
   collector-credentials Secret** (`backend-deployment.yaml`) — the same
   one the CronJobs use, unconditionally — except `REDFISH_STANDALONE`'s
   per-host TOML files, which stay CronJob-only so BMC passwords are not
@@ -567,7 +571,9 @@ OneView / Cisco UCS Central / Dell OME / Cisco Intersight live itself:
 capacity-token-aliased — `5tb` also matches a bare `hypershift` server,
 `10tb` a `hypershift-data` one) for a health-tiered, randomly drawn,
 `?count=`-bounded set; `?vendor=`/`?source_provider=` to narrow either.
-Candidates come from Mongo; only the few being returned are live-verified,
+Each item is a purpose-built `AvailableServerItem` carrying only what
+`bmh-generator-operator` consumes (second commit, same day, after reading
+its generators). Candidates come from Mongo; only the few being returned are live-verified,
 via a new sixth abstract method `get_one(ServerIdentity)` on
 `ServerInventoryProvider` (implemented in all seven providers) and a new
 `IngestService.ingest_one`. The API pod now mounts the

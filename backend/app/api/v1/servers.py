@@ -499,7 +499,7 @@ async def available_servers(
         service (AvailableServersService): Resolves both lookup modes.
         cache (CacheClient): Invalidated for every server a live recheck writes.
         settings (Settings): Supplies `max_available_count` and the NIC
-            OS-name mapping for the returned `ServerDetail`s.
+            OS-name mapping for each item's `interfaces[].os_name`.
         name (str | None): Exact, case-insensitive server name.
         pattern (str | None): A MongoDB regex against `Server.name`.
         count (int | None): Pattern mode only; how many servers to return.
@@ -567,8 +567,9 @@ async def available_servers(
 
     return AvailableServersResponse(
         items=[
-            AvailableServerItem(
-                server=ServerDetail.from_server(result.server, nic_names),
+            AvailableServerItem.from_server(
+                result.server,
+                nic_names=nic_names,
                 live_recheck_performed=result.live_recheck_performed,
             )
             for result in results

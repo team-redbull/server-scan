@@ -62,13 +62,46 @@ today).
 - Response is **always** `{"items": [...], ...}` — the same list idiom
   `ServerListResponse` already uses — regardless of whether `count` was
   given, defaulted, or the mode is `name` (a one-item list on success).
-  Each item is `ServerDetail` (reused as-is: it already carries
-  `network.bmc`, `network.interfaces`, `nic_os_names`, `identity.vendor`,
-  `health`, `openshift`, `classification`, `site_id`). The envelope around
-  the list — which mode matched, `count` requested vs. returned, and
-  whether each item's health reflects a fresh live recheck or a
-  trust-Mongo fallback (Decision 5) — is additive metadata, not a
-  reimplementation of `ServerDetail`.
+  Each item is `AvailableServerItem` — **only what a BMH/NMState generator
+  consumes**, see the 2026-09-13 update below for why it is not
+  `ServerDetail`. The envelope around the list — which mode matched,
+  `count` requested vs. returned, and per item whether its state reflects
+  a fresh live recheck or a trust-Mongo fallback (Decision 5) — is
+  additive metadata.
+
+  **Update (2026-09-13, same day): the item is a purpose-built projection,
+  not `ServerDetail`.** The first cut reused `ServerDetail` as the spec
+  suggested. The operator then asked what `bmh-generator-operator` actually
+  consumes, and a read of its `yaml_generators.py`, `server_profile_config.py`
+  and `operator_bmh_gen.py` (branch `feature/multi-vendor-bond-nmstate-
+  intersight`) gives a short, closed list: the server `name`; a BMC-driver
+  vendor in *its* vocabulary — `HP` / `DELL` / `CISCO` / **`INTERSIGHT`**,
+  because a UCS-managed and an Intersight-managed Cisco server take
+  different `bmc.address` schemes (`ipmi://…:623` vs
+  `redfish-virtualmedia://…`), a distinction `identity.vendor` alone cannot
+  express; the **bare BMC host** (it runs `ipaddress.IPv4Address` on it and
+  wraps the scheme itself); the **ordered NIC MAC list** its `select_macs`
+  indexes with `first`/`last`/`N`; the **per-interface OS name** for the
+  NMState bond members; and, for Dell, the FQDD each MAC belongs to. Nothing
+  in `hardware`, `classification`, `connectivity`, `maintenance`,
+  `openshift`, `unread_fields` or the audit/revision fields is read. So the
+  item is now: `id`, `name`, `vendor`, `source_provider`, **`bmc_vendor`**
+  (`schemas.bmc_vendor_for`, `None` for `STANDALONE` — the caller decides
+  that driver), `bmc` (`BmcInfo`: `host`, `host_is_ip`, `address_raw`, …),
+  `nic_macs`, `interfaces[]` (`name`, `mac`, `location`, **`os_name`** —
+  folded in per interface so bond members are one parallel list, the exact
+  shape `generate_nmstate_config(mac_addresses, nic_names)` takes),
+  `site_id`, `health_overall`, `live_recheck_performed`. `site_id` and
+  `health_overall` stay because they are one field each and a caller will
+  want to log or label them; everything else is reachable via
+  `GET /servers/{id}` if ever needed. `ServerDetail` is untouched.
+
+  **What "live" means for a caller, stated once:** in `name` mode every
+  field above comes from the `get_one()` read made during *this* request
+  and persisted through `IngestService` before the response is built — not
+  from the last CronJob run. The single exception is Decision 5's degrade,
+  and `live_recheck_performed: false` names it; a caller that requires
+  freshness should treat that value as a failure, not a warning.
 
 ### 2. Capacity-token aliasing is a config-driven catalog, not an `if`
 
