@@ -387,6 +387,8 @@ jobs:
     permissions:
       contents: write # the "Tag the release" step below pushes the new git tag
       packages: write # docker/login-action pushes images to ghcr.io
+    outputs:
+      version: ${{ steps.version.outputs.version }} # "1.2.0", no v — what `deploy` pins
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -608,3 +610,81 @@ jobs:
           labels: ${{ steps.meta_frontend.outputs.labels }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+
+  # A release is not deployed until redbull-platform says so — ADR-0031.
+  # This pins that repo's copy of the chart to the version `publish` just
+  # released and syncs the chart's templates and files verbatim; Argo CD
+  # does the rest. The gitops values.yaml is the cluster's override file
+  # and is edited by key only, never replaced.
+  deploy:
+    name: Deploy (bump redbull-platform)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [publish]
+    if: github.ref == 'refs/heads/main' && needs.publish.outputs.version != ''
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+
+      # The default GITHUB_TOKEN is scoped to this repo; writing to the
+      # gitops repo needs the org secret every service's bump uses.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: team-redbull/redbull-platform
+          token: ${{ secrets.REDBULL_WRITE_TOKEN }}
+          path: gitops
+
+      - name: Sync the chart copy and pin the images
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+          chart=gitops/gitops/charts/server-scan
+          rsync -a --delete src/deploy/helm/server-scan/templates/ "$chart/templates/"
+          rsync -a --delete src/deploy/helm/server-scan/files/ "$chart/files/"
+          # sed, not yq: `yq -i` re-emits the whole file, dropping every
+          # blank line and reflowing maps — a 70-line noise diff per release
+          # on a hand-maintained override file. The two `    tag:` lines are
+          # the image tags (both images always carry the same version).
+          sed -i -E "s/^(    tag: )\"[^\"]*\"$/\\1\"$VERSION\"/" "$chart/values.yaml"
+          sed -i -E "s/^(appVersion: )\"[^\"]*\"$/\\1\"$VERSION\"/" "$chart/Chart.yaml"
+          [ "$(grep -c "^    tag: \"$VERSION\"$" "$chart/values.yaml")" = 2 ] \
+            || { echo "::error::expected exactly two image tag lines to pin"; exit 1; }
+          grep -q "^appVersion: \"$VERSION\"$" "$chart/Chart.yaml" \
+            || { echo "::error::appVersion was not pinned"; exit 1; }
+          git -C gitops status --short
+
+      # Offline only — a runner cannot reach the cluster, so this is helm
+      # lint + template, not `oc apply --dry-run=server`. A `required`
+      # value the gitops values.yaml does not set fails here, before Argo.
+      - name: Render the chart the way Argo will
+        run: |
+          set -euo pipefail
+          cd gitops/gitops/charts/server-scan
+          helm lint .
+          helm template server-scan . -n server-scan >/dev/null
+
+      - name: Commit and push the bump
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd gitops
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitops/charts/server-scan
+          if git diff --cached --quiet; then echo "nothing to deploy"; exit 0; fi
+          git commit -q -m "chore(server-scan): pin images to $VERSION" \
+            -m "Released by team-redbull/server-scan@${GITHUB_SHA}; chart templates and files synced from deploy/helm/server-scan."
+          # Every service bumps the same branch of this repo; rebase and retry.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            echo "push rejected (attempt $attempt) — rebasing onto origin/main"
+            git fetch origin main
+            git rebase origin/main
+            sleep $((RANDOM % 5 + 2))
+          done
+          echo "::error::could not push the bump after 5 attempts"; exit 1

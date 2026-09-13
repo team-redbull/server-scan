@@ -20,7 +20,12 @@ helm template server-scan deploy/helm/server-scan \
 ```
 
 and both ArgoCD and Flux render Helm natively, so a GitOps setup needs no
-pre-rendered copy either.
+pre-rendered copy either. The production deployment is exactly that:
+`team-redbull/redbull-platform` holds a copy of this chart under
+`gitops/charts/server-scan`, and CI's `deploy` job keeps it current —
+templates and files synced verbatim, image tags and `appVersion` pinned to
+each release — so a green push to `main` reaches the cluster on its own
+(ADR-0031). Only that repo's `values.yaml` is hand-maintained.
 
 ## Scope
 

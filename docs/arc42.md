@@ -399,8 +399,12 @@ collector does, and never call this platform's API.
   off by default, because rendering it commits BMC passwords to git —
   `collectors.redfishStandalone.credentialsSecret` remains the production
   path and wins when both are set.
-- **Gap: nothing deploys these images.** CI publishes; no GitOps/ArgoCD
-  wiring exists.
+- **A release deploys itself** (ADR-0031). CI's `deploy` job syncs the
+  chart's templates and files into `team-redbull/redbull-platform`'s copy,
+  pins both image tags and `appVersion` to the version just published, and
+  Argo CD rolls it out. The gitops `values.yaml` stays the hand-edited
+  override file; a runner cannot run the server-side dry-run, so that
+  remains a habit for chart changes.
 
 ---
 
@@ -476,6 +480,7 @@ of it.
 | 0028 | An operator write clears the cached list pages and facet counts; an ingest write still does not |
 | 0029 | Staleness is a set of gauges the API derives from MongoDB on scrape — the only thing that can say a CronJob stopped |
 | 0030 | A health policy is scoped to a *set* of collectors (`manager_types`), `source_provider` is the manager type at evaluation, and the page groups by scope and sorts by severity |
+| 0031 | A release deploys itself: CI syncs the chart copy in redbull-platform and pins the image tags, Argo CD does the rest |
 
 ---
 
@@ -535,7 +540,7 @@ go stale — treat its date as load-bearing.
 
 ### Low / accepted
 
-- No Kubernetes manifests for the frontend; no GitOps/CD wiring.
+- No image-tag bump reaches the cluster without a green CI run — a hotfix deployed by hand is a gitops edit Argo will keep until the next release overwrites it.
 - No alerting rules or dashboards over the existing metrics.
 - A *syntactically valid* typo in `INVENTORY_SITES` (`tvl` for `tlv`)
   cannot be caught at startup — only by looking at the resulting

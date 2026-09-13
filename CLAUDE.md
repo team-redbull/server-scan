@@ -707,10 +707,11 @@ for the full write-up and the two open questions it could not settle
    job, `docs/adr/0010-image-publishing-and-versioning.md`), and the
    platform is deployed by Argo CD from `team-redbull/redbull-platform`
    (`gitops/charts/server-scan`, a copy of this chart with that cluster's
-   overrides on top). **The image tag there is a hand-edited pin** (`1.0.0`
-   as of 2026-09-13), not bumped by CI — the org's `ghcr-build-push.yml`
-   Helm-bump flow, which other services already use, is the obvious
-   wiring. Still missing: rate limiting (`RateLimitedError` and the 429
+   overrides on top) — **and since ADR-0031, CI's `deploy` job pins it**:
+   templates/files synced verbatim, both image tags and `appVersion` set
+   to the release, one bot commit per release, Argo does the rest. What a
+   runner cannot do is the server-side dry-run, so for a chart change
+   that is still a habit before pushing. Still missing: rate limiting (`RateLimitedError` and the 429
    mapping exist, nothing raises them); a MongoDB backup — it is a single
    Bitnami pod with a 20Gi PVC holding the whole source of truth, and a
    `mongodump` CronJob is the minimum; and a dashboard over the 20 gauges
@@ -1336,7 +1337,16 @@ quarterly, or before any release you care about:
 
 ## Where to continue right now
 
-**Most recent, 2026-09-13, evening — v1.1.0** — health policies are scoped
+**Most recent, 2026-09-13, night — releases deploy themselves** (ADR-0031).
+CI gained a `deploy` job after `publish`: it checks out redbull-platform
+with `REDBULL_WRITE_TOKEN`, `rsync`s the chart's templates/files into
+`gitops/charts/server-scan`, `yq`s the two image tags and `appVersion`,
+renders offline, and pushes one `chore(server-scan): pin images to X`
+commit with a rebase-retry. The gitops `values.yaml` is never replaced.
+Also that evening: the GPU category was never rolled into overall health
+(a DOWN GPU read HEALTHY) — fixed in v1.1.3, see "Key technical facts".
+
+**Before that, 2026-09-13, evening — v1.1.0** — health policies are scoped
 to a *set* of collectors and the Rules & Policies page groups them by
 scope (ADR-0030). `PolicyScope.manager_types` (list, empty = everyone)
 replaces `manager_type`; the two UCS fabric-path defaults are scoped to
