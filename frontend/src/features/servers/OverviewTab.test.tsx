@@ -58,6 +58,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
     manager_id: "mgr_1",
     source_provider: "UCS_CENTRAL",
     last_seen_at: "2026-08-13T10:00:00Z",
+    stale: false,
     reachable: true,
     unreachable_since: null,
     updated_at: "2026-08-13T10:00:00Z",

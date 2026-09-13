@@ -526,3 +526,24 @@ async def test_upsert_with_revision_check_on_a_deleted_document_raises_not_found
     # no document to report a "current" revision from either.
     with pytest.raises(NotFoundError):
         await repo.upsert_with_revision_check(server, expected_revision=1)
+
+
+async def test_a_document_stored_with_the_retired_info_severity_still_loads(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """`INFO` left `HealthSeverity` on 2026-09-13. A document written before that
+    must still decode (ADR-0026's rule: write the old shape, read it back), and
+    it decodes as HEALTHY — the only positive verdict left.
+    """
+    repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+    server = _make_server(0)
+    doc = server.model_dump(by_alias=True, mode="json")
+    doc["health"]["overall"] = "INFO"
+    doc["health"]["storage"] = "INFO"
+    await mongo_holder.db["servers"].insert_one(doc)
+
+    loaded = await repo.get_by_id(server.id)
+
+    assert loaded is not None
+    assert loaded.health.overall is HealthSeverity.HEALTHY
+    assert loaded.health.storage is HealthSeverity.HEALTHY

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncIterator
+from datetime import timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -119,6 +120,7 @@ async def test_list_returns_expected_items(
         "openshift",
         "connectivity",
         "last_seen_at",
+        "stale",
         "reachable",
         "unreachable_since",
         "updated_at",
@@ -457,3 +459,62 @@ async def test_list_returns_200_from_mongo_when_redis_unreachable() -> None:
         finally:
             await mongo.db["servers"].delete_many({})
             await broken_redis.close()
+
+
+async def test_stale_flag_and_filter_follow_last_seen_at(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """`stale` is derived per response from `last_seen_at` (ADR-0029); `?stale=true`
+    selects the same set Mongo-side, a never-seen server included, and the facet
+    counts it.
+    """
+    client, repo = app_context
+    settings = get_settings()
+    window = timedelta(seconds=settings.stale_after_seconds)
+    fresh = _make_server(0, name="stale-test-fresh")
+    old = _make_server(1, name="stale-test-old")
+    old.last_seen_at = utcnow() - window - timedelta(hours=1)
+    never = _make_server(2, name="stale-test-never")
+    never.last_seen_at = None
+    for s in (fresh, old, never):
+        await repo.upsert(s)
+
+    listed = (await client.get("/api/v1/servers")).json()["items"]
+    by_name = {s["name"]: s["stale"] for s in listed}
+    assert by_name == {"stale-test-fresh": False, "stale-test-old": True, "stale-test-never": True}
+
+    stale_only = (await client.get("/api/v1/servers", params={"stale": "true"})).json()
+    assert sorted(s["name"] for s in stale_only["items"]) == ["stale-test-never", "stale-test-old"]
+
+    fresh_only = (await client.get("/api/v1/servers", params={"stale": "false"})).json()
+    assert [s["name"] for s in fresh_only["items"]] == ["stale-test-fresh"]
+
+    facets = (await client.get("/api/v1/servers/facets")).json()
+    assert facets["stale"] == {"true": 2, "false": 1}
+
+    detail = (await client.get(f"/api/v1/servers/{old.id}")).json()
+    assert detail["stale"] is True
+
+
+async def test_stale_filter_pages_with_a_stable_cursor(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """The stale clause carries no timestamp, so a cursor issued under `?stale=true`
+    is still valid on the next request — the trap a rendered cutoff would hit.
+    """
+    client, repo = app_context
+    settings = get_settings()
+    for i in range(3):
+        s = _make_server(i, name=f"stale-page-{i}")
+        s.last_seen_at = utcnow() - timedelta(seconds=settings.stale_after_seconds + 3600)
+        await repo.upsert(s)
+
+    first = (await client.get("/api/v1/servers", params={"stale": "true", "page_size": 2})).json()
+    assert len(first["items"]) == 2 and first["page"]["has_more"] is True
+
+    second = await client.get(
+        "/api/v1/servers",
+        params={"stale": "true", "page_size": 2, "cursor": first["page"]["next_cursor"]},
+    )
+    assert second.status_code == 200
+    assert len(second.json()["items"]) == 1

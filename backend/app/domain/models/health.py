@@ -11,15 +11,49 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.domain.enums import HealthSeverity
+
+# `INFO`, retired 2026-09-13: a positive verdict with no shipped policy behind it.
+_RETIRED_SEVERITIES: dict[str, HealthSeverity] = {"INFO": HealthSeverity.HEALTHY}
+
+_SEVERITY_FIELDS = (
+    "overall",
+    "cpu",
+    "memory",
+    "storage",
+    "network",
+    "connectivity",
+    "power",
+    "gpu",
+)
+
+
+def _decode_retired_severity(value: object) -> object:
+    """
+    Map a severity this enum no longer has onto its replacement.
+
+    A narrowed persisted enum is a migration (ADR-0026); this keeps every
+    document written before the narrowing loading.
+
+    Args:
+        value (object): The stored value, from MongoDB or a caller.
+
+    Returns:
+        object: `value` if the enum still has it, else its replacement.
+    """
+    if isinstance(value, str) and value in _RETIRED_SEVERITIES:
+        return _RETIRED_SEVERITIES[value]
+    return value
 
 
 class CategoryHealth(BaseModel):
     """The evaluated severity for a single health category."""
 
     severity: HealthSeverity = HealthSeverity.UNKNOWN
+
+    _decode = field_validator("severity", mode="before")(_decode_retired_severity)
 
 
 class Health(BaseModel):
@@ -37,3 +71,5 @@ class Health(BaseModel):
     # The `policy_key`s that fired, so "what is wrong across the fleet" is
     # one aggregation (ADR-0029). Absent on documents written before it.
     active_policy_keys: list[str] = Field(default_factory=list)
+
+    _decode = field_validator(*_SEVERITY_FIELDS, mode="before")(_decode_retired_severity)

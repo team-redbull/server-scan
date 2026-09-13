@@ -207,7 +207,7 @@ async def test_bootstrap_resyncs_a_stale_system_policy_but_keeps_its_enabled_fla
     """
     repo = MongoHealthPolicyRepository(mongo_holder)
     generated = default_system_policies()[0]
-    stale = generated.model_copy(update={"severity": HealthSeverity.INFO, "enabled": False})
+    stale = generated.model_copy(update={"severity": HealthSeverity.MAJOR, "enabled": False})
     await repo.upsert(stale)
 
     written = await ensure_default_health_policies(repo, registry=REGISTRY)

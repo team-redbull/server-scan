@@ -28,7 +28,6 @@ const ROW_ACCENT: Record<HealthSeverity, string> = {
   CRITICAL: "border-l-2 border-l-[var(--color-status-critical)]",
   MAJOR: "border-l-2 border-l-[var(--text-on-major)]",
   WARNING: "border-l-2 border-l-[var(--color-status-warning)]",
-  INFO: "border-l-2 border-l-transparent",
   HEALTHY: "border-l-2 border-l-transparent",
   UNKNOWN: "border-l-2 border-l-transparent",
 };
@@ -103,7 +102,14 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
     header: "State",
     cell: (info) => {
       const row = info.getValue<ServerSummary>();
-      return <StateBadge severity={row.health.overall} maintenance={row.maintenance} />;
+      return (
+        <StateBadge
+          severity={row.health.overall}
+          maintenance={row.maintenance}
+          stale={row.stale}
+          lastSeenAt={row.last_seen_at}
+        />
+      );
     },
     enableSorting: false,
   }),

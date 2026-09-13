@@ -20,7 +20,6 @@ const OPENSHIFT_STATES = [
 const HEALTH_SEVERITIES = [
   "UNKNOWN",
   "HEALTHY",
-  "INFO",
   "WARNING",
   "MAJOR",
   "CRITICAL",
@@ -56,6 +55,7 @@ export function InventoryPage() {
   const healthOverall = searchParams.get("health_overall") ?? "";
   const sourceProvider = searchParams.get("source_provider") ?? "";
   const maintenanceOnly = searchParams.get("maintenance") === "true";
+  const staleOnly = searchParams.get("stale") === "true";
   const sortParam = searchParams.get("sort") ?? "";
   const sortField: SortableField = isSortableField(sortParam)
     ? sortParam
@@ -77,6 +77,7 @@ export function InventoryPage() {
     if (openshiftState) params.openshift_state = openshiftState;
     if (healthOverall) params.health_overall = healthOverall;
     if (maintenanceOnly) params.maintenance = true;
+    if (staleOnly) params.stale = true;
     return params;
   }, [
     debouncedSearch,
@@ -87,6 +88,7 @@ export function InventoryPage() {
     openshiftState,
     healthOverall,
     maintenanceOnly,
+    staleOnly,
   ]);
 
   const queryParams: ServerListParams = useMemo(() => {
@@ -204,6 +206,7 @@ export function InventoryPage() {
   }
   if (healthOverall) activeFilters.push({ key: "health_overall", label: `Health ${healthOverall}` });
   if (maintenanceOnly) activeFilters.push({ key: "maintenance", label: "Maintenance only" });
+  if (staleOnly) activeFilters.push({ key: "stale", label: "Stale only" });
 
   function clearFilters() {
     updateFilters({
@@ -215,6 +218,7 @@ export function InventoryPage() {
       openshift_state: null,
       health_overall: null,
       maintenance: null,
+      stale: null,
     });
   }
 
@@ -376,6 +380,20 @@ export function InventoryPage() {
             }}
           />
           Maintenance only
+        </label>
+
+        <label
+          className="flex items-center gap-2 pb-1.5 text-xs font-medium text-[var(--text-secondary)]"
+          title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"
+        >
+          <input
+            type="checkbox"
+            checked={staleOnly}
+            onChange={(e) => {
+              updateFilters({ stale: e.target.checked ? "true" : null });
+            }}
+          />
+          Stale only{withCount("", facets?.stale, "true", staleOnly)}
         </label>
       </form>
 

@@ -15,6 +15,7 @@ export interface ServerListParams {
   cluster_name?: string;
   health_overall?: string;
   maintenance?: boolean;
+  stale?: boolean;
   sort?:
     | "name"
     | "serial"

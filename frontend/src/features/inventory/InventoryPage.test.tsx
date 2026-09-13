@@ -43,6 +43,7 @@ function makeServer(overrides: Partial<ServerSummary> = {}): ServerSummary {
       },
     },
     last_seen_at: "2026-08-12T10:00:00Z",
+    stale: false,
     reachable: true,
     unreachable_since: null,
     updated_at: "2026-08-12T10:00:00Z",
@@ -264,6 +265,39 @@ describe("InventoryPage", () => {
       expect(lastRequestUrl(fetchMock).searchParams.get("vendor")).toBe(
         "cisco",
       );
+    });
+  });
+
+  it("sends stale=true when Stale only is ticked, and marks stale rows", async () => {
+    mockServerList(() =>
+      jsonResponse(
+        pageResponse([
+          makeServer({ id: "srv_fresh", name: "fresh-01" }),
+          makeServer({
+            id: "srv_stale",
+            name: "stale-01",
+            stale: true,
+            last_seen_at: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
+          }),
+        ]),
+      ),
+    );
+
+    const { router } = renderInventoryPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("stale-01")).toBeInTheDocument();
+    });
+    // The chip marks the stale row even with no filter applied.
+    expect(screen.getByText("Stale 20h")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Stale only/));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("stale=true");
+    });
+    await waitFor(() => {
+      expect(lastRequestUrl(fetchMock).searchParams.get("stale")).toBe("true");
     });
   });
 

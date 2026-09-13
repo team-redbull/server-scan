@@ -52,6 +52,17 @@ Loaded only when a storage-side file is open. Each item names its ADR.
 - **`Server.site_id` is a plain `str`**, not an enum, so a document outlives
   a site being renamed away. **`Server.unread_fields` is recomputed from
   scratch every ingest and never merged.**
+- **`?stale=` is the one filter whose clause is an `$expr`, and it must
+  stay `$$NOW`-based** (`search.stale_cutoff_expr`, ADR-0029 update): the
+  keyset cursor is HMAC-bound to the filter document, so a cutoff rendered
+  on the API side would differ per request and fail page two with
+  `CURSOR_FILTER_MISMATCH`. Mongo evaluates "now" itself; the `stale`
+  *flag* on responses is the API's clock (`schemas.is_stale`). Verified
+  live: `find`, `count_documents` and `$group` all take the expression.
+- **`HealthSeverity.INFO` is retired (2026-09-13)** and `Health` decodes a
+  stored `INFO` as `HEALTHY` through a `mode="before"` validator — the same
+  narrowed-enum mechanism as `OpenShiftLifecycle`. Keep it while any
+  pre-2026-09-13 document can exist.
 - **The fleet gauges are computed from MongoDB on scrape, throttled**
   (ADR-0029, `FleetGaugeRefresher`): the staleness cutoff is rendered as a
   string (above); a never-seen server (`last_seen_at` absent) counts as

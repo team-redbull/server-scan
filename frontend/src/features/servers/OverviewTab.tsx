@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
-import { formatTimestamp } from "@/lib/datetime";
+import { formatRelative, formatTimestamp } from "@/lib/datetime";
 import type { HealthSummary, ServerDetail } from "@/types/server";
 
 interface OverviewTabProps {
@@ -61,9 +61,19 @@ export function OverviewTab({ server }: OverviewTabProps) {
           }
         />
       )}
+      {/* Relative so staleness reads at a glance; the exact instant is the hover. */}
       <Field
         label="Last seen"
-        value={server.last_seen_at ? formatTimestamp(server.last_seen_at) : "—"}
+        value={
+          server.last_seen_at ? (
+            <span className="inline-flex items-center gap-2" title={formatTimestamp(server.last_seen_at)}>
+              {formatRelative(server.last_seen_at)}
+              {server.stale && <Badge tone="warning">Stale</Badge>}
+            </span>
+          ) : (
+            <Badge tone="warning">Never collected</Badge>
+          )
+        }
       />
       <Field label="Updated" value={formatTimestamp(server.updated_at)} />
     </dl>

@@ -332,9 +332,9 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   unavailable instead of selectable-but-empty. The repository answers it
   with one `$group` over a composite key rather than a `$facet` per
   dimension: the key's cardinality is bounded by the enums, not the
-  estate (4 vendors x 5 collectors x 4 installation types x 6 severities
-  x 2 maintenance states x 3 OpenShift states, ~5,700 rows at absolute
-  worst and a tiny fraction in practice), and each dimension's counts are
+  estate (4 vendors x 5 collectors x 4 installation types x 5 severities
+  x 2 maintenance states x 3 OpenShift states x 2 stale states, ~9,600
+  rows at absolute worst and a tiny fraction in practice), and each dimension's counts are
   the marginals summed out of it. `site_id` is deliberately not in the
   key — it is usually already a filter by the time these numbers are
   wanted, and the site overview answers the per-site question. The route
@@ -430,6 +430,18 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
 
 ## Health policy engine (slice 3)
 
+- **Five severities, not six: `INFO` was retired on 2026-09-13.**
+  `HealthSeverity` is `UNKNOWN`/`HEALTHY`/`WARNING`/`MAJOR`/`CRITICAL`.
+  `INFO` sat between HEALTHY and WARNING as a second positive verdict, and
+  none of the 15 shipped policies (8 CRITICAL, 5 WARNING, 2 MAJOR) ever
+  produced it; with policies read-only there was no other way to reach it,
+  so it cost a filter option, a badge style and a tier in
+  `GET /servers/available`'s ranking for nothing. Narrowing a persisted
+  enum is a migration (ADR-0026): `Health` carries a `mode="before"`
+  validator that decodes a stored `INFO` as `HEALTHY` on every severity
+  field, and `tests/integration/test_server_repository.py` writes the old
+  shape and reads it back. Do not remove that validator while any
+  pre-2026-09-13 document can exist.
 - **A category exists only if `evaluate.CATEGORIES` lists it.** The rollup
   iterates that tuple and nothing else; a policy whose `category` is not
   in it fires, records evidence, and is then dropped before the
@@ -457,9 +469,10 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   family member is how a scope switches a default off entirely — the
   family contributes nothing rather than falling through to the next
   member. Verified live: creating a `GLOBAL_CUSTOM` policy with the same
-  `policy_key` as a `SYSTEM_DEFAULT` WARNING policy but `severity: INFO`
+  `policy_key` as a `SYSTEM_DEFAULT` WARNING policy but a lower severity
   and a higher priority flipped a real seeded server's health from
-  WARNING to INFO with zero code change — the platform spec's own
+  WARNING to that severity with zero code change (the test used `INFO`,
+  a severity since retired — see below) — the platform spec's own
   "changing a threshold must flip the evaluation" requirement, proven
   against live data, not just a unit test.
 - **The metric registry is code, not data**
@@ -1056,7 +1069,21 @@ integration that isn't `FakeProvider`. See
   settings with different meanings: it signs requests with an API key, so
   `username` is the API Key ID and `password` the secret key.
 - **How `tools/run_collector.py` is put together** (the module carries
-  one-line pointers here rather than the reasoning):
+  one-line pointers here rather than the reasoning). **Since 2026-09-13
+  the construction half lives in `app.infrastructure.providers.factory`**
+  — `PROVIDER_FACTORIES`, the five `_<vendor>_provider` factories,
+  `ENDPOINTLESS_TYPES`/`UNFILTERED_TYPES`/`NAME_PATTERN_FIELD`,
+  `resolve_name_pattern`, `manager_for`, `build_provider` and
+  `build_provider_for_manager_type` — because `GET /servers/available`
+  (ADR-0032) needs the same resolution and `app` must never import
+  `tools`: `tools/` is not an installed package, so the import worked in
+  the container and CI only through uvicorn's default `--app-dir .` and
+  broke the README's `--app-dir backend` command. `run_collector` imports
+  from the factory and re-exports the old private names
+  (`_build_provider`, `_ENDPOINTLESS_TYPES`, `_DEBUG_HTTP_VAR`) so its
+  tests still monkeypatch them. What the CLI keeps is the run itself:
+  argument parsing, `_NameFilteredProvider`, the dry-run printer,
+  `_run_one_manager`, exit codes and `_record_run`.
   - `PROVIDER_FACTORIES` is the single source of truth for which
     collectors exist — one factory per `ManagerType`, each taking the
     same keyword set (`manager`, `credentials`, `timeout_seconds`,
@@ -1235,9 +1262,9 @@ format. The field-level rules a new collector has to honour:
   on (`serial`, `external_id`, `host`, `name`); the contract is a
   single-object fetch — a scoped query, a direct-by-URI/DN read, or a
   single-host recollect — never `_list_servers()` re-run and filtered.
-  `tools.run_collector.build_provider_for_manager_type` is the one place
-  that turns a `ManagerType` into a constructed provider for this path,
-  shared with the CLI's own resolution.
+  `app.infrastructure.providers.factory.build_provider_for_manager_type`
+  is the one place that turns a `ManagerType` into a constructed provider
+  for this path, shared with the CLI's own resolution.
 
 `ConnectivityFacts` (`fabric_paths_total/up/down`, `fabrics_present`)
 are derived from the attachments once at ingest and stored, so health
@@ -1275,7 +1302,7 @@ deliberately not applied, because a BMC does not know the server's
 `ocp4-...` name and `^ocp` would discard every listed host. Only this
 collector's own `INVENTORY_REDFISH_NAME_PATTERN` overrides that; every
 manager type has such an override, reconciled with the shared default in
-`tools.run_collector.resolve_name_pattern`. Credentials resolve
+`app.infrastructure.providers.factory.resolve_name_pattern`. Credentials resolve
 host -> host-named -> group -> defaults -> a fleet-wide fallback, and the
 whole file is validated before a single connection opens: an unknown
 group, an undefined credential, a duplicate host, an address carrying

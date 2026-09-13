@@ -13,8 +13,7 @@ export type Vendor = "dell" | "cisco" | "hp" | "standalone";
  * `GET /api/v1/sites` — a copy here drifted once when sites were renamed. */
 export type SiteCode = string;
 
-export type HealthSeverity =
-  "UNKNOWN" | "HEALTHY" | "INFO" | "WARNING" | "MAJOR" | "CRITICAL";
+export type HealthSeverity = "UNKNOWN" | "HEALTHY" | "WARNING" | "MAJOR" | "CRITICAL";
 
 export type LinkState = "UP" | "DOWN" | "UNKNOWN" | "DISABLED";
 
@@ -76,6 +75,8 @@ export interface ServerSummary {
   openshift: OpenShiftLifecycle;
   connectivity: ConnectivitySummary;
   last_seen_at: string | null;
+  /** Unseen for longer than `INVENTORY_STALE_AFTER_SECONDS`, or never (ADR-0029). */
+  stale: boolean;
   /** False when the last run could not reach a server it knows; hardware
    * fields keep their last-known values. */
   reachable: boolean;
@@ -258,6 +259,8 @@ export interface ServerDetail {
   nic_os_names: Record<string, string>;
   tags: string[];
   last_seen_at: string | null;
+  /** Unseen for longer than `INVENTORY_STALE_AFTER_SECONDS`, or never (ADR-0029). */
+  stale: boolean;
   reachable: boolean;
   unreachable_since: string | null;
   updated_at: string;
@@ -275,6 +278,7 @@ export interface ServerFacets {
   /** Keyed `"true"`/`"false"` — JSON object keys cannot be booleans. */
   maintenance: Record<string, number>;
   openshift_state: Record<string, number>;
+  stale: Record<string, number>;
 }
 
 /** `AVAILABLE` is the default; there is no "nothing reported yet" state. */

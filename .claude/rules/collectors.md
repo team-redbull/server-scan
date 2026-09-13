@@ -4,6 +4,7 @@ paths:
   - "backend/app/infrastructure/credentials/**"
   - "backend/app/domain/ports/provider.py"
   - "tools/run_collector.py"
+  - "backend/app/infrastructure/providers/factory.py"
   - "tools/verify_*.py"
   - "docs/*-collectors.md"
   - "deploy/helm/server-scan/templates/*collector*"
@@ -65,11 +66,16 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   direct-by-URI/DN read (OneView; UCS Manager's `query_dn(hierarchy=True)`),
   a single-host recollect (Redfish; OpenManage via a one-off target), or
   a small directory query plus per-domain delegation (UCS Central).
-  **Never `_list_servers()` re-run and filtered.**
-  `tools.run_collector.build_provider_for_manager_type` is the one place
-  a `ManagerType` becomes a provider for this path. `FakeProvider` has a
+  **Never `_list_servers()` re-run and filtered.** `FakeProvider` has a
   test-only `get_one_overrides`. Intersight's owner-relation `$filter`s
   are unverified live.
+- **Provider construction lives in `app.infrastructure.providers.factory`**
+  (`PROVIDER_FACTORIES`, `build_provider`, `build_provider_for_manager_type`,
+  `manager_for`, `resolve_name_pattern`), not in `tools/run_collector.py`,
+  which imports it. `app` must never import `tools`: it is not an
+  installed package, and `uvicorn --app-dir backend` (the README's dev
+  command) cannot see it — that import shipped once (2026-09-13) and
+  worked only through uvicorn's default `--app-dir .`.
 - **Every collector reports PSUs.** An `Absent` supply is dropped, never
   failed; a PSU `health` is `UP`/`DOWN`/`DISABLED`/`UNKNOWN`, **never a
   `HealthSeverity`** — this exact confusion has shipped three times, last
@@ -92,7 +98,7 @@ found at least one defect the contract alone could not (ADR-0009/0014,
 A collector only ingests names matching `INVENTORY_COLLECTOR_NAME_PATTERN`
 (`^ocp`; empty = everything), applied as `_NameFilteredProvider` in
 `run_collector.py`, not in `IngestService` (so `--dry-run` cannot lie).
-`REDFISH_STANDALONE` is exempt from the global (`_UNFILTERED_TYPES`) — a
+`REDFISH_STANDALONE` is exempt from the global (`UNFILTERED_TYPES`) — a
 BMC does not know the name; its inventory file is the filter. Per-type
 overrides (`INVENTORY_<TYPE>_NAME_PATTERN`) are `str | None`: unset
 inherits, **explicitly empty opts out**, and an override beats the Redfish

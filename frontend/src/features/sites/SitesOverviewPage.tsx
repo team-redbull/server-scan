@@ -168,7 +168,6 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
   const major = stats.by_health.MAJOR;
   const warning = stats.by_health.WARNING;
   const unknown = stats.by_health.UNKNOWN;
-  const info = stats.by_health.INFO;
 
   return (
     <Link
@@ -230,12 +229,6 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
           <span className="inline-flex items-center gap-1.5 text-[var(--text-on-unknown)]">
             <span aria-hidden="true">{SEVERITY_GLYPH.UNKNOWN}</span>
             <span className="tabular">{unknown}</span> unknown
-          </span>
-        )}
-        {info > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-[var(--text-on-info)]">
-            <span aria-hidden="true">{SEVERITY_GLYPH.INFO}</span>
-            <span className="tabular">{info}</span> info
           </span>
         )}
         {/* Every server evaluated HEALTHY — not merely zero critical/warning,

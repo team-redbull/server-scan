@@ -10,7 +10,6 @@ export const SEVERITY_GLYPH: Record<HealthSeverity, string> = {
   CRITICAL: "◆", // filled diamond
   MAJOR: "⬟", // filled pentagon
   WARNING: "▲", // filled triangle
-  INFO: "■", // filled square
   HEALTHY: "●", // filled circle
   UNKNOWN: "○", // hollow circle — no filled reading
 };
@@ -29,7 +28,6 @@ export const SEVERITY_ORDER: readonly HealthSeverity[] = [
   "CRITICAL",
   "MAJOR",
   "WARNING",
-  "INFO",
   "HEALTHY",
   "UNKNOWN",
 ];

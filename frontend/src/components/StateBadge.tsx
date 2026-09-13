@@ -1,11 +1,14 @@
 import { SEVERITY_GLYPH } from "@/components/severity";
+import { formatAge, formatTimestamp } from "@/lib/datetime";
 import type { HealthSeverity, MaintenanceState } from "@/types/server";
 
 /**
- * Health severity plus a maintenance chip, shown alongside rather than
- * replacing it: "critical, and someone is on it" and "in maintenance,
- * otherwise fine" must not render the same. The chip's hue is outside the
- * severity set so it never reads as a fourth severity.
+ * Health severity plus two chips shown alongside rather than replacing it:
+ * maintenance ("critical, and someone is on it" and "in maintenance,
+ * otherwise fine" must not render the same) and stale (a HEALTHY badge on
+ * a server nothing has reached for 14 hours is a claim about the past, and
+ * the chip says so — ADR-0029). Both hues sit outside the severity set so
+ * neither reads as an extra severity.
  */
 
 interface SeverityStyle {
@@ -30,11 +33,6 @@ const SEVERITIES: Record<HealthSeverity, SeverityStyle> = {
     glyph: SEVERITY_GLYPH.WARNING,
     className: "bg-[var(--tint-warning)] text-[var(--text-on-warning)]",
   },
-  INFO: {
-    label: "Info",
-    glyph: SEVERITY_GLYPH.INFO,
-    className: "bg-[var(--tint-info)] text-[var(--text-on-info)]",
-  },
   HEALTHY: {
     label: "Healthy",
     glyph: SEVERITY_GLYPH.HEALTHY,
@@ -50,14 +48,20 @@ const SEVERITIES: Record<HealthSeverity, SeverityStyle> = {
 export function StateBadge({
   severity,
   maintenance,
+  stale = false,
+  lastSeenAt = null,
 }: {
   severity: HealthSeverity;
   maintenance: MaintenanceState;
+  /** `ServerSummary.stale`; renders the chip. */
+  stale?: boolean;
+  /** Gives the chip its age (`20h`); null means never collected. */
+  lastSeenAt?: string | null;
 }) {
   const style = SEVERITIES[severity];
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex flex-wrap items-center justify-center gap-1.5">
       <span
         className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${style.className}`}
       >
@@ -75,6 +79,18 @@ export function StateBadge({
             ⏸
           </span>
           Maint
+        </span>
+      )}
+      {stale && (
+        <span
+          title={
+            lastSeenAt
+              ? `Last seen ${formatTimestamp(lastSeenAt)}`
+              : "Never successfully collected"
+          }
+          className="inline-flex items-center rounded-full bg-[var(--tint-unknown)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-unknown)]"
+        >
+          Stale{lastSeenAt ? ` ${formatAge(lastSeenAt)}` : ""}
         </span>
       )}
     </span>

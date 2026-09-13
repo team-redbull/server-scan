@@ -141,7 +141,49 @@ what it could not read.
   `last_seen_at`, which land in both `servers_stale` and
   `servers_unreachable` — convention 10 satisfied with no generator
   change.
-- Not yet: a `stale` filter in the inventory UI, and per-collector run
-  duration/ingest counts (those still only exist in CronJob logs, and a
-  push mechanism would be the way to get them — see the rejected
-  alternative for why that is a different problem from this one).
+- ~~Not yet: a `stale` filter in the inventory UI, and per-collector run
+  duration/ingest counts~~ — both done, see the update below.
+
+## Update (2026-09-13): the UI half, and a correction
+
+**The per-run counters were never missing.** The bullet above claimed run
+duration/ingest counts existed only in CronJob logs and needed a push
+mechanism. They do not: `tools.run_collector._record_run` writes
+`Manager.last_run` on every run, and `FleetGaugeRefresher` already exports
+it as `collector_last_run_{timestamp,duration,fetched,ingest_errors,
+collection_errors,partial}` gauges. The "push" reasoning applies only to a
+*histogram over runs*, which nothing has asked for. Struck rather than
+deleted so the correction is visible.
+
+**The stale filter shipped.** Three pieces, all deriving from the same
+`last_seen_at` and `INVENTORY_STALE_AFTER_SECONDS` the gauges use:
+
+- **`stale: bool` on `ServerSummary` and `ServerDetail`**, computed at
+  response time on the API's clock (`schemas.is_stale`; a never-seen server
+  is stale, as in the gauge). The frontend renders a flag and never needs
+  the threshold.
+- **`?stale=true|false` on `GET /servers` and `/servers/facets`**, with a
+  `stale` facet dimension. The clause is
+  `{"$expr": {"$lt": ["$last_seen_at", {"$dateToString": {"date":
+  {"$subtract": ["$$NOW", window_ms]}}}]}}` — **Mongo evaluates "now" on
+  its own clock**, so the filter document is byte-identical from one
+  request to the next. That matters because the keyset cursor is
+  HMAC-bound to the filter document (`app.domain.services.cursor`); a
+  cutoff rendered on the API side would change every request and fail
+  page two with `CURSOR_FILTER_MISMATCH`. Verified live against the dev
+  Mongo before building on it: `find`, `count_documents` and `$group` all
+  accept the expression, and a missing `last_seen_at` compares below any
+  string exactly as the gauge assumes (ADR-0006's string rule). The two
+  clocks can disagree by skew and nothing more.
+- **In the UI**: a `Stale only` checkbox (with its facet count) beside
+  `Maintenance only`; a `Stale 20h` chip in the State column next to the
+  severity badge — outside the severity palette, no glyph, wrapping under
+  the badge rather than widening the column (measured: the stale chip adds
+  zero width at 1440px) — so a stale row stands out unfiltered, which was
+  the actual gap; and the detail page's `Last seen` reads relatively
+  ("20 hours ago", exact instant on hover) with a `Stale` badge.
+
+Deliberately not added: a `Seen` column (built, measured, removed — it
+pushed the Maintenance column off a 1440px viewport and duplicated the
+chip's age on every fresh row), and a per-site stale count on the sites
+overview (needs `site_breakdown` extended; nothing asked for it yet).

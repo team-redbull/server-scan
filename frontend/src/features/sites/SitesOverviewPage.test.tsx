@@ -15,7 +15,7 @@ function breakdown(overrides: Partial<Breakdown> = {}): Breakdown {
       { vendor: "hp", count: 0 },
       { vendor: "standalone", count: 0 },
     ],
-    by_health: { UNKNOWN: 0, HEALTHY: 0, INFO: 0, WARNING: 0, MAJOR: 0, CRITICAL: 0 },
+    by_health: { UNKNOWN: 0, HEALTHY: 0, WARNING: 0, MAJOR: 0, CRITICAL: 0 },
     in_maintenance: 0,
     ...overrides,
   };
@@ -41,7 +41,7 @@ function site(
       by_health: {
         UNKNOWN: 0,
         HEALTHY: 0,
-        INFO: 0,
+       
         WARNING: 0,
         MAJOR: upi.by_health.MAJOR + hosted.by_health.MAJOR,
         CRITICAL: upi.by_health.CRITICAL + hosted.by_health.CRITICAL,
@@ -81,13 +81,13 @@ function sumBreakdowns(records: Breakdown[]): Breakdown {
 
 const SITE_ITEMS = [
   site("tlv", "Tel Aviv", {
-    UPI: { total: 30, by_health: { UNKNOWN: 0, HEALTHY: 28, INFO: 0, WARNING: 0, MAJOR: 0, CRITICAL: 2 } },
+    UPI: { total: 30, by_health: { UNKNOWN: 0, HEALTHY: 28, WARNING: 0, MAJOR: 0, CRITICAL: 2 } },
     HOSTED_CLUSTER: { total: 12 },
     AVAILABLE: { total: 7 },
   }),
   site("nyc", "New York City", {
     UPI: { total: 5 },
-    HOSTED_CLUSTER: { total: 3, by_health: { UNKNOWN: 0, HEALTHY: 2, INFO: 0, WARNING: 0, MAJOR: 0, CRITICAL: 1 } },
+    HOSTED_CLUSTER: { total: 3, by_health: { UNKNOWN: 0, HEALTHY: 2, WARNING: 0, MAJOR: 0, CRITICAL: 1 } },
     AVAILABLE: { total: 2 },
   }),
 ];

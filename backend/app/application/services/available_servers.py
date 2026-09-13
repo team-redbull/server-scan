@@ -26,7 +26,6 @@ from app.domain.value_objects.capacity_aliases import CapacityAliasCatalog
 # Best to worst; never CRITICAL, and UNKNOWN (never evaluated) is excluded too (ADR-0027).
 SELECTABLE_TIERS: tuple[HealthSeverity, ...] = (
     HealthSeverity.HEALTHY,
-    HealthSeverity.INFO,
     HealthSeverity.WARNING,
     HealthSeverity.MAJOR,
 )

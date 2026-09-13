@@ -103,11 +103,15 @@ read-only, and that is a safety property rather than a missing feature.
   unversioned `/health/live`, `/health/ready`, `/metrics` — unversioned
   on purpose, since the orchestrator consumes them and they must not move
   if `/api/v1` becomes `/api/v2`.
-- **Outbound:** MongoDB (source of truth), Redis (cache), and — from
-  collector pods only, never from the API — vendor APIs.
-- **The API never talks to a vendor, and a collector never talks to the
-  API.** MongoDB is the only thing connecting them. This is the single
-  most load-bearing structural fact about the system.
+- **Outbound:** MongoDB (source of truth), Redis (cache), and vendor APIs
+  — from collector pods for collection, and since ADR-0032 from the API
+  pod for exactly one purpose: `GET /servers/available`'s per-candidate
+  live recheck (`get_one()`, a single-object read, never a bulk one).
+- **A collector never talks to the API, and the API reaches a vendor only
+  through `ServerInventoryProvider.get_one()` on that one endpoint.**
+  MongoDB is otherwise the only thing connecting them. This is the single
+  most load-bearing structural fact about the system, and ADR-0032 is its
+  one deliberate, bounded exception.
 
 ---
 
@@ -130,7 +134,7 @@ read-only, and that is a safety property rather than a missing feature.
 
 | Block | Responsibility |
 |---|---|
-| **Backend API** (`backend/app`) | Serves the REST API; owns classification, health evaluation, search, pagination, caching. Never contacts a vendor. |
+| **Backend API** (`backend/app`) | Serves the REST API; owns classification, health evaluation, search, pagination, caching. Contacts a vendor only for `GET /servers/available`'s live recheck (ADR-0032). |
 | **Collectors** (`tools/run_collector.py` + a provider) | One process per manager type, on a schedule. Reads a vendor, normalises, ingests. Never serves traffic. |
 | **Membership jobs** (`tools/collect_openshift.py`) | Two per cluster at most, on a schedule. Run *inside* each OpenShift cluster, not beside the API, and deployed from their own chart. Read that cluster's own Kubernetes API and write only `Server.openshift`. Never contact a vendor, never serve traffic, never use `IngestService`. |
 | **Frontend** (`frontend/`) | React admin UI. Talks only to the backend API. |
@@ -543,7 +547,7 @@ go stale — treat its date as load-bearing.
 | Risk | Detail |
 |---|---|
 | **No authentication at all** | Every endpoint is open to anyone who can reach the Route, including all write endpoints. Since ADR-0032, that now includes `GET /servers/available`, whose live recheck can write to a vendor manager's own inventory data (Mongo) using credentials the API pod holds. Deliberate and confirmed, but it is the release gate and nothing should go to production without it. |
-| **Staleness is alerted on but not visible in the UI** | Corrected 2026-09-13 — this row used to say there was no staleness detection at all; ADR-0029 (2026-09-12) closed that: `server_scan_servers_stale`, collector and cluster last-seen gauges and `collector_last_run_*` are derived from MongoDB on scrape, with four alerts in the chart, covering the membership jobs too. What remains: when `ServerScanServersStale` fires for 40 servers, the UI cannot show *which* — no `stale` filter, no last-seen column — so they look identical to healthy rows. A small change (a filter key plus a column); demoted from High. |
+| ~~Staleness not visible in the UI~~ | **Closed 2026-09-13** (ADR-0029's update): `?stale=true` on the inventory, a `Stale 20h` chip beside the severity badge, a facet count, `Last seen` on the detail page. The gauges and alerts had shipped the day before; this row and the one it replaced ("no staleness detection") are both kept struck rather than deleted, because each was true when written and the register's date is load-bearing. |
 
 ### Medium
 

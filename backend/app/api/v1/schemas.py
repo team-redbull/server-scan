@@ -75,17 +75,20 @@ class ServerSummary(BaseModel):
     openshift: OpenShiftLifecycle
     connectivity: ConnectivitySummary
     last_seen_at: datetime | None
+    stale: bool
     reachable: bool
     unreachable_since: datetime | None
     updated_at: datetime
 
     @classmethod
-    def from_server(cls, server: Server) -> ServerSummary:
+    def from_server(cls, server: Server, *, stale_before: datetime) -> ServerSummary:
         """
         Build the list-response projection from a domain server.
 
         Args:
             server (Server): The stored document.
+            stale_before (datetime): A server last seen before this — or
+                never — is `stale` (ADR-0029's window, on the API's clock).
 
         Returns:
             ServerSummary: The response model.
@@ -104,6 +107,7 @@ class ServerSummary(BaseModel):
             openshift=server.openshift,
             connectivity=ConnectivitySummary(facts=server.connectivity.facts),
             last_seen_at=server.last_seen_at,
+            stale=is_stale(server, stale_before),
             reachable=server.reachable,
             unreachable_since=server.unreachable_since,
             updated_at=server.updated_at,
@@ -128,6 +132,22 @@ class ServerListResponse(BaseModel):
 
 
 _NO_NIC_NAMES = NicNameCatalog(names_by_kind={})
+
+
+def is_stale(server: Server, stale_before: datetime) -> bool:
+    """
+    Whether a server's own endpoint has not answered since the cutoff.
+
+    The same rule the fleet gauges use (ADR-0029): never seen counts as stale.
+
+    Args:
+        server (Server): The stored document.
+        stale_before (datetime): The cutoff, `now - INVENTORY_STALE_AFTER_SECONDS`.
+
+    Returns:
+        bool: `True` when `last_seen_at` is absent or older than the cutoff.
+    """
+    return server.last_seen_at is None or server.last_seen_at < stale_before
 
 
 def _nic_os_names(server: Server, nic_names: NicNameCatalog) -> dict[str, str]:
@@ -185,6 +205,7 @@ class ServerDetail(BaseModel):
     # `network`, not inside it.
     nic_os_names: dict[str, str] = Field(default_factory=dict)
     last_seen_at: datetime | None
+    stale: bool
     reachable: bool
     unreachable_since: datetime | None
     revision: int
@@ -192,7 +213,13 @@ class ServerDetail(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_server(cls, server: Server, nic_names: NicNameCatalog = _NO_NIC_NAMES) -> ServerDetail:
+    def from_server(
+        cls,
+        server: Server,
+        nic_names: NicNameCatalog = _NO_NIC_NAMES,
+        *,
+        stale_before: datetime,
+    ) -> ServerDetail:
         """
         Build the detail response for one server.
 
@@ -201,6 +228,8 @@ class ServerDetail(BaseModel):
             nic_names (NicNameCatalog): The configured FQDD-to-OS-name
                 mapping. Defaults to an empty one, which renders the
                 hardware names alone rather than inventing any.
+            stale_before (datetime): A server last seen before this — or
+                never — is `stale`.
 
         Returns:
             ServerDetail: The response model.
@@ -230,6 +259,7 @@ class ServerDetail(BaseModel):
             unread_fields=server.unread_fields,
             nic_os_names=nic_os_names,
             last_seen_at=server.last_seen_at,
+            stale=is_stale(server, stale_before),
             reachable=server.reachable,
             unreachable_since=server.unreachable_since,
             revision=server.revision,
@@ -354,6 +384,8 @@ class ServerFacets(BaseModel):
         health_overall (dict[str, int]): Counts by health severity.
         maintenance (dict[str, int]): Counts keyed `"true"`/`"false"`,
             strings because JSON object keys cannot be booleans.
+        stale (dict[str, int]): Same keying; servers unseen past the
+            staleness window, or never seen.
     """
 
     total: int
@@ -363,6 +395,7 @@ class ServerFacets(BaseModel):
     health_overall: dict[str, int] = Field(default_factory=dict)
     maintenance: dict[str, int] = Field(default_factory=dict)
     openshift_state: dict[str, int] = Field(default_factory=dict)
+    stale: dict[str, int] = Field(default_factory=dict)
 
     @classmethod
     def from_rows(cls, rows: Iterable[FacetRow]) -> ServerFacets:
@@ -383,6 +416,7 @@ class ServerFacets(BaseModel):
             "health_overall": Counter(),
             "maintenance": Counter(),
             "openshift_state": Counter(),
+            "stale": Counter(),
         }
         total = 0
         for row in rows:
@@ -394,6 +428,7 @@ class ServerFacets(BaseModel):
                 ("health_overall", row.health_overall),
                 ("maintenance", "true" if row.maintenance else "false"),
                 ("openshift_state", row.openshift_state),
+                ("stale", "true" if row.stale else "false"),
             ):
                 # `None` counts in `total` but under no option: no filter
                 # value would select it.
@@ -407,4 +442,5 @@ class ServerFacets(BaseModel):
             health_overall=dict(totals["health_overall"]),
             maintenance=dict(totals["maintenance"]),
             openshift_state=dict(totals["openshift_state"]),
+            stale=dict(totals["stale"]),
         )

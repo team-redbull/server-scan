@@ -75,12 +75,11 @@ class HealthSeverity(StrEnum):
     A server's overall or per-category health, from best to worst.
 
     Every aggregation sorts by `HEALTH_SEVERITY_RANK`. `MAJOR` is "redundancy
-    gone, still serving" — see docs/architecture.md, "Health policy engine".
+    gone, still serving"; `INFO` was retired 2026-09-13 — docs/architecture.md.
     """
 
     UNKNOWN = "UNKNOWN"
     HEALTHY = "HEALTHY"
-    INFO = "INFO"
     WARNING = "WARNING"
     MAJOR = "MAJOR"
     CRITICAL = "CRITICAL"
@@ -91,10 +90,9 @@ class HealthSeverity(StrEnum):
 HEALTH_SEVERITY_RANK: dict[HealthSeverity, int] = {
     HealthSeverity.UNKNOWN: 0,
     HealthSeverity.HEALTHY: 1,
-    HealthSeverity.INFO: 2,
-    HealthSeverity.WARNING: 3,
-    HealthSeverity.MAJOR: 4,
-    HealthSeverity.CRITICAL: 5,
+    HealthSeverity.WARNING: 2,
+    HealthSeverity.MAJOR: 3,
+    HealthSeverity.CRITICAL: 4,
 }
 
 

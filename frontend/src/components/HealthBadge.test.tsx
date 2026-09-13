@@ -6,7 +6,6 @@ import type { HealthSeverity } from "@/types/server";
 
 const CASES: { severity: HealthSeverity; expectedClass: string }[] = [
   { severity: "HEALTHY", expectedClass: "bg-green-100" },
-  { severity: "INFO", expectedClass: "bg-blue-100" },
   { severity: "WARNING", expectedClass: "bg-amber-100" },
   { severity: "MAJOR", expectedClass: "bg-orange-100" },
   { severity: "CRITICAL", expectedClass: "bg-red-100" },

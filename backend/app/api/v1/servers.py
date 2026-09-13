@@ -34,10 +34,10 @@ extra (also-degrading) cache read on the hot path.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from tools.run_collector import build_provider_for_manager_type
 
 from app.api.v1.maintenance_schemas import MaintenanceEnableRequest
 from app.api.v1.schemas import (
@@ -89,6 +89,7 @@ from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolic
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
+from app.infrastructure.providers.factory import build_provider_for_manager_type
 from app.infrastructure.redis.cache import (
     FACETS_TTL_SECONDS,
     LIST_PAGE_TTL_SECONDS,
@@ -130,8 +131,8 @@ def _extract_raw_filters(request: Request) -> dict[str, object]:
     for key, value in request.query_params.items():
         if key in _NON_FILTER_PARAMS:
             continue
-        if key == "maintenance":
-            filters[key] = _parse_bool(value, field="maintenance")
+        if key in ("maintenance", "stale"):
+            filters[key] = _parse_bool(value, field=key)
         else:
             filters[key] = value
     return filters
@@ -334,6 +335,21 @@ def _revision_pointer_key(server_id: str) -> str:
     return f"si:1:srv:{server_id}:rev"
 
 
+def _stale_before(settings: Settings) -> datetime:
+    """
+    The staleness cutoff on the API's clock, for the `stale` flag on responses.
+
+    ADR-0029's window; the *filter* uses Mongo's clock (`stale_cutoff_expr`).
+
+    Args:
+        settings (Settings): Supplies `stale_after_seconds`.
+
+    Returns:
+        datetime: `now - INVENTORY_STALE_AFTER_SECONDS`.
+    """
+    return utcnow() - timedelta(seconds=settings.stale_after_seconds)
+
+
 @router.get("/servers", response_model=ServerListResponse)
 async def list_servers(
     request: Request,
@@ -383,7 +399,9 @@ async def list_servers(
 
     raw_filters = _extract_raw_filters(request)
     # Validated before any I/O: a doomed request should not cost a Redis trip.
-    mongo_filters = build_filter_query(raw_filters)
+    mongo_filters = build_filter_query(
+        raw_filters, stale_after_seconds=settings.stale_after_seconds
+    )
     resolve_sort_field(sort)  # fail fast on an unknown sort before any I/O
 
     cache_key = list_key(
@@ -419,7 +437,10 @@ async def list_servers(
             with_count=with_count,
         )
         response = ServerListResponse(
-            items=[ServerSummary.from_server(server) for server in page.items],
+            items=[
+                ServerSummary.from_server(server, stale_before=_stale_before(settings))
+                for server in page.items
+            ],
             page=PageInfo(
                 next_cursor=page.next_cursor,
                 has_more=page.has_more,
@@ -442,6 +463,7 @@ async def server_facets(
     request: Request,
     repo: Annotated[MongoServerRepository, Depends(_server_repo)],
     cache: Annotated[CacheClient, Depends(_cache_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
     search: str | None = Query(default=None),
 ) -> ServerFacets | Response:
     """
@@ -454,6 +476,7 @@ async def server_facets(
         request (Request): Carries the raw filter query parameters.
         repo (MongoServerRepository): The server repository.
         cache (CacheClient): Cache-aside for the aggregation.
+        settings (Settings): Supplies the staleness window.
         search (str | None): The same free-text search `GET /servers` takes.
 
     Returns:
@@ -463,7 +486,9 @@ async def server_facets(
             miss.
     """
     raw_filters = _extract_raw_filters(request)
-    mongo_filters = build_filter_query(raw_filters)
+    mongo_filters = build_filter_query(
+        raw_filters, stale_after_seconds=settings.stale_after_seconds
+    )
 
     cache_key = facets_key(stable_hash({"filters": mongo_filters, "search": search}))
     cached = await cache.get_raw(cache_key)
@@ -471,7 +496,9 @@ async def server_facets(
         return Response(content=cached, media_type="application/json")
 
     facets = ServerFacets.from_rows(
-        await repo.facet_breakdown(filters=mongo_filters, search=search)
+        await repo.facet_breakdown(
+            filters=mongo_filters, search=search, stale_after_seconds=settings.stale_after_seconds
+        )
     )
     await cache.set(cache_key, facets.model_dump(mode="json"), ttl_seconds=FACETS_TTL_SECONDS)
     return facets
@@ -616,7 +643,9 @@ async def get_server(
     if server is None:
         raise NotFoundError(f"No server with id {server_id!r}.", details={"server_id": server_id})
 
-    detail = ServerDetail.from_server(server, nic_name_catalog(settings.nic_os_names))
+    detail = ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )
     detail_key = server_key(server_id, server.revision)
     await cache.set(pointer_key, server.revision, ttl_seconds=SERVER_DETAIL_TTL_SECONDS)
     await cache.set(
@@ -718,7 +747,9 @@ async def reclassify_server(
                 "matched_rule_id": server.classification.matched_rule_id,
             },
         )
-    return ServerDetail.from_server(server, nic_name_catalog(settings.nic_os_names))
+    return ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )
 
 
 @router.post("/servers/{server_id}/health/recalculate", response_model=ServerDetail)
@@ -780,7 +811,9 @@ async def recalculate_server_health(
                 "policy_ids": [e.policy_id for e in state.evaluations if e.active],
             },
         )
-    return ServerDetail.from_server(server, nic_name_catalog(settings.nic_os_names))
+    return ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )
 
 
 @router.put("/servers/{server_id}/maintenance", response_model=ServerDetail)
@@ -821,7 +854,9 @@ async def enable_maintenance(
     )
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
-    return ServerDetail.from_server(server, nic_name_catalog(settings.nic_os_names))
+    return ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )
 
 
 @router.delete("/servers/{server_id}/maintenance", response_model=ServerDetail)
@@ -853,4 +888,6 @@ async def disable_maintenance(
     server = await service.disable(server_id, actor=actor, request_id=request_id)
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
-    return ServerDetail.from_server(server, nic_name_catalog(settings.nic_os_names))
+    return ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )

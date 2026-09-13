@@ -80,25 +80,62 @@ SORT_ACCESSORS: dict[str, Callable[[Server], str | datetime | None]] = {
 }
 
 
-def build_filter_query(filters: dict[str, object]) -> dict[str, object]:
+STALE_FILTER = "stale"
+
+
+def stale_cutoff_expr(stale_after_seconds: int) -> dict[str, object]:
+    """
+    The staleness cutoff as an aggregation expression Mongo evaluates on its own clock.
+
+    `$$NOW`, not a rendered timestamp: the keyset cursor is HMAC-bound to
+    the filter document, so it must not change per request (ADR-0029 update).
+
+    Args:
+        stale_after_seconds (int): `INVENTORY_STALE_AFTER_SECONDS`.
+
+    Returns:
+        dict[str, object]: An ISO-8601 string expression comparable with the
+            stored `last_seen_at` strings (ADR-0006); a missing field sorts
+            below any string, so a never-seen server counts as stale.
+    """
+    return {
+        "$dateToString": {"date": {"$subtract": ["$$NOW", stale_after_seconds * 1000]}},
+    }
+
+
+def build_filter_query(
+    filters: dict[str, object], *, stale_after_seconds: int | None = None
+) -> dict[str, object]:
     """
     Translate whitelisted filter query-param names to real Mongo field paths.
 
     Args:
         filters (dict[str, object]): Query-param filter key/value pairs.
+        stale_after_seconds (int | None): Needed only when `filters` carries
+            `stale`; the window a server must be unseen for to count.
 
     Returns:
         dict[str, object]: The same values, keyed by their Mongo field path.
 
     Raises:
-        UnknownFilterError: If a key is outside `FILTER_FIELDS`.
+        UnknownFilterError: If a key is outside `FILTER_FIELDS`, or `stale`
+            is given without `stale_after_seconds`.
     """
     query: dict[str, object] = {}
     for key, value in filters.items():
+        if key == STALE_FILTER:
+            if stale_after_seconds is None:
+                raise UnknownFilterError(
+                    "Unknown filter: 'stale'",
+                    details={"filter": key, "allowed": sorted(FILTER_FIELDS)},
+                )
+            op = "$lt" if value else "$gte"
+            query["$expr"] = {op: ["$last_seen_at", stale_cutoff_expr(stale_after_seconds)]}
+            continue
         if key not in FILTER_FIELDS:
             raise UnknownFilterError(
                 f"Unknown filter: {key!r}",
-                details={"filter": key, "allowed": sorted(FILTER_FIELDS)},
+                details={"filter": key, "allowed": sorted([*FILTER_FIELDS, STALE_FILTER])},
             )
         # Absence of a site is stored as null, so it has no spelling to
         # match on: `?site_id=unassigned` names the state instead.

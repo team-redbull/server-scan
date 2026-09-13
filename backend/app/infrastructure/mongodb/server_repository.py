@@ -29,7 +29,12 @@ from app.domain.ports.repository import (
     SiteBreakdownRow,
 )
 from app.domain.services.cursor import CursorPosition, decode_cursor, encode_cursor
-from app.domain.services.search import SORT_ACCESSORS, build_search_query, resolve_sort_field
+from app.domain.services.search import (
+    SORT_ACCESSORS,
+    build_search_query,
+    resolve_sort_field,
+    stale_cutoff_expr,
+)
 from app.errors import NotFoundError, RevisionConflictError
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.indexes import SERVERS_COLLECTION
@@ -99,6 +104,8 @@ class FacetRow:
         health_overall (str | None): `health.overall`.
         maintenance (bool): Whether maintenance is enabled.
         openshift_state (str | None): `openshift.lifecycle_state`.
+        stale (bool): Whether `last_seen_at` is older than the caller's
+            window, or absent.
         count (int): How many servers.
     """
 
@@ -108,6 +115,7 @@ class FacetRow:
     health_overall: str | None
     maintenance: bool
     openshift_state: str | None
+    stale: bool
     count: int
 
 
@@ -357,7 +365,7 @@ class MongoServerRepository:
         return await self._collection.count_documents(dict(filters))
 
     async def facet_breakdown(
-        self, *, filters: dict[str, object], search: str | None
+        self, *, filters: dict[str, object], search: str | None, stale_after_seconds: int
     ) -> list[FacetRow]:
         """
         Per-combination server counts for one filtered view, in one round trip.
@@ -371,6 +379,8 @@ class MongoServerRepository:
                 page being looked at.
             search (str | None): The same search string, applied the same
                 way.
+            stale_after_seconds (int): The staleness window for the `stale`
+                dimension, evaluated on Mongo's clock (`stale_cutoff_expr`).
 
         Returns:
             list[FacetRow]: One row per non-empty combination.
@@ -392,6 +402,7 @@ class MongoServerRepository:
                         "health_overall": "$health.overall",
                         "maintenance": "$maintenance.enabled",
                         "openshift_state": "$openshift.lifecycle_state",
+                        "stale": {"$lt": ["$last_seen_at", stale_cutoff_expr(stale_after_seconds)]},
                     },
                     "count": {"$sum": 1},
                 }
@@ -409,6 +420,7 @@ class MongoServerRepository:
                     health_overall=key.get("health_overall"),
                     maintenance=bool(key.get("maintenance")),
                     openshift_state=key.get("openshift_state"),
+                    stale=bool(key.get("stale")),
                     count=int(doc["count"]),
                 )
             )
