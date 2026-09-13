@@ -52,8 +52,8 @@ test.describe("Maintenance", () => {
     expect(detail.maintenance.reason).toBe("e2e list toggle");
 
     // Under "Maintenance only" the row must LEAVE the list the moment it
-    // leaves maintenance — the list page and its facet count are cached
-    // server-side, and this is what ADR-0028 exists for.
+    // leaves maintenance: the mutation patches the cached fleet, and the
+    // server clears its rows/list cache so the next poll agrees (ADR-0028).
     await page.getByLabel("Maintenance only").click();
     await expect(page.getByLabel("Maintenance only")).toBeChecked();
     await expect(page.getByRole("link", { name: server.name })).toBeVisible();

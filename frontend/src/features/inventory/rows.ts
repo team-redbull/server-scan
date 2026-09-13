@@ -60,8 +60,9 @@ export function filterRows(rows: ServerRow[], filters: RowFilters): ServerRow[] 
 }
 
 /**
- * Case-insensitive substring search over name, model, serial, BMC host and
- * MACs; a hex-looking query also matches MACs with the separators stripped.
+ * Case-insensitive substring search over the same fields the API's token
+ * search indexes — name, model, serial, vendor, site, installation type,
+ * BMC host and MACs; a hex-looking query also matches MACs bare.
  *
  * Args:
  *   rows (ServerRow[]): The rows to search.
@@ -78,6 +79,9 @@ export function searchRows(rows: ServerRow[], query: string): ServerRow[] {
     if (row.name.toLowerCase().includes(q)) return true;
     if (row.model?.toLowerCase().includes(q)) return true;
     if (row.serial?.toLowerCase().includes(q)) return true;
+    if (row.vendor.includes(q)) return true;
+    if (row.site_id?.toLowerCase().includes(q)) return true;
+    if (row.installation_type.toLowerCase().includes(q)) return true;
     if (row.bmc_host?.toLowerCase().includes(q)) return true;
     return row.macs.some(
       (mac) => mac.includes(q) || (bare !== null && mac.replace(/:/g, "").includes(bare)),

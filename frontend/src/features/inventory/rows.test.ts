@@ -50,6 +50,12 @@ describe("filterRows", () => {
 });
 
 describe("searchRows", () => {
+  it("matches the same fields the API's token search indexes (vendor and site included)", () => {
+    expect(searchRows(FLEET, "cisco").map((r) => r.name)).toEqual(["srv-2"]);
+    expect(searchRows(FLEET, "tlv")).toHaveLength(2);
+    expect(searchRows(FLEET, "upi")).toHaveLength(3);
+  });
+
   it("is a case-insensitive substring over name, model, serial and BMC host", () => {
     expect(searchRows(FLEET, "RV-1").map((r) => r.name)).toEqual(["srv-10", "srv-1"]);
     expect(searchRows(FLEET, "r76")).toHaveLength(3);

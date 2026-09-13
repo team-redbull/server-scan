@@ -7,13 +7,23 @@ import type { SortableField } from "@/features/inventory/sorting";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
 import { siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
 import { useServerRowsQuery } from "@/features/inventory/hooks";
-import { facetCounts, filterRows, paginate, sortRows } from "@/features/inventory/rows";
+import {
+  facetCounts,
+  filterRows,
+  paginate,
+  sortRows,
+} from "@/features/inventory/rows";
 import type { RowFilters } from "@/features/inventory/rows";
 import { useSitesQuery } from "@/features/sites/hooks";
 import { formatTimestamp } from "@/lib/datetime";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
-const INSTALLATION_TYPES = ["HOSTED_CLUSTER", "MCE", "UPI", "UNCLASSIFIED"] as const;
+const INSTALLATION_TYPES = [
+  "HOSTED_CLUSTER",
+  "MCE",
+  "UPI",
+  "UNCLASSIFIED",
+] as const;
 const OPENSHIFT_STATES = [
   { value: "INSTALLED", label: "Installed" },
   { value: "INSTALLED_TO_INVENTORY", label: "In inventory" },
@@ -27,7 +37,7 @@ const HEALTH_SEVERITIES = [
   "CRITICAL",
 ] as const;
 const FIELD_CLASS =
-  "mt-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
+  "mt-1 w-full min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
 
 const DEFAULT_SORT: SortableField = "name";
 const PAGE_SIZE = 50;
@@ -93,8 +103,15 @@ export function InventoryPage() {
     () => sortRows(filterRows(data?.items ?? [], filters), sortField, sortDesc),
     [data, filters, sortField, sortDesc],
   );
-  const facets = useMemo(() => (data ? facetCounts(matched) : undefined), [data, matched]);
-  const { items: servers, page, pageCount } = paginate(matched, pageParam, PAGE_SIZE);
+  const facets = useMemo(
+    () => (data ? facetCounts(matched) : undefined),
+    [data, matched],
+  );
+  const {
+    items: servers,
+    page,
+    pageCount,
+  } = paginate(matched, pageParam, PAGE_SIZE);
 
   /** Append a filter option's match count to its label. Silent when this
    * dimension is already filtered (every other option would read as zero
@@ -111,7 +128,9 @@ export function InventoryPage() {
   }
 
   /** Apply a filter patch to the URL and go back to page 1. `replace: true`
-   * keeps keystrokes out of browser history. */
+   * keeps keystrokes out of browser history; `flushSync` keeps the router's
+   * navigation out of a transition, or a controlled checkbox snaps back to
+   * its old state until the deferred re-render lands. */
   function updateFilters(patch: Record<string, string | null>) {
     setSearchParams(
       (prev) => {
@@ -126,7 +145,7 @@ export function InventoryPage() {
         next.delete("page");
         return next;
       },
-      { replace: true },
+      { replace: true, flushSync: true },
     );
   }
 
@@ -145,13 +164,14 @@ export function InventoryPage() {
         }
         return next;
       },
-      { replace: true },
+      { replace: true, flushSync: true },
     );
   }
 
   // Named for the empty state: "no servers match" rather than "no servers".
   const activeFilters: { key: string; label: string }[] = [];
-  if (debouncedSearch) activeFilters.push({ key: "search", label: `Search "${debouncedSearch}"` });
+  if (debouncedSearch)
+    activeFilters.push({ key: "search", label: `Search "${debouncedSearch}"` });
   if (vendor) activeFilters.push({ key: "vendor", label: `Vendor ${vendor}` });
   if (siteId) {
     activeFilters.push({
@@ -165,17 +185,27 @@ export function InventoryPage() {
       label: `Source ${SOURCE_PROVIDERS.find((s) => s.value === sourceProvider)?.label ?? sourceProvider}`,
     });
   }
-  if (installationType) activeFilters.push({ key: "installation_type", label: `Classification ${installationType}` });
+  if (installationType)
+    activeFilters.push({
+      key: "installation_type",
+      label: `Classification ${installationType}`,
+    });
   if (openshiftState) {
     activeFilters.push({
       key: "openshift_state",
       label: `Installation ${
-        OPENSHIFT_STATES.find((s) => s.value === openshiftState)?.label ?? openshiftState
+        OPENSHIFT_STATES.find((s) => s.value === openshiftState)?.label ??
+        openshiftState
       }`,
     });
   }
-  if (healthOverall) activeFilters.push({ key: "health_overall", label: `Health ${healthOverall}` });
-  if (maintenanceOnly) activeFilters.push({ key: "maintenance", label: "Maintenance only" });
+  if (healthOverall)
+    activeFilters.push({
+      key: "health_overall",
+      label: `Health ${healthOverall}`,
+    });
+  if (maintenanceOnly)
+    activeFilters.push({ key: "maintenance", label: "Maintenance only" });
   if (staleOnly) activeFilters.push({ key: "stale", label: "Stale only" });
 
   function clearFilters() {
@@ -209,167 +239,187 @@ export function InventoryPage() {
       </p>
 
       <form
-        className="mt-6 flex flex-wrap items-end gap-3"
+        className="mt-6 space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
         }}
       >
-        <label className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          Search
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => {
-              updateFilters({ search: e.target.value });
-            }}
-            placeholder="Name, serial, tag, BMC…"
-            className={FIELD_CLASS}
-          />
-        </label>
+        {/* Two fixed rows: the fields share the first and shrink to fit, so a
+            wide count can never wrap Health under Search or move the toggles. */}
+        <div className="flex items-end gap-3">
+          <label className="flex min-w-0 flex-[1.4] flex-col text-xs font-medium text-[var(--text-secondary)]">
+            Search
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => {
+                updateFilters({ search: e.target.value });
+              }}
+              placeholder="Name, serial, tag, BMC…"
+              className={FIELD_CLASS}
+            />
+          </label>
 
-        <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          <label htmlFor="filter-vendor">Vendor</label>
-          <select
-            id="filter-vendor"
-            value={vendor}
-            onChange={(e) => {
-              updateFilters({ vendor: e.target.value });
-            }}
-            className={FIELD_CLASS}
-          >
-            <option value="">All{facets ? ` (${facets.total})` : ""}</option>
-            {VENDORS.map((v) => (
-              <option key={v} value={v}>
-                {withCount(v, facets?.vendor, v, vendor !== "")}
+          <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+            <label htmlFor="filter-vendor">Vendor</label>
+            <select
+              id="filter-vendor"
+              value={vendor}
+              onChange={(e) => {
+                updateFilters({ vendor: e.target.value });
+              }}
+              className={FIELD_CLASS}
+            >
+              <option value="">All{facets ? ` (${facets.total})` : ""}</option>
+              {VENDORS.map((v) => (
+                <option key={v} value={v}>
+                  {withCount(v, facets?.vendor, v, vendor !== "")}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+            <label htmlFor="filter-source">Source</label>
+            <select
+              id="filter-source"
+              value={sourceProvider}
+              onChange={(e) => {
+                updateFilters({ source_provider: e.target.value });
+              }}
+              className={FIELD_CLASS}
+            >
+              <option value="">All{facets ? ` (${facets.total})` : ""}</option>
+              {SOURCE_PROVIDERS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {withCount(
+                    s.label,
+                    facets?.source_provider,
+                    s.value,
+                    sourceProvider !== "",
+                  )}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+            <label htmlFor="filter-site">Site</label>
+            <select
+              id="filter-site"
+              value={siteId}
+              onChange={(e) => {
+                updateFilters({ site_id: e.target.value });
+              }}
+              className={FIELD_CLASS}
+            >
+              <option value="">
+                All sites{facets ? ` (${facets.total})` : ""}
               </option>
-            ))}
-          </select>
-        </div>
+              {sites.map((site) => (
+                <option key={site.value} value={site.value}>
+                  {site.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          <label htmlFor="filter-source">Source</label>
-          <select
-            id="filter-source"
-            value={sourceProvider}
-            onChange={(e) => {
-              updateFilters({ source_provider: e.target.value });
-            }}
-            className={FIELD_CLASS}
+          <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+            <label htmlFor="filter-classification">Classification</label>
+            <select
+              id="filter-classification"
+              value={installationType}
+              onChange={(e) => {
+                updateFilters({ installation_type: e.target.value });
+              }}
+              className={FIELD_CLASS}
+            >
+              <option value="">All{facets ? ` (${facets.total})` : ""}</option>
+              {INSTALLATION_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {withCount(
+                    t,
+                    facets?.installation_type,
+                    t,
+                    installationType !== "",
+                  )}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+            <label htmlFor="filter-installation">Installation</label>
+            <select
+              id="filter-installation"
+              value={openshiftState}
+              onChange={(e) => {
+                updateFilters({ openshift_state: e.target.value });
+              }}
+              className={FIELD_CLASS}
+            >
+              <option value="">All{facets ? ` (${facets.total})` : ""}</option>
+              {OPENSHIFT_STATES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {withCount(
+                    s.label,
+                    facets?.openshift_state,
+                    s.value,
+                    openshiftState !== "",
+                  )}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+            <label htmlFor="filter-health">Health</label>
+            <select
+              id="filter-health"
+              value={healthOverall}
+              onChange={(e) => {
+                updateFilters({ health_overall: e.target.value });
+              }}
+              className={FIELD_CLASS}
+            >
+              <option value="">All{facets ? ` (${facets.total})` : ""}</option>
+              {HEALTH_SEVERITIES.map((h) => (
+                <option key={h} value={h}>
+                  {withCount(h, facets?.health, h, healthOverall !== "")}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={maintenanceOnly}
+              onChange={(e) => {
+                updateFilters({
+                  maintenance: e.target.checked ? "true" : null,
+                });
+              }}
+            />
+            Maintenance only
+            {maintenanceOnly && facets ? ` (${facets.total})` : ""}
+          </label>
+
+          <label
+            className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+            title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"
           >
-            <option value="">All{facets ? ` (${facets.total})` : ""}</option>
-            {SOURCE_PROVIDERS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {withCount(
-                  s.label,
-                  facets?.source_provider,
-                  s.value,
-                  sourceProvider !== "",
-                )}
-              </option>
-            ))}
-          </select>
+            <input
+              type="checkbox"
+              checked={staleOnly}
+              onChange={(e) => {
+                updateFilters({ stale: e.target.checked ? "true" : null });
+              }}
+            />
+            Stale only{staleOnly && facets ? ` (${facets.total})` : ""}
+          </label>
         </div>
-
-        <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          <label htmlFor="filter-site">Site</label>
-          <select
-            id="filter-site"
-            value={siteId}
-            onChange={(e) => {
-              updateFilters({ site_id: e.target.value });
-            }}
-            className={FIELD_CLASS}
-          >
-            <option value="">All sites{facets ? ` (${facets.total})` : ""}</option>
-            {sites.map((site) => (
-              <option key={site.value} value={site.value}>
-                {site.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          <label htmlFor="filter-classification">Classification</label>
-          <select
-            id="filter-classification"
-            value={installationType}
-            onChange={(e) => {
-              updateFilters({ installation_type: e.target.value });
-            }}
-            className={FIELD_CLASS}
-          >
-            <option value="">All{facets ? ` (${facets.total})` : ""}</option>
-            {INSTALLATION_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {withCount(t, facets?.installation_type, t, installationType !== "")}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          <label htmlFor="filter-installation">Installation</label>
-          <select
-            id="filter-installation"
-            value={openshiftState}
-            onChange={(e) => {
-              updateFilters({ openshift_state: e.target.value });
-            }}
-            className={FIELD_CLASS}
-          >
-            <option value="">All{facets ? ` (${facets.total})` : ""}</option>
-            {OPENSHIFT_STATES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {withCount(s.label, facets?.openshift_state, s.value, openshiftState !== "")}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
-          <label htmlFor="filter-health">Health</label>
-          <select
-            id="filter-health"
-            value={healthOverall}
-            onChange={(e) => {
-              updateFilters({ health_overall: e.target.value });
-            }}
-            className={FIELD_CLASS}
-          >
-            <option value="">All{facets ? ` (${facets.total})` : ""}</option>
-            {HEALTH_SEVERITIES.map((h) => (
-              <option key={h} value={h}>
-                {withCount(h, facets?.health, h, healthOverall !== "")}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <label className="flex items-center gap-2 pb-1.5 text-xs font-medium text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={maintenanceOnly}
-            onChange={(e) => {
-              updateFilters({ maintenance: e.target.checked ? "true" : null });
-            }}
-          />
-          Maintenance only
-        </label>
-
-        <label
-          className="flex items-center gap-2 pb-1.5 text-xs font-medium text-[var(--text-secondary)]"
-          title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"
-        >
-          <input
-            type="checkbox"
-            checked={staleOnly}
-            onChange={(e) => {
-              updateFilters({ stale: e.target.checked ? "true" : null });
-            }}
-          />
-          Stale only{withCount("", facets?.stale, "true", staleOnly)}
-        </label>
       </form>
 
       {activeFilters.length > 0 && (

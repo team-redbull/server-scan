@@ -233,6 +233,9 @@ describe("InventoryPage", () => {
     });
     expect(screen.queryByText("fresh-01")).not.toBeInTheDocument();
     expect(screen.getByText("stale-01")).toBeInTheDocument();
+    // The toggles count only while ticked — no "(21)" on an option nobody chose.
+    expect(screen.getByLabelText(/Stale only \(1\)/)).toBeChecked();
+    expect(screen.getByLabelText(/^Maintenance only$/)).not.toBeChecked();
   });
 
   it("searches by substring across name, serial, BMC host and MAC", async () => {
