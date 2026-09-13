@@ -113,9 +113,10 @@ export function InventoryPage() {
     pageCount,
   } = paginate(matched, pageParam, PAGE_SIZE);
 
-  /** Append a filter option's match count to its label. Silent when this
-   * dimension is already filtered (every other option would read as zero
-   * when it is really unknown) and when the option is absent from the response. */
+  /** Append a filter option's match count to its label — "(0)" included, so
+   * an empty option is visibly empty. Silent only when this dimension is
+   * already filtered (every other option would read as zero when it is
+   * really unknown). */
   function withCount(
     label: string,
     counts: Record<string, number> | undefined,
@@ -123,18 +124,19 @@ export function InventoryPage() {
     filtered: boolean,
   ): string {
     if (filtered || !counts) return label;
-    const count = counts[value];
-    return count === undefined ? label : `${label} (${count})`;
+    return `${label} (${counts[value] ?? 0})`;
   }
 
-  /** Apply a filter patch to the URL and go back to page 1. `replace: true`
-   * keeps keystrokes out of browser history; `flushSync` keeps the router's
-   * navigation out of a transition, or a controlled checkbox snaps back to
-   * its old state until the deferred re-render lands. */
+  /** Apply a filter patch to the URL and go back to page 1. Built from the
+   * live location, not the hook's `prev`: that is the last *render's* URL,
+   * so two changes under ~100 ms apart would both start from it and the
+   * second silently drop the first. `replace: true` keeps keystrokes out of
+   * browser history; `flushSync` keeps the navigation out of a transition,
+   * or a controlled checkbox snaps back until the deferred render lands. */
   function updateFilters(patch: Record<string, string | null>) {
     setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
+      () => {
+        const next = new URLSearchParams(window.location.search);
         for (const [key, value] of Object.entries(patch)) {
           if (value === null || value === "") {
             next.delete(key);
@@ -155,8 +157,8 @@ export function InventoryPage() {
 
   function goToPage(target: number) {
     setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
+      () => {
+        const next = new URLSearchParams(window.location.search);
         if (target <= 1) {
           next.delete("page");
         } else {
@@ -318,7 +320,12 @@ export function InventoryPage() {
               </option>
               {sites.map((site) => (
                 <option key={site.value} value={site.value}>
-                  {site.label}
+                  {withCount(
+                    site.label,
+                    facets?.site_id,
+                    site.value,
+                    siteId !== "",
+                  )}
                 </option>
               ))}
             </select>

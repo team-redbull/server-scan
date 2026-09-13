@@ -126,8 +126,15 @@ endpoint and does everything else locally.
   parameter replacing `cursor`; every other URL parameter is unchanged so
   existing links keep working. Page numbers give random access, which a
   keyset cursor never could.
-- Facet counts keep their semantics: they describe the filtered set, and
-  a dimension that is itself filtered shows no counts.
+- Facet counts describe the filtered set, and a dimension that is itself
+  filtered shows no counts. Every option shows its count, `(0)` included,
+  sites too (the operator's call, 2026-09-14: an empty option should look
+  empty; the old endpoint's "absent, not zero" and its missing site
+  counts were artefacts of the Mongo aggregation). The State column sorts
+  by severity rank. Filter navigations build the next URL from the live
+  `window.location`, not the hook's render-time copy — two changes under
+  ~100 ms apart used to drop the first (a pre-existing bug the rapid
+  Playwright walk exposed).
 - The maintenance switch patches the row in the cached fleet before
   invalidating, so under "Maintenance only" the row leaves at once.
 

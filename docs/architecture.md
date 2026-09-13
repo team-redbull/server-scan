@@ -354,8 +354,10 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   (verified option-by-option against the endpoint before its removal,
   ADR-0033). Keeping an unauthenticated route that lets anyone trigger a
   full-collection aggregation on demand had no remaining justification.
-  The one design fact worth keeping from it: an option with no match is
-  absent rather than zero, so the UI shows it as unavailable.
+  Since the same day every option carries its count, `(0)` included, and
+  sites are counted like every other dimension — the old endpoint left
+  `site_id` out of its composite key for cardinality reasons that no
+  longer apply.
 - **`GET /sites` pivots one `$group` into a card per configured site**,
   seeding every site from `INVENTORY_SITES` first so the response shape
   never depends on what the database happens to hold — the UI renders a

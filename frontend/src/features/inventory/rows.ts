@@ -1,6 +1,7 @@
 import { UNASSIGNED_SITE_ID } from "@/api/sites";
 import type { SortableField } from "@/features/inventory/sorting";
 import type { ServerRow } from "@/types/server";
+import { SEVERITY_ORDER } from "@/components/severity";
 
 /**
  * Filtering, search, sort, facet counts and paging over the fleet's rows —
@@ -24,13 +25,17 @@ export interface FacetCounts {
   vendor: Record<string, number>;
   source_provider: Record<string, number>;
   installation_type: Record<string, number>;
+  site_id: Record<string, number>;
   openshift_state: Record<string, number>;
   health: Record<string, number>;
   maintenance: Record<string, number>;
   stale: Record<string, number>;
 }
 
-const COLLATOR = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+const COLLATOR = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
 
 const HEX_LIKE = /^[0-9a-f:-]+$/i;
 
@@ -44,14 +49,21 @@ const HEX_LIKE = /^[0-9a-f:-]+$/i;
  * Returns:
  *   ServerRow[]: The matching rows, in input order.
  */
-export function filterRows(rows: ServerRow[], filters: RowFilters): ServerRow[] {
+export function filterRows(
+  rows: ServerRow[],
+  filters: RowFilters,
+): ServerRow[] {
   const kept = rows.filter(
     (row) =>
       (!filters.vendor || row.vendor === filters.vendor) &&
-      (!filters.site_id || (row.site_id ?? UNASSIGNED_SITE_ID) === filters.site_id) &&
-      (!filters.source_provider || row.source_provider === filters.source_provider) &&
-      (!filters.installation_type || row.installation_type === filters.installation_type) &&
-      (!filters.openshift_state || row.openshift_state === filters.openshift_state) &&
+      (!filters.site_id ||
+        (row.site_id ?? UNASSIGNED_SITE_ID) === filters.site_id) &&
+      (!filters.source_provider ||
+        row.source_provider === filters.source_provider) &&
+      (!filters.installation_type ||
+        row.installation_type === filters.installation_type) &&
+      (!filters.openshift_state ||
+        row.openshift_state === filters.openshift_state) &&
       (!filters.health || row.health === filters.health) &&
       (!filters.maintenance || row.maintenance.enabled) &&
       (!filters.stale || row.stale),
@@ -84,14 +96,17 @@ export function searchRows(rows: ServerRow[], query: string): ServerRow[] {
     if (row.installation_type.toLowerCase().includes(q)) return true;
     if (row.bmc_host?.toLowerCase().includes(q)) return true;
     return row.macs.some(
-      (mac) => mac.includes(q) || (bare !== null && mac.replace(/:/g, "").includes(bare)),
+      (mac) =>
+        mac.includes(q) ||
+        (bare !== null && mac.replace(/:/g, "").includes(bare)),
     );
   });
 }
 
 /**
  * Sort a copy of the rows by one column, naturally (`srv-2` before
- * `srv-10`) and with nulls last whichever the direction.
+ * `srv-10`) and with nulls last whichever the direction; `health` sorts
+ * by severity (ascending = healthiest first), not alphabetically.
  *
  * Args:
  *   rows (ServerRow[]): The rows; not mutated.
@@ -101,8 +116,17 @@ export function searchRows(rows: ServerRow[], query: string): ServerRow[] {
  * Returns:
  *   ServerRow[]: A sorted copy. Ties keep input order.
  */
-export function sortRows(rows: ServerRow[], field: SortableField, desc: boolean): ServerRow[] {
+export function sortRows(
+  rows: ServerRow[],
+  field: SortableField,
+  desc: boolean,
+): ServerRow[] {
   const sign = desc ? -1 : 1;
+  if (field === "health") {
+    const rank = (row: ServerRow) =>
+      SEVERITY_ORDER.length - SEVERITY_ORDER.indexOf(row.health);
+    return [...rows].sort((a, b) => sign * (rank(a) - rank(b)));
+  }
   return [...rows].sort((a, b) => {
     const av = a[field];
     const bv = b[field];
@@ -124,7 +148,8 @@ function count(counts: Record<string, number>, key: string): void {
  *   rows (ServerRow[]): The rows to count.
  *
  * Returns:
- *   FacetCounts: An option matching nothing is absent, not zero.
+ *   FacetCounts: Per-value counts; a value no row has is absent (the page
+ *   renders it as 0).
  */
 export function facetCounts(rows: ServerRow[]): FacetCounts {
   const facets: FacetCounts = {
@@ -132,6 +157,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     vendor: {},
     source_provider: {},
     installation_type: {},
+    site_id: {},
     openshift_state: {},
     health: {},
     maintenance: {},
@@ -141,6 +167,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     count(facets.vendor, row.vendor);
     if (row.source_provider) count(facets.source_provider, row.source_provider);
     count(facets.installation_type, row.installation_type);
+    count(facets.site_id, row.site_id ?? UNASSIGNED_SITE_ID);
     count(facets.openshift_state, row.openshift_state);
     count(facets.health, row.health);
     count(facets.maintenance, String(row.maintenance.enabled));
@@ -168,5 +195,9 @@ export function paginate(
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const current = Math.min(Math.max(1, Math.trunc(page) || 1), pageCount);
   const start = (current - 1) * pageSize;
-  return { items: rows.slice(start, start + pageSize), page: current, pageCount };
+  return {
+    items: rows.slice(start, start + pageSize),
+    page: current,
+    pageCount,
+  };
 }

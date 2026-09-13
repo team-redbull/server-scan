@@ -340,12 +340,13 @@ describe("InventoryPage", () => {
     expect(screen.getByRole("option", { name: "HEALTHY (2)" })).toBeInTheDocument();
   });
 
-  it("leaves an option matching nothing unannotated rather than showing (0)", async () => {
+  it("shows (0) on an option matching nothing, and counts sites", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     renderInventoryPage();
 
-    expect(await screen.findByRole("option", { name: "hp" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "hp (0)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Tel Aviv \(\d+\)$/ })).toBeInTheDocument();
   });
 
   it("counts within the other filters, and stays silent on the filtered dimension", async () => {

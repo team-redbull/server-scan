@@ -96,7 +96,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerRow, any>[] {
     enableSorting: true,
   }),
   columnHelper.accessor((row) => row, {
-    id: "state",
+    id: "health",
     header: "State",
     cell: (info) => {
       const row = info.getValue<ServerRow>();
@@ -109,7 +109,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerRow, any>[] {
         />
       );
     },
-    enableSorting: false,
+    enableSorting: true,
   }),
   // The only cell whose click does not open the server.
   columnHelper.accessor((row) => row, {
