@@ -1,7 +1,6 @@
 ---
 name: gate
 description: Run the full local CI gate (ruff, ty, comment density, import-linter, helm lint/template, frontend lint/typecheck/vitest/build) before calling work done. CLAUDE.md convention 7.
-disable-model-invocation: true
 ---
 
 Run the whole gate, or a subset, and report every failing step — do not
