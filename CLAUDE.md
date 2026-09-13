@@ -902,6 +902,17 @@ non-obvious enough to bite you.
   short TTL exists to express. Two traps if you touch it: `SCAN MATCH`
   has no brace alternation (`{list,facets}` matches nothing, silently),
   and it must never become `KEYS`, which blocks Redis for the whole scan.
+- **A health policy's scope is a set of collectors, and it is matched
+  against `Server.source_provider`** (ADR-0030). `PolicyScope.
+  manager_types` is a list; empty means every server. Two traps: stored
+  documents still carry the old `scope.manager_type` key (`null` on every
+  default), which a `mode="before"` validator folds into the list — do
+  not remove it while any pre-1.1.0 database exists; and before 1.1.0
+  every evaluation call site passed `manager_type=None`, so any
+  manager-scoped policy or classification rule silently matched nothing.
+  `source_provider` is the collector's `ManagerType` value and is what
+  the engine compares now. The fake provider gives fabric attachments
+  only to `UCS_CENTRAL`/`INTERSIGHT` servers, matching the scope.
 - **UNKNOWN is not a health verdict** (ADR-0027). Every fact in
   `app.domain.services.health.facts` counts only *definite* readings — a
   PSU counts as failed on `DOWN`, never `UNKNOWN`; a drive on `CRITICAL`.
@@ -1314,7 +1325,21 @@ quarterly, or before any release you care about:
 
 ## Where to continue right now
 
-**Most recent, 2026-09-13, later** — **the repository is
+**Most recent, 2026-09-13, evening — v1.1.0** — health policies are scoped
+to a *set* of collectors and the Rules & Policies page groups them by
+scope (ADR-0030). `PolicyScope.manager_types` (list, empty = everyone)
+replaces `manager_type`; the two UCS fabric-path defaults are scoped to
+`vendor=cisco, manager_types=[UCS_CENTRAL, INTERSIGHT]`, everything else
+is general; the page shows "General" first, then "Cisco — UCS Central,
+Intersight", each sorted CRITICAL → MAJOR → WARNING. The real fix
+underneath: **a manager-scoped policy had never matched any server** —
+every evaluation call site passed `manager_type=None` — and
+`Server.source_provider` is now threaded through as that value. See the
+"Key technical facts" entry. Same evening: `/gate` lost its
+`disable-model-invocation` flag so a session can run it itself, which
+was the point of it.
+
+**Before that, 2026-09-13, later** — **the repository is
 `team-redbull/server-scan`**, renamed from `server_scan`. Every `v*` tag
 and GitHub Release up to v17.4.3 was deleted at the operator's direction
 and versioning restarted: the first release under the new name is
