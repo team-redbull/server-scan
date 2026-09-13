@@ -157,7 +157,6 @@ SITE_INDEXES: list[IndexModel] = [
 
 MANAGER_INDEXES: list[IndexModel] = [
     IndexModel([("name", ASCENDING)], name="uniq_name", unique=True),
-    IndexModel([("parent_manager_id", ASCENDING)], name="parent_manager_id"),
 ]
 
 # Mirrors `evaluate.resolve_families`'s sort order (ADR-0026).
@@ -220,6 +219,7 @@ _INDEX_NOT_FOUND = 27
 # its old name here, or a deployed database keeps enforcing it (ADR-0026).
 RETIRED_INDEXES: dict[str, tuple[str, ...]] = {
     SERVERS_COLLECTION: ("uniq_system_uuid",),
+    MANAGERS_COLLECTION: ("parent_manager_id",),  # field removed 2026-09-13
 }
 
 

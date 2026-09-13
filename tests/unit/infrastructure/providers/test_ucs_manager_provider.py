@@ -151,7 +151,6 @@ def _manager() -> Manager:
         _id="mgr-1",
         name="ucsm-lab",
         type=ManagerType.UCS_MANAGER,
-        site_id="site-1",
         endpoint="ucsm.lab.example.com",
         audit=AuditFields.new(),
     )

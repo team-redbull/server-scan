@@ -38,7 +38,6 @@ def _manager() -> Manager:
         _id="mgr-ome-1",
         name="ome-1",
         type=ManagerType.OPENMANAGE,
-        site_id="site-1",
         endpoint="ome.example",
         audit=AuditFields.new(),
     )

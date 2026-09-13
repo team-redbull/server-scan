@@ -1361,8 +1361,11 @@ updates, `docs/architecture.md` (the fake provider's shape, the provider
 contract, the default-policy table, how `run_collector.py` is put
 together, the `default_system_rules` ordering history), `deploy/README.md`
 and `.env.example`. Six stale statements were corrected on the way. Two
-things it surfaced, for later: `Manager.ALLOWED_PARENT_TYPES` and
-`Manager.bmc_credential_ref` have no readers anywhere; and keyset paging
+things it surfaced: `Manager` carried five never-written, never-read
+fields (`site_id`, `parent_manager_id`, `bmc_credential_ref`, `metadata`,
+`ALLOWED_PARENT_TYPES`) plus an index on one of them — removed the same
+night, index retired via `RETIRED_INDEXES`, old documents load unchanged
+(`tests/integration/test_manager_repository.py`); and keyset paging
 on `updated_at`/`last_seen_at` returned an empty second page (a real
 `datetime` in `$gt` against ISO strings — ADR-0006's trap), confirmed
 live and fixed in the commit after the sweep.

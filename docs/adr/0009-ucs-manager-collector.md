@@ -95,7 +95,8 @@ never shared across concurrent tasks.
 
 `Manager.credential_ref`/`bmc_credential_ref` (`app.domain.models.
 manager`) existed since slice 1 as opaque name fields with nothing that
-read them. `CredentialResolver` (`app.domain.ports.credentials`) is the
+read them (both removed by 2026-09-13, along with `parent_manager_id`,
+`site_id` and `metadata` — none was ever written or read). `CredentialResolver` (`app.domain.ports.credentials`) is the
 new port — a `Protocol`, matching `ServerInventoryProvider`'s own pattern,
 so production wiring can swap the implementation without touching
 collector code.
