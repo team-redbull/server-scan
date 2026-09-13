@@ -10,22 +10,13 @@ test.describe("Inventory", () => {
     await expect(rows.first()).toBeVisible();
     const unfilteredCount = await rows.count();
 
-    const searchResponse = page.waitForResponse(
-      (res) =>
-        res.url().includes("/api/v1/servers?") &&
-        res.url().includes("search=ocp-dell"),
-    );
+    // Search is client-side over the whole fleet (ADR-0033): no request to
+    // wait for; the URL changes per keystroke, the rows after the debounce.
     await page.getByPlaceholder("Name, serial, tag, BMC…").fill("ocp-dell");
-    await searchResponse;
-
-    await expect(rows.first()).toBeVisible();
-    const firstRowName = await rows.first().locator("td").first().innerText();
-    expect(firstRowName.toLowerCase()).toContain("ocp-dell");
+    await expect(page).toHaveURL(/search=ocp-dell/);
+    await expect(rows.first().locator("td").first()).toContainText(/ocp-dell/i);
     // A real filter, not a no-op: the seeded fleet has multiple vendors, so
-    // filtering to one name prefix should never return the same row count
-    // as "no filter" (both counts are capped at the page size, so this
-    // only holds because the unfiltered page is entirely full — asserted
-    // implicitly by page_size=50 always filling on a 50k-server fleet).
+    // narrowing to one name fragment can never show more rows than no filter.
     const filteredCount = await rows.count();
     expect(filteredCount).toBeLessThanOrEqual(unfilteredCount);
   });

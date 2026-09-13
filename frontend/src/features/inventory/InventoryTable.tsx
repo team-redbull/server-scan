@@ -8,13 +8,12 @@ import { legacyCreateColumnHelper, useLegacyTable } from "@tanstack/react-table/
 import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { Link, useNavigate } from "react-router";
 
-import type { ServerListParams } from "@/api/servers";
 import type { SortableField } from "@/features/inventory/sorting";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
 import { StateBadge } from "@/components/StateBadge";
 import type { HealthSeverity, OpenShiftState } from "@/types/server";
-import type { ServerSummary } from "@/types/server";
+import type { ServerRow } from "@/types/server";
 
 /**
  * The inventory columns. Name is left-aligned, everything else centred;
@@ -33,20 +32,20 @@ const ROW_ACCENT: Record<HealthSeverity, string> = {
 };
 
 interface InventoryTableProps {
-  servers: ServerSummary[];
-  sortField: NonNullable<ServerListParams["sort"]>;
+  servers: ServerRow[];
+  sortField: SortableField;
   sortDesc: boolean;
   onSortChange: (field: SortableField, desc: boolean) => void;
   /** Names the active filters in the empty state. */
   emptyMessage?: string;
 }
 
-const columnHelper = legacyCreateColumnHelper<ServerSummary>();
+const columnHelper = legacyCreateColumnHelper<ServerRow>();
 
 // Columns have heterogeneous `TValue`; TanStack's docs recommend
 // `ColumnDef<TData, any>` for exactly this case — a `TValue=unknown` array
 // is rejected by `exactOptionalPropertyTypes` on every column.
-function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
+function buildColumns(withMce: boolean): LegacyColumnDef<ServerRow, any>[] {
   return [
   columnHelper.accessor("name", {
     id: "name",
@@ -62,7 +61,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
     ),
     enableSorting: true,
   }),
-  columnHelper.accessor((row) => row.openshift.lifecycle_state, {
+  columnHelper.accessor("openshift_state", {
     id: "openshift_state",
     header: "Installation",
     cell: (info) => <InstallationBadge state={info.getValue<OpenShiftState>()} />,
@@ -70,7 +69,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
   }),
   ...(withMce
     ? [
-        columnHelper.accessor((row) => row.openshift.mce_name, {
+        columnHelper.accessor("mce_name", {
           id: "mce_name",
           header: "MCE",
           cell: (info) => (
@@ -80,13 +79,12 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
         }),
       ]
     : []),
-  columnHelper.accessor((row) => row.openshift.cluster_name, {
+  columnHelper.accessor("cluster_name", {
     id: "cluster_name",
     header: "Cluster",
     cell: (info) => (
       <span className="text-[var(--text-secondary)]">{info.getValue() || "—"}</span>
     ),
-    // Nullable sort field — see ADR-0026.
     enableSorting: true,
   }),
   columnHelper.accessor("model", {
@@ -101,10 +99,10 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
     id: "state",
     header: "State",
     cell: (info) => {
-      const row = info.getValue<ServerSummary>();
+      const row = info.getValue<ServerRow>();
       return (
         <StateBadge
-          severity={row.health.overall}
+          severity={row.health}
           maintenance={row.maintenance}
           stale={row.stale}
           lastSeenAt={row.last_seen_at}
@@ -117,7 +115,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
   columnHelper.accessor((row) => row, {
     id: "maintenance",
     header: "Maintenance",
-    cell: (info) => <MaintenanceToggle server={info.getValue<ServerSummary>()} />,
+    cell: (info) => <MaintenanceToggle server={info.getValue<ServerRow>()} />,
     enableSorting: false,
   }),
   ];
@@ -132,7 +130,7 @@ export function InventoryTable({
 }: InventoryTableProps) {
   const navigate = useNavigate();
   const sorting: SortingState = [{ id: sortField, desc: sortDesc }];
-  const withMce = servers.some((server) => server.openshift.mce_name);
+  const withMce = servers.some((server) => server.mce_name);
   const columns = useMemo(() => buildColumns(withMce), [withMce]);
 
   const table = useLegacyTable({
@@ -203,7 +201,7 @@ export function InventoryTable({
                 }
                 void navigate(`/servers/${row.original.id}`);
               }}
-              className={`group cursor-pointer border-b border-[var(--border-subtle)] transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] last:border-0 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-status-info)] ${ROW_ACCENT[row.original.health.overall]}`}
+              className={`group cursor-pointer border-b border-[var(--border-subtle)] transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] last:border-0 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-status-info)] ${ROW_ACCENT[row.original.health]}`}
             >
               {row.getVisibleCells().map((cell) => (
                 <td

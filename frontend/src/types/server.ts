@@ -57,44 +57,34 @@ export interface ConnectivityFacts {
   fabrics_present: string[];
 }
 
-export interface ConnectivitySummary {
-  facts: ConnectivityFacts;
-}
-
-export interface ServerSummary {
+/** One inventory row — `GET /api/v1/servers/rows`, the whole fleet in one
+ * response, filtered and sorted in the browser (ADR-0033). `serial`,
+ * `bmc_host` and `macs` exist for search parity only and are never rendered. */
+export interface ServerRow {
   id: string;
   name: string;
   vendor: Vendor;
   model: string | null;
   site_id: SiteCode | null;
-  manager_id: string | null;
   source_provider: string | null;
-  classification: Classification;
-  health: HealthSummary;
+  installation_type: InstallationType;
+  health: HealthSeverity;
   maintenance: MaintenanceState;
-  openshift: OpenShiftLifecycle;
-  connectivity: ConnectivitySummary;
+  openshift_state: OpenShiftState;
+  cluster_name: string | null;
+  mce_name: string | null;
   last_seen_at: string | null;
   /** Unseen for longer than `INVENTORY_STALE_AFTER_SECONDS`, or never (ADR-0029). */
   stale: boolean;
-  /** False when the last run could not reach a server it knows; hardware
-   * fields keep their last-known values. */
   reachable: boolean;
-  unreachable_since: string | null;
-  updated_at: string;
+  serial: string | null;
+  bmc_host: string | null;
+  macs: string[];
 }
 
-export interface PageMeta {
-  next_cursor: string | null;
-  has_more: boolean;
-  page_size: number;
-  count: number | null;
-  count_capped: boolean;
-}
-
-export interface ServerListResponse {
-  items: ServerSummary[];
-  page: PageMeta;
+export interface ServerRowsResponse {
+  items: ServerRow[];
+  generated_at: string;
 }
 
 // Detail shape — GET /api/v1/servers/{id}
@@ -265,20 +255,6 @@ export interface ServerDetail {
   unreachable_since: string | null;
   updated_at: string;
   created_at: string;
-}
-
-/** Per-option match counts *within the filters already applied*. An option
- * matching nothing is absent, not zero. */
-export interface ServerFacets {
-  total: number;
-  vendor: Record<string, number>;
-  source_provider: Record<string, number>;
-  installation_type: Record<string, number>;
-  health_overall: Record<string, number>;
-  /** Keyed `"true"`/`"false"` — JSON object keys cannot be booleans. */
-  maintenance: Record<string, number>;
-  openshift_state: Record<string, number>;
-  stale: Record<string, number>;
 }
 
 /** `AVAILABLE` is the default; there is no "nothing reported yet" state. */

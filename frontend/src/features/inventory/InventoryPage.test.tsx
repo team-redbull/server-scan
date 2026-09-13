@@ -4,69 +4,49 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
 import { InventoryPage } from "@/features/inventory/InventoryPage";
-import type { ServerListResponse, ServerSummary } from "@/types/server";
+import type { ServerRow, ServerRowsResponse } from "@/types/server";
 
-function makeServer(overrides: Partial<ServerSummary> = {}): ServerSummary {
+function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
   return {
     id: "srv_1",
     name: "ocp-dell-worker-001",
     vendor: "dell",
     model: "PowerEdge R760",
     site_id: "tlv",
-    manager_id: "mgr_ome_tlv_01",
-    source_provider: "UCS_CENTRAL",
-    classification: { installation_type: "HOSTED_CLUSTER", matched_rule_id: null },
-    health: {
-      overall: "HEALTHY",
-      cpu: "HEALTHY",
-      memory: "HEALTHY",
-      storage: "HEALTHY",
-      network: "HEALTHY",
-      connectivity: "HEALTHY",
-      power: "HEALTHY",
-      gpu: "UNKNOWN",
-    },
+    source_provider: "OPENMANAGE",
+    installation_type: "UPI",
+    health: "HEALTHY",
     maintenance: { enabled: false, reason: null },
-    openshift: {
-      lifecycle_state: "INSTALLED",
-      mce_name: null,
-      cluster_name: "ocp4-tlv",
-      last_reported_at: "2026-08-12T10:00:00Z",
-      reported_by_agent_id: "ocp4-tlv",
-    },
-    connectivity: {
-      facts: {
-        fabric_paths_total: 2,
-        fabric_paths_up: 2,
-        fabric_paths_down: 0,
-        fabrics_present: ["A", "B"],
-      },
-    },
+    openshift_state: "INSTALLED",
+    cluster_name: "ocp4-tlv",
+    mce_name: null,
     last_seen_at: "2026-08-12T10:00:00Z",
     stale: false,
     reachable: true,
-    unreachable_since: null,
-    updated_at: "2026-08-12T10:00:00Z",
+    serial: "SN001",
+    bmc_host: "bmc-001.example",
+    macs: ["aa:bb:cc:dd:ee:01"],
     ...overrides,
   };
 }
 
-function pageResponse(
-  items: ServerSummary[],
-  page: Partial<ServerListResponse["page"]> = {},
-): ServerListResponse {
-  return {
-    items,
-    page: {
-      next_cursor: null,
-      has_more: false,
-      page_size: 50,
-      count: null,
-      count_capped: false,
-      ...page,
-    },
-  };
+function rowsResponse(items: ServerRow[]): ServerRowsResponse {
+  return { items, generated_at: "2026-08-12T10:00:00Z" };
 }
+
+/** The pair every facet test uses: one Dell, one Cisco. */
+const TWO_VENDORS = [
+  makeServer(),
+  makeServer({
+    id: "srv_2",
+    name: "ucs-cisco-worker-002",
+    vendor: "cisco",
+    model: "UCS C240",
+    source_provider: "INTERSIGHT",
+    openshift_state: "AVAILABLE",
+    cluster_name: null,
+  }),
+];
 
 /** Every test has to answer `GET /api/v1/sites` for the site filter. */
 const SITES_RESPONSE = {
@@ -76,7 +56,7 @@ const SITES_RESPONSE = {
       name: "Tel Aviv",
       total: 1,
       by_vendor: [],
-      by_health: { UNKNOWN: 0, HEALTHY: 1, INFO: 0, WARNING: 0, CRITICAL: 0 },
+      by_health: { UNKNOWN: 0, HEALTHY: 1, WARNING: 0, MAJOR: 0, CRITICAL: 0 },
       in_maintenance: 0,
     },
   ],
@@ -90,16 +70,13 @@ function jsonResponse(body: unknown) {
   });
 }
 
-function renderInventoryPage() {
+function renderInventoryPage(initialEntry = "/") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const router = createMemoryRouter(
-    [{ path: "/", element: <InventoryPage /> }],
-    {
-      initialEntries: ["/"],
-    },
-  );
+  const router = createMemoryRouter([{ path: "/", element: <InventoryPage /> }], {
+    initialEntries: [initialEntry],
+  });
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -110,41 +87,19 @@ function renderInventoryPage() {
   return { router };
 }
 
-/** The most recent request for the server *list* — facets and sites
- * requests are excluded, since facets drops the pagination params. */
-function lastRequestUrl(fetchMock: ReturnType<typeof vi.fn>): URL {
-  const urls = (fetchMock.mock.calls as [string, RequestInit][])
-    .map(([input]) => new URL(input, "http://localhost"))
-    .filter((url) => url.pathname === "/api/v1/servers");
-  const last = urls.at(-1);
-  if (!last) {
-    throw new Error("fetch was never called for the server list");
-  }
-  return last;
+function rowNames(): string[] {
+  return screen.getAllByRole("row").slice(1).map((tr) => within(tr).getAllByRole("cell")[0]?.textContent ?? "");
 }
-
-const FACETS_RESPONSE = {
-  total: 2,
-  vendor: { dell: 1, cisco: 1 },
-  source_provider: { OPENMANAGE: 1, INTERSIGHT: 1 },
-  installation_type: { UPI: 2 },
-  health_overall: { HEALTHY: 2 },
-  maintenance: { false: 2 },
-  openshift_state: { INSTALLED: 1, AVAILABLE: 1 },
-};
 
 describe("InventoryPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   /** Route the sites request to the fixed list, everything else to `handler`. */
-  function mockServerList(handler: (url: URL) => unknown) {
+  function mockRows(handler: (url: URL) => unknown) {
     fetchMock.mockImplementation((input: string) => {
       const url = new URL(input, "http://localhost");
       if (url.pathname === "/api/v1/sites") {
         return jsonResponse(SITES_RESPONSE);
-      }
-      if (url.pathname === "/api/v1/servers/facets") {
-        return jsonResponse(FACETS_RESPONSE);
       }
       return handler(url);
     });
@@ -160,19 +115,7 @@ describe("InventoryPage", () => {
   });
 
   it("renders rows from the mocked API response", async () => {
-    mockServerList(() =>
-      jsonResponse(
-        pageResponse([
-          makeServer(),
-          makeServer({
-            id: "srv_2",
-            name: "ucs-cisco-worker-002",
-            vendor: "cisco",
-            model: "UCS C240",
-          }),
-        ]),
-      ),
-    );
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     renderInventoryPage();
 
@@ -181,13 +124,13 @@ describe("InventoryPage", () => {
     });
     expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
     expect(screen.getByText("UCS C240")).toBeInTheDocument();
-    // Fabric, vendor, site and classification are not columns any more.
     expect(screen.getAllByText("Healthy")).toHaveLength(2);
-    expect(screen.queryByText("2/2 up")).not.toBeInTheDocument();
+    expect(screen.getByText("2 servers")).toBeInTheDocument();
+    expect(screen.getByText(/^Updated /)).toBeInTheDocument();
   });
 
   it("shows the cluster as a column, and hides MCE until a row has one", async () => {
-    mockServerList(() => jsonResponse(pageResponse([makeServer()])));
+    mockRows(() => jsonResponse(rowsResponse([makeServer()])));
 
     renderInventoryPage();
 
@@ -199,20 +142,15 @@ describe("InventoryPage", () => {
   });
 
   it("shows the MCE column as soon as one row reports one", async () => {
-    mockServerList(() =>
+    mockRows(() =>
       jsonResponse(
-        pageResponse([
+        rowsResponse([
           makeServer(),
           makeServer({
             id: "srv_mce",
             name: "ocp4-hypershift-tlv-01",
-            openshift: {
-              lifecycle_state: "INSTALLED",
-              mce_name: "mce-tlv",
-              cluster_name: "hc-tlv-01",
-              last_reported_at: "2026-08-12T10:00:00Z",
-              reported_by_agent_id: "mce-tlv",
-            },
+            mce_name: "mce-tlv",
+            cluster_name: "hc-tlv-01",
           }),
         ]),
       ),
@@ -226,27 +164,28 @@ describe("InventoryPage", () => {
     expect(screen.getByText("mce-tlv")).toBeInTheDocument();
   });
 
-  it("sorts by installation when the Installation header is clicked", async () => {
-    const requests: string[] = [];
-    mockServerList((url) => {
-      requests.push(url.search);
-      return jsonResponse(pageResponse([makeServer()]));
-    });
+  it("sorts in place when the Installation header is clicked, and records it in the URL", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
-    renderInventoryPage();
+    const { router } = renderInventoryPage();
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /installation/i })).toBeInTheDocument();
     });
+    expect(rowNames()).toEqual(["ocp-dell-worker-001", "ucs-cisco-worker-002"]);
+
     fireEvent.click(screen.getByRole("button", { name: /installation/i }));
 
     await waitFor(() => {
-      expect(requests.some((url) => url.includes("sort=openshift_state"))).toBe(true);
+      expect(router.state.location.search).toContain("sort=openshift_state");
     });
+    // AVAILABLE sorts before INSTALLED.
+    expect(rowNames()).toEqual(["ucs-cisco-worker-002", "ocp-dell-worker-001"]);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/rows"))).toHaveLength(1);
   });
 
-  it("updates the URL search params when a filter changes", async () => {
-    mockServerList(() => jsonResponse(pageResponse([makeServer()])));
+  it("filters in the browser and updates the URL when a filter changes", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     const { router } = renderInventoryPage();
 
@@ -254,24 +193,20 @@ describe("InventoryPage", () => {
       expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
     });
 
-    const vendorSelect = screen.getByLabelText("Vendor");
-    fireEvent.change(vendorSelect, { target: { value: "cisco" } });
+    fireEvent.change(screen.getByLabelText("Vendor"), { target: { value: "cisco" } });
 
     await waitFor(() => {
       expect(router.state.location.search).toContain("vendor=cisco");
     });
-
-    await waitFor(() => {
-      expect(lastRequestUrl(fetchMock).searchParams.get("vendor")).toBe(
-        "cisco",
-      );
-    });
+    expect(screen.queryByText("ocp-dell-worker-001")).not.toBeInTheDocument();
+    expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
+    expect(screen.getByText("1 server")).toBeInTheDocument();
   });
 
-  it("sends stale=true when Stale only is ticked, and marks stale rows", async () => {
-    mockServerList(() =>
+  it("keeps only stale rows when Stale only is ticked, and marks stale rows", async () => {
+    mockRows(() =>
       jsonResponse(
-        pageResponse([
+        rowsResponse([
           makeServer({ id: "srv_fresh", name: "fresh-01" }),
           makeServer({
             id: "srv_stale",
@@ -296,98 +231,89 @@ describe("InventoryPage", () => {
     await waitFor(() => {
       expect(router.state.location.search).toContain("stale=true");
     });
-    await waitFor(() => {
-      expect(lastRequestUrl(fetchMock).searchParams.get("stale")).toBe("true");
-    });
+    expect(screen.queryByText("fresh-01")).not.toBeInTheDocument();
+    expect(screen.getByText("stale-01")).toBeInTheDocument();
   });
 
-  it("resets the cursor in the URL when a filter changes", async () => {
-    mockServerList((url) => {
-      if (url.searchParams.get("cursor") === "cursor-1") {
-        return jsonResponse(
-          pageResponse([makeServer({ id: "srv_2", name: "page-two-server" })]),
-        );
-      }
-      return jsonResponse(
-        pageResponse([makeServer()], {
-          has_more: true,
-          next_cursor: "cursor-1",
-        }),
-      );
+  it("searches by substring across name, serial, BMC host and MAC", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
+
+    renderInventoryPage();
+    await waitFor(() => {
+      expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
     });
+
+    fireEvent.change(screen.getByPlaceholderText("Name, serial, tag, BMC…"), {
+      target: { value: "isco" },
+    });
+    await vi.advanceTimersByTimeAsync(300);
+
+    await waitFor(() => {
+      expect(screen.queryByText("ocp-dell-worker-001")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("pages through the sorted set and resets to page 1 when a filter changes", async () => {
+    const fleet = Array.from({ length: 51 }, (_, i) =>
+      makeServer({ id: `srv_${i}`, name: `srv-${String(i).padStart(3, "0")}` }),
+    );
+    fleet[50] = makeServer({ id: "srv_50", name: "srv-050", vendor: "cisco" });
+    mockRows(() => jsonResponse(rowsResponse(fleet)));
 
     const { router } = renderInventoryPage();
 
     await waitFor(() => {
-      expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
+      expect(screen.getByText("srv-000")).toBeInTheDocument();
     });
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.queryByText("srv-050")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
-      expect(router.state.location.search).toContain("cursor=cursor-1");
+      expect(router.state.location.search).toContain("page=2");
     });
+    expect(screen.getByText("srv-050")).toBeInTheDocument();
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 
-    const vendorSelect = screen.getByLabelText("Vendor");
-    fireEvent.change(vendorSelect, { target: { value: "dell" } });
+    fireEvent.change(screen.getByLabelText("Vendor"), { target: { value: "cisco" } });
 
     await waitFor(() => {
-      expect(router.state.location.search).not.toContain("cursor=");
+      expect(router.state.location.search).not.toContain("page=");
     });
+    expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+    expect(screen.getByText("srv-050")).toBeInTheDocument();
   });
 
-  it("paginates with the next_cursor and disables Next once has_more is false", async () => {
-    mockServerList((url) => {
-      if (url.searchParams.get("cursor") === "cursor-1") {
-        return jsonResponse(
-          pageResponse([makeServer({ id: "srv_2", name: "page-two-server" })], {
-            has_more: false,
-            next_cursor: null,
-          }),
-        );
-      }
-      return jsonResponse(
-        pageResponse([makeServer()], {
-          has_more: true,
-          next_cursor: "cursor-1",
-        }),
-      );
-    });
+  it("clamps an out-of-range page in the URL", async () => {
+    mockRows(() => jsonResponse(rowsResponse([makeServer()])));
 
-    renderInventoryPage();
+    renderInventoryPage("/?page=7");
 
     await waitFor(() => {
       expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
     });
-
-    const nextButton = screen.getByRole("button", { name: "Next" });
-    expect(nextButton).not.toBeDisabled();
-
-    fireEvent.click(nextButton);
-
-    await waitFor(() => {
-      expect(screen.getByText("page-two-server")).toBeInTheDocument();
-    });
-
-    expect(lastRequestUrl(fetchMock).searchParams.get("cursor")).toBe(
-      "cursor-1",
-    );
-    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
   });
 
   it("shows the API error detail when the request fails", async () => {
-    mockServerList(() =>
+    mockRows(() =>
       Promise.resolve({
         ok: false,
-        status: 422,
+        status: 503,
         json: () =>
           Promise.resolve({
-            type: "/problems/page-size-too-large",
-            title: "Unprocessable Entity",
-            status: 422,
-            detail: "page_size must be <= 200",
-            instance: "/api/v1/servers",
-            code: "PAGE_SIZE_TOO_LARGE",
+            type: "/problems/service-unavailable",
+            title: "Service Unavailable",
+            status: 503,
+            detail: "MongoDB is unreachable",
+            instance: "/api/v1/servers/rows",
+            code: "SERVICE_UNAVAILABLE",
             request_id: "req_123",
             details: {},
           }),
@@ -397,63 +323,50 @@ describe("InventoryPage", () => {
     renderInventoryPage();
 
     await waitFor(() => {
-      expect(screen.getByText("page_size must be <= 200")).toBeInTheDocument();
+      expect(screen.getByText("MongoDB is unreachable")).toBeInTheDocument();
     });
   });
 
   it("shows how many servers each filter option would match", async () => {
-    mockServerList(() =>
-      jsonResponse({ items: [], page: { next_cursor: null, has_more: false } }),
-    );
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     renderInventoryPage();
 
-    expect(
-      await screen.findByRole("option", { name: "dell (1)" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("option", { name: "OpenManage (Dell) (1)" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "dell (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "OpenManage (Dell) (1)" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "HEALTHY (2)" })).toBeInTheDocument();
   });
 
   it("leaves an option matching nothing unannotated rather than showing (0)", async () => {
-    mockServerList(() =>
-      jsonResponse({ items: [], page: { next_cursor: null, has_more: false } }),
-    );
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     renderInventoryPage();
 
-    // hp is absent from FACETS_RESPONSE.vendor.
     expect(await screen.findByRole("option", { name: "hp" })).toBeInTheDocument();
   });
 
-  it("drops pagination params from the facets request", async () => {
-    mockServerList(() =>
-      jsonResponse({ items: [], page: { next_cursor: null, has_more: false } }),
-    );
+  it("counts within the other filters, and stays silent on the filtered dimension", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
-    renderInventoryPage();
-    await screen.findByRole("option", { name: "dell (1)" });
+    renderInventoryPage("/?vendor=cisco");
 
-    const facetUrls = (fetchMock.mock.calls as [string, RequestInit][])
-      .map(([input]) => new URL(input, "http://localhost"))
-      .filter((url) => url.pathname === "/api/v1/servers/facets");
-
-    expect(facetUrls.length).toBeGreaterThan(0);
-    for (const url of facetUrls) {
-      expect(url.searchParams.get("cursor")).toBeNull();
-      expect(url.searchParams.get("page_size")).toBeNull();
-      expect(url.searchParams.get("sort")).toBeNull();
-    }
+    expect(await screen.findByRole("option", { name: "Intersight (1)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "OpenManage (Dell) (1)" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "cisco" })).toBeInTheDocument();
   });
 
   it("asks why before putting a server into maintenance, and sends the reason", async () => {
-    mockServerList((url) =>
-      url.pathname === "/api/v1/servers/srv_1/maintenance"
-        ? jsonResponse(makeServer({ maintenance: { enabled: true, reason: "Replacing PSU 2" } }))
-        : jsonResponse(pageResponse([makeServer()])),
-    );
+    // Stateful like the real API: once PUT, the fleet reports the maintenance.
+    let inMaintenance = false;
+    mockRows((url) => {
+      if (url.pathname === "/api/v1/servers/srv_1/maintenance") {
+        inMaintenance = true;
+      }
+      const server = makeServer({
+        maintenance: { enabled: inMaintenance, reason: inMaintenance ? "Replacing PSU 2" : null },
+      });
+      return jsonResponse(url.pathname.endsWith("/rows") ? rowsResponse([server]) : server);
+    });
 
     const { router } = renderInventoryPage();
     fireEvent.click(
@@ -480,11 +393,15 @@ describe("InventoryPage", () => {
       expect(put).toBeDefined();
       expect(JSON.parse(put?.[1]?.body as string)).toEqual({ reason: "Replacing PSU 2" });
     });
+    // The row is patched from the response before any refetch lands.
+    expect(
+      await screen.findByRole("button", { name: "End maintenance on ocp-dell-worker-001" }),
+    ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
   });
 
   it("cancels the maintenance card without writing anything", async () => {
-    mockServerList(() => jsonResponse(pageResponse([makeServer()])));
+    mockRows(() => jsonResponse(rowsResponse([makeServer()])));
 
     renderInventoryPage();
     fireEvent.click(
@@ -501,11 +418,11 @@ describe("InventoryPage", () => {
   });
 
   it("ends maintenance in one click, with no card", async () => {
-    mockServerList((url) =>
+    mockRows((url) =>
       url.pathname === "/api/v1/servers/srv_1/maintenance"
         ? jsonResponse(makeServer())
         : jsonResponse(
-            pageResponse([makeServer({ maintenance: { enabled: true, reason: "disk swap" } })]),
+            rowsResponse([makeServer({ maintenance: { enabled: true, reason: "disk swap" } })]),
           ),
     );
 
@@ -523,5 +440,4 @@ describe("InventoryPage", () => {
       expect(del).toBeDefined();
     });
   });
-
 });

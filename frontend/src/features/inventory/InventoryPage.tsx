@@ -1,14 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import { ApiError } from "@/api/client";
-import type { ServerListParams } from "@/api/servers";
 import { SORTABLE_FIELDS } from "@/features/inventory/sorting";
 import type { SortableField } from "@/features/inventory/sorting";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
 import { siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
-import { useServerFacetsQuery, useServersQuery } from "@/features/inventory/hooks";
+import { useServerRowsQuery } from "@/features/inventory/hooks";
+import { facetCounts, filterRows, paginate, sortRows } from "@/features/inventory/rows";
+import type { RowFilters } from "@/features/inventory/rows";
 import { useSitesQuery } from "@/features/sites/hooks";
+import { formatTimestamp } from "@/lib/datetime";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 const INSTALLATION_TYPES = ["HOSTED_CLUSTER", "MCE", "UPI", "UNCLASSIFIED"] as const;
@@ -35,15 +37,12 @@ function isSortableField(value: string): value is SortableField {
 }
 
 /** The inventory table. All filter and pagination state lives in the URL,
- * so refresh and back both land where the user was — a project requirement. */
+ * so refresh and back both land where the user was — a project requirement.
+ * The fleet arrives whole and is filtered, sorted and paged here (ADR-0033). */
 export function InventoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const sites = siteOptions(useSitesQuery().data?.items);
-
-  // The backend only gives a forward cursor, so "Previous" is a local stack
-  // of visited cursors: reset on any filter change, lost on reload.
-  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
 
   const searchInput = searchParams.get("search") ?? "";
   const debouncedSearch = useDebouncedValue(searchInput, 300);
@@ -61,24 +60,22 @@ export function InventoryPage() {
     ? sortParam
     : DEFAULT_SORT;
   const sortDesc = searchParams.get("sort_desc") === "true";
-  const cursor = searchParams.get("cursor") ?? undefined;
+  const pageParam = Number(searchParams.get("page") ?? "1");
 
-  // Filters alone: a separate object stops every page turn or sort click
-  // refiring a byte-identical facets request.
-  const filterParams: ServerListParams = useMemo(() => {
+  const filters: RowFilters = useMemo(() => {
     // Built incrementally: `exactOptionalPropertyTypes` forbids assigning
     // `undefined` to an optional property outright.
-    const params: ServerListParams = {};
-    if (debouncedSearch) params.search = debouncedSearch;
-    if (vendor) params.vendor = vendor;
-    if (siteId) params.site_id = siteId;
-    if (sourceProvider) params.source_provider = sourceProvider;
-    if (installationType) params.installation_type = installationType;
-    if (openshiftState) params.openshift_state = openshiftState;
-    if (healthOverall) params.health_overall = healthOverall;
-    if (maintenanceOnly) params.maintenance = true;
-    if (staleOnly) params.stale = true;
-    return params;
+    const next: RowFilters = {};
+    if (debouncedSearch) next.search = debouncedSearch;
+    if (vendor) next.vendor = vendor;
+    if (siteId) next.site_id = siteId;
+    if (sourceProvider) next.source_provider = sourceProvider;
+    if (installationType) next.installation_type = installationType;
+    if (openshiftState) next.openshift_state = openshiftState;
+    if (healthOverall) next.health = healthOverall;
+    if (maintenanceOnly) next.maintenance = true;
+    if (staleOnly) next.stale = true;
+    return next;
   }, [
     debouncedSearch,
     vendor,
@@ -91,16 +88,13 @@ export function InventoryPage() {
     staleOnly,
   ]);
 
-  const queryParams: ServerListParams = useMemo(() => {
-    const params: ServerListParams = { ...filterParams, sort: sortField, page_size: PAGE_SIZE };
-    if (sortDesc) params.sort_desc = true;
-    if (cursor) params.cursor = cursor;
-    return params;
-  }, [filterParams, sortField, sortDesc, cursor]);
-
-  const { data, isPending, isError, error, isFetching } =
-    useServersQuery(queryParams);
-  const { data: facets } = useServerFacetsQuery(filterParams);
+  const { data, isPending, isError, error } = useServerRowsQuery();
+  const matched = useMemo(
+    () => sortRows(filterRows(data?.items ?? [], filters), sortField, sortDesc),
+    [data, filters, sortField, sortDesc],
+  );
+  const facets = useMemo(() => (data ? facetCounts(matched) : undefined), [data, matched]);
+  const { items: servers, page, pageCount } = paginate(matched, pageParam, PAGE_SIZE);
 
   /** Append a filter option's match count to its label. Silent when this
    * dimension is already filtered (every other option would read as zero
@@ -116,9 +110,8 @@ export function InventoryPage() {
     return count === undefined ? label : `${label} (${count})`;
   }
 
-  /** Apply a filter patch to the URL and drop the cursor, which the backend
-   * rejects after a filter change. `replace: true` keeps keystrokes out of
-   * browser history. */
+  /** Apply a filter patch to the URL and go back to page 1. `replace: true`
+   * keeps keystrokes out of browser history. */
   function updateFilters(patch: Record<string, string | null>) {
     setSearchParams(
       (prev) => {
@@ -130,54 +123,31 @@ export function InventoryPage() {
             next.set(key, value);
           }
         }
-        next.delete("cursor");
+        next.delete("page");
         return next;
       },
       { replace: true },
     );
-    setCursorHistory([]);
   }
 
   function handleSortChange(field: SortableField, desc: boolean) {
     updateFilters({ sort: field, sort_desc: desc ? "true" : null });
   }
 
-  function handleNext() {
-    const nextCursor = data?.page.next_cursor;
-    if (!nextCursor) {
-      return;
-    }
+  function goToPage(target: number) {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.set("cursor", nextCursor);
-        return next;
-      },
-      { replace: true },
-    );
-    setCursorHistory((prev) => [...prev, cursor ?? ""]);
-  }
-
-  function handlePrevious() {
-    const history = [...cursorHistory];
-    const previousCursor = history.pop();
-    setCursorHistory(history);
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (previousCursor) {
-          next.set("cursor", previousCursor);
+        if (target <= 1) {
+          next.delete("page");
         } else {
-          next.delete("cursor");
+          next.set("page", String(target));
         }
         return next;
       },
       { replace: true },
     );
   }
-
-  const servers = data?.items ?? [];
-  const hasMore = data?.page.has_more ?? false;
 
   // Named for the empty state: "no servers match" rather than "no servers".
   const activeFilters: { key: string; label: string }[] = [];
@@ -231,6 +201,11 @@ export function InventoryPage() {
         {facets
           ? `${facets.total} server${facets.total === 1 ? "" : "s"}`
           : "Browse and filter discovered servers."}
+        {data && (
+          <span className="ml-2 text-xs text-[var(--text-muted)]">
+            Updated {formatTimestamp(data.generated_at)}
+          </span>
+        )}
       </p>
 
       <form
@@ -365,7 +340,7 @@ export function InventoryPage() {
             <option value="">All{facets ? ` (${facets.total})` : ""}</option>
             {HEALTH_SEVERITIES.map((h) => (
               <option key={h} value={h}>
-                {withCount(h, facets?.health_overall, h, healthOverall !== "")}
+                {withCount(h, facets?.health, h, healthOverall !== "")}
               </option>
             ))}
           </select>
@@ -443,9 +418,6 @@ export function InventoryPage() {
 
         {!isPending && !isError && (
           <>
-            {isFetching && (
-              <p className="mb-2 text-xs text-gray-400">Updating…</p>
-            )}
             <InventoryTable
               servers={servers}
               sortField={sortField}
@@ -461,16 +433,23 @@ export function InventoryPage() {
             <div className="mt-4 flex items-center gap-3">
               <button
                 type="button"
-                onClick={handlePrevious}
-                disabled={cursorHistory.length === 0}
+                onClick={() => {
+                  goToPage(page - 1);
+                }}
+                disabled={page <= 1}
                 className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] transition-transform duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
               >
                 Previous
               </button>
+              <span className="text-sm text-[var(--text-secondary)]">
+                Page {page} of {pageCount}
+              </span>
               <button
                 type="button"
-                onClick={handleNext}
-                disabled={!hasMore}
+                onClick={() => {
+                  goToPage(page + 1);
+                }}
+                disabled={page >= pageCount}
                 className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] transition-transform duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
               >
                 Next

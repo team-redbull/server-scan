@@ -1,31 +1,18 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "@/api/queryKeys";
-import {
-  disableMaintenance,
-  enableMaintenance,
-  getServerFacets,
-  listServers,
-} from "@/api/servers";
-import type { ServerListParams } from "@/api/servers";
-import type { ServerListResponse } from "@/types/server";
+import { disableMaintenance, enableMaintenance, listServerRows } from "@/api/servers";
+import type { ServerRowsResponse } from "@/types/server";
 
-/** Server list query. `keepPreviousData` keeps the current rows on screen
- * while the next page is in flight. */
-export function useServersQuery(params: ServerListParams) {
+/** The whole fleet as rows, re-polled every 30 s even on an unfocused wall
+ * display. An unchanged fleet is a 304 the browser answers from its own
+ * cache, and structural sharing then keeps every row's identity. */
+export function useServerRowsQuery() {
   return useQuery({
-    queryKey: queryKeys.servers.list(params),
-    queryFn: () => listServers(params),
-    placeholderData: keepPreviousData,
-  });
-}
-
-/** Per-option counts for the current filter set. */
-export function useServerFacetsQuery(params: ServerListParams) {
-  return useQuery({
-    queryKey: queryKeys.servers.facets(params),
-    queryFn: () => getServerFacets(params),
-    placeholderData: keepPreviousData,
+    queryKey: queryKeys.servers.rows(),
+    queryFn: listServerRows,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -45,14 +32,14 @@ export function useToggleMaintenanceMutation() {
       enable ? enableMaintenance(id, reason ? { reason } : {}) : disableMaintenance(id),
     onSuccess: (server) => {
       queryClient.setQueryData(queryKeys.servers.detail(server.id), server);
-      // Patch, then refetch: under `?maintenance=true` the row must leave
-      // the list. Safe because the server clears its list cache (ADR-0028).
-      queryClient.setQueriesData<ServerListResponse>(
-        { queryKey: queryKeys.servers.lists() },
-        (page) =>
-          page && {
-            ...page,
-            items: page.items.map((row) =>
+      // Patch, then refetch: under "Maintenance only" the row must leave
+      // the list at once, not on the next poll.
+      queryClient.setQueryData<ServerRowsResponse>(
+        queryKeys.servers.rows(),
+        (rows) =>
+          rows && {
+            ...rows,
+            items: rows.items.map((row) =>
               row.id === server.id ? { ...row, maintenance: server.maintenance } : row,
             ),
           },

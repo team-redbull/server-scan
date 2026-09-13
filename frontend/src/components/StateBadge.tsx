@@ -53,7 +53,7 @@ export function StateBadge({
 }: {
   severity: HealthSeverity;
   maintenance: MaintenanceState;
-  /** `ServerSummary.stale`; renders the chip. */
+  /** `ServerRow.stale`; renders the chip. */
   stale?: boolean;
   /** Gives the chip its age (`20h`); null means never collected. */
   lastSeenAt?: string | null;

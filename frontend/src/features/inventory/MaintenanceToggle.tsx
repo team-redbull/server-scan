@@ -4,7 +4,7 @@ import type { FormEvent } from "react";
 import maintenanceIcon from "@/assets/maintenance.svg";
 import { ApiError } from "@/api/client";
 import { useToggleMaintenanceMutation } from "@/features/inventory/hooks";
-import type { ServerSummary } from "@/types/server";
+import type { ServerRow } from "@/types/server";
 
 /**
  * One row's maintenance switch: entering maintenance asks why, leaving it
@@ -34,7 +34,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Failed to update maintenance.";
 }
 
-export function MaintenanceToggle({ server }: { server: ServerSummary }) {
+export function MaintenanceToggle({ server }: { server: ServerRow }) {
   const toggle = useToggleMaintenanceMutation();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
