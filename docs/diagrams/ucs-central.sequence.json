@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Cisco UCS Central collector run",
+    "output": "frontend/public/architecture/ucs-central.html",
+    "viewBox": [
+      1040,
+      780
+    ],
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "views": [
+      {
+        "id": "plan",
+        "label": "Discover domains",
+        "focus": [
+          "cronjob",
+          "central"
+        ],
+        "note": "Two Central queries decide which UCS Manager domains are worth a login."
+      },
+      {
+        "id": "domain",
+        "label": "Collect one domain",
+        "focus": [
+          "cronjob",
+          "manager"
+        ],
+        "note": "Each domain is its own session and its own failure boundary."
+      },
+      {
+        "id": "ingest",
+        "label": "Ingest",
+        "focus": [
+          "cronjob",
+          "ingest",
+          "mongo"
+        ],
+        "note": "Servers stream into the same pipeline every collector uses."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "cronjob",
+      "type": "backend",
+      "label": "UCS Central CronJob",
+      "sublabel": "tools/run_collector.py"
+    },
+    {
+      "id": "central",
+      "type": "external",
+      "label": "UCS Central",
+      "sublabel": "INVENTORY_UCS_CENTRAL_*"
+    },
+    {
+      "id": "manager",
+      "type": "external",
+      "label": "UCS Manager domain",
+      "sublabel": "one of N, INVENTORY_UCS_MANAGER_*"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "IngestService",
+      "sublabel": "classify, health, audit"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "servers collection"
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 310,
+      "label": "Plan: discover and prune domains"
+    },
+    {
+      "from": 330,
+      "to": 520,
+      "label": "Per domain, N at once (semaphore)"
+    },
+    {
+      "from": 540,
+      "to": 700,
+      "label": "Stream into ingest as each domain finishes"
+    }
+  ],
+  "messages": [
+    {
+      "id": "central-login",
+      "from": "cronjob",
+      "to": "central",
+      "y": 185,
+      "label": "login",
+      "variant": "security"
+    },
+    {
+      "id": "query-domains",
+      "from": "cronjob",
+      "to": "central",
+      "y": 221,
+      "label": "query_classid computeSystem",
+      "variant": "emphasis"
+    },
+    {
+      "id": "query-profiles",
+      "from": "cronjob",
+      "to": "central",
+      "y": 257,
+      "label": "query_classid lsServer",
+      "variant": "emphasis"
+    },
+    {
+      "id": "central-logout",
+      "from": "central",
+      "to": "cronjob",
+      "y": 293,
+      "label": "domains + profiles, then logout",
+      "variant": "return"
+    },
+    {
+      "id": "domain-login",
+      "from": "cronjob",
+      "to": "manager",
+      "y": 355,
+      "label": "login (per domain)",
+      "variant": "security"
+    },
+    {
+      "id": "query-compute",
+      "from": "cronjob",
+      "to": "manager",
+      "y": 391,
+      "label": "computeBlade, computeRackUnit, lsServer",
+      "variant": "emphasis"
+    },
+    {
+      "id": "query-parts",
+      "from": "cronjob",
+      "to": "manager",
+      "y": 427,
+      "label": "mgmtIf, vnicIpV4*, adaptor*EthIf, processorUnit, storageLocalDisk, equipmentPsu, graphicsCard",
+      "variant": "emphasis"
+    },
+    {
+      "id": "query-top",
+      "from": "cronjob",
+      "to": "manager",
+      "y": 463,
+      "label": "networkElement, topSystem",
+      "variant": "default"
+    },
+    {
+      "id": "domain-mos",
+      "from": "manager",
+      "to": "cronjob",
+      "y": 499,
+      "label": "managed objects, joined by DN; logout",
+      "variant": "return"
+    },
+    {
+      "id": "normalize",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 575,
+      "label": "ProviderServer per server (domain-qualified external_id)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "find",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 611,
+      "label": "find by (vendor, serial_normalized)",
+      "variant": "default"
+    },
+    {
+      "id": "upsert",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 647,
+      "label": "upsert: classify, health, search_tokens, audit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ack",
+      "from": "mongo",
+      "to": "ingest",
+      "y": 683,
+      "label": "revision written",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "cronjob",
+      "from": 178,
+      "to": 692,
+      "type": "backend"
+    },
+    {
+      "participant": "central",
+      "from": 180,
+      "to": 300,
+      "type": "external"
+    },
+    {
+      "participant": "manager",
+      "from": 350,
+      "to": 506,
+      "type": "external"
+    },
+    {
+      "participant": "ingest",
+      "from": 570,
+      "to": 690,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 606,
+      "to": 688,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Central discovers, UCS Manager collects",
+      "items": [
+        "Central answers two questions only: which domains are registered (computeSystem) and which profiles exist (lsServer) \u2014 ADR-0014",
+        "Every domain is its own login with INVENTORY_UCS_MANAGER_*; Central reports each domain's address itself",
+        "Live run 2026-08-18: 152 registered domains, ~3,346 servers, every profile global-controlled \u2014 ADR-0014"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What UCSPE 4.2(2aS9) proved",
+      "items": [
+        "A blade's own mgmtIf reports access='unspecified'; the out-of-band filter matched only fabric interconnects, so BMC selection is by DN position \u2014 ADR-0009",
+        "UCSPE reports 00:00:00:00:00:00 for blade CIMC MACs; normalize_mac drops it \u2014 ADR-0009",
+        "A name with no site token falls back to the profile's org DN \u2014 CLAUDE.md, name-derived sites"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Failure is contained per domain",
+      "items": [
+        "One unreachable or slow domain is logged and skipped; the fleet run continues",
+        "Domains stream with asyncio.as_completed, so a run killed by activeDeadlineSeconds keeps what finished \u2014 ADR-0014, 2026-09-02",
+        "Cancel and drain on early close so every domain still logs out \u2014 docs/cisco-collectors.md, Sessions"
+      ]
+    }
+  ]
+}

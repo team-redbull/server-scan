@@ -2,12 +2,12 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Server Inventory — Runtime Architecture",
+    "title": "Server Inventory \u2014 Runtime Architecture",
     "output": "runtime-architecture.html",
     "quality_profile": "showcase",
     "repository": {
-      "url": "https://github.com/team-redbull/server_scan",
-      "revision": "593884a0965f4f860c2c804f36d283d932ee4324"
+      "url": "https://github.com/team-redbull/server-scan",
+      "revision": "445d9ec5745dea455cd9b1c4e1784c77ffcf39f9"
     },
     "views": [
       {
@@ -59,7 +59,7 @@
     ],
     "viewBox": [
       1370,
-      620
+      640
     ]
   },
   "components": [
@@ -123,7 +123,7 @@
       "id": "bmcs",
       "type": "external",
       "label": "Standalone BMCs",
-      "sublabel": "iDRAC · iLO · CIMC",
+      "sublabel": "iDRAC \u00b7 iLO \u00b7 CIMC",
       "pos": [
         70,
         480
@@ -177,7 +177,7 @@
       "id": "ingest",
       "type": "backend",
       "label": "Ingest Pipeline",
-      "sublabel": "normalize · upsert",
+      "sublabel": "normalize \u00b7 upsert",
       "pos": [
         630,
         260
@@ -245,7 +245,7 @@
       "id": "api",
       "type": "backend",
       "label": "FastAPI Backend",
-      "sublabel": "/api/v1 · keyset",
+      "sublabel": "/api/v1 \u00b7 rows + keyset",
       "pos": [
         1130,
         260
@@ -265,7 +265,7 @@
       "id": "ui",
       "type": "frontend",
       "label": "Admin UI",
-      "sublabel": "React 19 · nginx",
+      "sublabel": "filters the fleet locally",
       "pos": [
         1130,
         390
@@ -273,6 +273,40 @@
       "size": [
         160,
         66
+      ]
+    },
+    {
+      "id": "kube",
+      "type": "external",
+      "label": "Cluster Kubernetes API",
+      "sublabel": "Nodes \u00b7 Agents",
+      "pos": [
+        380,
+        490
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "openshift",
+      "type": "backend",
+      "label": "OpenShift Membership Jobs",
+      "sublabel": "nodes + agents per cluster",
+      "pos": [
+        630,
+        490
+      ],
+      "size": [
+        190,
+        66
+      ],
+      "sources": [
+        {
+          "path": "docs/adr/0024-openshift-cluster-membership.md",
+          "label": "ADR-0024"
+        }
       ]
     }
   ],
@@ -395,6 +429,21 @@
       "label": "REST",
       "variant": "emphasis",
       "labelDy": 55
+    },
+    {
+      "id": "kube-read",
+      "from": "kube",
+      "to": "openshift",
+      "label": "list Nodes / Agents",
+      "variant": "security",
+      "labelDy": 57
+    },
+    {
+      "id": "membership-write",
+      "from": "openshift",
+      "to": "mongo",
+      "label": "reconcile openshift",
+      "variant": "emphasis"
     }
   ],
   "cards": [
@@ -402,8 +451,9 @@
       "dot": "cyan",
       "title": "Primary path",
       "items": [
-        "Vendor → collector → ingest → MongoDB → API → UI.",
-        "Classify and health-evaluate happen inside that one upsert."
+        "Vendor \u2192 collector \u2192 ingest \u2192 MongoDB \u2192 API \u2192 UI.",
+        "Classify and health-evaluate happen inside that one upsert.",
+        "A second write path bypasses ingest entirely: per-cluster jobs reconcile OpenShift membership straight into MongoDB (ADR-0024)."
       ]
     },
     {
@@ -411,7 +461,7 @@
       "title": "Trust boundaries",
       "items": [
         "Collectors initiate every vendor call and are strictly read-only.",
-        "No API authentication yet — deferred, and the release gate."
+        "No API authentication yet \u2014 deferred, and the release gate."
       ]
     },
     {
@@ -426,8 +476,16 @@
       "dot": "amber",
       "title": "Failure behaviour",
       "items": [
-        "An unread field is None, never 0 — the stored value survives.",
+        "An unread field is None, never 0 \u2014 the stored value survives.",
         "A partial run exits 3; Redis loss degrades latency only."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Serving the UI (ADR-0033)",
+      "items": [
+        "The browser loads the whole fleet once, as flat rows, and filters/sorts/searches locally.",
+        "Polled every 30s; an unchanged fleet is a 304, not a re-download."
       ]
     }
   ]

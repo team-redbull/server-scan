@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "HPE OneView collector run",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1080,
+      760
+    ],
+    "views": [
+      {
+        "id": "session",
+        "label": "Session",
+        "focus": [
+          "cronjob",
+          "oneview"
+        ],
+        "note": "Version discovery, then a login whose sessionID rides the Auth header."
+      },
+      {
+        "id": "bulk",
+        "label": "Three bulk sweeps",
+        "focus": [
+          "cronjob",
+          "oneview"
+        ],
+        "note": "Profiles, templates and expand=all hardware cover the whole appliance."
+      },
+      {
+        "id": "ingest",
+        "label": "Ingest",
+        "focus": [
+          "cronjob",
+          "ingest",
+          "mongo"
+        ],
+        "note": "One upsert per server: classify, health, audit, write."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "cronjob",
+      "type": "backend",
+      "label": "OneView CronJob",
+      "sublabel": "tools.run_collector"
+    },
+    {
+      "id": "oneview",
+      "type": "external",
+      "label": "HPE OneView",
+      "sublabel": "one appliance, httpx"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "IngestService",
+      "sublabel": "classify + health + audit"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "servers collection"
+    }
+  ],
+  "segments": [
+    {
+      "from": 162,
+      "to": 308,
+      "label": "Session"
+    },
+    {
+      "from": 314,
+      "to": 536,
+      "label": "Bulk enumeration + bounded fan-out"
+    },
+    {
+      "from": 542,
+      "to": 688,
+      "label": "Ingest + logout"
+    }
+  ],
+  "messages": [
+    {
+      "id": "version",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 180,
+      "label": "GET /rest/version (unauthenticated)",
+      "variant": "default"
+    },
+    {
+      "id": "version-ok",
+      "from": "oneview",
+      "to": "cronjob",
+      "y": 218,
+      "label": "currentVersion \u2192 X-Api-Version clamped to 8000",
+      "variant": "return"
+    },
+    {
+      "id": "login",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 256,
+      "label": "POST /rest/login-sessions (loginMsgAck)",
+      "variant": "security"
+    },
+    {
+      "id": "login-ok",
+      "from": "oneview",
+      "to": "cronjob",
+      "y": 294,
+      "label": "sessionID \u2192 Auth header",
+      "variant": "return"
+    },
+    {
+      "id": "profiles",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 332,
+      "label": "GET /rest/server-profiles, paged via nextPageUri",
+      "variant": "emphasis"
+    },
+    {
+      "id": "templates",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 370,
+      "label": "GET /rest/server-profile-templates",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hardware",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 408,
+      "label": "GET /rest/server-hardware?expand=all (DIMMs, drives, PCI inline)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hardware-ok",
+      "from": "oneview",
+      "to": "cronjob",
+      "y": 446,
+      "label": "members joined to profiles in memory",
+      "variant": "return"
+    },
+    {
+      "id": "psus",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 484,
+      "label": "GET {hardware}/powerSupplies \u2014 only where expand=all lacked them",
+      "variant": "dashed"
+    },
+    {
+      "id": "cpus",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 522,
+      "label": "GET {hardware}/processors \u2014 the one source of cpu_threads",
+      "variant": "dashed"
+    },
+    {
+      "id": "normalise",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 560,
+      "label": "ProviderServer per matched profile (server_from)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upsert",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 598,
+      "label": "classify + evaluate health + audit event + upsert, one write",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upsert-ok",
+      "from": "mongo",
+      "to": "ingest",
+      "y": 636,
+      "label": "IngestSummary (created / updated / errors)",
+      "variant": "return"
+    },
+    {
+      "id": "logout",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 674,
+      "label": "DELETE /rest/login-sessions (failure logged, never raised)",
+      "variant": "security"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "cronjob",
+      "from": 174,
+      "to": 680,
+      "type": "backend"
+    },
+    {
+      "participant": "oneview",
+      "from": 252,
+      "to": 528,
+      "type": "external"
+    },
+    {
+      "participant": "ingest",
+      "from": 556,
+      "to": 642,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 594,
+      "to": 640,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One source for every HPE server",
+      "items": [
+        "OneView is the only HPE source whatever the iLO generation (4, 5 or 6): no BMC login, no per-generation branch (ADR-0022)",
+        "What that costs on Gen10/Gen11 is written down, not worked around: cpu_threads only via /processors, GPU VRAM from the catalog",
+        "One appliance, ~15 requests for the whole estate; the 2500-server ceiling is documented, not coded"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Settled on a live appliance, 2026-09-07",
+      "items": [
+        "821 servers, 685 profiles: nextPageUri paging fetched all 685, so the 256 cap is per request, no sharding",
+        "Omitting X-Api-Version silently serves an older schema (server-hardware-1 vs -12, both 200) \u2014 the header is always sent",
+        "iLO 5/6 populate memoryMb/processorCount near-universally (797/797, 24/24); 140 members with no profile are skipped by design"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Still open",
+      "items": [
+        "GPU mapping is unverified: no GPU-bearing HPE host exists in the estate, so no Devices entry has ever reported DeviceType GPU",
+        "Whether AMS was running was not established; the profile name stays the only field trusted for ProviderServer.name",
+        "count=-1 means 64 on /rest/server-profiles \u2014 an explicit count is always sent and truncation is reported as a PARTIAL run"
+      ]
+    }
+  ]
+}

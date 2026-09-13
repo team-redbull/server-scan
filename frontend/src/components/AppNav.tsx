@@ -4,6 +4,7 @@ const LINKS = [
   { to: "/", label: "Sites" },
   { to: "/servers", label: "Servers" },
   { to: "/rules", label: "Rules & Policies" },
+  { to: "/architecture", label: "Architecture" },
 ];
 
 /** Top-level nav. `pathname === to`, not `startsWith`, so `/rules` does

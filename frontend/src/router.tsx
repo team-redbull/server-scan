@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router";
 
 import { AppLayout } from "@/components/AppLayout";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
+import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
 import { InventoryPage } from "@/features/inventory/InventoryPage";
 import { RulesPage } from "@/features/rules/RulesPage";
 import { ServerDetailPage } from "@/features/servers/ServerDetailPage";
@@ -29,6 +30,11 @@ export const router = createBrowserRouter([
         // Read-only on purpose (docs/architecture.md, "Slice 5").
         path: "/rules",
         element: <RulesPage />,
+      },
+      {
+        // Pre-built diagrams under public/architecture/ (archify); no data fetch.
+        path: "/architecture",
+        element: <ArchitecturePage />,
       },
       {
         path: "/status",

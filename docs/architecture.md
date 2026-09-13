@@ -1578,6 +1578,28 @@ lands in a subsequent slice — this document will gain a section and an
 ADR once it's implemented, rather than describing not-yet-existing code
 as done.
 
+## Architecture diagrams (interactive)
+
+The `/architecture` page (nav, after Rules & Policies) is seven
+self-contained, pan/zoom/search HTML diagrams generated with the
+`archify` Claude Code skill: one full-flow overview
+(`runtime-architecture`) and one per collector (UCS Central, Intersight,
+OpenManage, OneView, standalone Redfish, OpenShift membership). Every
+message and card fact is sourced from an ADR or the provider file it
+names — see each diagram's own cards for the pointer.
+
+**Source of truth is `docs/diagrams/*.json`**, not the rendered HTML: a
+spec regenerates deterministically via
+`node bin/archify.mjs deliver <type> <spec>.json <output>.html --quality showcase`
+from the archify skill package. The rendered `.html` files live under
+`frontend/public/architecture/` (served as static assets, ~700 KB each)
+because nothing in this repo's own build can regenerate them — they are
+committed artifacts, like a vendored asset, refreshed by hand when a
+collector's real sequence changes enough to matter. Each viewer loads a
+Google Fonts stylesheet asynchronously and falls back to a system font
+without blocking first paint if that fails, so it degrades gracefully
+air-gapped rather than depending on it.
+
 ## Further reading
 
 - `docs/arc42.md` — the structured architecture overview (arc42): goals,

@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Dell OpenManage Collector Run",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1060,
+      735
+    ],
+    "views": [
+      {
+        "id": "identity",
+        "label": "Identity from OME",
+        "focus": [
+          "cronjob",
+          "ome"
+        ],
+        "note": "Two bulk OData calls name every server; namePattern is applied before any BMC is contacted."
+      },
+      {
+        "id": "hardware",
+        "label": "Hardware from each iDRAC",
+        "focus": [
+          "cronjob",
+          "idrac"
+        ],
+        "note": "The Redfish collector reads measured values; Oem.Dell NodeID is the Service Tag."
+      },
+      {
+        "id": "ingest",
+        "label": "Join and ingest",
+        "focus": [
+          "cronjob",
+          "ingest",
+          "mongo"
+        ],
+        "note": "One write per server: classify, health-evaluate, audit, upsert on (vendor, serial)."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "cronjob",
+      "type": "backend",
+      "label": "OpenManage CronJob",
+      "sublabel": "every 6 h"
+    },
+    {
+      "id": "ome",
+      "type": "external",
+      "label": "OpenManage Enterprise",
+      "sublabel": "https://<appliance>/api"
+    },
+    {
+      "id": "idrac",
+      "type": "external",
+      "label": "iDRAC (Redfish)",
+      "sublabel": "one per matched server"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "IngestService",
+      "sublabel": "in the same pod"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "servers collection"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 348,
+      "label": "Identity from OME"
+    },
+    {
+      "from": 360,
+      "to": 526,
+      "label": "Hardware from each iDRAC"
+    },
+    {
+      "from": 538,
+      "to": 646,
+      "label": "Join and ingest"
+    }
+  ],
+  "messages": [
+    {
+      "id": "ome-login",
+      "from": "cronjob",
+      "to": "ome",
+      "y": 174,
+      "label": "POST /SessionService/Sessions",
+      "variant": "security",
+      "note": "INVENTORY_OME_USERNAME/_PASSWORD"
+    },
+    {
+      "id": "ome-token",
+      "from": "ome",
+      "to": "cronjob",
+      "y": 204,
+      "label": "X-Auth-Token",
+      "variant": "return"
+    },
+    {
+      "id": "profiles",
+      "from": "cronjob",
+      "to": "ome",
+      "y": 236,
+      "label": "GET /ProfileService/Profiles (paged)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "devices",
+      "from": "cronjob",
+      "to": "ome",
+      "y": 268,
+      "label": "GET /DeviceService/Devices (paged)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "identities",
+      "from": "ome",
+      "to": "cronjob",
+      "y": 300,
+      "label": "ProfileName, DeviceServiceTag, DeviceManagement[0].NetworkAddress",
+      "variant": "return"
+    },
+    {
+      "id": "ome-logout",
+      "from": "cronjob",
+      "to": "ome",
+      "y": 332,
+      "label": "DELETE /SessionService/Sessions('id')",
+      "variant": "dashed",
+      "note": "namePattern filters the profiles first"
+    },
+    {
+      "id": "rf-login",
+      "from": "cronjob",
+      "to": "idrac",
+      "y": 382,
+      "label": "POST /redfish/v1/SessionService/Sessions",
+      "variant": "security",
+      "note": "INVENTORY_OME_BMC_USERNAME/_PASSWORD, one account fleet-wide"
+    },
+    {
+      "id": "rf-systems",
+      "from": "cronjob",
+      "to": "idrac",
+      "y": 414,
+      "label": "GET Systems, Processors, Memory, EthernetInterfaces, Storage",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rf-chassis",
+      "from": "cronjob",
+      "to": "idrac",
+      "y": 446,
+      "label": "GET Links.Chassis PowerSubsystem/PowerSupplies, Managers EthernetInterfaces",
+      "variant": "default"
+    },
+    {
+      "id": "rf-values",
+      "from": "idrac",
+      "to": "cronjob",
+      "y": 478,
+      "label": "measured hardware + Oem.Dell.DellSystem.NodeID",
+      "variant": "return"
+    },
+    {
+      "id": "rf-unreachable",
+      "from": "idrac",
+      "to": "cronjob",
+      "y": 510,
+      "label": "no answer \u2192 reachable=False, hardware None",
+      "variant": "dashed"
+    },
+    {
+      "id": "merge",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 562,
+      "label": "ProviderServer: OME identity + iDRAC hardware, joined on BMC host",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upsert",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 596,
+      "label": "classify + health + audit + upsert on (vendor, serial_normalized)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ack",
+      "from": "mongo",
+      "to": "ingest",
+      "y": 628,
+      "label": "one write per server",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "cronjob",
+      "from": 168,
+      "to": 638,
+      "type": "backend"
+    },
+    {
+      "participant": "ome",
+      "from": 168,
+      "to": 340,
+      "type": "external"
+    },
+    {
+      "participant": "idrac",
+      "from": 376,
+      "to": 518,
+      "type": "external"
+    },
+    {
+      "participant": "ingest",
+      "from": 556,
+      "to": 636,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 590,
+      "to": 634,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Why the split exists (ADR-0020)",
+      "items": [
+        "OME's InventoryDetails gave ambiguous disk units, MediaType UNKNOWN for NVMe, no thread count",
+        "Only OME knows the name ocp4-nyc-prod-worker-03; only the iDRAC measures CapacityBytes and TotalThreads"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What live hardware corrected",
+      "items": [
+        "2026-09-08, iDRAC9: the Service Tag is Oem.Dell.DellSystem.NodeID, not SerialNumber; iDRAC7/8 unconfirmed",
+        "2026-09-10, production: TargetName held an OS hostname; the address is DeviceManagement[0].NetworkAddress"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Still open",
+      "items": [
+        "The iDRAC GPU VRAM check (docs/field-test-checklist.md part 3) has not run on real hardware",
+        "One fleet-wide read-only iDRAC account: the auth guard disables it after 3 rejections, aborts after 10"
+      ]
+    }
+  ]
+}

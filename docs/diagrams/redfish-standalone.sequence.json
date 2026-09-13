@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Redfish Standalone Collector Run",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1080,
+      960
+    ],
+    "views": [
+      {
+        "id": "fleet-from-file",
+        "label": "Fleet from the inventory file",
+        "focus": [
+          "cronjob",
+          "inventory",
+          "bmc"
+        ],
+        "note": "No manager: the TOML says which BMCs exist, and each gets its own session."
+      },
+      {
+        "id": "resource-walk",
+        "label": "The ~25-GET walk per BMC",
+        "focus": [
+          "cronjob",
+          "bmc"
+        ],
+        "note": "Systems first, then every sub-collection; a 404 becomes None, never zero."
+      },
+      {
+        "id": "ingest",
+        "label": "One write per server",
+        "focus": [
+          "cronjob",
+          "ingest",
+          "mongo"
+        ],
+        "note": "Classify, evaluate health, audit and upsert in the same write."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "cronjob",
+      "type": "backend",
+      "label": "Redfish CronJob",
+      "sublabel": "RedfishStandaloneProvider"
+    },
+    {
+      "id": "inventory",
+      "type": "security",
+      "label": "Inventory + credentials",
+      "sublabel": "inventory.toml / credentials.toml"
+    },
+    {
+      "id": "bmc",
+      "type": "external",
+      "label": "One BMC",
+      "sublabel": "DMTF Redfish (iDRAC, iLO, CIMC)"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "IngestService",
+      "sublabel": "classify + health + audit"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "servers collection"
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 262,
+      "label": "Targets"
+    },
+    {
+      "from": 282,
+      "to": 640,
+      "label": "Per BMC (hosts in parallel, shuffled)"
+    },
+    {
+      "from": 660,
+      "to": 830,
+      "label": "Per server"
+    }
+  ],
+  "messages": [
+    {
+      "id": "load-targets",
+      "from": "cronjob",
+      "to": "inventory",
+      "y": 190,
+      "label": "load_targets(INVENTORY_REDFISH_INVENTORY_FILE)",
+      "variant": "default"
+    },
+    {
+      "id": "targets",
+      "from": "inventory",
+      "to": "cronjob",
+      "y": 240,
+      "label": "hosts + per-host credential, or exit 1",
+      "variant": "return"
+    },
+    {
+      "id": "service-root",
+      "from": "cronjob",
+      "to": "bmc",
+      "y": 305,
+      "label": "GET /redfish/v1 (unauthenticated)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "login",
+      "from": "cronjob",
+      "to": "bmc",
+      "y": 350,
+      "label": "POST SessionService/Sessions \u2192 X-Auth-Token",
+      "variant": "security"
+    },
+    {
+      "id": "systems",
+      "from": "cronjob",
+      "to": "bmc",
+      "y": 395,
+      "label": "GET Systems, then each ComputerSystem",
+      "variant": "emphasis"
+    },
+    {
+      "id": "subresources",
+      "from": "cronjob",
+      "to": "bmc",
+      "y": 440,
+      "label": "GET Processors, Memory, EthernetInterfaces, Storage/\u2026/Drives",
+      "variant": "emphasis"
+    },
+    {
+      "id": "chassis",
+      "from": "cronjob",
+      "to": "bmc",
+      "y": 485,
+      "label": "GET Links.Chassis \u2192 PowerSubsystem/PowerSupplies, Managers \u2192 BMC MAC",
+      "variant": "default"
+    },
+    {
+      "id": "not-served",
+      "from": "bmc",
+      "to": "cronjob",
+      "y": 530,
+      "label": "404 / 403 on a sub-collection \u2192 None + unread_fields",
+      "variant": "dashed"
+    },
+    {
+      "id": "unreachable",
+      "from": "bmc",
+      "to": "cronjob",
+      "y": 575,
+      "label": "unreachable or auth failure \u2192 host skipped, run exits 3 (PARTIAL)",
+      "variant": "dashed"
+    },
+    {
+      "id": "logout",
+      "from": "cronjob",
+      "to": "bmc",
+      "y": 620,
+      "label": "DELETE session",
+      "variant": "security"
+    },
+    {
+      "id": "normalise",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 690,
+      "label": "system_to_provider_server(...) \u2192 ProviderServer",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upsert",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 740,
+      "label": "classify + evaluate health + audit, replace_one(upsert=True)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "stored",
+      "from": "mongo",
+      "to": "ingest",
+      "y": 785,
+      "label": "Server (None fields carried forward)",
+      "variant": "return"
+    },
+    {
+      "id": "yielded",
+      "from": "ingest",
+      "to": "cronjob",
+      "y": 820,
+      "label": "next server",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "cronjob",
+      "from": 185,
+      "to": 830,
+      "type": "backend"
+    },
+    {
+      "participant": "inventory",
+      "from": 185,
+      "to": 246,
+      "type": "security"
+    },
+    {
+      "participant": "bmc",
+      "from": 300,
+      "to": 626,
+      "type": "external"
+    },
+    {
+      "participant": "ingest",
+      "from": 685,
+      "to": 826,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 735,
+      "to": 791,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Cost is per server, not per manager",
+      "items": [
+        "Each host costs ~25 GETs; a UCS domain costs ~11 whether it holds 10 servers or 500 (ADR-0016, Context)",
+        "Hosts run in parallel under INVENTORY_REDFISH_FLEET_CONCURRENCY, shuffled so a truncated sweep never starves the same slow hosts",
+        "Supported range is ~400\u20131,000 hosts per CronJob; shard beyond that (arc42 \u00a711)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "None means could not read, never zero",
+      "items": [
+        "A Storage 404 once wrote zeros over good data and flipped a server with a failed disk from CRITICAL to HEALTHY (ADR-0016, 'A partial read silently heals a real fault')",
+        "Now a 404/403 sub-collection is None; IngestService carries the stored value forward and lists the path in Server.unread_fields",
+        "A host that does not answer is skipped and the run exits 3 \u2014 PARTIAL is the normal outcome, alerting is on staleness"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Credentials stay in the CronJob",
+      "items": [
+        "The fleet and per-host logins come from inventory.toml and credentials.toml mounted into the CronJob pod (redfish-standalone-collector-cronjob.yaml)",
+        "Unlike the manager collectors' Secret, these files are never mounted into the Route-exposed API pod (ADR-0032 \u00a76)",
+        "A session is opened per BMC and deleted on exit; Basic auth would cost an LDAP round trip per GET (ADR-0016)"
+      ]
+    }
+  ]
+}

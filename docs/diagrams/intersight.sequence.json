@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Cisco Intersight Collector Run",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1060,
+      700
+    ]
+  },
+  "participants": [
+    {
+      "id": "cron",
+      "type": "backend",
+      "label": "Collector CronJob",
+      "sublabel": "run_collector INTERSIGHT"
+    },
+    {
+      "id": "signer",
+      "type": "security",
+      "label": "Request signer",
+      "sublabel": "hs2019, PEM key"
+    },
+    {
+      "id": "intersight",
+      "type": "external",
+      "label": "Intersight API",
+      "sublabel": "on-prem PVA, /api/v1"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "IngestService",
+      "sublabel": "classify, health, audit"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "servers"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 254,
+      "label": "Sign + probe"
+    },
+    {
+      "from": 272,
+      "to": 496,
+      "label": "Fleet-wide tables, joined client-side"
+    },
+    {
+      "from": 514,
+      "to": 624,
+      "label": "Per-server normalize + upsert"
+    }
+  ],
+  "messages": [
+    {
+      "id": "sign",
+      "from": "cron",
+      "to": "signer",
+      "y": 176,
+      "label": "sign GET: request-target, host, date, digest",
+      "variant": "security"
+    },
+    {
+      "id": "signed",
+      "from": "signer",
+      "to": "cron",
+      "y": 204,
+      "label": "Authorization: Signature keyId=<API key ID>",
+      "variant": "return"
+    },
+    {
+      "id": "probe",
+      "from": "cron",
+      "to": "intersight",
+      "y": 236,
+      "label": "health_check: compute/PhysicalSummaries $top=1",
+      "variant": "default"
+    },
+    {
+      "id": "profiles",
+      "from": "cron",
+      "to": "intersight",
+      "y": 300,
+      "label": "server/Profiles + ProfileTemplates ($top=1000, $skip)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "adapters",
+      "from": "cron",
+      "to": "intersight",
+      "y": 330,
+      "label": "adapter/Units, ExtEthInterfaces, HostEthInterfaces",
+      "variant": "emphasis"
+    },
+    {
+      "id": "boards",
+      "from": "cron",
+      "to": "intersight",
+      "y": 360,
+      "label": "compute/Boards, storage/Controllers, PhysicalDisks",
+      "variant": "emphasis"
+    },
+    {
+      "id": "parts",
+      "from": "cron",
+      "to": "intersight",
+      "y": 390,
+      "label": "graphics/Cards, processor/Units, equipment/Psus",
+      "variant": "emphasis"
+    },
+    {
+      "id": "mgmt",
+      "from": "cron",
+      "to": "intersight",
+      "y": 420,
+      "label": "management/Controllers + Interfaces",
+      "variant": "emphasis"
+    },
+    {
+      "id": "summaries",
+      "from": "cron",
+      "to": "intersight",
+      "y": 450,
+      "label": "compute/PhysicalSummaries $filter=ManagementMode",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rows",
+      "from": "intersight",
+      "to": "cron",
+      "y": 480,
+      "label": "Results pages, joined by inverse owner Moid",
+      "variant": "return"
+    },
+    {
+      "id": "normalize",
+      "from": "cron",
+      "to": "ingest",
+      "y": 530,
+      "label": "ProviderServer per summary (TotalMemory in MiB)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upsert",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 562,
+      "label": "classify + health + audit + upsert, one write per server",
+      "variant": "emphasis"
+    },
+    {
+      "id": "summary",
+      "from": "ingest",
+      "to": "cron",
+      "y": 604,
+      "label": "IngestSummary: created, updated, errors",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "cron",
+      "from": 172,
+      "to": 612,
+      "type": "backend"
+    },
+    {
+      "participant": "signer",
+      "from": 172,
+      "to": 210,
+      "type": "security"
+    },
+    {
+      "participant": "intersight",
+      "from": 296,
+      "to": 486,
+      "type": "external"
+    },
+    {
+      "participant": "ingest",
+      "from": 526,
+      "to": 610,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 558,
+      "to": 582,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Why it scales flat",
+      "items": [
+        "Each child MO names its owner, so every table is listed once fleet-wide at $top=1000 and joined by Moid (ADR-0017)",
+        "~120 requests for 10,000 servers; the Redfish collector needs ~250,000",
+        "Controllers, cards and CPUs also join via ComputeBoard: 0 of 37 controllers named a blade or rack unit on a live tenant (2026-09-01)"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Settled on live hardware",
+      "items": [
+        "Auth end to end and TotalMemory in MiB: first tenant run, 19 servers (2026-09-01)",
+        "OperState and PhysicalDisk.Health spell healthy as \"OK\"; read as UNKNOWN until the second pass (2026-09-07)",
+        "graphics.Card.Model is the marketing name (\"NVIDIA T4 PCIe 16GB 70W\"); catalog matching fixed the same day"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Still contract-only",
+      "items": [
+        "No PSU, GPU or drive on the tenant has failed yet: DOWN/CRITICAL vocabulary unconfirmed",
+        "A blade reports no PSUs: equipment/Psus joins only to a rack unit; the chassis owns them",
+        "get_one()'s owner-relation $filters (ADR-0032) have never run against a live tenant"
+      ]
+    }
+  ]
+}

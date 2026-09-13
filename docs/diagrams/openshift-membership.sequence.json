@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "OpenShift Cluster Membership: nodes and agents jobs reconcile Server.openshift",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1080,
+      650
+    ]
+  },
+  "participants": [
+    {
+      "id": "nodes_job",
+      "type": "backend",
+      "label": "nodes CronJob",
+      "sublabel": "every cluster, */15"
+    },
+    {
+      "id": "agents_job",
+      "type": "backend",
+      "label": "agents CronJob",
+      "sublabel": "MCE hubs only, */15"
+    },
+    {
+      "id": "kube",
+      "type": "external",
+      "label": "kubernetes.default.svc",
+      "sublabel": "in-cluster API"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "Server.openshift only"
+    },
+    {
+      "id": "audit",
+      "type": "database",
+      "label": "Audit trail",
+      "sublabel": "OPENSHIFT_STATE_CHANGED"
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 276,
+      "label": "Nodes job"
+    },
+    {
+      "from": 286,
+      "to": 428,
+      "label": "Agents job"
+    },
+    {
+      "from": 438,
+      "to": 580,
+      "label": "Reconcile, two refusals"
+    }
+  ],
+  "messages": [
+    {
+      "id": "n-auth",
+      "from": "nodes_job",
+      "to": "kube",
+      "y": 176,
+      "label": "Bearer ServiceAccount token + ca.crt",
+      "variant": "security"
+    },
+    {
+      "id": "n-list",
+      "from": "nodes_job",
+      "to": "kube",
+      "y": 204,
+      "label": "GET /api/v1/nodes?labelSelector=node-role.kubernetes.io/worker",
+      "variant": "emphasis"
+    },
+    {
+      "id": "n-nodes",
+      "from": "kube",
+      "to": "nodes_job",
+      "y": 232,
+      "label": "worker nodes, paged by metadata.continue",
+      "variant": "return"
+    },
+    {
+      "id": "n-match",
+      "from": "nodes_job",
+      "to": "mongo",
+      "y": 260,
+      "label": "match metadata.name to name_normalized, claim INSTALLED + cluster_name",
+      "variant": "emphasis"
+    },
+    {
+      "id": "a-auth",
+      "from": "agents_job",
+      "to": "kube",
+      "y": 300,
+      "label": "Bearer ServiceAccount token + ca.crt",
+      "variant": "security"
+    },
+    {
+      "id": "a-discover",
+      "from": "agents_job",
+      "to": "kube",
+      "y": 328,
+      "label": "GET /apis/agent-install.openshift.io (preferredVersion)",
+      "variant": "default"
+    },
+    {
+      "id": "a-list",
+      "from": "agents_job",
+      "to": "kube",
+      "y": 356,
+      "label": "GET /apis/agent-install.openshift.io/<version>/agents",
+      "variant": "emphasis"
+    },
+    {
+      "id": "a-agents",
+      "from": "kube",
+      "to": "agents_job",
+      "y": 384,
+      "label": "Agents; hostname = spec.hostname, else status.inventory.hostname",
+      "variant": "return"
+    },
+    {
+      "id": "a-match",
+      "from": "agents_job",
+      "to": "mongo",
+      "y": 412,
+      "label": "bound: INSTALLED + clusterDeploymentName; unbound: INSTALLED_TO_INVENTORY",
+      "variant": "emphasis"
+    },
+    {
+      "id": "r-owned",
+      "from": "nodes_job",
+      "to": "mongo",
+      "y": 452,
+      "label": "list servers in own scope: openshift.cluster_name = this cluster",
+      "variant": "default"
+    },
+    {
+      "id": "r-free",
+      "from": "mongo",
+      "to": "nodes_job",
+      "y": 480,
+      "label": "unseen in scope -> AVAILABLE, revision-checked upsert",
+      "variant": "return"
+    },
+    {
+      "id": "r-audit",
+      "from": "nodes_job",
+      "to": "audit",
+      "y": 508,
+      "label": "OPENSHIFT_STATE_CHANGED per transition",
+      "variant": "dashed"
+    },
+    {
+      "id": "r-fail",
+      "from": "kube",
+      "to": "nodes_job",
+      "y": 536,
+      "label": "read failed -> exit 1, nothing written",
+      "variant": "dashed"
+    },
+    {
+      "id": "r-empty",
+      "from": "kube",
+      "to": "agents_job",
+      "y": 564,
+      "label": "empty successful read -> exit 1, nothing released",
+      "variant": "dashed"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "nodes_job",
+      "from": 171,
+      "to": 266,
+      "type": "backend"
+    },
+    {
+      "participant": "kube",
+      "from": 199,
+      "to": 238,
+      "type": "external"
+    },
+    {
+      "participant": "agents_job",
+      "from": 295,
+      "to": 418,
+      "type": "backend"
+    },
+    {
+      "participant": "kube",
+      "from": 323,
+      "to": 390,
+      "type": "external"
+    },
+    {
+      "participant": "nodes_job",
+      "from": 447,
+      "to": 542,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 449,
+      "to": 486,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Absence is the only way back (ADR-0024)",
+      "items": [
+        "Kubernetes never reports a removal",
+        "A run claims what it sees, frees what it doesn't",
+        "AVAILABLE is the default; there is no UNKNOWN"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Per-cluster scope is the safety",
+      "items": [
+        "A job frees only servers naming its own cluster/MCE",
+        "Failed read: exit 1 before any write",
+        "Empty read: also refuses (RBAC, not an empty cluster)"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Kept apart on purpose",
+      "items": [
+        "Writes Server.openshift only, never via IngestService",
+        "Name verdict vs cluster fact: a mismatch is the signal",
+        "httpx to kubernetes.default.svc, no SDK, two GETs"
+      ]
+    }
+  ]
+}

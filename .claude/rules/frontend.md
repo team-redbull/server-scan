@@ -48,6 +48,15 @@ Loaded only when a `frontend/` file is open.
   Vendor field. ADR-0008 has the XPath workaround; the `labeledField`
   helper that implemented it was removed with the editor pages, so the
   next form page will hit this cold.
+- **The Architecture page (`/architecture`) embeds pre-generated static
+  HTML**, never live data: `frontend/public/architecture/*.html`, built
+  from `docs/diagrams/*.json` with the `archify` skill
+  (`node bin/archify.mjs deliver <type> <spec>.json <output>.html
+  --quality showcase`). Adding a collector's diagram means a new spec, a
+  new entry in `features/architecture/diagrams.ts`, and delivering the
+  HTML into `public/architecture/` — nothing in this repo's own build
+  regenerates them. `docs/architecture.md`, "Architecture diagrams" has
+  the full contract.
 - The gate for any frontend change is
   `cd frontend && npm run lint && npm run typecheck && npm run test -- --run && npm run build`
   (`/gate --frontend`); E2E (`npm run test:e2e`) needs the backend and dev

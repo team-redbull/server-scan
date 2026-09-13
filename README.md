@@ -65,6 +65,10 @@ far, in order:
     click is a React commit, not a round trip, and search matches inside
     a word. The API also gzips its responses now, and the frontend image
     gzips its bundle (`docs/adr/0033-client-side-inventory-filtering.md`).
+17. **An Architecture page** (nav, after Rules & Policies) — one full-flow
+    diagram plus one per collector, interactive (pan/zoom/search),
+    generated with the `archify` skill from the ADRs and provider source
+    (`docs/architecture.md`, "Architecture diagrams").
 
 The inventory table shows **Name, Installation, MCE, Cluster, Model,
 State** and a per-row maintenance switch, and sorts on Name, Model,
@@ -576,7 +580,8 @@ from going stale.
 ```
 backend/app/     FastAPI service — domain/application/infrastructure/api layers
 frontend/        Vite + React + TypeScript SPA; scripts/bench-inventory.mjs is the
-                 ADR-0033 UX benchmark
+                 ADR-0033 UX benchmark; public/architecture/ ships the generated
+                 Architecture-page diagrams (source: docs/diagrams/*.json)
 tests/           unit / integration / api tests
 tools/           operational CLIs: fake-data seeder, index/load verification,
                  the real-collector runner (tools/run_collector.py)
@@ -585,7 +590,8 @@ deploy/          Helm charts: server-scan (API, frontend, per-vendor
                  collector CronJobs) and openshift-membership (the two
                  per-cluster jobs that report what each cluster is using)
 docs/            architecture notes, ADRs, cisco-collectors.md (the
-                 verified implementation facts the Cisco collectors rest on)
-                 and test-ucs-collector.md (runbook for proving the
-                 collector against real hardware)
+                 verified implementation facts the Cisco collectors rest on),
+                 test-ucs-collector.md (runbook for proving the collector
+                 against real hardware) and diagrams/ (archify sources for
+                 the Architecture page)
 ```
