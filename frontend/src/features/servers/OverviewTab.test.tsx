@@ -40,6 +40,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       network: "HEALTHY",
       connectivity: "HEALTHY",
       power: "HEALTHY",
+      gpu: "UNKNOWN",
     },
     maintenance: { enabled: false, reason: null },
     unread_fields: [],

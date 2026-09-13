@@ -73,6 +73,7 @@ export interface HealthSummary {
   network: HealthSeverity;
   connectivity: HealthSeverity;
   power: HealthSeverity;
+  gpu: HealthSeverity;
 }
 
 export interface MaintenanceState {

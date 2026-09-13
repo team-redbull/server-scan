@@ -62,6 +62,7 @@ def health_from_state(state: HealthState) -> Health:
         network=severities["network"],
         connectivity=severities["connectivity"],
         power=severities["power"],
+        gpu=severities["gpu"],
         evaluated_at=state.evaluated_at,
         active_policy_keys=sorted(e.policy_key for e in state.evaluations if e.active),
     )

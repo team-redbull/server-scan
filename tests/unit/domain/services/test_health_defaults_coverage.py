@@ -15,12 +15,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 from app.application.services.health_policy_service import HealthPolicyService
+from app.application.services.pipeline import health_from_state
 from app.domain.enums import HealthSeverity, LinkState, Vendor
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import Gpu, Hardware, Power, Psu, Storage, StorageDrive
 from app.domain.models.network import NetworkInfo, NetworkInterface
 from app.domain.models.server import Identity, Server
-from app.domain.services.health.evaluate import evaluate_health
+from app.domain.services.health.evaluate import CATEGORIES, evaluate_health
 from app.domain.services.health.facts import extract_facts
 from app.domain.services.health.health_policy_defaults import default_system_policies
 from app.domain.services.health.metrics import build_default_registry
@@ -314,3 +315,32 @@ class TestManagerScopedDefaults:
     def test_every_other_default_is_unscoped(self) -> None:
         scoped = {p.name for p in default_system_policies() if p.scope.specificity() > 0}
         assert scoped == {"UCS fabric path down (warning)", "UCS fabric paths down (critical)"}
+
+
+class TestEveryPolicyCategoryReachesOverall:
+    """A category a default policy names must be one the rollup iterates."""
+
+    def test_every_default_category_is_rolled_up(self) -> None:
+        assert {p.category for p in default_system_policies()} <= set(CATEGORIES)
+
+    def test_a_failed_gpu_makes_the_server_critical(self) -> None:
+        """Regression: `gpu` was missing from CATEGORIES, so "GPU failed" fired
+        and the server still read HEALTHY overall.
+        """
+        now = utcnow()
+        server = Server(
+            id="srv_gpu",
+            name="ocp4-prod-tlv-gpu-01",
+            identity=Identity(vendor=Vendor.DELL),
+            source_provider="OPENMANAGE",
+            hardware=Hardware(gpus=[Gpu(health="DOWN")]),
+            created_at=now,
+            updated_at=now,
+        )
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        state = service.evaluate_with_policies(server, default_system_policies())
+        assert state.categories["gpu"].severity == HealthSeverity.CRITICAL
+        assert state.overall == HealthSeverity.CRITICAL
+        assert health_from_state(state).gpu == HealthSeverity.CRITICAL

@@ -187,6 +187,14 @@ any real collector exists.
 
 ## Health policy engine (slice 3)
 
+- **A category exists only if `evaluate.CATEGORIES` lists it.** The rollup
+  iterates that tuple and nothing else; a policy whose `category` is not
+  in it fires, records evidence, and is then dropped before the
+  per-category and overall severities are computed. `gpu` was missing
+  until 2026-09-13 — "GPU failed" (CRITICAL) fired and the server still
+  read HEALTHY overall. Adding a category means `CATEGORIES`, a field on
+  `domain.models.health.Health`, `pipeline.health_from_state`, and the
+  frontend's `HealthSummary` + overview badges, together.
 - **A policy's scope names a set of collectors, not one** (ADR-0030).
   `PolicyScope.manager_types` lists the `ManagerType` values a policy
   applies to; empty means every server. The two fabric-path defaults are

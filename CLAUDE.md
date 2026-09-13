@@ -913,6 +913,17 @@ non-obvious enough to bite you.
   `source_provider` is the collector's `ManagerType` value and is what
   the engine compares now. The fake provider gives fabric attachments
   only to `UCS_CENTRAL`/`INTERSIGHT` servers, matching the scope.
+- **A health category exists only if `evaluate.CATEGORIES` names it.**
+  Fixed 2026-09-13: the two GPU defaults said `category="gpu"`, the
+  frontend's `POLICY_CATEGORIES` already listed it, and the rollup
+  iterated a tuple without it — so "GPU failed" fired and the server
+  read HEALTHY overall, for as long as GPU policies have existed.
+  `test_health_defaults_coverage.TestEveryPolicyCategoryReachesOverall`
+  now fails if a default names a category the rollup does not iterate.
+  A new category touches `CATEGORIES`, `Health` (with an UNKNOWN default
+  so old documents load), `health_from_state`, and the frontend's
+  `HealthSummary`/`OverviewTab` — see `docs/architecture.md`'s health
+  section.
 - **UNKNOWN is not a health verdict** (ADR-0027). Every fact in
   `app.domain.services.health.facts` counts only *definite* readings — a
   PSU counts as failed on `DOWN`, never `UNKNOWN`; a drive on `CRITICAL`.

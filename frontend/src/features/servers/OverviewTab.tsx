@@ -113,6 +113,7 @@ const HEALTH_CATEGORIES: { key: keyof Omit<HealthSummary, "overall">; label: str
   { key: "network", label: "Network" },
   { key: "connectivity", label: "Connectivity" },
   { key: "power", label: "Power" },
+  { key: "gpu", label: "GPU" },
 ];
 
 function HealthBreakdown({ health }: { health: HealthSummary }) {

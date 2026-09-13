@@ -24,6 +24,7 @@ function makeServer(overrides: Partial<ServerSummary> = {}): ServerSummary {
       network: "HEALTHY",
       connectivity: "HEALTHY",
       power: "HEALTHY",
+      gpu: "UNKNOWN",
     },
     maintenance: { enabled: false, reason: null },
     openshift: {
