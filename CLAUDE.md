@@ -1107,6 +1107,12 @@ non-obvious enough to bite you.
   query must compare against that stored string type, not a parsed
   `datetime` — this caused a real, silent-wrong-results bug once
   (`docs/adr/0006`).
+  **It bit a second time on 2026-09-13**: the `/servers` keyset cursor
+  carried a real `datetime` for `updated_at`/`last_seen_at` sorts and
+  page two was always empty. `_cursor_position_clause` now renders the
+  value through `TypeAdapter(datetime).dump_python(mode="json")` —
+  ADR-0006's dated update. Anything new that compares against a stored
+  timestamp goes through the same rendering.
 - MongoDB is the sole source of truth; Redis is cache-aside only and
   every read path degrades to Mongo on any Redis failure — never make
   Redis a hard dependency for correctness.

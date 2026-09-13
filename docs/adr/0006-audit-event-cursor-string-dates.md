@@ -79,3 +79,18 @@ dates.
   indexes require a native `Date` field. `events` has an optional,
   currently-disabled TTL index mentioned in the platform spec; enabling it
   will require that migration first.
+
+## Update (2026-09-13): the same bug in the servers list cursor
+
+The trap this ADR describes bit a second time, in `MongoServerRepository`:
+sorting `/servers` by `updated_at` or `last_seen_at` returned a full first
+page and an empty second one. The cursor is built from the last
+`Server`'s attribute — a real `datetime` — round-tripped through the
+cursor's `datetime` type tag, and put straight into `$gt`/`$lt` against
+the ISO-string field. Confirmed live with 30 seeded servers (page 2:
+`name` 10, `updated_at` 0, `last_seen_at` 0). `_cursor_position_clause`
+now renders a `datetime` sort value through Pydantic's JSON serializer
+before comparing, the way `fleet_snapshot` already did, and an
+integration test pages both fields in both directions. The rule stands:
+**any value compared against a stored timestamp must be the stored
+string, never the parsed `datetime`.**

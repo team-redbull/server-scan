@@ -36,6 +36,21 @@ from app.infrastructure.mongodb.indexes import SERVERS_COLLECTION
 _Document = dict[str, Any]
 
 
+def _stored_form(value: str | datetime | None) -> str | None:
+    """
+    Render a cursor's sort value the way the document stores it.
+
+    Args:
+        value (str | datetime | None): The decoded cursor sort value.
+
+    Returns:
+        str | None: The value as stored — a datetime as its ISO 8601 string.
+    """
+    if isinstance(value, datetime):
+        return TypeAdapter(datetime).dump_python(value, mode="json")
+    return value
+
+
 def _cursor_position_clause(
     *, sort_field: str, direction: int, position: CursorPosition
 ) -> dict[str, object]:
@@ -54,16 +69,16 @@ def _cursor_position_clause(
         dict[str, object]: A Mongo filter clause to `$and` onto the query.
     """
     op = "$gt" if direction == 1 else "$lt"
-    tie: dict[str, object] = {
-        "$and": [{sort_field: position.sort_value}, {"_id": {op: position.id_value}}]
-    }
+    # Stored as ISO strings; a real datetime in `$gt` matches nothing (ADR-0006).
+    value = _stored_form(position.sort_value)
+    tie: dict[str, object] = {"$and": [{sort_field: value}, {"_id": {op: position.id_value}}]}
 
-    if position.sort_value is None:
+    if value is None:
         # Nulls sort first ascending: everything non-null is still ahead.
         ahead: list[dict[str, object]] = [{sort_field: {"$ne": None}}] if direction == 1 else []
         return {"$or": [*ahead, tie]}
 
-    legs: list[dict[str, object]] = [{sort_field: {op: position.sort_value}}]
+    legs: list[dict[str, object]] = [{sort_field: {op: value}}]
     if direction == -1:
         # `$lt` skips nulls, and descending they are exactly what is left.
         legs.append({sort_field: None})

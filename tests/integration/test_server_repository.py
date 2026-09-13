@@ -307,6 +307,40 @@ async def test_sorting_by_a_nullable_field_pages_without_gaps(
         assert ranked == sorted(ranked, reverse=descending)
 
 
+@pytest.mark.parametrize("sort", ["updated_at", "last_seen_at"])
+async def test_sorting_by_a_datetime_field_pages_without_gaps(
+    mongo_holder: MongoClientHolder, sort: str
+) -> None:
+    """Regression: the cursor carried a real datetime against an ISO-string
+    field, and `$gt` never compares across types, so page two was empty
+    (ADR-0006). Found live 2026-09-13 with 30 seeded servers.
+    """
+    repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+    for index in range(12):
+        server = _make_server(index)
+        server.last_seen_at = server.updated_at
+        await repo.upsert(server)
+
+    for descending in (False, True):
+        seen: list[str] = []
+        cursor: str | None = None
+        while True:
+            page = await repo.list_page(
+                filters={},
+                search=None,
+                sort=sort,
+                sort_desc=descending,
+                cursor=cursor,
+                page_size=5,
+                with_count=False,
+            )
+            seen.extend(item.id for item in page.items)
+            if not page.has_more or page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+        assert len(seen) == len(set(seen)) == 12
+
+
 async def test_unknown_sort_field_raises(mongo_holder: MongoClientHolder) -> None:
     repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
     with pytest.raises(UnknownSortFieldError):
