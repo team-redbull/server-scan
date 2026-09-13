@@ -6,7 +6,7 @@ version: 0.4.0
 # The image tag both Deployments and every CronJob default to (see
 # templates/_helpers.tpl). Bump it with the release you intend to deploy —
 # that is the whole upgrade, and it is a value a GitOps diff can show.
-appVersion: "11.2.0"
+appVersion: "1.0.0"
 
 # MongoDB and Redis are OPTIONAL and off by default: the platform's own
 # stance is that both are externally provisioned (deploy/README.md's

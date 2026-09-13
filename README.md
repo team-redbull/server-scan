@@ -67,7 +67,7 @@ own, so there is exactly one place maintenance is switched from.
 theme: it is watched on wall displays in dim rooms, and a light flash on
 load is the failure mode being designed out.
 
-Each [GitHub Release](https://github.com/team-redbull/server_scan/releases)
+Each [GitHub Release](https://github.com/team-redbull/server-scan/releases)
 lists what changed in it, generated from the commit subjects that also
 decide its version number.
 `docs/arc42.md` is the structured architecture overview — goals,
@@ -525,8 +525,8 @@ plans and latency against a real 10k/50k-server seeded dataset — see
 
 Every push to `main` that passes the full test suite builds and
 publishes both images (API/collectors, and the frontend) to GHCR —
-`ghcr.io/team-redbull/server_scan-api` and
-`ghcr.io/team-redbull/server_scan-frontend` — tagged with a semantic
+`ghcr.io/team-redbull/server-scan-api` and
+`ghcr.io/team-redbull/server-scan-frontend` — tagged with a semantic
 version decided automatically from
 [Conventional Commits](https://www.conventionalcommits.org/) since the
 last release (`feat:` → minor, `feat!:`/a `BREAKING CHANGE:` footer →

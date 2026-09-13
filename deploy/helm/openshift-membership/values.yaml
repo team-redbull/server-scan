@@ -4,7 +4,7 @@
 # be reported as in use.
 
 image:
-  repository: ghcr.io/team-redbull/server_scan-api
+  repository: ghcr.io/team-redbull/server-scan-api
   # Blank means the chart's appVersion. Never `latest`.
   tag: ""
   pullPolicy: IfNotPresent

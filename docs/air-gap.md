@@ -67,7 +67,7 @@ only needs exactly what's listed there, not the whole npm registry.
 ## Container images
 
 **`deploy/air-gapped-images.txt`** is the full, current list — the two
-published application images (`server_scan-api`, `server_scan-frontend`),
+published application images (`server-scan-api`, `server-scan-frontend`),
 the UBI base images each is built from, and the local-dev-only MongoDB/
 Redis images — with why each one is needed and whether it is required
 for deployment or only for building the images yourself. Keep that file

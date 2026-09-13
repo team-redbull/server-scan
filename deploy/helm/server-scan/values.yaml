@@ -11,7 +11,7 @@ backend:
     # silently keeps the first build it ever saw — across pod deletes and
     # across releases. Upgrading is a bump of `appVersion` (or of this),
     # which is a change GitOps can see, diff and roll back.
-    repository: ghcr.io/team-redbull/server_scan-api
+    repository: ghcr.io/team-redbull/server-scan-api
     tag: ""
     # Correct BECAUSE the tag is immutable: an image already on the node is
     # the same image. `Always` only makes sense with a floating tag, which
@@ -38,7 +38,7 @@ backend:
   cursorSecret: ""
   existingCursorSecret: ""
 
-# The React admin UI (the `server_scan-frontend` image CI publishes
+# The React admin UI (the `server-scan-frontend` image CI publishes
 # alongside the API). Off by default so an existing install is unchanged;
 # turning it on requires `route.host`, because the SPA and the API then
 # share one host, served by the frontend's own nginx proxy — see route below.
@@ -46,7 +46,7 @@ frontend:
   enabled: false
   image:
     # Same rules as backend.image above — blank means `appVersion`.
-    repository: ghcr.io/team-redbull/server_scan-frontend
+    repository: ghcr.io/team-redbull/server-scan-frontend
     tag: ""
     pullPolicy: IfNotPresent
   replicaCount: 2

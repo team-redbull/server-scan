@@ -116,11 +116,29 @@ option later if arm64 is ever actually needed, not before.
   `fix:` commits therefore advances the patch by three rather than one.
   Both are monotonically increasing and valid semver, so this is a
   numbering difference, not a correctness one.
-- Both `ghcr.io/team-redbull/server_scan-api` and
-  `ghcr.io/team-redbull/server_scan-frontend` inherit the repository's
+- Both `ghcr.io/team-redbull/server-scan-api` and
+  `ghcr.io/team-redbull/server-scan-frontend` inherit the repository's
   visibility (private repo → private package) by default; no separate
   visibility configuration was added here.
 - Build provenance attestation (`actions/attest-build-provenance`) and
   multi-arch builds are reasonable future hardening steps, deliberately
   not included here — scope was "publish, versioned" per the request
   that prompted this ADR, not a broader supply-chain-security pass.
+
+## Update (2026-09-13): repository renamed, versioning restarted at v1.0.0
+
+The GitHub repository was renamed `server_scan` → `server-scan`, which
+changes the image names CI publishes (`ghcr.io/${{ github.repository }}-*`)
+to `ghcr.io/team-redbull/server-scan-api` and `-frontend`. At the
+operator's direction, every `v*` tag and GitHub Release up to v17.4.3 was
+deleted at the same time so versioning starts over under the new name —
+the releases carried no assets, only notes regenerated from commit
+subjects, so nothing unique was lost. The old `server_scan-*` packages
+were deleted from GHCR too; an existing deployment must move its image
+repository to the new name before its next pod reschedule.
+
+With no tag to scan from, `semantic-version` reads the whole history from
+0.0.0, finds the `feat!:` commits in it, and the first push after the
+rename publishes **v1.0.0**, whose release notes list every commit once.
+Git history is unchanged; the old URL redirects. Both charts' `appVersion`
+were reset to `1.0.0` to match.
