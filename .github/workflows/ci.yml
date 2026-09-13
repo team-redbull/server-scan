@@ -416,6 +416,10 @@ jobs:
       # A wrong version is worse than a failed build: it would publish
       # images under a tag that already exists or that moves backwards,
       # and neither is recoverable by re-running. Fail loudly instead.
+      # The one exception is the tag already sitting on this very commit:
+      # that is a re-run after a later step failed (a GitHub API outage
+      # once left a tag with no release and no images), and every step
+      # below is idempotent for it.
       - name: Verify the computed version moves forward
         env:
           NEW_TAG: ${{ steps.version.outputs.version_tag }}
@@ -426,8 +430,11 @@ jobs:
           if [ -z "$NEW_TAG" ]; then
             echo "::error::version step produced an empty tag"; exit 1
           fi
-          if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
-            echo "::error::$NEW_TAG already exists — refusing to re-tag"; exit 1
+          if existing="$(git rev-parse -q --verify "refs/tags/$NEW_TAG^{commit}")"; then
+            if [ "$existing" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::$NEW_TAG already exists on ${existing:0:7} — refusing to re-tag"; exit 1
+            fi
+            echo "$NEW_TAG already points at this commit — re-run, keeping it"
           fi
           if [ -n "$previous" ] && [ "$(printf '%s\n%s\n' "$previous" "$NEW_TAG" | sort -V | tail -1)" != "$NEW_TAG" ]; then
             echo "::error::$NEW_TAG is not newer than $previous"; exit 1
@@ -438,6 +445,9 @@ jobs:
           NEW_TAG: ${{ steps.version.outputs.version_tag }}
         run: |
           set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
+            echo "$NEW_TAG already exists — re-run, not re-tagging"; exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$NEW_TAG" -m "$NEW_TAG"
@@ -524,7 +534,18 @@ jobs:
           print("\n".join(out))
           PY
           cat /tmp/notes.md
-          gh release create "$NEW_TAG" --title "$NEW_TAG" --notes-file /tmp/notes.md
+          # Skip on a re-run, and ride out a transient API error: the
+          # release is the only step here that is not retried by anything.
+          for attempt in 1 2 3; do
+            if gh release view "$NEW_TAG" >/dev/null 2>&1; then
+              echo "release $NEW_TAG already exists"; break
+            fi
+            gh release create "$NEW_TAG" --title "$NEW_TAG" --notes-file /tmp/notes.md && break
+            if [ "$attempt" = 3 ]; then
+              echo "::error::could not create release $NEW_TAG after 3 attempts"; exit 1
+            fi
+            echo "release create failed (attempt $attempt), retrying in 30s"; sleep 30
+          done
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
