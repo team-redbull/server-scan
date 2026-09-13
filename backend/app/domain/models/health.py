@@ -30,7 +30,7 @@ _SEVERITY_FIELDS = (
 )
 
 
-def _decode_retired_severity(value: object) -> object:
+def decode_retired_severity(value: object) -> object:
     """
     Map a severity this enum no longer has onto its replacement.
 
@@ -53,7 +53,7 @@ class CategoryHealth(BaseModel):
 
     severity: HealthSeverity = HealthSeverity.UNKNOWN
 
-    _decode = field_validator("severity", mode="before")(_decode_retired_severity)
+    _decode = field_validator("severity", mode="before")(decode_retired_severity)
 
 
 class Health(BaseModel):
@@ -72,4 +72,4 @@ class Health(BaseModel):
     # one aggregation (ADR-0029). Absent on documents written before it.
     active_policy_keys: list[str] = Field(default_factory=list)
 
-    _decode = field_validator(*_SEVERITY_FIELDS, mode="before")(_decode_retired_severity)
+    _decode = field_validator(*_SEVERITY_FIELDS, mode="before")(decode_retired_severity)

@@ -119,6 +119,28 @@ class FacetRow:
     count: int
 
 
+_ROW_PROJECTION: dict[str, int] = {
+    "name": 1,
+    "identity.vendor": 1,
+    "identity.serial": 1,
+    "model": 1,
+    "site_id": 1,
+    "source_provider": 1,
+    "classification.installation_type": 1,
+    "health.overall": 1,
+    "maintenance.enabled": 1,
+    "maintenance.reason": 1,
+    "openshift.lifecycle_state": 1,
+    "openshift.cluster_name": 1,
+    "openshift.mce_name": 1,
+    "last_seen_at": 1,
+    "updated_at": 1,
+    "reachable": 1,
+    "network.bmc.host": 1,
+    "network.interfaces.mac": 1,
+}
+
+
 class MongoServerRepository:
     """Implements `app.domain.ports.repository.ServerRepository`, structurally."""
 
@@ -351,6 +373,19 @@ class MongoServerRepository:
         pipeline: list[dict[str, Any]] = [{"$match": match}, {"$sample": {"size": size}}]
         docs = await (await self._collection.aggregate(pipeline)).to_list(length=size)
         return [Server.model_validate(doc) for doc in docs]
+
+    async def list_rows(self) -> list[dict[str, Any]]:
+        """
+        Every server, projected to the inventory-row fields (ADR-0033).
+
+        A projection, not `Server.model_validate`: validating 2,504 full
+        documents measured 544 ms, the projection 16 ms.
+
+        Returns:
+            list[dict[str, Any]]: Raw projected documents, `_id` included.
+        """
+        cursor = self._collection.find({}, _ROW_PROJECTION).sort("name_normalized", 1)
+        return await cursor.to_list(length=None)
 
     async def count(self, filters: dict[str, object]) -> int:
         """

@@ -35,6 +35,7 @@ extra (also-degrading) cache read on the hot path.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from hashlib import blake2b
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -47,6 +48,7 @@ from app.api.v1.schemas import (
     ServerDetail,
     ServerFacets,
     ServerListResponse,
+    ServerRowsResponse,
     ServerSummary,
 )
 from app.application.services.audit_service import AuditService
@@ -101,6 +103,7 @@ from app.infrastructure.redis.keys import (
     facets_key,
     list_and_facets_patterns,
     list_key,
+    rows_key,
     server_key,
 )
 from app.infrastructure.singleflight import coalesce
@@ -502,6 +505,88 @@ async def server_facets(
     )
     await cache.set(cache_key, facets.model_dump(mode="json"), ttl_seconds=FACETS_TTL_SECONDS)
     return facets
+
+
+def _weak_etag(body: bytes) -> str:
+    """
+    A weak validator for a response body (RFC 9110 §8.8.3).
+
+    Weak, because the gzip middleware changes the bytes on the wire but
+    not the representation.
+
+    Args:
+        body (bytes): The JSON body.
+
+    Returns:
+        str: The `ETag` header value.
+    """
+    return f'W/"{blake2b(body, digest_size=16).hexdigest()}"'
+
+
+def _etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """
+    Whether an `If-None-Match` header names this ETag (weak comparison).
+
+    Args:
+        if_none_match (str | None): The request header, if any.
+        etag (str): The response's own ETag.
+
+    Returns:
+        bool: True when the client's copy is current.
+    """
+    if not if_none_match:
+        return False
+    wanted = etag.removeprefix("W/")
+    return if_none_match.strip() == "*" or any(
+        tag.strip().removeprefix("W/") == wanted for tag in if_none_match.split(",")
+    )
+
+
+@router.get("/servers/rows", response_model=ServerRowsResponse)
+async def server_rows(
+    request: Request,
+    repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Response:
+    """
+    The whole fleet as flat inventory rows, for client-side filtering (ADR-0033).
+
+    Cached as wire bytes, cleared with the list pages (ADR-0028), and
+    weak-ETagged so a poller whose copy is current gets a bodiless 304.
+
+    Args:
+        request (Request): Carries `If-None-Match`.
+        repo (MongoServerRepository): The server repository.
+        cache (CacheClient): Cache-aside for the body.
+        settings (Settings): Supplies the staleness window.
+
+    Returns:
+        Response: The JSON body with `ETag` and `Cache-Control: no-cache`,
+            or a 304 when the client's ETag is current.
+    """
+    key = rows_key()
+    cached = await cache.get_raw(key)
+    body: bytes
+    if cached is not None:
+        body = cached if isinstance(cached, bytes) else cached.encode()
+    else:
+
+        async def _compute() -> bytes:
+            response = ServerRowsResponse.from_docs(
+                await repo.list_rows(), stale_before=_stale_before(settings)
+            )
+            encoded = response.model_dump_json().encode()
+            await cache.set_raw(key, encoded, ttl_seconds=LIST_PAGE_TTL_SECONDS)
+            return encoded
+
+        body = await coalesce(key, _compute)
+
+    etag = _weak_etag(body)
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if _etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 # Before `/servers/{server_id}`: FastAPI matches in declaration order, and

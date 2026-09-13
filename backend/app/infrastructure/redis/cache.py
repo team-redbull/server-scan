@@ -148,6 +148,23 @@ class CacheClient:
 
         cache_operations_total.labels(operation="set", outcome="success").inc()
 
+    async def set_raw(self, key: str, payload: bytes, *, ttl_seconds: int) -> None:
+        """
+        Store already-encoded bytes with a TTL — the counterpart of `get_raw`.
+
+        Args:
+            key (str): The cache key.
+            payload (bytes): The exact bytes `get_raw` should hand back.
+            ttl_seconds (int): Seconds until the key expires.
+        """
+        try:
+            await self._redis.client.set(key, payload, ex=ttl_seconds)
+        except _CACHE_EXCEPTIONS as exc:
+            logger.warning("cache.set_failed", key=key, error=str(exc))
+            cache_operations_total.labels(operation="set", outcome="error").inc()
+            return
+        cache_operations_total.labels(operation="set", outcome="success").inc()
+
     async def delete_matching(self, *patterns: str) -> int:
         """
         Delete every key matching any glob. Degrades to 0 on Redis failure.

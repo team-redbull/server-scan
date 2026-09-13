@@ -550,3 +550,123 @@ async def test_small_body_is_not_gzipped(
 
     assert resp.status_code == 200
     assert "content-encoding" not in resp.headers
+
+
+async def test_rows_returns_every_server_as_a_flat_row(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    seen = await repo.upsert(
+        _make_server(
+            1,
+            site_id="tlv",
+            vendor=Vendor.CISCO,
+            health=HealthSeverity.CRITICAL,
+            bmc_host="10.0.0.9",
+            interfaces=(NetworkInterface(name="eno1", mac="aa:bb:cc:dd:ee:01"),),
+        )
+    )
+    never = _make_server(2)
+    never.last_seen_at = None
+    await repo.upsert(never)
+
+    resp = await client.get("/api/v1/servers/rows")
+
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-cache"
+    assert resp.headers["etag"].startswith('W/"')
+    body = resp.json()
+    assert "generated_at" in body
+    rows = {row["id"]: row for row in body["items"]}
+    assert set(rows) == {seen.id, never.id}
+    assert set(rows[seen.id]) == {
+        "id",
+        "name",
+        "vendor",
+        "model",
+        "site_id",
+        "source_provider",
+        "installation_type",
+        "health",
+        "maintenance",
+        "openshift_state",
+        "cluster_name",
+        "mce_name",
+        "last_seen_at",
+        "stale",
+        "reachable",
+        "serial",
+        "bmc_host",
+        "macs",
+    }
+    assert rows[seen.id]["vendor"] == "cisco"
+    assert rows[seen.id]["site_id"] == "tlv"
+    assert rows[seen.id]["health"] == "CRITICAL"
+    assert rows[seen.id]["maintenance"] == {"enabled": False, "reason": None}
+    assert rows[seen.id]["bmc_host"] == "10.0.0.9"
+    assert rows[seen.id]["macs"] == ["aa:bb:cc:dd:ee:01"]
+    assert rows[seen.id]["stale"] is False
+    assert rows[never.id]["stale"] is True
+    assert rows[never.id]["last_seen_at"] is None
+
+
+async def test_rows_etag_is_stable_across_the_cache_and_answers_304(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """The cache miss and the raw-bytes hit carry one ETag; a current client gets 304."""
+    client, repo = app_context
+    await repo.upsert(_make_server(1))
+
+    first = await client.get("/api/v1/servers/rows")
+    second = await client.get("/api/v1/servers/rows")
+    assert first.headers["etag"] == second.headers["etag"]
+    assert first.content == second.content
+
+    # Past the cache TTL the body is rebuilt from Mongo; unchanged data
+    # must give the same bytes, or a poller never sees a 304.
+    redis = RedisClientHolder(get_settings())
+    await redis.connect()
+    await redis.client.flushdb()
+    await redis.close()
+    rebuilt = await client.get("/api/v1/servers/rows")
+    assert rebuilt.headers["etag"] == first.headers["etag"]
+
+    not_modified = await client.get(
+        "/api/v1/servers/rows", headers={"If-None-Match": first.headers["etag"]}
+    )
+    assert not_modified.status_code == 304
+    assert not_modified.content == b""
+    assert not_modified.headers["etag"] == first.headers["etag"]
+
+    stale_client = await client.get("/api/v1/servers/rows", headers={"If-None-Match": 'W/"nope"'})
+    assert stale_client.status_code == 200
+
+
+async def test_rows_change_after_a_maintenance_write(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """ADR-0028: an operator write clears the cached rows body too."""
+    client, repo = app_context
+    server = await repo.upsert(_make_server(1))
+    before = await client.get("/api/v1/servers/rows")
+
+    await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "fan"})
+
+    after = await client.get("/api/v1/servers/rows")
+    assert after.headers["etag"] != before.headers["etag"]
+    (row,) = after.json()["items"]
+    assert row["maintenance"] == {"enabled": True, "reason": "fan"}
+
+
+async def test_rows_are_gzipped_for_a_gzip_client(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    for i in range(10):
+        await repo.upsert(_make_server(i))
+
+    resp = await client.get("/api/v1/servers/rows", headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-encoding"] == "gzip"
+    assert len(resp.json()["items"]) == 10

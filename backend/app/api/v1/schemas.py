@@ -28,14 +28,15 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
-from app.domain.enums import HealthSeverity, ManagerType, Vendor
+from app.domain.enums import HealthSeverity, InstallationType, ManagerType, OpenShiftState, Vendor
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import Hardware
-from app.domain.models.health import Health
+from app.domain.models.health import Health, decode_retired_severity
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
@@ -171,6 +172,117 @@ def _nic_os_names(server: Server, nic_names: NicNameCatalog) -> dict[str, str]:
     if server.identity.vendor == Vendor.CISCO:
         names.update(cisco_eno_names([interface.name for interface in server.network.interfaces]))
     return names
+
+
+_OPTIONAL_DATETIME = TypeAdapter(datetime | None)
+
+
+class MaintenanceFlag(BaseModel):
+    """The two maintenance fields an inventory row shows."""
+
+    enabled: bool
+    reason: str | None
+
+
+class ServerRow(BaseModel):
+    """
+    One flat inventory row for `GET /servers/rows` (ADR-0033).
+
+    Only what the inventory table renders or searches on; the detail page
+    fetches the rest. Built from a Mongo projection, never from `Server`.
+    """
+
+    id: str
+    name: str
+    vendor: Vendor
+    model: str | None
+    site_id: str | None
+    source_provider: str | None
+    installation_type: InstallationType
+    health: HealthSeverity
+    maintenance: MaintenanceFlag
+    openshift_state: OpenShiftState
+    cluster_name: str | None
+    mce_name: str | None
+    last_seen_at: datetime | None
+    stale: bool
+    reachable: bool
+    serial: str | None
+    bmc_host: str | None
+    macs: list[str]
+
+    @classmethod
+    def from_doc(cls, doc: dict[str, Any], *, stale_before: datetime) -> ServerRow:
+        """
+        Build a row from a projected server document.
+
+        Args:
+            doc (dict[str, Any]): A document from `MongoServerRepository.list_rows`.
+            stale_before (datetime): The staleness cutoff, as for `is_stale`.
+
+        Returns:
+            ServerRow: The row.
+        """
+        seen = _OPTIONAL_DATETIME.validate_python(doc.get("last_seen_at"))
+        network = doc.get("network") or {}
+        return cls(
+            id=doc["_id"],
+            name=doc["name"],
+            vendor=doc["identity"]["vendor"],
+            model=doc.get("model"),
+            site_id=doc.get("site_id"),
+            source_provider=doc.get("source_provider"),
+            installation_type=(doc.get("classification") or {}).get(
+                "installation_type", InstallationType.UNCLASSIFIED
+            ),
+            health=decode_retired_severity(
+                (doc.get("health") or {}).get("overall", HealthSeverity.UNKNOWN)
+            ),
+            maintenance=MaintenanceFlag(
+                enabled=(doc.get("maintenance") or {}).get("enabled", False),
+                reason=(doc.get("maintenance") or {}).get("reason"),
+            ),
+            openshift_state=(doc.get("openshift") or {}).get(
+                "lifecycle_state", OpenShiftState.AVAILABLE
+            ),
+            cluster_name=(doc.get("openshift") or {}).get("cluster_name"),
+            mce_name=(doc.get("openshift") or {}).get("mce_name"),
+            last_seen_at=seen,
+            stale=seen is None or seen < stale_before,
+            reachable=doc.get("reachable", True),
+            serial=doc["identity"].get("serial"),
+            bmc_host=(network.get("bmc") or {}).get("host"),
+            macs=[mac for iface in network.get("interfaces") or [] if (mac := iface.get("mac"))],
+        )
+
+
+class ServerRowsResponse(BaseModel):
+    """The whole fleet as inventory rows, plus when the inventory last changed."""
+
+    items: list[ServerRow]
+    generated_at: datetime | None
+
+    @classmethod
+    def from_docs(cls, docs: list[dict[str, Any]], *, stale_before: datetime) -> ServerRowsResponse:
+        """
+        Build the response.
+
+        `generated_at` is the newest `updated_at`, so an unchanged fleet
+        yields byte-identical bodies and therefore one ETag.
+
+        Args:
+            docs (list[dict[str, Any]]): Projected documents from `list_rows`.
+            stale_before (datetime): The staleness cutoff.
+
+        Returns:
+            ServerRowsResponse: The response.
+        """
+        stamps: list[str] = [doc["updated_at"] for doc in docs if doc.get("updated_at")]
+        newest = max(stamps, default=None)
+        return cls(
+            items=[ServerRow.from_doc(doc, stale_before=stale_before) for doc in docs],
+            generated_at=_OPTIONAL_DATETIME.validate_python(newest),
+        )
 
 
 class ServerDetail(BaseModel):

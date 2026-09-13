@@ -56,7 +56,21 @@ def list_and_facets_patterns() -> tuple[str, ...]:
     Returns:
         tuple[str, ...]: `SCAN MATCH` patterns.
     """
-    return (f"si:{_NAMESPACE_VERSION}:list:*", f"si:{_NAMESPACE_VERSION}:facets:*")
+    return (
+        f"si:{_NAMESPACE_VERSION}:list:*",
+        f"si:{_NAMESPACE_VERSION}:facets:*",
+        rows_key(),
+    )
+
+
+def rows_key() -> str:
+    """
+    The one key holding the whole-fleet rows body (`GET /servers/rows`).
+
+    Returns:
+        str: The cache key.
+    """
+    return f"si:{_NAMESPACE_VERSION}:rows"
 
 
 def facets_key(filter_hash: str) -> str:
