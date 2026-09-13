@@ -66,10 +66,5 @@ class AuditService:
         return await self._repo.record(event)
 
 
-# The system actor used for events emitted by background/automated code
-# paths (ingestion, scheduled re-evaluation) rather than an interactive API
-# request — see `app.application.services.ingest`'s health-status-changed
-# emission. A stable, well-known id rather than one generated per call, so
-# "everything the ingest pipeline has ever done" is a single
-# `actor.id`-filtered query away.
+# A fixed id, so the pipeline's history is one `actor.id`-filtered query.
 SYSTEM_INGEST_ACTOR = Actor(type=ActorType.SYSTEM, id="ingestion")

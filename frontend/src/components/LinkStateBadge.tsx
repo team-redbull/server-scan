@@ -14,8 +14,6 @@ const LINK_STATE_DOT: Record<LinkState, string> = {
   UNKNOWN: "bg-gray-400",
 };
 
-/** UP = green, DOWN = red, UNKNOWN/DISABLED = gray — used for both physical
- * NIC link state and fabric-attachment operational state. */
 export function LinkStateBadge({ state }: { state: LinkState }) {
   return (
     <span

@@ -30,26 +30,12 @@ from app.observability.metrics import cache_operations_total
 
 logger = structlog.get_logger(__name__)
 
-# TTLs are set per resource shape, not from `Settings.cache_default_ttl_seconds`:
-# list pages churn much faster than a single server document (any write to
-# any server in the result set makes a cached page stale) and are cheaper
-# to recompute, so they get a much shorter TTL than the low-churn,
-# per-document server cache.
+# Per resource shape, not `cache_default_ttl_seconds` (docs/architecture.md, "caching").
 SERVER_DETAIL_TTL_SECONDS = 60
-
-# Facet counts are an aggregation over every server matching a filter, so
-# they cost more than a page does and are read once per filter change
-# rather than per scroll. A short TTL rather than explicit invalidation,
-# for the same reason the site overview uses one: a count that is a minute
-# stale is a count, while invalidating on every ingest would clear it
-# continuously on a fleet with five CronJobs writing to it.
 FACETS_TTL_SECONDS = 60
 LIST_PAGE_TTL_SECONDS = 15
 
-# `redis-py`'s async client raises the stdlib `TimeoutError` (not a
-# `RedisError` subclass) for socket-level timeouts; `asyncio.TimeoutError`
-# has been the same class as the builtin since Python 3.11, so listing it
-# separately would be a duplicate-exception lint error, not extra coverage.
+# redis-py raises the stdlib `TimeoutError`, not a `RedisError`, on socket timeouts.
 _CACHE_EXCEPTIONS = (RedisError, TimeoutError)
 
 
@@ -74,9 +60,8 @@ class CacheClient:
         """
         Read and JSON-decode a cached value.
 
-        Degrades to `None` on any Redis failure or malformed payload,
-        indistinguishable from a cache miss so the caller falls through
-        to MongoDB either way.
+        Any Redis failure or malformed payload is `None`, indistinguishable
+        from a miss, so the caller falls through to MongoDB either way.
 
         Args:
             key (str): The cache key.
@@ -98,9 +83,7 @@ class CacheClient:
         try:
             value = json.loads(raw)
         except (TypeError, ValueError) as exc:
-            # A malformed payload (e.g. a truncated write, or a format
-            # left over from a previous namespace version) is treated the
-            # same as a miss/error, never surfaced to the caller as data.
+            # A malformed payload is a miss, never data.
             logger.warning("cache.decode_failed", key=key, error=str(exc))
             cache_operations_total.labels(operation="get", outcome="error").inc()
             return None
@@ -112,16 +95,8 @@ class CacheClient:
         """
         Read a cached value without JSON-decoding it.
 
-        Same cache-aside contract as `get` (degrades to `None` on any
-        Redis failure, never raises), but skips `json.loads` — for a
-        caller about to hand the bytes straight back as the HTTP response
-        body unchanged, which would otherwise decode them here only to
-        have FastAPI re-encode the identical bytes right back out. Measured
-        at 0.919 ms/request for a cached list page (`docs/notes/
-        2026-09-research-performance.md` §7.2); every other JSON round trip
-        this method skips is the same cost. Never use this for a value a
-        caller is going to inspect or mutate — `get` is still correct
-        there.
+        Only for bytes handed straight back as a response body; a value
+        the caller inspects goes through `get` (docs/architecture.md, "caching").
 
         Args:
             key (str): The cache key.
@@ -159,8 +134,7 @@ class CacheClient:
         try:
             payload = json.dumps(value, default=str)
         except TypeError as exc:
-            # Programmer error (a non-JSON-serializable value was passed)
-            # — log it, but still never raise out of the cache layer.
+            # A non-serializable value is a programmer error, still never raised.
             logger.warning("cache.encode_failed", key=key, error=str(exc))
             cache_operations_total.labels(operation="set", outcome="error").inc()
             return

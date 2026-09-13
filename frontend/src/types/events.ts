@@ -1,8 +1,5 @@
-/**
- * Hand-written types mirroring `/api/v1/events` and
- * `/api/v1/servers/{id}/events` (see `backend/app/api/v1/events_schemas.py`,
- * authoritative).
- */
+/** Hand-written mirror of `/api/v1/events` (`events_schemas.py` is
+ * authoritative). */
 
 export type ActorType = "SYSTEM" | "USER" | "TOKEN";
 
@@ -12,9 +9,8 @@ export interface Actor {
   display: string | null;
 }
 
-/** The event types this slice's history panels care about. `event_type` on
- * the wire is a free string (the backend's `EventType` enum has more
- * members than these), so this is a UI-side subset, not the full type. */
+/** A UI-side subset: `event_type` on the wire is a free string with more
+ * members than these. */
 export type ClassificationEventType =
   | "CLASSIFICATION_RULE_CREATED"
   | "CLASSIFICATION_RULE_UPDATED"

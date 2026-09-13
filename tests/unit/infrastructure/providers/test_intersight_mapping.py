@@ -68,14 +68,10 @@ def _ref(moid: str) -> dict[str, str]:
     return {"ClassId": "mo.MoRef", "ObjectType": "compute.RackUnit", "Moid": moid}
 
 
-# --- the name trap ----------------------------------------------------
-
-
 def test_a_server_is_named_after_its_service_profile() -> None:
-    """`PhysicalSummary.Name` is documented as never being an operator
-    hostname. Using it would name every server after its model and slot,
-    which carries no site token and matches no `^ocp` pattern — so the
-    fleet would silently collect as nothing, or as all "Unassigned".
+    """`PhysicalSummary.Name` is never an operator hostname: it would name
+    every server after its model and slot, which carries no site token and
+    matches no `^ocp` pattern. See ADR-0017.
     """
     name = mapping.server_name(_summary(), {"Name": "ocp4-prod-tlv-infra-01"})
     assert name == "ocp4-prod-tlv-infra-01"
@@ -94,9 +90,6 @@ def test_a_server_with_no_profile_falls_back_to_its_label_then_its_name() -> Non
 def test_an_empty_profile_name_does_not_shadow_the_fallback() -> None:
     """An assigned but unnamed profile must not blank out the name."""
     assert mapping.server_name(_summary(UserLabel="ocp4-tlv-01"), {"Name": "  "}) == "ocp4-tlv-01"
-
-
-# --- units ------------------------------------------------------------
 
 
 def test_memory_is_converted_from_the_reported_unit() -> None:
@@ -131,9 +124,6 @@ def test_a_drive_falls_back_to_the_mb_string() -> None:
 def test_a_drive_with_no_reported_size_is_none() -> None:
     """Not zero: a zero-byte drive is a different claim from an unread one."""
     assert mapping.drive({"DiskId": "1"})["capacity_bytes"] is None
-
-
-# --- drive health -----------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -177,20 +167,12 @@ def test_drive_health_detail_names_whichever_field_decided_the_tier(
 
 
 def test_drive_health_recognizes_the_live_intersight_ok_spelling() -> None:
-    """Confirmed live 2026-09-07 (`tools.verify_intersight`'s disk health
-    vocabulary check, section 8): 216 of 226 sampled drives on this
-    tenant report `Health: "OK"` — the same generic healthy string
-    `equipment.Psu.OperState` uses on a different field — and none of the
-    original healthy spellings (`good`, `healthy`, `online`, ...)
-    included it, so every one of those 216 read health=UNKNOWN instead
-    of HEALTHY. `DriveState` never got a chance to save them either:
-    `Health` is checked first and was truthy on all 216. See ADR-0017.
+    """Confirmed live 2026-09-07: 216 of 226 sampled drives report
+    `Health: "OK"`, which no healthy spelling covered, so all read UNKNOWN.
+    See ADR-0017, "A second field pass (2026-09-07)".
     """
     unit = mapping.drive({"DiskId": "1", "Health": "OK"})
     assert unit["health"] == "HEALTHY"
-
-
-# --- attachments ------------------------------------------------------
 
 
 def test_a_physical_uplink_and_a_vnic_are_told_apart() -> None:
@@ -292,9 +274,6 @@ def test_nics_carry_name_mac_and_link_state_matching_nic_macs() -> None:
     assert nic.speed_mbps is None
 
 
-# --- the None-versus-empty contract -----------------------------------
-
-
 def test_an_unqueried_subresource_is_none_not_empty() -> None:
     """`IngestService` carries a stored value forward for `None` and
     overwrites for a real value. Collapsing the two once wrote zero
@@ -328,9 +307,6 @@ def test_a_queried_but_empty_subresource_is_empty_not_none() -> None:
     assert server.psus == ()
 
 
-# --- GPUs -------------------------------------------------------------
-
-
 def test_gpu_telemetry_is_none_because_the_api_has_none() -> None:
     """A capability ceiling, not a gap: this API version carries no GPU
     memory, temperature, power or ECC field at all (ADR-0017,
@@ -354,15 +330,10 @@ def test_gpu_telemetry_is_none_because_the_api_has_none() -> None:
         assert gpu[absent] is None, absent
 
 
-# --- CPU model ----------------------------------------------------------
-
-
 def test_cpu_model_is_the_first_socket_with_a_reported_model() -> None:
-    """Mirrors `ucs_manager.mapping._cpu_model`'s "first equipped socket"
-    rule, without filtering on `Presence` — an unpopulated socket has no
-    processor installed and so reports no `Model` either (ADR-0017's
-    UNVERIFIED list, item 10 — Intersight's equipped-value string is
-    unverified, unlike `ucsmsdk`'s confirmed one).
+    """Mirrors `ucs_manager.mapping._cpu_model`'s first-equipped-socket rule
+    without filtering on `Presence`, whose equipped-value string is
+    unverified (ADR-0017's UNVERIFIED list, item 10).
     """
     server = mapping.to_provider_server(
         _summary(),
@@ -385,11 +356,9 @@ def test_cpu_model_is_none_when_no_socket_reports_one() -> None:
 
 
 def test_cpu_model_is_none_when_the_table_was_not_queried() -> None:
-    """Unlike `storage_drives`/`gpus`/`nic_macs`, `cpu_model` is a scalar
-    with no "queried but empty" state worth distinguishing from "not
-    queried" — a real server always has a CPU, so either case means only
-    "could not determine it," and `IngestService` carries the stored
-    value forward for both the same way.
+    """`cpu_model` is a scalar with no "queried but empty" state distinct from
+    "not queried" — either means "could not determine it", and
+    `IngestService` carries the stored value forward for both.
     """
     server = mapping.to_provider_server(
         _summary(), provider_type="INTERSIGHT", manager_id="mgr_intersight"
@@ -397,14 +366,10 @@ def test_cpu_model_is_none_when_the_table_was_not_queried() -> None:
     assert server.cpu_model is None
 
 
-# --- PSUs ---------------------------------------------------------------
-
-
 def test_psu_health_uses_the_oper_state_vocabulary_not_ok_failed() -> None:
-    """`Psu.health` mirrors `gpu()`'s own OperState-sourced pattern
-    (UP/DOWN/DISABLED/UNKNOWN) rather than a literal "OK"/"FAILED" pair —
-    the health engine's facts extractor was fixed to match, since no
-    provider had ever populated real data against it before.
+    """`Psu.health` is the OperState vocabulary (UP/DOWN/DISABLED/UNKNOWN),
+    the one `power.failed_psu_count` counts — never a literal "OK"/"FAILED"
+    pair.
     """
     healthy = mapping.psu(
         {"PsuId": "1", "Model": "PSU-750W", "Serial": "PSU-1", "OperState": "operable"}
@@ -417,13 +382,9 @@ def test_psu_health_uses_the_oper_state_vocabulary_not_ok_failed() -> None:
 
 
 def test_psu_health_recognizes_the_live_intersight_ok_spelling() -> None:
-    """Confirmed live 2026-09-07 (`tools.verify_intersight`'s OperState
-    vocabulary check, section 7): this tenant's 38 PSUs split between
-    `"OK"` (36) and `"Operable"` (2) for the identical healthy state —
-    a REST-API spelling neither UCS Manager's nor UCS Central's XML API
-    ever reports, which `_OPER_STATE_MAP` had no entry for at all before
-    this. Every `"OK"` PSU silently read UNKNOWN, not UP. See
-    ADR-0017, "A second field pass (2026-09-07)".
+    """Confirmed live 2026-09-07: 38 PSUs split `"OK"` (36) / `"Operable"`
+    (2) for one healthy state, and `_OPER_STATE_MAP` had no `"OK"` entry.
+    See ADR-0017, "A second field pass (2026-09-07)".
     """
     unit = mapping.psu({"PsuId": "1", "OperState": "OK"})
     assert unit["health"] == "UP"
@@ -440,9 +401,6 @@ def test_psu_capacity_and_id() -> None:
 def test_psu_falls_back_to_moid_when_psuid_is_absent() -> None:
     unit = mapping.psu({"Moid": "psu-moid-1"})
     assert unit["id"] == "psu-moid-1"
-
-
-# --- identity and addressing ------------------------------------------
 
 
 def test_external_id_is_the_moid_and_names_its_source() -> None:
@@ -465,14 +423,12 @@ def test_an_unset_bmc_address_sentinel_is_not_an_address() -> None:
 
 
 def test_the_management_interface_wins_over_the_summarys_own_field() -> None:
-    """`bmc_mac` comes from the interface, so the address must too — a
-    server reporting an address from one source and a MAC from another
-    describes no single interface. The summary is the fallback for when
-    no interface was read.
+    """`bmc_mac` comes from the interface, so the address must too, or the
+    pair describes no single interface. The summary is the fallback when no
+    interface was read.
     """
     assert mapping.bmc_address(_summary(), {"IpAddress": "10.10.5.99"}) == "ipmi://10.10.5.99:623"
     assert mapping.bmc_address(_summary(), None) == "ipmi://10.10.5.31:623"
-    # An interface that was read but carries no address still falls back.
     assert mapping.bmc_address(_summary(), {"MacAddress": "aa:bb"}) == "ipmi://10.10.5.31:623"
 
 
@@ -535,18 +491,10 @@ def test_a_moref_resolves_and_an_unset_one_does_not() -> None:
     assert mapping.moref({"ClassId": "mo.MoRef"}) is None
 
 
-# --- the UCSM service-profile fallback --------------------------------
-
-
 def test_a_ucsm_server_is_named_from_its_service_profile_dn() -> None:
-    """A UCSM-managed server has no `server.Profile` object at all, only
-    the summary's `ServiceProfile` DN. Without reading the name out of
-    it, such a server falls back to `PhysicalSummary.Name` — a chassis
-    slot — which carries no site token and matches no `^ocp`.
-
-    `UCSM` is excluded by default, but the mode set is operator-editable,
-    so this is the difference between an override that works and one that
-    silently collects nothing.
+    """A UCSM-managed server has no `server.Profile`, only the summary's
+    `ServiceProfile` DN; falling back to `PhysicalSummary.Name` (a chassis
+    slot) would make a `UCSM` management-mode override silently collect nothing.
     """
     summary = _summary(
         ManagementMode="UCSM",
@@ -580,15 +528,10 @@ def test_a_real_profile_still_beats_the_dn() -> None:
     assert mapping.server_name(summary, {"Name": "from-profile"}) == "from-profile"
 
 
-# --- None-versus-empty when the two NIC tables disagree ---------------
-
-
 def test_macs_stay_unread_when_one_nic_table_failed() -> None:
-    """The bug this guards: `adapter/ExtEthInterfaces` fails for the whole
-    run while `adapter/HostEthInterfaces` succeeds and this server happens
-    to have no vNICs. Reporting `()` would assert "this server has no
-    MACs", and `IngestService` would overwrite the stored MACs with
-    nothing — the exact class of loss ADR-0016 exists to prevent.
+    """`adapter/ExtEthInterfaces` failing while `HostEthInterfaces` succeeds
+    on a server with no vNICs must not report `()` — `IngestService` would
+    overwrite the stored MACs with nothing (ADR-0016).
     """
     server = mapping.to_provider_server(
         _summary(),

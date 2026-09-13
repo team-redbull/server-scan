@@ -7,13 +7,8 @@ export interface ClassificationRuleListParams {
   enabled?: boolean;
 }
 
-/** List the classification rules this deployment runs.
- *
- * Read-only on purpose. The rules ship with the platform and are seeded
- * at startup, so this client has no create/update/delete counterpart to
- * reach for — the backend still exposes them, but nothing in the UI
- * should be the thing that makes two installations classify differently.
- */
+/** List the classification rules. Read-only on purpose: rules ship with
+ * the platform (docs/architecture.md, "Slice 5"). */
 export function listClassificationRules(
   params: ClassificationRuleListParams = {},
 ): Promise<ClassificationRuleListResponse> {

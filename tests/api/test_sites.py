@@ -139,8 +139,6 @@ async def test_every_site_reports_every_installation_type(
         }
         assert all(slice_["total"] == 0 for slice_ in item["by_installation_type"].values())
 
-    # The fleet-wide summary is zero-filled the same way every site is,
-    # not merely absent when there is nothing in the database yet.
     assert body["fleet"]["total"] == 0
     assert set(body["fleet"]["by_installation_type"]) == {
         "HOSTED_CLUSTER",
@@ -240,11 +238,8 @@ async def test_unassigned_bucket_slices_by_installation_type_too(
 async def test_fleet_summary_sums_every_site_including_unassigned(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
-    """The backend now computes the fleet-wide total in the same
-    aggregation pass as the per-site breakdown, so it must equal what
-    summing every `items` entry by hand would give — across more than
-    one site, including the unassigned bucket, which is part of the
-    fleet whatever its hostname says.
+    """The fleet-wide total comes from the same aggregation pass as the per-site
+    rows, so it must equal the hand sum of every `items` entry, unassigned included.
     """
     client, repo = app_context
     await repo.upsert(
@@ -286,6 +281,4 @@ async def test_fleet_summary_sums_every_site_including_unassigned(
     assert fleet["by_installation_type"]["HOSTED_CLUSTER"]["total"] == 1
     assert fleet["by_installation_type"]["UNCLASSIFIED"]["total"] == 0
 
-    # And it must equal what the frontend used to compute itself, by hand,
-    # from the same items array — the whole point of moving this server-side.
     assert fleet["total"] == sum(item["total"] for item in body["items"])

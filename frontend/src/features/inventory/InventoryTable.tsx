@@ -1,12 +1,9 @@
 import { flexRender } from "@tanstack/react-table";
 import { useMemo } from "react";
 import type { SortingState } from "@tanstack/react-table";
-// @tanstack/react-table v9 replaced the v8 `useReactTable`/`createColumnHelper`
-// hooks with a new feature-composition API (`useTable` + explicit
-// `features`). The package ships a `/legacy` compatibility entry point
-// (`useLegacyTable` / `legacyCreateColumnHelper`) that preserves the v8
-// hook shape we use below — the officially supported migration path,
-// not a workaround — so we build on that rather than the fully-new API.
+// v9's `/legacy` entry point keeps the v8 hook shape (`useReactTable` /
+// `createColumnHelper`) — the officially supported migration path, not a
+// workaround, so this builds on it rather than the `useTable` + `features` API.
 import { legacyCreateColumnHelper, useLegacyTable } from "@tanstack/react-table/legacy";
 import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { Link, useNavigate } from "react-router";
@@ -20,38 +17,13 @@ import type { HealthSeverity, OpenShiftState } from "@/types/server";
 import type { ServerSummary } from "@/types/server";
 
 /**
- * Name, Installation, MCE, Cluster, Model, State, and the maintenance
- * switch — in that order. Name is left-aligned and every other column
- * centred: names run from 15 to 60 characters, and centring text that
- * varies that much leaves no vertical edge for the eye to follow, while
- * the fixed-width badges beside it line up either way.
- *
- * Kept deliberately short of the nine this table once had (vendor, site,
- * fabric, last-updated…): everything cut is one click away on the detail
- * page. Site in particular is redundant per row, being already inside the
- * hostname. What earns a column here is what an operator scans for.
- *
- * MCE renders only when a row on the page actually has one — an estate
- * with no MCE would otherwise scan a column of dashes forever.
- *
- * The maintenance switch is the rightmost column and the row's only
- * write control. It replaced the hover-only "›" disclosure chevron rather
- * than sitting beside it: a seventh column overflowed the table at laptop
- * width, and a row that now carries a real button no longer needs a
- * decorative hint that it leads somewhere.
- *
- * Motion note: rows animate nothing. An operator scrolls this list many
- * times a day, and per-row transitions on a 50-row table are both a
- * distraction and a frame-budget cost at that repetition. Only the row
- * background responds to hover, which is instant feedback rather than
- * animation.
+ * The inventory columns. Name is left-aligned, everything else centred;
+ * MCE renders only when a row on the page has one; the maintenance switch
+ * is the rightmost column and the row's only write control. Rows animate
+ * nothing — only the background responds to hover.
  */
 
-/** The row accent for a severity: a 2px left edge on the rows that need
- * attention and nothing on the rest. Scanning fifty rows for a colour in
- * the middle of a table is slower than following one vertical edge, and
- * accenting every row (including healthy ones) would put the signal back
- * to zero. */
+/** A left edge on the rows that need attention, nothing on the rest. */
 const ROW_ACCENT: Record<HealthSeverity, string> = {
   CRITICAL: "border-l-2 border-l-[var(--color-status-critical)]",
   MAJOR: "border-l-2 border-l-[var(--text-on-major)]",
@@ -66,31 +38,22 @@ interface InventoryTableProps {
   sortField: NonNullable<ServerListParams["sort"]>;
   sortDesc: boolean;
   onSortChange: (field: SortableField, desc: boolean) => void;
-  /** Shown in place of the generic empty state when no rows match — names
-   * the active filters rather than leaving an operator to guess whether
-   * "no servers" means an empty fleet or a too-narrow filter set. */
+  /** Names the active filters in the empty state. */
   emptyMessage?: string;
 }
 
 const columnHelper = legacyCreateColumnHelper<ServerSummary>();
 
-// Columns have heterogeneous `TValue` (string, ServerSummary…). TanStack
-// Table's own docs recommend widening the array element type to
-// `ColumnDef<TData, any>` for exactly this case — the alternative is a
-// `TValue=unknown` array, which `exactOptionalPropertyTypes` then rejects
-// on every column.
+// Columns have heterogeneous `TValue`; TanStack's docs recommend
+// `ColumnDef<TData, any>` for exactly this case — a `TValue=unknown` array
+// is rejected by `exactOptionalPropertyTypes` on every column.
 function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
   return [
   columnHelper.accessor("name", {
     id: "name",
     header: "Name",
     cell: (info) => (
-      // A real anchor, so ctrl/middle-click opens a server in a new tab
-      // and assistive tech announces it as a link — the row's own
-      // `onClick` is a convenience on top of this, never a replacement
-      // for it. Styled as normal text rather than a blue underlined link:
-      // with every row linked, per-row link colouring turns the column
-      // into a wall of blue and stops signalling anything.
+      // A real anchor; the row's `onClick` is a convenience on top of it.
       <Link
         to={`/servers/${info.row.original.id}`}
         className="font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
@@ -104,7 +67,6 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
     id: "openshift_state",
     header: "Installation",
     cell: (info) => <InstallationBadge state={info.getValue<OpenShiftState>()} />,
-    // Backed by `openshift_state_name_id`, which keyset pagination needs.
     enableSorting: true,
   }),
   ...(withMce
@@ -125,8 +87,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
     cell: (info) => (
       <span className="text-[var(--text-secondary)]">{info.getValue() || "—"}</span>
     ),
-    // Nullable, so the servers no cluster holds sort together at one end
-    // rather than being dropped — see ADR-0026.
+    // Nullable sort field — see ADR-0026.
     enableSorting: true,
   }),
   columnHelper.accessor("model", {
@@ -146,9 +107,7 @@ function buildColumns(withMce: boolean): LegacyColumnDef<ServerSummary, any>[] {
     },
     enableSorting: false,
   }),
-  // Right of State, because it acts on what State just reported. The only
-  // write control in this table, and the only cell whose click does not
-  // open the server.
+  // The only cell whose click does not open the server.
   columnHelper.accessor((row) => row, {
     id: "maintenance",
     header: "Maintenance",
@@ -188,18 +147,11 @@ export function InventoryTable({
   });
 
   return (
-    // `overflow-x-auto`, never `overflow-hidden`: the columns do not fit a
-    // laptop viewport once the maintenance switch is in, and clipping the
-    // rightmost one silently loses the row's only control. `-x-` alone
-    // matters — any `overflow-y` value other than `visible` would make
-    // this div the sticky header's containing scroll block, and since the
-    // div itself never scrolls vertically (the page does), the header
-    // would stop sticking. Rounded top corners are on the header's own
-    // end cells for the same reason.
+    // `overflow-x-auto`, never `overflow-hidden` (clips the row's only
+    // control) and `-x-` alone: any `overflow-y` but `visible` makes this
+    // div the sticky header's scroll block, and it never scrolls — the page does.
     <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
       <table className="min-w-full text-sm">
-        {/* Sticky header: at 100+ rows the column meaning otherwise
-         * scrolls away exactly when you are deep enough to need it. */}
         <thead className="sticky top-0 z-10 bg-[var(--surface-sunken)]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
@@ -213,9 +165,8 @@ export function InventoryTable({
                     <button
                       type="button"
                       onClick={header.column.getToggleSortingHandler()}
-                      // `uppercase` repeated here on purpose: Tailwind preflight sets
-                      // `text-transform: none` on <button>, so a sortable header would
-                      // otherwise render in a different case from a non-sortable one.
+                      // `uppercase` repeated: Tailwind preflight resets
+                      // `text-transform` on <button>.
                       className="inline-flex items-center gap-1 rounded-sm uppercase hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
@@ -234,17 +185,10 @@ export function InventoryTable({
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            // The whole row is a click target on top of the name link: a
-            // single line of text is a poor target when aiming at one of
-            // fifty rows. The name `<Link>` remains the accessible
-            // primitive — this row handler defers to it for anything the
-            // browser already handles natively.
             <tr
               key={row.id}
               onClick={(event) => {
-                // Let the real anchor handle its own clicks, and never
-                // hijack a modified click — ctrl/cmd/middle-click must
-                // still open a new tab rather than navigating this one.
+                // Never hijack the anchor's own click or a modified one.
                 if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey) {
                   return;
                 }

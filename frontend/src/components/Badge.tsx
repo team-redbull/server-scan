@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
-/** Generic neutral pill badge for labels that don't carry a severity color
- * (installation type, maintenance flag, etc). */
+/** Neutral pill for labels that carry no severity colour. */
 export function Badge({
   children,
   tone = "neutral",

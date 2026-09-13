@@ -17,15 +17,8 @@ TEMPLATE_TYPES = frozenset({"initial-template", "updating-template"})
 
 _NON_BMC_ACCESS = frozenset({"in-band", "internal", "virtual"})
 
-# Cisco reports interface state with mostly-shared vocabulary across UCS
-# Manager, UCS Central and Intersight, so the translation lives here
-# rather than in any one provider. Confirmed complete against both
-# `AdaptorExtEthIf.OPER_STATE_*` and live Intersight `OperState` data;
-# `indeterminate` and a vNIC's own different (equipment-operability, not
-# link-state) vocabulary are deliberately left unmapped. See ADR-0009's
-# "Update (2026-09-07): the health/oper vocabulary gaps..." and
-# ADR-0017's "A second field pass (2026-09-07)" for what's confirmed and
-# why each omission is intentional, not a gap.
+# Complete against the SDK enum and live Intersight data; `indeterminate` is
+# unmapped on purpose — ADR-0009 and ADR-0017, "2026-09-07" updates.
 _OPER_STATE_MAP = {
     "operable": "UP",
     "ok": "UP",
@@ -164,12 +157,8 @@ def management_ip_by_parent_dn(ip_addrs: Iterable[Any]) -> dict[str, Any]:
     """
     Index every real management IP assignment by the DN of the object it hangs off of.
 
-    `vnicIpV4PooledAddr`/`vnicIpV4StaticAddr` are schema-valid direct
-    children of two different parents (a compute unit's `mgmtController`
-    and the service profile's own `lsServer` DN), but confirmed against
-    real UCS Manager hardware that only the profile DN is ever populated —
-    so callers key into this by both and take whichever hits. See
-    docs/cisco-collectors.md, "BMC and management interface selection".
+    Both schema-valid parents are indexed; only the profile DN was populated on
+    real hardware — docs/cisco-collectors.md, "BMC and management interface selection".
 
     Args:
         ip_addrs (Iterable[Any]): Every `vnicIpV4PooledAddr`/

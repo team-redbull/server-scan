@@ -83,11 +83,8 @@ def render_template(template: str, evidence: dict[str, object]) -> str:
     """
     Render a validated message template by explicit field substitution.
 
-    Never `str.format(**evidence)` / `format_map` — those would resolve
-    attribute/index access syntax in the template even though
-    `validate_template` already rejected it at write time; not calling
-    them at all is the actual enforcement, not a belt-and-suspenders
-    duplicate of validation.
+    Never `str.format`/`format_map`: not calling them is the enforcement
+    (docs/architecture.md, "Health policy engine").
 
     Args:
         template (str): The template, already passed through `validate_template`.

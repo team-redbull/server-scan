@@ -1,36 +1,18 @@
 @import "tailwindcss";
 
-/* `dark:` applies unconditionally. Tailwind's stock variant is a
- * `prefers-color-scheme` media query, so with the theme forced dark but
- * the OS set to light every `dark:` utility silently switched off — a
- * dark page wearing light badges and borders. 49 such utilities exist
- * across 13 components. */
+/* `dark:` applies unconditionally — see CLAUDE.md, "The UI is dark only". */
 @custom-variant dark (&);
 
-/* Design tokens.
- *
- * Tailwind v4 is configured in CSS (`@theme`), not a tailwind.config.js —
- * there is no JS config file in this project.
- *
- * Colors are oklch because it is perceptually uniform: holding L constant
- * across the status hues (as below) makes them read as equally prominent,
- * which sRGB hex does not. Every status color is picked to clear WCAG AA
- * (4.5:1) as text on its paired surface, in both schemes — the status is
- * the one thing in this UI that must never be ambiguous.
- *
- * The palette is deliberately plain: one neutral ramp plus five status
- * hues. This is a dense operational tool that engineers read all day, not
- * a landing page, so there is no brand gradient and no accent color
- * competing with the status colors for attention. */
+/* Design tokens (Tailwind v4 `@theme`; there is no tailwind.config.js).
+ * oklch so status hues at equal L read as equally prominent; every status
+ * colour clears WCAG AA (4.5:1) as text on its paired surface. */
 @theme {
-  /* System stack — no webfont, so no FOUT and nothing to download before
-   * the first table paints. */
+  /* System stack — no webfont, so no FOUT. */
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
 
-  /* Status hues: L held ~0.62 (light) so no severity looks louder than
-   * its rank warrants. `-fg`/`-bg` are the chip pair. */
+  /* Status hues at L ~0.62; `-fg`/`-bg` are the chip pair. */
   --color-status-healthy: oklch(0.62 0.15 152);
   --color-status-info: oklch(0.62 0.15 245);
   --color-status-warning: oklch(0.68 0.16 78);
@@ -42,11 +24,8 @@
 }
 
 :root {
-  /* Dark only, deliberately: `dark`, not `light dark`, so the browser's
-   * own scrollbars and form controls follow, and no `prefers-color-scheme`
-   * block exists to switch back. This is an operator console watched on
-   * wall displays in dim rooms — a light flash on load is the failure mode
-   * being designed out, so the theme is not the viewer's to choose. */
+  /* Dark only: `dark`, not `light dark`, so scrollbars and form controls
+   * follow (CLAUDE.md, "The UI is dark only"). */
   color-scheme: dark;
 
   --surface-page: oklch(0.17 0.006 260);
@@ -59,14 +38,11 @@
   --text-secondary: oklch(0.72 0.006 260);
   --text-muted: oklch(0.6 0.008 260);
 
-  /* A low-L wash of each status hue, not a light tint dimmed — dimming a
-   * light tint yields mud and loses the hue identity. */
+  /* A low-L wash of each status hue; a dimmed light tint yields mud. */
   --tint-healthy: oklch(0.3 0.06 152);
   --tint-info: oklch(0.3 0.06 245);
   --tint-warning: oklch(0.32 0.07 78);
-  /* Hue 45: orange, sitting between warning's amber (78) and critical's
-     red (25), so the three most severe tiers read as one escalating ramp
-     rather than three unrelated colours. */
+  /* Hue 45: between warning's amber (78) and critical's red (25). */
   --tint-major: oklch(0.32 0.08 45);
   --tint-critical: oklch(0.32 0.09 25);
   --tint-maintenance: oklch(0.3 0.06 300);
@@ -80,11 +56,7 @@
   --text-on-maintenance: oklch(0.85 0.11 300);
   --text-on-unknown: oklch(0.8 0.006 260);
 
-  /* Motion. A strong ease-out, not CSS's weak built-in: these curves move
-   * immediately on the frame the user acts, which is what makes an
-   * interface feel like it heard you. Durations stay under 200ms because
-   * this tool is used continuously — see the motion note in
-   * `InventoryTable`. */
+  /* Motion: a strong ease-out, durations under 200ms. */
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --duration-instant: 90ms;
   --duration-fast: 140ms;
@@ -95,20 +67,16 @@ body {
   background: var(--surface-page);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  /* Grayscale AA: the default subpixel rendering makes light-on-dark text
-   * look heavier than dark-on-light at the same weight. */
+  /* Grayscale AA: subpixel rendering makes light-on-dark text look heavier. */
   -webkit-font-smoothing: antialiased;
 }
 
-/* Numeric columns must align digit-for-digit when scanning a long list —
- * proportional figures make a column of counts ragged and slower to read. */
+/* Tabular figures, so numeric columns align digit-for-digit. */
 .tabular {
   font-variant-numeric: tabular-nums;
 }
 
-/* Respect the OS setting. Note this removes *movement*, not feedback:
- * opacity and color transitions still run, because they carry meaning
- * (something changed) without the vestibular cost of motion. */
+/* Removes movement, not feedback: opacity and colour transitions still run. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

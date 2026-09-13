@@ -23,10 +23,8 @@ class UcsManagerConnectionError(Exception):
     """
     Any failure talking to a UCS Manager domain.
 
-    Covers rejected credentials, an XML API error response, and a
-    network-level failure reaching the endpoint at all.
-
-    See docs/cisco-collectors.md, "SDK behaviour, sessions and timeouts".
+    Credentials, XML API error, or network. See docs/cisco-collectors.md,
+    "SDK behaviour, sessions and timeouts".
     """
 
 
@@ -94,8 +92,6 @@ class UcsManagerClient:
             _validate_endpoint(endpoint), username, password, timeout=timeout_seconds
         )
         self._timeout_seconds = timeout_seconds
-        # Set once a call's deadline fires while `ucsmsdk`'s own thread may
-        # still be running against `self._handle` — see `_with_timeout`.
         self._poisoned_since: str | None = None
         if os.environ.get("INVENTORY_UCS_DUMP_XML") == "1":
             self._handle.set_dump_xml()
@@ -104,15 +100,8 @@ class UcsManagerClient:
         """
         Run a blocking SDK call on an abandonable thread under a deadline.
 
-        `UcsHandle(timeout=...)` alone is not a whole-call deadline: reading
-        the installed `ucsmsdk` source, that timeout reaches only
-        `urllib`'s per-*socket-operation* deadline (one `connect`/`recv`) —
-        `socket.create_connection` resolves DNS *before* applying it at
-        all, one `post()` can retry up to three times internally (a
-        TLSv1 fallback, a redirect), and a fresh `login()` issues up to
-        three `post_elem` calls of its own. `login()` alone is therefore
-        unbounded in the DNS-hang case and only loosely bounded otherwise.
-        See docs/cisco-collectors.md, "SDK behaviour, sessions and timeouts".
+        `UcsHandle(timeout=...)` bounds one socket operation, not the call —
+        see docs/cisco-collectors.md, "`ucsmsdk` (UCS Manager)".
 
         Args:
             func (Any): The blocking SDK callable to dispatch.
@@ -141,14 +130,8 @@ class UcsManagerClient:
                 return await run_abandonable(func, *args, name=f"ucs-manager-{what}")
         except TimeoutError as exc:
             if deadline.expired():
-                # Our own deadline fired. `run_abandonable`'s thread keeps
-                # running `func` against `self._handle` regardless — there
-                # is nothing in `ucsmsdk` to cancel it — so every further
-                # call on this instance is refused from here on. Whatever
-                # remote-side session `func` was mid-request for (most
-                # concerning for `login`) may now leak until UCS Manager
-                # times it out on its own; there is no way to avoid that
-                # without a cancellable SDK.
+                # Poisoned: the thread keeps running against the handle —
+                # docs/cisco-collectors.md, "Timeouts, abandoned threads ...".
                 self._poisoned_since = what
                 raise UcsManagerConnectionError(
                     f"{what} timed out after {self._timeout_seconds}s "
@@ -156,13 +139,7 @@ class UcsManagerClient:
                     "whole call; this deadline is imposed by the collector, and its thread "
                     "is abandoned, not stopped)."
                 ) from exc
-            # Unlike UCS Central's ucscsdk, ucsmsdk's own socket-level
-            # timeout genuinely can raise a bare `TimeoutError` here — one
-            # `connect`/`recv` timing out on its own, with the thread
-            # already finished by the time this is caught. `TimeoutError`
-            # is itself an `OSError`, so it is reported the same way as
-            # any other network failure below, not as this collector's
-            # own deadline (the branch above).
+            # The SDK's own socket timeout, thread already finished — not our deadline.
             raise UcsManagerConnectionError(
                 f"{what} could not reach {self._handle.ip}: {exc}"
             ) from exc
@@ -188,10 +165,8 @@ class UcsManagerClient:
         """
         Close the session, best-effort.
 
-        Never raises. Calling it before a successful login is a no-op that
-        sends no request.
-
-        See docs/cisco-collectors.md, "SDK behaviour, sessions and timeouts".
+        Never raises; before a successful login it is a no-op. See
+        docs/cisco-collectors.md, "SDK behaviour, sessions and timeouts".
         """
         try:
             await self._with_timeout(self._handle.logout, what="logout")

@@ -7,45 +7,18 @@ import { useToggleMaintenanceMutation } from "@/features/inventory/hooks";
 import type { ServerSummary } from "@/types/server";
 
 /**
- * One row's maintenance switch: a crossed wrench-and-screwdriver opens a
- * card asking why, a play icon returns the server with no card at all.
- *
- * The asymmetry is deliberate and is what the operator asked for. Pausing
- * a server is the act someone else has to interpret later — in the audit
- * trail, and in the badge the inventory row shows — so it is worth a
- * sentence. Returning one to service needs no explanation and should cost
- * one click.
- *
- * Two shapes rather than one toggled colour, for the same reason
- * `SEVERITY_GLYPH` uses distinct shapes: the state has to be readable in
- * greyscale.
- *
- * Inline SVG and NOT a character — ⏸/🔧 and every other pictograph in
- * this range carries emoji presentation, so it renders as a blank box on
- * any machine with no emoji font. That is not hypothetical: it is what
- * the headless Chromium running `npm run test:e2e` does, and it is what a
- * minimal RHEL desktop does. The text glyphs this UI does use (▲ ◆ ● ›)
- * are all in fonts that ship everywhere.
- *
- * Drawn here rather than imported: an icon set would be a new dependency
- * for two shapes, and a stock asset (Flaticon and the like) carries an
- * attribution licence and, being a download, cannot reach an air-gapped
- * build at all.
+ * One row's maintenance switch: entering maintenance asks why, leaving it
+ * is one click — the operator's asked-for asymmetry. Inline SVG, not a
+ * character: ⏸/🔧 carry emoji presentation and render as a blank box in
+ * headless Chromium (`npm run test:e2e`) and on a minimal RHEL desktop.
  */
 
-/** The supplied maintenance icon (frontend/src/assets/maintenance.svg).
- *
- * An `<img>` and not an inlined path set: it is a fixed multi-colour
- * illustration, so there is nothing for `currentColor` to drive and
- * inlining 1 KB of `<style>`-scoped classes into every row would only
- * make the DOM bigger. Imported rather than read from `public/` so Vite
- * content-hashes it and a replacement can never be served from cache.
- */
+/** An `<img>` (a fixed multi-colour illustration, nothing for `currentColor`
+ * to drive), imported so Vite content-hashes it. */
 function ToolsIcon() {
   return <img src={maintenanceIcon} alt="" aria-hidden="true" className="size-4" />;
 }
 
-/** Play: back into service. */
 function PlayIcon() {
   return (
     <svg viewBox="0 0 12 12" className="size-3 fill-current" aria-hidden="true">
@@ -68,8 +41,6 @@ export function MaintenanceToggle({ server }: { server: ServerSummary }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const enabled = server.maintenance.enabled;
 
-  // Focus the field the card exists for, so the operator can start typing
-  // without reaching for the mouse a second time.
   useEffect(() => {
     if (asking) {
       inputRef.current?.focus();
@@ -97,9 +68,7 @@ export function MaintenanceToggle({ server }: { server: ServerSummary }) {
     : `Put ${server.name} into maintenance`;
 
   return (
-    // The one control in a row whose click must NOT open the server, and
-    // the card lives inside the cell — so the whole subtree stops
-    // propagation rather than each control doing it separately.
+    // The whole subtree stops propagation so no click here opens the server.
     <span
       className="relative inline-block"
       onClick={(event) => {
@@ -130,10 +99,8 @@ export function MaintenanceToggle({ server }: { server: ServerSummary }) {
 
       {asking && (
         <>
-          {/* A plain overlay rather than <dialog showModal()>: jsdom 29
-              still does not implement showModal, so the native element
-              cannot be tested at all. Escape and a backdrop click both
-              cancel, which is the behaviour the native one would give. */}
+          {/* A plain overlay, not <dialog showModal()>: jsdom 29 does not
+              implement showModal, so the native element is untestable. */}
           <span
             className="fixed inset-0 z-20 bg-black/40"
             onClick={close}

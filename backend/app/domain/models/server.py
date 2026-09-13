@@ -30,9 +30,6 @@ from app.domain.models.openshift import OpenShiftLifecycle
 class Identity(BaseModel):
     """The identity fields a server is correlated on across collector runs."""
 
-    # Required, no default: the vendor is a property of which collector
-    # produced the record, so it is always known by construction. See
-    # `Vendor`'s docstring on why there is no `UNKNOWN` to fall back to.
     vendor: Vendor
     serial: str | None = None
     serial_normalized: str = ""
@@ -42,37 +39,11 @@ class Identity(BaseModel):
 
 
 class ProfileTemplate(BaseModel):
-    """The reusable configuration/deployment template this server's profile was provisioned from.
+    """
+    The reusable template this server's profile was provisioned from.
 
-    Vendor-neutral, but the underlying concept exists (under different
-    names) in every hardware manager this platform will eventually
-    integrate with:
-
-    - Cisco UCS Manager: a service profile (`lsServer`) instantiated from
-      a **Service Profile Template**, referenced by name via that
-      profile's own `srcTemplName` attribute.
-    - Cisco Intersight: a `server.Profile` derived from a **Server Profile
-      Template** (`server.ProfileTemplate`), referenced via the profile's
-      `SrcTemplate` relationship (a `{moid, object_type}` pair).
-    - HPE OneView: a Server Profile (`/rest/server-profiles`) derived from
-      a **Server Profile Template**, referenced by the profile's
-      `serverProfileTemplateUri`.
-    - Dell OpenManage Enterprise: a **Deployment Template** (OME's
-      Configuration/Deployment Template feature), referenced by
-      `TemplateId` at deploy time — OME's public API does not clearly
-      expose a persistent "which template was I deployed from" field on
-      the device resource itself, unlike the other three, so this may
-      stay unpopulated for Dell servers until that's confirmed against a
-      live OME instance.
-
-    `name` is always the vendor's own display name for the template — the
-    one thing constant across all four platforms. `external_id` is the
-    vendor-opaque reference (a template name for UCS Manager, a MoID for
-    Intersight, a URI for OneView) — kept as an opaque string rather than
-    parsed, the same "store what the vendor gave us, don't overinterpret
-    it" approach already used for `Identity.external_ids`. Which platform
-    a template reference came from is not duplicated here — it's already
-    recoverable via `Server.manager_id` -> the owning `Manager.type`.
+    Vendor-neutral: `name` is the vendor's display name, `external_id` its
+    opaque reference. Per-vendor sources: docs/architecture.md, "The provider contract".
     """
 
     name: str | None = None
@@ -90,8 +61,6 @@ class Server(BaseModel):
     model: str | None = None
     model_normalized: str = ""
 
-    # Required rather than defaulted: `Identity.vendor` has no fallback
-    # value, so there is no meaningful empty identity to construct.
     identity: Identity
     profile_template: ProfileTemplate = Field(default_factory=ProfileTemplate)
     hardware: Hardware = Field(default_factory=Hardware)
@@ -102,16 +71,7 @@ class Server(BaseModel):
     maintenance: Maintenance = Field(default_factory=Maintenance)
     openshift: OpenShiftLifecycle = Field(default_factory=OpenShiftLifecycle)
 
-    # Derived from `name` at ingest (`app.domain.value_objects.site`), not
-    # taken from the collector's config. `None` means the name carries no
-    # site token — surfaced as "Unassigned", never defaulted to a site.
-    #
-    # A plain `str`, not an enum: the set of sites is deployment
-    # configuration (`INVENTORY_SITES`), and a document written when a
-    # site existed must still load after it has been renamed away. The
-    # closed set is enforced where it can be — at ingest, which only ever
-    # produces a configured code — rather than by a type that would make
-    # yesterday's data unreadable. See docs/adr/0018.
+    # A plain `str`, not an enum, so a document outlives a site rename (ADR-0018).
     site_id: str | None = None
     manager_id: str | None = None
 
@@ -119,29 +79,13 @@ class Server(BaseModel):
     search_tokens: list[str] = Field(default_factory=list)
 
     source_provider: str | None = None
-    # The last time this server's own management endpoint actually
-    # answered — not merely the last time ingest ran for it, which a
-    # `reachable=False` run also does. See `unreachable_since`.
+    # When the server's own endpoint last answered — not when ingest last ran.
     last_seen_at: datetime | None = None
 
-    # False only when a provider knows this server's identity but could not
-    # reach it this run (`ProviderServer.reachable`). Hardware/network
-    # fields carry forward unaffected, same as any other unread field.
-    reachable: bool = True
-    # When `reachable` first went False; `None` while reachable. Kept
-    # stable across repeated unreachable runs rather than reset to `now`
-    # each time, so the UI can show how long a server has been down.
+    reachable: bool = True  # False: identity known, not reached; hardware carries forward
     unreachable_since: datetime | None = None
 
-    # Dotted API paths (`hardware.storage.drives`) the most recent
-    # collection could not read. Top-level, beside the other two
-    # ingestion-provenance fields, rather than a sub-object of its own:
-    # it describes the whole run, not any one subdocument.
-    #
-    # Recomputed from scratch on every ingest, never merged — a field
-    # whose carried-forward value is no longer `None` would otherwise
-    # stay flagged forever. "Never successfully read" is deliberately not
-    # expressible here; see `IngestService._carry_forward`.
+    # Rebuilt from scratch every ingest, never merged.
     unread_fields: list[str] = Field(default_factory=list)
 
     revision: int = 1

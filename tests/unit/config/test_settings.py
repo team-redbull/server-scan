@@ -1,17 +1,8 @@
-"""`app.config.settings.Settings` — pinning the one thing that goes wrong
-silently: a field name that doesn't match its documented `INVENTORY_`
-env var.
-
-`Settings` derives each env var name from its field name
-(`env_prefix="INVENTORY_"`, no per-field alias anywhere in this class),
-and `extra="ignore"` means an unrecognized env var never raises — so a
-field named `gpu_model_catalog` silently reads `INVENTORY_GPU_MODEL_CATALOG`
-while every doc (`.env.example`, the Helm chart, this module's own
-docstring) told an operator to set `INVENTORY_GPU_MODELS`, and nothing
-ever complained. Confirmed live before the fix: `Settings()` returned the
-`_CATALOG`-suffixed value and silently dropped `INVENTORY_GPU_MODELS`.
-These tests exist so that specific class of bug can't come back unnoticed
-for any field this pins.
+"""
+`app.config.settings.Settings` — pinning field-name-to-env-var mapping.
+Each env var name is derived from its field name (`env_prefix="INVENTORY_"`)
+and `extra="ignore"` never raises on a stray one, so a misnamed field
+silently reads the wrong variable; `gpu_models` did exactly that once.
 """
 
 from __future__ import annotations
@@ -27,11 +18,8 @@ pytestmark = pytest.mark.unit
 
 
 def _settings() -> Settings:
-    """Build `Settings` from the current process env alone, ignoring any
-    real `.env` file on disk — a developer's local `.env` must not make
-    this test's outcome depend on what happens to be sitting in their
-    checkout. Callers set the env they care about via `monkeypatch`
-    before calling this.
+    """Build `Settings` from the process env alone, ignoring any real `.env`
+    on disk; callers set what they care about via `monkeypatch` first.
 
     Returns:
         Settings: Constructed from the process env, `.env` excluded.
@@ -43,7 +31,6 @@ class TestGpuModels:
     def test_inventory_gpu_models_populates_gpu_models(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The exact regression this module exists to catch."""
         monkeypatch.setenv(
             "INVENTORY_GPU_MODELS", "P1001-200:NVIDIA A100 40GB:40,P1001-220:NVIDIA A100 80GB:80"
         )
@@ -59,10 +46,6 @@ class TestGpuModels:
 
 class TestSitesStillMatchesTheSameConvention:
     def test_inventory_sites_populates_sites(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Not a new regression — confirms `gpu_models` was brought in
-        line with the convention this field already followed correctly,
-        rather than the other way around.
-        """
         monkeypatch.setenv("INVENTORY_SITES", "tlv:Tel Aviv")
         assert _settings().sites == "tlv:Tel Aviv"
 
@@ -83,10 +66,8 @@ class TestCursorSecretProductionFailFast:
     def test_a_blank_secret_in_production_also_refuses_to_start(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A different mistake from never setting it at all — a deployment
-        wiring `INVENTORY_CURSOR_SECRET` to an empty `secretKeyRef` value —
-        but one that must fail exactly the same way, not fall through to
-        the dev default silently.
+        """An empty `secretKeyRef` value must fail the same way as an unset one,
+        not fall through to the dev default silently.
         """
         monkeypatch.setenv("INVENTORY_CURSOR_SECRET", "")
         with pytest.raises(ValidationError, match="INVENTORY_CURSOR_SECRET"):

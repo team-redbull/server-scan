@@ -21,14 +21,9 @@ from email.utils import formatdate
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 
-# The two key types Intersight issues: RSA for an API key v2, EC for a
-# v3. Named so the signing path is typed rather than `Any`, which is what
-# lets mypy check that each branch signs with a compatible algorithm.
 PrivateKey = rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey
 
-# Signed on every request, in this order. Taken from Cisco's own
-# canonical example rather than from the draft standard's default: the
-# SDK defaults to signing `(created)` alone, which Intersight rejects.
+# Cisco's canonical set, in order — not `(created)`, which Intersight rejects.
 _SIGNED_HEADERS = ("(request-target)", "host", "date", "digest")
 
 _SCHEME = "hs2019"
@@ -37,10 +32,8 @@ _SCHEME = "hs2019"
 class IntersightKeyError(ValueError):
     """An API key that cannot be used, detected before any request.
 
-    Separate from the transport errors in `.client` because it is a
-    configuration fault with a fix an operator can act on, and because it
-    is knowable without a network round trip — which is what lets
-    `health_check()` tell a malformed key apart from a rejected one.
+    A configuration fault, knowable without a round trip, so `health_check()`
+    can tell a malformed key from a rejected one.
     """
 
 
@@ -100,11 +93,8 @@ def _sign_digest(key: PrivateKey, message: bytes) -> bytes:
     """
     Sign the signing string with whichever algorithm the key implies.
 
-    The algorithm is chosen by key type rather than configured, matching
-    Cisco's own published example: RSA keys are v2 and sign
-    RSASSA-PKCS1-v1_5, EC keys are v3 and sign ECDSA. Relying on a
-    library default would sign RSA-PSS here, which Intersight rejects for
-    a v2 key. See docs/adr/0017-intersight-collector.md.
+    RSA (v2) signs RSASSA-PKCS1-v1_5, EC (v3) signs ECDSA — chosen by key
+    type, never a library default. docs/cisco-collectors.md, "Transport".
 
     Args:
         key (PrivateKey): The loaded private key.
@@ -115,9 +105,7 @@ def _sign_digest(key: PrivateKey, message: bytes) -> bytes:
     """
     if isinstance(key, rsa.RSAPrivateKey):
         return key.sign(message, padding.PKCS1v15(), hashes.SHA256())
-    # DER-encoded, which is what `cryptography` produces and what the
-    # scheme expects. RFC 6979's deterministic nonce is not reproduced —
-    # it changes only how `k` is chosen, and a verifier cannot tell.
+    # DER, as the scheme expects; RFC 6979's nonce is invisible to a verifier.
     return key.sign(message, ec.ECDSA(hashes.SHA256()))
 
 
@@ -171,10 +159,7 @@ class IntersightSigner:
             request_target += f"?{query}"
 
         date = formatdate(timeval=now, localtime=False, usegmt=True)
-        # Every request this collector makes is a GET with no body, so
-        # the digest is always that of the empty string. Computed rather
-        # than hardcoded so a future POST cannot silently sign a stale
-        # digest of a body it did not send.
+        # Bodiless GET: computed, not hardcoded, so a future POST cannot go stale.
         digest = "SHA-256=" + base64.b64encode(hashlib.sha256(b"").digest()).decode("ascii")
 
         values = {

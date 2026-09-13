@@ -43,11 +43,8 @@ def test_an_unread_field_on_a_new_server_is_recorded_with_its_default() -> None:
 
 
 def test_the_accumulator_holds_only_what_was_passed_to_it() -> None:
-    """A fresh list per ingest is what keeps the record per-run.
-
-    `_build_server` builds one and hands it to every field, so nothing
-    from a previous run can leak in — the stored list is replaced, never
-    merged.
+    """A fresh list per ingest keeps the record per-run: `_build_server` hands
+    one to every field, so the stored list is replaced, never merged.
     """
     first: list[str] = []
     _carry_forward(None, None, default=0, unread=first, name="hardware.cpu.cores")

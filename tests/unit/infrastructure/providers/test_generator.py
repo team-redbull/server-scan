@@ -26,13 +26,10 @@ from app.infrastructure.providers.fake.generator import (
     provider_type_for,
 )
 
-# The shipped default catalog. The generator takes one explicitly now
-# that sites are configuration, and these fixtures pin the default so a
-# reconfigured deployment cannot silently change what they assert.
+# Pinned to the shipped default so a reconfigured deployment cannot change
+# what these tests assert.
 SITES = site_catalog("")
 
-# The seeded classification rules, compiled once — what the API would
-# label each generated name, without needing a database to ask.
 _RULES = [
     (rule.installation_type.value, re.compile(rule.pattern)) for rule in default_system_rules(SITES)
 ]
@@ -54,11 +51,9 @@ def _installation_type(name: str) -> str:
     return "UNCLASSIFIED"
 
 
-# Every implemented collector is seeded. Derived from
-# `PROVIDER_FACTORIES` so a sixth collector fails this test instead of
-# quietly having no seed data — which is how OPENMANAGE's absence went
-# unnoticed for a while after the Dell collector shipped. A collector that
-# genuinely cannot be shaped goes here, with the reason.
+# Every implemented collector is seeded — derived from `PROVIDER_FACTORIES`
+# so a sixth collector fails here instead of quietly having no seed data
+# (how OPENMANAGE went unseeded). A collector that cannot be shaped goes here.
 _UNSEEDED_COLLECTORS: frozenset[ManagerType] = frozenset()
 
 
@@ -121,8 +116,6 @@ def test_vendors_are_from_the_known_set() -> None:
     servers = list(generate_servers(seed=42, count=200))
     vendors = {s.vendor for s in servers}
     assert vendors <= {v.value for v in Vendor}
-    # `standalone` is a real Redfish-collected vendor, not a fallback, and
-    # the UI filters on it — so it needs fixtures like any other.
     assert "standalone" in vendors
 
 
@@ -153,21 +146,18 @@ def test_external_ids_match_the_collector_that_reported_them() -> None:
             assert "/blade-" in s.external_id or "/rack-unit-" in s.external_id
         elif collector == ManagerType.INTERSIGHT.value:
             assert s.external_id.startswith("intersight/")
-            # A Moid is 24 hex characters, which is what the real
-            # `intersight.mapping.external_id` carries.
+            # A Moid is 24 hex characters.
             assert len(s.external_id[len("intersight/") :]) == 24
         elif collector == ManagerType.ONEVIEW.value:
-            # OneView's canonical `uri` on a `server-hardware` resource.
             assert s.external_id.startswith("/rest/server-hardware/")
         else:
             assert s.external_id.startswith("redfish://")
 
 
 def test_only_ucs_central_servers_carry_a_service_profile_dn() -> None:
-    """`profile_dn` is UCS Manager's alone. A BMC knows nothing about
-    service profiles, and an Intersight `server.Profile` has no `Dn`
-    field at all — so only UCS Central's servers get the org path that
-    the site falls back to when a name carries no site token.
+    """`profile_dn` is UCS Manager's alone: a BMC has no service profiles and
+    an Intersight `server.Profile` has no `Dn`, so only UCS Central's servers
+    carry the org path a siteless name falls back to.
     """
     for s in generate_servers(seed=42, count=300):
         if provider_type_for(s) != ManagerType.UCS_CENTRAL.value:
@@ -179,10 +169,9 @@ def test_only_ucs_central_servers_carry_a_service_profile_dn() -> None:
 
 
 def test_a_siteless_ucs_central_name_still_resolves_through_its_org_dn() -> None:
-    """Only for UCS Central: it is the one collector with an org path to
-    fall back to. An Intersight server whose name carries no site token
-    really does end up unsited, which is a gap this fixture shows rather
-    than papers over.
+    """UCS Central is the one collector with an org path to fall back to; a
+    siteless Intersight server really does end up unsited, a gap this
+    fixture shows rather than papers over.
     """
     siteless = [
         s
@@ -196,10 +185,9 @@ def test_a_siteless_ucs_central_name_still_resolves_through_its_org_dn() -> None
 
 
 def test_each_collector_reports_gpus_to_its_own_ceiling() -> None:
-    """ "The GPU exists" and "here is its temperature" are different claims.
-    UCS Central reads a card's identity, PCI address and temperature and
-    nothing else; Intersight reads the identity and has no telemetry
-    field anywhere in its schema; Redfish and OneView read both.
+    """UCS Central reads a GPU's identity, PCI address and temperature only;
+    Intersight reads identity and has no telemetry field at all; Redfish and
+    OneView read both. See docs/cisco-collectors.md.
     """
     servers = list(generate_servers(seed=42, count=300))
     by_collector: dict[str, list] = {}
@@ -219,9 +207,7 @@ def test_each_collector_reports_gpus_to_its_own_ceiling() -> None:
     ]
     assert intersight_gpus, "some Intersight servers should carry GPUs"
     for gpu in intersight_gpus:
-        # Identity is real; every telemetry field is None because the API
-        # carries no such field. Reporting zeros would read as a healthy
-        # idle GPU. See docs/adr/0017-intersight-collector.md.
+        # Telemetry is None, not zero — the API has no such field (ADR-0017).
         assert gpu["model"]
         assert gpu["temperature_celsius"] is None
         assert gpu["ecc_mode_enabled"] is None
@@ -232,8 +218,6 @@ def test_each_collector_reports_gpus_to_its_own_ceiling() -> None:
     ]
     assert central_gpus, "some UCS Central servers should carry GPUs"
     for gpu in central_gpus:
-        # `graphicsCard` carries a temperature and a PCI address and no
-        # memory, ECC or power field at all.
         assert gpu["temperature_celsius"] is not None
         assert gpu["pci_address"] is not None
         assert gpu["ecc_mode_enabled"] is None
@@ -241,10 +225,9 @@ def test_each_collector_reports_gpus_to_its_own_ceiling() -> None:
 
 
 def test_no_collector_reports_a_gpus_memory_size() -> None:
-    """No management plane this platform collects from reports VRAM, so
-    no fixture may either: the number the UI shows is `GpuCatalog`'s,
-    filled in at ingest (docs/adr/0021). A generator that pre-filled it
-    would make a local run prove nothing about the catalog.
+    """VRAM is `GpuCatalog`'s to fill in at ingest (docs/adr/0021); a
+    generator that pre-filled it would make a local run prove nothing about
+    the catalog.
     """
     gpus = [gpu for s in generate_servers(seed=42, count=300) for gpu in (s.gpus or ())]
     assert gpus
@@ -258,9 +241,8 @@ def test_gpu_identifiers_are_the_ones_their_management_plane_reports() -> None:
     """
     catalog = gpu_catalog("")
     matched: dict[str, set[bool]] = {}
-    # 500, not 300: UCS Central owns the smallest slice of the fleet, so a
-    # sample that comfortably covers the other three collectors can hold
-    # only its enriched GPUs and miss the uncataloged ones entirely.
+    # 500, not 300: UCS Central's slice is small enough that 300 can miss
+    # its uncataloged GPUs entirely.
     for s in generate_servers(seed=42, count=500):
         collector = provider_type_for(s)
         for gpu in s.gpus or ():
@@ -273,18 +255,15 @@ def test_gpu_identifiers_are_the_ones_their_management_plane_reports() -> None:
             enriched = catalog.enrich(gpu)
             matched.setdefault(collector, set()).add(enriched["memory_bytes"] is not None)
 
-    # Both identifier kinds must actually enrich, and both kinds must
-    # also reach a card the catalog does not know — the "VRAM unknown"
-    # path is a real state and has to be visible in dev.
+    # Each collector must reach both a cataloged and an uncataloged card.
     for collector, outcomes in matched.items():
         assert outcomes == {True, False}, collector
 
 
 def test_drive_health_uses_the_health_severity_vocabulary() -> None:
-    """Both collectors normalize drive health onto `HealthSeverity` at the
-    provider boundary, and `storage.failed_drive_count` counts CRITICAL —
-    fixtures speaking any other vocabulary would make the seeded storage
-    policy fire in dev and never in production.
+    """Providers normalize drive health onto `HealthSeverity` and
+    `storage.failed_drive_count` counts CRITICAL; any other vocabulary here
+    would make the seeded storage policy fire in dev and never in production.
     """
     allowed = {s.value for s in HealthSeverity}
     healths = {
@@ -300,7 +279,6 @@ def test_only_cisco_servers_have_attachments() -> None:
     servers = list(generate_servers(seed=42, count=300))
     non_cisco_with_attachments = [s for s in servers if s.vendor != "cisco" and s.attachments]
     assert non_cisco_with_attachments == []
-    # And at least some Cisco servers do have attachments, at varying counts.
     physical_counts = {
         sum(1 for a in s.attachments if a.interface_kind == "PHYSICAL")
         for s in servers
@@ -332,9 +310,8 @@ def test_fabric_names_follow_fi_a_b_convention() -> None:
 
 
 def test_names_follow_expected_patterns() -> None:
-    """Generated names must be in the shapes the real estate uses, because
-    they are what `parse_site_code` and the seeded classification rules
-    both read. A generator drifting from those shapes would silently make
+    """Names must keep the shapes the real estate uses — `parse_site_code`
+    and the seeded classification rules read them, so drift here would make
     every dev/CI fixture classify differently from production.
     """
     servers = list(generate_servers(seed=42, count=300))
@@ -353,12 +330,10 @@ def test_every_generated_name_resolves_to_a_site_or_is_deliberately_siteless() -
     for s in servers:
         site = parse_site_code(s.name, SITES)
         if site is None:
-            # Only the deliberate unclassified family has no site token.
             assert s.name.startswith("random-server-"), s.name
         else:
             assert site in SITES
             sited += 1
-    # The siteless family is a minority, not the bulk of the fixture.
     assert sited > len(servers) * 0.6
 
 
@@ -383,13 +358,9 @@ def test_list_sites_and_managers_have_unique_names_and_ids() -> None:
 
 
 def test_managers_are_exactly_the_implemented_collectors() -> None:
-    """Seeding a manager type with no collector would invent a data path
-    that cannot exist — and `--manager-type UCS_MANAGER` was removed, so
-    there is no Central/Manager pair to model any more.
-
-    Derived from `PROVIDER_FACTORIES`, never restated: a hand-written copy
-    here is the same drift that left OPENMANAGE unseeded and Dell and HPE
-    missing from the UI's Source filter.
+    """Seeding a manager type with no collector would invent a data path that
+    cannot exist. Derived from `PROVIDER_FACTORIES`, never restated — a
+    hand-written copy is the drift that left OPENMANAGE unseeded.
     """
     assert {m.type for m in list_managers()} == frozenset(PROVIDER_FACTORIES)
 
@@ -455,13 +426,9 @@ def test_profile_template_name_and_external_id_are_both_set_or_both_none() -> No
 
 
 def test_every_collector_with_a_template_concept_can_report_one() -> None:
-    """Updated 2026-09-08 alongside the frontend first showing this field
-    (`OverviewTab`'s `PROFILE_TEMPLATE_LABELS`): every real collector
-    whose mapping populates `profile_template_name` — UCS Central,
-    Intersight, OneView, OpenManage — must be exercised here too, or the
-    seeded fleet would never show the new UI field for 3 of the 4 vendors
-    that actually have one. `REDFISH_STANDALONE` never does: a bare BMC
-    has no template concept to report.
+    """Every collector whose mapping populates `profile_template_name` must
+    be seeded with one, or the UI's template field stays blank for that
+    vendor (CLAUDE.md convention 10). A bare BMC has no template concept.
     """
     with_templates = {
         ManagerType.UCS_CENTRAL.value,
@@ -477,13 +444,9 @@ def test_every_collector_with_a_template_concept_can_report_one() -> None:
             continue
         if s.profile_template_name is not None:
             seen_with_template.add(collector)
-            # Every fake-provider collector references its template by
-            # name, unlike production Intersight/OneView, where
-            # external_id is usually a separate opaque moid/uri.
+            # The fake provider references a template by name, unlike production.
             assert s.profile_template_external_id == s.profile_template_name
 
-    # Every collector that can report one does, somewhere in 300 servers —
-    # not just the one that happened to be implemented first.
     assert seen_with_template == with_templates
 
 
@@ -501,10 +464,9 @@ def test_hpe_servers_come_from_oneview_and_span_ilo_generations() -> None:
 
 
 def test_an_ilo4_server_reports_identity_with_unread_hardware() -> None:
-    """Every OneView subresource call against an iLO 4 fails, so a Gen9
-    comes back as an identity-only record. `None`, never `()` or `0`: an
-    empty drive list reads as "no drives installed" and would take a
-    healthy server to CRITICAL.
+    """Every OneView subresource call against an iLO 4 fails, so a Gen9 is an
+    identity-only record: `None`, never `()` or `0`, which would read as
+    "no drives installed". See docs/hpe-collectors.md.
     """
     servers = list(generate_servers(seed=42, count=300))
     gen9 = [s for s in servers if (s.model or "").endswith("Gen9")]
@@ -517,8 +479,7 @@ def test_an_ilo4_server_reports_identity_with_unread_hardware() -> None:
         assert s.nic_macs is None
         assert s.psus is None
 
-    # And a Gen11 on the same collector is fully inventoried, so the
-    # partial record is the iLO's ceiling and not OneView's.
+    # A Gen11 is fully inventoried, so the ceiling is the iLO's, not OneView's.
     gen11 = [
         s
         for s in servers
@@ -543,9 +504,7 @@ def test_some_dell_servers_are_seeded_unreachable() -> None:
         assert s.storage_drives is None
         assert s.psus is None
 
-    # Not every Dell server — most of the fleet stays reachable, or every
-    # other Dell-specific assertion in this file would need to account
-    # for it.
+    # Most of the fleet stays reachable, or every other Dell assertion here breaks.
     reachable_dell = [
         s for s in servers if provider_type_for(s) == ManagerType.OPENMANAGE.value and s.reachable
     ]
@@ -575,15 +534,9 @@ def test_the_unclassified_shaped_family_is_upi_now() -> None:
 
 
 def test_every_readable_server_reports_power_supplies() -> None:
-    """Since the Redfish mapping gained `psus_from_supplies`, all four
-    collectors populate `psus`. A fake fleet that reported none would put
-    `hardware.power.psus` in every seeded server's `unread_fields` and
-    make that marker read as noise rather than signal.
-
-    Health is the UP/DOWN vocabulary `power.failed_psu_count` counts,
-    never a `HealthSeverity` — a policy looking for "CRITICAL" here would
-    match nothing, which is the mirror of the OK/DOWN bug `facts.py`
-    records.
+    """Every collector populates `psus`; a fake fleet reporting none would
+    flag `hardware.power.psus` unread on every seeded server. Health is the
+    UP/DOWN vocabulary `power.failed_psu_count` counts, never `HealthSeverity`.
     """
     servers = list(generate_servers(seed=42, count=300))
     readable = [s for s in servers if s.psus is not None]
@@ -595,9 +548,6 @@ def test_every_readable_server_reports_power_supplies() -> None:
             assert psu["health"] in {"UP", "DOWN", "DISABLED", "UNKNOWN"}
             assert isinstance(psu["capacity_watts"], int)
 
-    # A failed supply exists somewhere in the fleet, so
-    # `power.failed_psu_count` is exercised by a local seed rather than
-    # only ever reading zero.
     assert any(psu["health"] == "DOWN" for s in readable for psu in (s.psus or ()))
 
 
@@ -607,8 +557,7 @@ def test_every_collector_with_macs_reports_per_interface_nics() -> None:
     """
     by_collector: dict[str, list[bool]] = {}
     for server in generate_servers(seed=42, count=400, sites=SITES):
-        # A server whose MACs went unread (an iLO 4) has nothing to report
-        # per port either, so it says nothing about its collector's shape.
+        # Unread MACs (an iLO 4) say nothing about the collector's shape.
         if not server.nic_macs:
             continue
         by_collector.setdefault(provider_type_for(server), []).append(bool(server.nics))
@@ -658,10 +607,9 @@ def test_redfish_nic_names_carry_the_fqdd_kind_an_os_name_derives_from() -> None
 
 
 def test_a_servers_nic_slot_matches_the_profile_its_name_declares() -> None:
-    """The hostname token is the only thing that says which PCIe slot a
-    server's add-in NIC is in, and an OS-level interface name is derived
-    from that slot. A seeded fleet whose names and interfaces disagreed
-    would make that join untestable.
+    """The hostname token is the only thing that says which PCIe slot the
+    add-in NIC is in, and the OS interface name derives from that slot;
+    names and interfaces disagreeing would make that join untestable.
     """
     checked = 0
     for server in generate_servers(seed=42, count=1000, sites=SITES):
@@ -677,10 +625,9 @@ def test_a_servers_nic_slot_matches_the_profile_its_name_declares() -> None:
 
 
 def test_the_add_in_cards_ports_are_the_third_and_fourth_macs() -> None:
-    """Dell's onboard LOM is two ports and is enumerated first, so on a
-    server with an add-in card the card's ports are MACs three and four.
-    That positional fact is what existing tooling selects on; this pins it
-    so the structural lookup (by slot) and the positional one agree.
+    """Dell's two-port onboard LOM enumerates first, so an add-in card's ports
+    are MACs three and four — the positional rule existing tooling selects
+    on (`fake/generator.py`'s `_ONBOARD_PORTS`). Pins slot and position agree.
     """
     checked = 0
     for server in generate_servers(seed=42, count=1000, sites=SITES):

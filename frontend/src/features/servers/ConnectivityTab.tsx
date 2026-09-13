@@ -6,13 +6,8 @@ interface FabricGroup {
   attachments: ConnectivityAttachment[];
 }
 
-/**
- * Groups attachments by their `fabric` label, preserving first-seen order
- * (so "A" then "B" then "C" renders in that order if that's the order they
- * appear in the response — nothing is hardcoded to exactly two fabrics).
- * Attachments with `fabric: null` are collected into a trailing "Other"
- * group instead of being grouped by `null` directly.
- */
+/** Groups attachments by `fabric` in first-seen order; `null` goes into a
+ * trailing "Other" group. */
 function groupByFabric(attachments: ConnectivityAttachment[]): FabricGroup[] {
   const order: string[] = [];
   const groups = new Map<string, ConnectivityAttachment[]>();
@@ -51,10 +46,8 @@ export function ConnectivityTab({ connectivity }: { connectivity: ConnectivityDe
     return <p className="text-gray-500">No connectivity data.</p>;
   }
 
-  // Only the cabled uplinks matter here — a physical port and the vNIC(s)
-  // UCS Manager carves out of it can report the identical `fabric`, so
-  // showing both would list several logical rows per real cable. vNIC data
-  // is still collected and stored, just not surfaced on this tab.
+  // Cabled uplinks only — a port and its vNICs report the same `fabric`
+  // (docs/cisco-collectors.md, "PHYSICAL" vs "VNIC").
   const physical = attachments.filter((a) => a.interface_kind === "PHYSICAL");
 
   if (physical.length === 0) {

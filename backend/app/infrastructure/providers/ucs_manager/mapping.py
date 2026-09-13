@@ -78,11 +78,8 @@ def _management_ip_addr(
     """
     Resolve a server's management IP MO, trying both DNs it can legitimately hang off of.
 
-    The service profile's own DN is tried first — confirmed against real
-    UCS Manager hardware to be the one actually populated — then the
-    compute unit's `mgmtController` DN, which is schema-valid but was
-    empty on that hardware. See docs/cisco-collectors.md, "BMC and
-    management interface selection".
+    Profile DN first (the one populated on real hardware), then the compute
+    unit's `mgmtController` DN — docs/cisco-collectors.md, "BMC and management".
 
     Args:
         profile (Any | None): The server's `lsServer` service profile, or
@@ -210,10 +207,6 @@ def _nics(*, host_eth_ifs: list[Any], ext_eth_ifs: list[Any]) -> tuple[ProviderN
     return host_nics if host_nics else _extract_nics(ext_eth_ifs)
 
 
-# The vocabulary itself lives in `..ucs_common`: Intersight reports the
-# same values, and one fleet-found mapping must reach both collectors.
-# See docs/cisco-collectors.md, "Adapter interfaces, MACs and fabric
-# attachments".
 def _oper_state(mo: Any) -> str:
     """
     Map UCS's operational-state vocabulary onto the platform's.
@@ -330,11 +323,8 @@ def _cpu_model(cpu_units: list[Any]) -> str | None:
 
 _MEDIA_TYPE_MAP = {"hdd": "HDD", "ssd": "SSD", "nvme": "NVME"}
 
-# `StorageLocalDiskConsts.DISK_STATE_*` mapped onto `HealthSeverity`.
-# Confirmed complete against the installed SDK's full 20-value enum, not
-# only what one fleet showed. See docs/cisco-collectors.md, "CPU, memory
-# and storage", and ADR-0009's "Update (2026-09-07): the health/oper
-# vocabulary gaps..." for why `NA`/`unknown` are deliberately unmapped.
+# Complete against the SDK's 20-value `DISK_STATE_*` enum; `NA`/`unknown`
+# unmapped on purpose — ADR-0009, "Update (2026-09-07): the health/oper ...".
 _DISK_HEALTH_MAP = {
     "good": "HEALTHY",
     "online": "HEALTHY",
@@ -435,9 +425,6 @@ def _storage_drives(disk_units: list[Any]) -> tuple[tuple[dict[str, object], ...
                 "media_type": _media_type(mo),
                 "capacity_bytes": capacity_bytes,
                 "health": _disk_health(mo),
-                # The raw `disk_state` `health` was reduced from — e.g.
-                # "self-test-failed" and "unconfigured-bad" both read
-                # CRITICAL, but only this field still tells them apart.
                 "health_detail": getattr(mo, "disk_state", None) or None,
             }
         )
@@ -448,27 +435,11 @@ _NOT_APPLICABLE_TEMP = "not-applicable"
 
 
 def _gpu_temperature_celsius(mo: Any) -> float | None:
-    r"""
+    """
     A GPU's reported temperature.
 
-    `GraphicsCard.temperature` is typed `string` in the SDK (every XML
-    attribute is), but unlike every other GraphicsCard status field it
-    validates against a decimal-number regex
-    (`^([\\-]?)([123]?[1234]?)([0-9]{0,36})(([.])([0-9]{1,10}))?$`) with
-    a `"not-applicable"` sentinel for unknown — the same shape
-    `storageLocalDisk.size` uses for a real numeric reading, not the
-    enum-value lists every status field (`power`/`thermal`/`oper_state`)
-    uses. Added in UCS Manager 4.0(2a), after the MO class itself
-    (2.1(3a)) — a real sensor reading added later, not part of the
-    original identity-only shape.
-
-    **The unit is unverified.** No docstring states it, on this field or
-    anywhere else in this SDK. Assumed Celsius by convention — every
-    other temperature reading in this platform (Redfish's GPU/CPU
-    telemetry) is Celsius, and `Gpu.temperature_celsius`'s own name
-    already commits to it — but that is this collector's assumption, not
-    a documented fact. Settle against a live server with a known GPU
-    temperature before trusting it in a health policy.
+    A real sensor reading; the unit is assumed Celsius and unverified. See
+    docs/cisco-collectors.md, "`temperature` — real telemetry".
 
     Args:
         mo (Any): A `graphicsCard` MO.
@@ -491,21 +462,8 @@ def _gpu(mo: Any) -> dict[str, object]:
     """
     One `graphicsCard` as the platform's GPU shape.
 
-    Added 2026-09-02, using `graphicsCard`/`graphicsController` rather
-    than the also-existing `coprocessorCard` — confirmed as the correct
-    class two ways: Cisco's own UCS Manager System Monitoring Guide and
-    server install guides document GPU inventory living under
-    **Equipment > ... > Inventory > GPUs**, populated by NVIDIA GPU
-    cards; and `GraphicsCardConsts.MODE_COMPUTE`/`MODE_GRAPHICS` is the
-    documented NVIDIA GRID/vGPU compute-vs-graphics mode toggle, a
-    GPU-specific concept with no reason to exist on unrelated hardware.
-    `coprocessorCard` has no such confirmation anywhere and is not used
-    here — see docs/cisco-collectors.md, "GPUs (coprocessor cards vs.
-    graphics cards)" for what would settle it if that turns out wrong.
-
-    `graphicsController` (`graphicsCard`'s child MO, one per GPU die on
-    a multi-GPU card) carries no field this collector doesn't already
-    have from `graphicsCard` itself — checked and not queried separately.
+    `graphicsCard`, not `coprocessorCard` — see docs/cisco-collectors.md,
+    "GPUs (coprocessor cards vs. graphics cards)".
 
     Args:
         mo (Any): A `graphicsCard` MO.
@@ -524,8 +482,6 @@ def _gpu(mo: Any) -> dict[str, object]:
         "model": getattr(mo, "model", None) or None,
         "serial": getattr(mo, "serial", None) or None,
         "health": _oper_state(mo),
-        # The raw `oper_state` `health` was reduced from — see
-        # `ucs_manager/mapping.py`'s `_psu` for the same field.
         "health_detail": getattr(mo, "oper_state", None) or None,
         "pci_address": getattr(mo, "pci_addr", None) or None,
         "firmware_version": getattr(mo, "firmware_version", None) or None,
@@ -542,15 +498,6 @@ def _gpu(mo: Any) -> dict[str, object]:
 def _gpus(card_units: Iterable[Any]) -> tuple[dict[str, object], ...]:
     """
     Summarize one server's GPUs.
-
-    `graphicsCard`'s only parent is `computeBoard` — a DN path segment
-    directly under the server's own DN (confirmed via `ComputeBoard`'s
-    own `mo_meta`: `rn="board"`, parents `computeBlade`/
-    `computeRackUnit`/`computeServerUnit`), the same pattern
-    `processorUnit` already uses (`.../board/cpu-1`). The existing
-    ancestor-walk join therefore resolves a GPU's owning server with no
-    new logic, for both blades and rack units — unlike PSUs, which have
-    no such path back to a blade at all.
 
     Args:
         card_units (Iterable[Any]): `graphicsCard` MOs owned by one
@@ -611,10 +558,6 @@ def _psu(mo: Any) -> dict[str, object]:
         "model": getattr(mo, "model", None) or None,
         "serial": getattr(mo, "serial", None) or None,
         "health": _oper_state(mo),
-        # The raw `oper_state` `health` was reduced from. Unlike
-        # `oper_power` below, this one IS part of the `Psu` domain model
-        # and is persisted — see `hardware.Psu.health_detail`'s
-        # docstring.
         "health_detail": getattr(mo, "oper_state", None) or None,
         "capacity_watts": _psu_wattage(mo),
         "oper_power": getattr(mo, "power", None) or None,

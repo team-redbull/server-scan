@@ -40,55 +40,19 @@ from app.infrastructure.providers.redfish.mapping import (
 
 _MIB = 1024 * 1024
 
-# The only `collectionState` whose data may be trusted. `CollectedStale`
-# is deliberately excluded even though it means "successfully collected":
-# HPE defines it as data that "may be out of date **or missing** due to
-# the server state … typically when the server is powered off", and
-# "missing" is exactly the zero-that-overwrites-good-data case the
-# provider port's `None` contract exists to prevent.
+# `CollectedStale` can be "missing" — docs/hpe-collectors.md, "Subresources".
 _USABLE_COLLECTION_STATE = "Collected"
 
-# HPE's own subresource names, from the `SubResourceName` enum. All
-# three come back inside `GET /rest/server-hardware?expand=all`.
 DEVICES = "Devices"
 LOCAL_STORAGE = "LocalStorage"
 LOCAL_STORAGE_V2 = "LocalStorageV2"
 
-# Power supplies are NOT in that enum, even though `/powerSupplies`
-# returns the same `SubResourceV10` envelope — HPE's docs are
-# inconsistent here, so whether `expand=all` returns them is
-# undetermined. The provider looks for this key first and only falls
-# back to the per-server call when it is absent. See
-# docs/hpe-collectors.md, "Power supplies".
+# Not in that enum; read from `expand=all` first, per-server call second —
+# docs/hpe-collectors.md, "Power supplies" and "CPU threads".
 POWER_SUPPLIES = "PowerSupplies"
-
-# Same undetermined-by-docs situation as `POWER_SUPPLIES`: `/processors`
-# is the only place OneView reports a per-socket `TotalThreads`
-# (`server-hardware`'s own top-level fields carry
-# `processorCount`/`processorCoreCount` only). Confirmed present in
-# `subResources` alongside `PowerSupplies` on a live appliance
-# 2026-09-07, so the same expand-first, per-server-call-as-fallback
-# pattern applies. See docs/hpe-collectors.md, "CPU threads".
 PROCESSORS = "Processors"
 
-# `Oem.Hpe.PowerSupplyStatus.State` -> this platform's PSU vocabulary
-# (`UP`/`DOWN`/`DISABLED`/`UNKNOWN` — `app.domain.models.hardware.
-# Psu.health`, and what `power.failed_psu_count` counts `DOWN` from).
-# **Deliberately not `HealthSeverity`**: a `Psu.health` of `"CRITICAL"`
-# would count as zero failures forever, since `facts.py` checks
-# `== "DOWN"` — this is exactly the bug this dict shipped with from
-# 2026-09-01 until it was found and fixed 2026-09-07, discovered only by
-# comparing OneView's vocabulary against every other collector's (see
-# `..redfish.mapping.psu_health`'s own docstring for the same warning,
-# and `..redfish.mapping._PSU_STATE`'s comment — this is the third time
-# this exact confusion has shipped in this codebase). `Degraded` and the
-# voltage warnings map to `UNKNOWN`, not `DOWN`, matching
-# `..redfish.mapping.psu_health`'s "still delivering power" rule for
-# Redfish's own `Warning` — a policy against `power.failed_psu_count`
-# must not fire for a PSU that has not lost redundancy. Anything not
-# listed falls back to `psu_health`, the same Redfish-vocabulary fallback
-# `psus_from_supplies` uses, since a OneView PSU row is itself
-# Redfish-schema-shaped.
+# `Psu.health` vocabulary, never `HealthSeverity` — docs/hpe-collectors.md, "Power supplies".
 _PSU_STATE_HEALTH: dict[str, str] = {
     "Ok": "UP",
     "GoodInStandby": "UP",
@@ -103,22 +67,13 @@ _PSU_STATE_HEALTH: dict[str, str] = {
     "FanFailure": "DOWN",
 }
 
-# `mpModel` is documented with exactly one example value, `iLO4` — no
-# enum, no pattern, and nothing at all about iLO 5/6/7. So the generation
-# is parsed off the end rather than equality-tested against a guessed
-# string, and a non-match is reported as unknown rather than as iLO 4.
+# `mpModel` documents one example, `iLO4` — docs/hpe-collectors.md, "iLO identity".
 _ILO_GENERATION = re.compile(r"(\d+)\s*$")
 
-# Management-processor address types that cannot be used as a host. An
-# IPv6 link-local address needs a zone index to be routable at all, which
-# nothing downstream carries.
+# Unroutable without a zone index — docs/hpe-collectors.md, "The management-processor address".
 _UNUSABLE_ADDRESS_TYPES = frozenset({"LinkLocal", "LinkLocal_Required", "SLAAC"})
 
-# Preference order for the management processor's address, best first.
-# Undocumented — HPE states neither the ordering nor the cardinality of
-# `mpIpAddresses` — so this is a stated assumption, and
-# `tools/verify_oneview.py` prints the real list so an appliance can
-# settle it.
+# A stated assumption, best first — same section.
 _ADDRESS_TYPE_ORDER = ("Static", "DHCP", "Lookup", "Undefined")
 
 
@@ -142,9 +97,8 @@ def _opt_int(value: object) -> int | None:
     """
     Normalize a OneView numeric field to a positive `int` or `None`.
 
-    Zero is mapped to `None` deliberately: OneView reports `0` for a
-    count it has not collected, and this platform's contract is that a
-    number it could not read is `None`, never zero.
+    Zero is `None` on purpose: OneView reports `0` for a count it has not
+    collected, and an unread number is `None` here, never zero.
 
     Args:
         value (object): A raw OneView field value.
@@ -185,11 +139,8 @@ def subresource(hardware: dict[str, Any], name: str) -> dict[str, Any]:
     """
     Find one named subresource envelope on a server-hardware member.
 
-    HPE documents the per-subresource fields (`collectionState`, `data`,
-    `name`, …) but not whether `subResources` is an object keyed by name
-    or an array of those envelopes. Both shapes are accepted rather than
-    guessed; `tools/verify_oneview.py` prints which one a real appliance
-    uses.
+    Both the object-keyed and the array shape are accepted (docs/hpe-collectors.md,
+    "Subresources and `collectionState`").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
@@ -214,12 +165,8 @@ def subresource_data(hardware: dict[str, Any], name: str) -> list[dict[str, Any]
     """
     The rows of one subresource, or `None` when it could not be read.
 
-    `None` covers every non-`Collected` state — `InsufficientFirmware`
-    (an iLO 4, which cannot report any subresource), `CollectionError`,
-    `CollectedStale`, `NotCollected`, `Unknown` — and also the
-    unexpanded case, since HPE leaves `data` empty unless `expand=all`
-    was sent. All of them mean "not read this run", which is a different
-    claim from "read, and there are none".
+    Every non-`Collected` state and the unexpanded case are `None`
+    (docs/hpe-collectors.md, "Subresources and `collectionState`").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
@@ -237,16 +184,8 @@ def subresource_data(hardware: dict[str, Any], name: str) -> list[dict[str, Any]
         return None
     data = envelope.get("data")
     if isinstance(data, dict):
-        # A Redfish-shaped collection: the rows live under one of these
-        # keys. Checked by presence, not truthiness — `or`-chaining a
-        # genuinely-empty list (falsy) would fall through to the next
-        # key and report the whole subresource unreadable instead of
-        # collected-and-empty, contradicting this function's own
-        # contract above. Bug found 2026-09-07 writing a regression test
-        # for the OneView storage fallback (`docs/adr/0022`'s validation
-        # section) — an empty `LocalStorageV2.data.Drives: []` was
-        # silently becoming `None` here, before `_storage()` ever got a
-        # chance to fall back to V1.
+        # Presence, not truthiness: `[]` is collected-and-empty — ADR-0022's
+        # "Results, 2026-09-07".
         for key in ("Members", "Drives", "PhysicalDrives"):
             if key in data:
                 data = data[key]
@@ -262,12 +201,8 @@ def management_processor_address(hardware: dict[str, Any]) -> str | None:
     """
     Pick the one management-processor address this server is reached at.
 
-    `mpIpAddresses` is a list mixing IPv4 and IPv6 with a `type` on each
-    entry, and HPE documents neither its ordering nor that an entry is
-    always present. Link-local and SLAAC entries are discarded outright —
-    a link-local address is unroutable without a zone index — and the
-    rest are taken in `Static`, `DHCP`, `Lookup` order. `mpHostName` is
-    the fallback, which is only useful where DNS resolves it.
+    `Static`, `DHCP`, `Lookup` order over `mpIpAddresses`, link-local
+    discarded, `mpHostName` last (docs/hpe-collectors.md, "The management-processor address").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
@@ -305,13 +240,8 @@ def _nics(hardware: dict[str, Any]) -> tuple[tuple[ProviderNic, ...], tuple[str,
     """
     Read the server's physical network ports out of `portMap`.
 
-    Only `physicalPorts` are reported. A `virtualPorts` entry is a
-    FlexNIC carved out of a physical port, and both levels carry a MAC —
-    feeding both into `nic_macs` would inflate a set this platform
-    correlates identity on.
-
-    Neither link speed nor link state exists anywhere in `portMap`, so
-    both are reported as unknown rather than synthesised.
+    `physicalPorts` only, never FlexNIC `virtualPorts`; no speed or link
+    state exists there (docs/hpe-collectors.md, "NICs — `portMap`").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
@@ -358,11 +288,8 @@ def _gpus(hardware: dict[str, Any]) -> tuple[dict[str, object], ...] | None:
     """
     Read the GPUs out of the `Devices` subresource.
 
-    OneView reports a GPU's model string and **no memory field
-    anywhere** — not on the device, not on the server, not in the
-    `Processor` schema. `memory_bytes` is therefore always `None` here
-    and is filled in downstream from `INVENTORY_GPU_MODELS` and the
-    built-in catalog, keyed on the model string.
+    OneView reports no GPU memory field anywhere, so `memory_bytes` is
+    always `None` and the catalog fills it in (docs/hpe-collectors.md, "GPUs").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
@@ -425,14 +352,8 @@ def _drive_v1(drive: dict[str, Any]) -> dict[str, object]:
     """
     Map one `LocalStorage` drive — HPE's own SmartStorage schema.
 
-    Capacity comes from `CapacityMiB`, or from
-    `CapacityLogicalBlocks * BlockSizeBytes` where that is absent.
-    **Never from `CapacityGB`**, which HPE documents as "the marketing
-    capacity (base 10)".
-
-    `MediaType` here carries one value the Redfish enum does not,
-    `SMR` — shingled magnetic recording, a hard disk — which
-    `media_type_of` already maps onto HDD.
+    Capacity from `CapacityMiB` or blocks x block size, never `CapacityGB`
+    (docs/hpe-collectors.md, "Storage").
 
     Args:
         drive (dict[str, Any]): One `PhysicalDrives[]` entry.
@@ -465,15 +386,10 @@ def _drive_v1(drive: dict[str, Any]) -> dict[str, object]:
 
 def _physical_drives_v1(controllers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Flatten every array controller's own drive list into one list.
+    Flatten every array controller's own `PhysicalDrives[]` into one list.
 
-    `LocalStorage.data` is a list of `HpeSmartStorageArrayController`
-    objects, each carrying its own `PhysicalDrives[]` — never a flat
-    drive list itself. Confirmed against a live appliance 2026-09-07 (see
-    `docs/adr/0022-oneview-only-hpe-collector.md`'s validation section):
-    applying `_drive_v1` straight to a controller object produced a
-    `capacity_bytes: None` "drive" per controller instead of the real
-    drives underneath it, so every server mapped as zero drives.
+    `LocalStorage.data` is per controller, never a flat drive list —
+    ADR-0022's "Results, 2026-09-07".
 
     Args:
         controllers (list[dict[str, Any]]): The `LocalStorage` envelope's
@@ -497,14 +413,8 @@ def _storage(
     """
     Read the server's drives from whichever local-storage schema it answers on.
 
-    A Gen10-Plus adapter reports `LocalStorageV2` instead of (or alongside)
-    `LocalStorage`; V2 is tried first and used whenever it actually yields
-    drives. An empty V2 read (`data: []`, genuinely collected and empty)
-    falls back to V1 rather than being taken as "zero drives" — a live
-    appliance has been seen reporting exactly that shape while V1 held the
-    real drives (confirmed 2026-09-07, see `docs/adr/0022`'s validation
-    section). V2's empty read is trusted only once V1 is confirmed
-    unreadable too.
+    `LocalStorageV2` first; an *empty* V2 read falls back to V1 (docs/hpe-collectors.md,
+    "Storage", and ADR-0022's "Results, 2026-09-07").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
@@ -522,9 +432,7 @@ def _storage(
         if v1_rows is not None:
             rows, mapper = _physical_drives_v1(v1_rows), _drive_v1
         elif v2_rows is not None:
-            # V2 was genuinely read and is empty, and V1 could not be
-            # read at all — trust V2's real (if empty) answer rather
-            # than reporting "not read" for a server that has none.
+            # V2 read and empty, V1 unreadable: trust V2's real answer.
             rows, mapper = v2_rows, _drive_v2
         else:
             return None, None
@@ -539,9 +447,7 @@ def _redfish_status_pair(status: object) -> str:
     """
     A PSU's generic Redfish `Health`/`State` pair, combined for display.
 
-    Matches `..redfish.mapping.psus_from_supplies`'s own `health_detail`
-    exactly, since a OneView PSU row is itself Redfish-schema-shaped and
-    `psu_health`'s fallback reduces this same pair.
+    Matches `..redfish.mapping.psus_from_supplies`'s own `health_detail`.
 
     Args:
         status (object): The PSU row's own `Status` field, expected to be
@@ -559,14 +465,8 @@ def psus_from(rows: list[dict[str, Any]] | None) -> tuple[dict[str, object], ...
     """
     Map one server's power supplies.
 
-    OneView reports more about a PSU than either Cisco collector does:
-    a rated capacity in documented Watts, and an HPE-specific state that
-    separates `Failed` from `Degraded` from `ACPowerLost`. That state,
-    via `_PSU_STATE_HEALTH`, is preferred over the generic Redfish
-    `Status.Health`/`Status.State` (`psu_health`) because it is the more
-    specific answer; `psu_health` is the fallback for a state this
-    platform has no mapping for — both report in the same
-    `UP`/`DOWN`/`DISABLED`/`UNKNOWN` vocabulary, never `HealthSeverity`.
+    HPE's own `PowerSupplyStatus.State` decides, `psu_health` is the
+    fallback; never `HealthSeverity` (docs/hpe-collectors.md, "Power supplies").
 
     Args:
         rows (list[dict[str, Any]] | None): `PowerSupplies` entries, or
@@ -593,8 +493,6 @@ def psus_from(rows: list[dict[str, Any]] | None) -> tuple[dict[str, object], ...
                 "serial": _opt_str(row.get("SerialNumber")),
                 "health": _PSU_STATE_HEALTH.get(str(state), psu_health(row)),
                 "health_detail": _opt_str(state) or _redfish_status_pair(row.get("Status")),
-                # "The maximum amount of power, in Watts, that the
-                # associated power supply is rated to deliver."
                 "capacity_watts": _opt_int(row.get("PowerCapacityWatts")),
             }
         )
@@ -603,14 +501,9 @@ def psus_from(rows: list[dict[str, Any]] | None) -> tuple[dict[str, object], ...
 
 def cpu_threads_from(rows: list[dict[str, Any]] | None) -> int | None:
     """
-    Sum every processor's own thread count into a whole-system total.
+    Sum every processor's own `TotalThreads` into a whole-system total.
 
-    `/processors` is the only place OneView reports a per-socket
-    `TotalThreads` — `server-hardware`'s top-level fields carry
-    `processorCount`/`processorCoreCount` only, never a thread count, so
-    `cpu_cores` (computed from those two) has no equivalent source for
-    threads. Mirrors `sum(TotalCores)`, the cross-check
-    `tools/verify_oneview.py` already makes against the same endpoint.
+    `/processors` is OneView's only source for threads (docs/hpe-collectors.md, "CPU threads").
 
     Args:
         rows (list[dict[str, Any]] | None): `Processors` entries, or
@@ -722,15 +615,10 @@ def server_from(
     return ProviderServer(
         external_id=str(hardware.get("uri") or profile.uri),
         vendor=Vendor.HP.value,
-        # From the profile, never `hardware["name"]` (`"Encl1, bay 3"` for
-        # a blade, `"ILO<serial>"` for a rack) and never `serverName` (an
-        # OS hostname, and only where HPE AMS is running).
+        # From the profile, never `hardware["name"]` — docs/hpe-collectors.md, "The name trap".
         name=profile.name,
         model=_opt_str(hardware.get("model")),
-        # The *physical* serial, from the hardware. The profile's own
-        # `serialNumber` defaults to a virtual one, and ingest correlates
-        # on `(vendor, serial_normalized)` — a virtual serial would split
-        # one machine into two documents.
+        # The physical serial, never the profile's virtual one — "The join, and the serial".
         serial=_opt_str(hardware.get("serialNumber")),
         system_uuid=_opt_str(hardware.get("uuid")),
         nic_macs=nics[1] if nics is not None else None,
@@ -741,31 +629,17 @@ def server_from(
         profile_template_name=profile.template_name,
         profile_template_external_id=profile.template_uri,
         cpu_sockets=sockets,
-        # `processorCoreCount` is documented as "Number of cores available
-        # **per processor**", while this platform's `cpu_cores` is a
-        # whole-system figure. Without the multiplication every
-        # two-socket server reports half its cores, silently.
+        # `processorCoreCount` is per processor — docs/hpe-collectors.md, "CPU, memory".
         cpu_cores=(
             sockets * cores_per_socket
             if sockets is not None and cores_per_socket is not None
             else None
         ),
-        # `server-hardware`'s top-level fields carry no thread count at
-        # all — only `/processors` does (see `cpu_threads_from`). A
-        # `2 x cores` guess is exactly the heuristic ADR-0020 deleted, so
-        # this stays `None` (ingest carries forward the stored value)
-        # whenever `processors` itself is unread.
         cpu_threads=cpu_threads_from(processors),
         cpu_model=_opt_str(hardware.get("processorType")),
-        # "Amount of memory installed on this server hardware in MiB
-        # (1 MiB = 1,048,576 bytes)" — HPE documents the factor inline,
-        # unlike Intersight's undocumented `TotalMemory`.
         memory_total_bytes=memory_mib * _MIB if memory_mib is not None else None,
         storage_total_bytes=storage_total,
         storage_drives=drives,
         gpus=_gpus(hardware),
-        # `/powerSupplies` is a per-server call that the expanded
-        # payload may or may not include — see `POWER_SUPPLIES`. `None`
-        # when neither route produced it, never an empty list.
         psus=psus_from(power_supplies),
     )

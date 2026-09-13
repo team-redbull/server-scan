@@ -55,13 +55,8 @@ from app.infrastructure.providers.ucs_central.provider import (
 pytestmark = pytest.mark.unit
 
 
-# --- fixtures shaped like the real MOs -------------------------------------
-#
-# `ComputeSystem` carries `id`/`name`/`address` (confirmed against the
-# installed `ucscsdk==0.9.0.10` mometa), and `LsServer` carries `domain` —
-# the value that names the UCS Manager a profile lives on, which is the
-# same flow `app.domain.models.manager`'s docstring already records from
-# the user's existing UCS operator.
+# `ComputeSystem` carries `id`/`name`/`address` and `LsServer` carries
+# `domain`, confirmed against the installed `ucscsdk==0.9.0.10` mometa.
 
 
 def _domain(domain_id: str, name: str, **props: Any) -> SimpleNamespace:
@@ -136,14 +131,11 @@ class FakeDomainProvider(ServerInventoryProvider):
         super().__init__()
         self._servers = servers
         self._error = error
-        # Only used to make one domain finish observably after another in
-        # `test_domains_stream_as_they_finish_not_after_the_whole_fleet` —
-        # every other test leaves this at 0.
+        # Only the streaming-order test sets this.
         self._delay = delay
         # Set in `_list_servers`'s own `finally`, so a test can tell a
-        # cancelled-and-drained domain (the real `UcsManagerProvider`'s
-        # equivalent would be `await client.logout()`) apart from one
-        # abandoned mid-collection.
+        # cancelled-and-drained domain (the real equivalent is
+        # `client.logout()`) apart from one abandoned mid-collection.
         self.torn_down = False
 
     async def health_check(self) -> None:
@@ -208,13 +200,9 @@ async def _collect(provider: UcsCentralProvider) -> list[ProviderServer]:
 async def _collect_with_logs(
     provider: UcsCentralProvider,
 ) -> tuple[list[ProviderServer], list[EventDict]]:
-    """Collect, capturing structlog events as dicts.
-
-    `structlog.testing.capture_logs` rather than `capsys`/`caplog`: whether
-    these events render to stdout or through stdlib `logging` depends on
-    which logging configuration is active, which differs between running
-    this file alone and running the whole suite. Asserting on the event
-    payload instead of on rendered text makes the test independent of that.
+    """Collect, capturing structlog events as dicts via `capture_logs` —
+    whether events render to stdout or stdlib `logging` depends on which
+    config is active, so assert on the payload, not rendered text.
     """
     with capture_logs() as events:
         servers = [ps async for ps in provider.collect()]
@@ -231,9 +219,7 @@ def _events(events: list[EventDict], name: str) -> list[EventDict]:
         ("compute/sys-1009/chassis-1/blade-1", "1009"),
         ("compute/sys-1009/rack-unit-3", "1009"),
         ("compute/sys-1009", "1009"),
-        # Global objects live outside any domain's subtree — an org's
-        # service profiles, for instance — and must not be attributed to
-        # one.
+        # Global objects (an org's profiles) belong to no domain.
         ("org-root/ls-ocp4-prod-tlv-infra-01", None),
         ("extpol/reg/clients/client-1009", None),
         ("compute", None),
@@ -249,10 +235,8 @@ def test_domain_id_from_dn(dn: str, expected: str | None) -> None:
 
 class TestCentralExternalId:
     """A UCS Manager DN is domain-local, so `sys/chassis-1/blade-1` repeats
-    in every domain. Every server here carries `manager_id =
-    mgr_ucs_central`, so without re-rooting they would all crowd into one
-    `Server.external_ids` namespace where the DN names several machines at
-    once.
+    in every domain; without re-rooting, every domain's servers would share
+    one `Server.external_ids` namespace under `mgr_ucs_central`.
     """
 
     @pytest.mark.parametrize(
@@ -260,11 +244,9 @@ class TestCentralExternalId:
         [
             ("sys/chassis-1/blade-1", "compute/sys-1009/chassis-1/blade-1"),
             ("sys/rack-unit-3", "compute/sys-1009/rack-unit-3"),
-            # Already domain-qualified, or simply not a UCS Manager DN —
-            # rewriting again would produce `compute/sys-1009/compute/...`.
+            # Already qualified — rewriting again would double the prefix.
             ("compute/sys-1010/chassis-1/blade-1", "compute/sys-1010/chassis-1/blade-1"),
-            # What `profile_template_external_id` carries; org DNs are
-            # global in Central and already correct.
+            # Org DNs are global in Central.
             ("org-root/ls-ocp4-prod-tlv-infra-01", "org-root/ls-ocp4-prod-tlv-infra-01"),
             ("", ""),
         ],
@@ -312,10 +294,9 @@ class TestDomainsToCollect:
         assert skipped == []
 
     def test_a_domain_with_no_known_profiles_is_collected(self) -> None:
-        """The load-bearing test. ADR-0014's open question is whether
-        Central lists domain-local service profiles at all; if it does not,
-        pruning on that absence would drop precisely the affected domains
-        and the inventory would come back mysteriously small.
+        """ADR-0014's open question is whether Central lists domain-local
+        profiles at all; pruning on their absence would drop exactly the
+        affected domains.
         """
         domains = [_domain("1009", "dc1-a"), _domain("1010", "no-profiles-in-central")]
         ls_servers = [_profile("ocp4-prod-tlv-infra-01", "dc1-a")]
@@ -343,11 +324,9 @@ class TestDomainsToCollect:
         assert skipped == []
 
     def test_templates_do_not_count_as_profiles(self) -> None:
-        """`lsServer` carries both real profiles and the templates they
-        derive from, told apart only by `type` (`ucs_common.TEMPLATE_TYPES`
-        — there is no separate template class in either SDK). A template
-        named `ocp-blade-template` is not a server, so it must not keep an
-        otherwise-unmatched domain alive.
+        """`lsServer` carries profiles and templates alike, told apart only by
+        `type` (docs/cisco-collectors.md, "Profiles and templates share one
+        class"); a template must not keep an unmatched domain alive.
         """
         domains = [_domain("1009", "dc1-a")]
         ls_servers = [
@@ -361,11 +340,9 @@ class TestDomainsToCollect:
 
     @pytest.mark.parametrize("key", ["dc1-a", "10.0.0.9", "1009"])
     def test_profiles_resolve_by_domain_name_address_or_id(self, key: str) -> None:
-        """Which of the three Central puts in `LsServer.domain` is not
-        pinned down by the SDK, so all three must resolve — guessing wrong
-        would look exactly like "this domain has no profiles", which is the
-        never-prune case and would quietly cost a round trip per domain per
-        run.
+        """The SDK does not pin which of the three Central puts in
+        `LsServer.domain`; guessing wrong would look exactly like "no
+        profiles", the never-prune case.
         """
         domains = [_domain("1009", "dc1-a")]  # address is 10.0.0.9
         ls_servers = [_profile("vmware-esx-01", key)]
@@ -408,10 +385,9 @@ class TestDomainsToCollect:
 
 
 class TestPruningIsNeverStricterThanTheNameFilter:
-    """`tools.run_collector._NameFilteredProvider` uses `re.search`. A
-    pruner using `re.match` would drop domains whose servers the real
-    filter would have kept — an inventory silently missing whole domains,
-    with nothing to point at.
+    """`tools.run_collector._NameFilteredProvider` uses `re.search`; a pruner
+    using `re.match` would silently drop whole domains the real filter
+    would have kept.
     """
 
     def test_pattern_matching_mid_name_still_keeps_the_domain(self) -> None:
@@ -442,13 +418,9 @@ class TestListServers:
         assert client.calls[-1] == "logout"
 
     async def test_domains_stream_as_they_finish_not_after_the_whole_fleet(self) -> None:
-        """`list_servers()` must yield a domain's servers as soon as that
-        domain finishes, not wait for every domain in the batch —
-        otherwise a run killed at its `activeDeadlineSeconds` loses the
-        *entire* run instead of just the domains still in flight. Proven
-        by making the domain submitted *first* finish *last*: a
-        gather-then-yield implementation would still pass a naive "both
-        arrive eventually" check, so this asserts arrival order instead.
+        """A run killed at `activeDeadlineSeconds` must lose only the domains
+        in flight, so servers stream per domain. The domain submitted first
+        finishes last here, so arrival order is what proves it.
         """
         client = FakeCentralClient(
             {
@@ -472,11 +444,9 @@ class TestListServers:
         assert arrival_order == ["ocp4-fast-01", "ocp4-slow-01"]
 
     async def test_stopping_early_cancels_and_drains_every_domain(self) -> None:
-        """A consumer that stops early (`--limit`, a killed run) throws
-        `GeneratorExit` in at the `yield` in `_list_servers` — which must
-        not leave a still-running domain's task, and the `UcsManagerProvider`
-        session it holds, abandoned. Proven with one domain slow enough to
-        still be in flight when the consumer stops.
+        """A consumer that stops early throws `GeneratorExit` in at
+        `_list_servers`'s `yield`, which must not abandon a still-running
+        domain's task and the UCS Manager session it holds.
         """
         client = FakeCentralClient(
             {
@@ -523,8 +493,6 @@ class TestListServers:
             )
         )
 
-        # Identical chassis/slot numbering across domains is the norm, so
-        # without the rewrite these two would collide on one external id.
         assert sorted(s.external_id for s in servers) == [
             "compute/sys-1009/chassis-1/blade-1",
             "compute/sys-1010/chassis-1/blade-1",
@@ -638,9 +606,8 @@ class TestListServers:
 
     async def test_profiles_naming_an_unregistered_domain_are_warned_about(self) -> None:
         """A `LsServer.domain` matching no `computeSystem` is inventory the
-        collector cannot reach, and would otherwise vanish silently — the
-        one case the per-domain loop cannot surface, since it iterates
-        registered domains.
+        collector cannot reach — the one case the per-domain loop cannot
+        surface, since it iterates registered domains.
         """
         client = FakeCentralClient(
             {
@@ -664,15 +631,9 @@ class TestListServers:
 
 
 class TestCollectionErrors:
-    """What `tools.run_collector` turns into exit code 3.
-
-    A domain that fails contributes no servers and no ingest errors, so its
-    absence is invisible in the summary counts — a wrong password on one
-    domain reads exactly like a healthy run against a smaller estate. This
-    property is the only channel that distinguishes them, which makes its
-    *negative* cases as load-bearing as its positive ones: an error raised
-    for ordinary pruning would paint every healthy run red until someone
-    stopped believing the signal.
+    """What `tools.run_collector` turns into exit code 3. A failed domain
+    contributes nothing to the summary counts, so this is the only channel
+    telling it from a smaller estate — its negative cases matter as much.
     """
 
     async def test_a_complete_run_reports_no_errors(self) -> None:
@@ -704,17 +665,13 @@ class TestCollectionErrors:
 
         assert [s.name for s in servers] == ["ocp4-prod-two-infra-01"]
         (error,) = provider.collection_errors
-        # The message has to name the domain and carry the cause, or an
-        # operator reading exit 3 still has to go digging in the logs.
         assert "10.0.0.9" in error
         assert "bad credentials" in error
 
     async def test_ordinary_pruning_is_not_an_error(self) -> None:
-        """The critical negative case. A domain skipped because none of its
-        profiles match the name pattern is the collector working correctly,
-        not a fault — reporting it would make exit 3 permanent for any fleet
-        whose UCS Central also fronts non-OCP domains, and a signal that is
-        always on is a signal nobody reads.
+        """A domain skipped because no profile matches the name pattern is
+        the collector working, not a fault — reporting it would make exit 3
+        permanent for any Central that also fronts non-OCP domains.
         """
         client = FakeCentralClient(
             {
@@ -734,12 +691,9 @@ class TestCollectionErrors:
         assert provider.collection_errors == ()
 
     async def test_a_domain_with_no_address_is_an_error(self) -> None:
-        """Skipped for having no address is a fault, not a pruning decision:
-        Central registered the domain and then gave us nothing to connect
-        to, so its servers are missing from the run either way.
-
-        Both `name` and `address` are empty because the endpoint falls back
-        to the domain name — a domain with a name is still reachable by it.
+        """No address is a fault, not pruning: Central registered the domain
+        and gave nothing to connect to. Both `name` and `address` are empty
+        because the endpoint falls back to the name.
         """
         client = FakeCentralClient({"computeSystem": [_domain("1009", "", address="")]})
         provider = _provider(client)
@@ -774,10 +728,9 @@ class TestCollectionErrors:
 
 
 class TestDomainSummaryDiagnostics:
-    """The domain *list* is the one thing this collector still takes from
-    Central's replica and cannot verify any other way, so every run reports
-    what Central believes each domain holds against what that domain's own
-    UCS Manager actually returned.
+    """The domain list is the one thing still taken from Central's replica,
+    so every run reports what Central believes each domain holds against
+    what its own UCS Manager returned.
     """
 
     async def test_every_registered_domain_gets_one_summary_line(self) -> None:
@@ -806,8 +759,6 @@ class TestDomainSummaryDiagnostics:
         summaries = _events(events, "ucs_central.domain_summary")
         assert len(summaries) == 2
         healthy = next(e for e in summaries if e["domain_id"] == "1009")
-        # Both halves of the comparison: Central's claim, and the domain's
-        # own answer.
         assert healthy["reported_servers"] == "2"
         assert healthy["collected_servers"] == 2
         stalled = next(e for e in summaries if e["domain_id"] == "1010")
@@ -822,9 +773,8 @@ class TestDomainSummaryDiagnostics:
             {
                 "computeSystem": [_domain("1009", "pruned"), _domain("1010", "contacted")],
                 "lsServer": [
-                    # Only domain 1009 has known profiles, and none match —
-                    # so it is pruned and never contacted. 1010 has no known
-                    # profiles, so it is collected and comes back empty.
+                    # 1009's profiles match nothing, so it is pruned; 1010 has
+                    # none known, so it is collected and comes back empty.
                     _profile("vmware-esx-07", "pruned")
                 ],
             }
@@ -836,15 +786,9 @@ class TestDomainSummaryDiagnostics:
         assert summaries["1010"]["collected_servers"] == 0
 
     async def test_a_skipped_domains_summary_logs_before_collection_even_starts(self) -> None:
-        """Added 2026-09-02, at the user's request: the coverage log used
-        to be batched at the end of the whole run, the one thing the
-        streaming fix above left un-streamed. A skipped domain's summary
-        is now logged synchronously during planning — before the
-        `asyncio.as_completed` loop has even been entered — so it
-        survives a kill that happens while a *different*, slow domain is
-        still being collected. Proven by reading only the first server
-        the generator yields and confirming the skipped domain's summary
-        already fired, without draining the slow domain at all.
+        """A skipped domain's summary logs during planning, before the
+        `as_completed` loop, so it survives a kill while a slow domain is
+        still collecting (ADR-0014). Only the first server is read here.
         """
         client = FakeCentralClient(
             {

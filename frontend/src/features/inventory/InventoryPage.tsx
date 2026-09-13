@@ -12,11 +12,6 @@ import { useSitesQuery } from "@/features/sites/hooks";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 const INSTALLATION_TYPES = ["HOSTED_CLUSTER", "MCE", "UPI", "UNCLASSIFIED"] as const;
-// Whether a cluster is using the server, from the OpenShift jobs — a
-// different question from `INSTALLATION_TYPES` above, which is a regex
-// verdict on the hostname. Labelled here rather than reusing the enum
-// values: "INSTALLED_TO_INVENTORY" in a dropdown is not a phrase anyone
-// says out loud.
 const OPENSHIFT_STATES = [
   { value: "INSTALLED", label: "Installed" },
   { value: "INSTALLED_TO_INVENTORY", label: "In inventory" },
@@ -30,8 +25,6 @@ const HEALTH_SEVERITIES = [
   "MAJOR",
   "CRITICAL",
 ] as const;
-// One class string for every filter control so the bar reads as a single
-// row of peers rather than a set of slightly different boxes.
 const FIELD_CLASS =
   "mt-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
 
@@ -42,31 +35,15 @@ function isSortableField(value: string): value is SortableField {
   return (SORTABLE_FIELDS as readonly string[]).includes(value);
 }
 
-/**
- * Primary landing page: the server inventory table. All filter and
- * pagination state lives in the URL (`useSearchParams`) rather than
- * component state, so a refresh or a back-button navigation lands the user
- * back where they were — an explicit project requirement, not polish.
- *
- * Site and vendor are both closed `<select>`s sourced from the domain's
- * own enums, not free text. The previous free-text `site_id` box required
- * typing an opaque generated id exactly right to get any result at all,
- * and a single wrong character returned an empty table that looked
- * identical to "this site has no servers".
- */
+/** The inventory table. All filter and pagination state lives in the URL,
+ * so refresh and back both land where the user was — a project requirement. */
 export function InventoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // The site dropdown's options come from the sites endpoint, never from a
-  // list held here: the backend enum is the only definition of which sites
-  // exist and what each is called.
   const sites = siteOptions(useSitesQuery().data?.items);
 
-  // The backend only gives us a forward cursor, so "Previous" is backed by
-  // a locally-tracked stack of visited cursors. It resets whenever filters
-  // change (a new filter set invalidates the whole cursor chain) and does
-  // not survive a page reload — an acceptable slice-1 limitation, since the
-  // "Next" flow (the required behavior) is fully URL-backed regardless.
+  // The backend only gives a forward cursor, so "Previous" is a local stack
+  // of visited cursors: reset on any filter change, lost on reload.
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
 
   const searchInput = searchParams.get("search") ?? "";
@@ -86,19 +63,11 @@ export function InventoryPage() {
   const sortDesc = searchParams.get("sort_desc") === "true";
   const cursor = searchParams.get("cursor") ?? undefined;
 
-  // The filter fields alone, with no pagination or sort — shared by the
-  // list request and the facets request. Kept separate from `queryParams`
-  // below because the facets endpoint deliberately ignores cursor/sort/
-  // page_size (a facet count describes the whole filtered set, not one
-  // page of it), and computing its own params here — rather than reusing
-  // `queryParams` — keeps its cache key from changing on every page turn
-  // or sort click, which used to fire a byte-identical facets request on
-  // each one.
+  // Filters alone: a separate object stops every page turn or sort click
+  // refiring a byte-identical facets request.
   const filterParams: ServerListParams = useMemo(() => {
-    // Built incrementally (rather than `field: value || undefined`) because
-    // `exactOptionalPropertyTypes` forbids assigning `undefined` to an
-    // optional property outright — an omitted key and a key explicitly set
-    // to `undefined` are distinct types under this tsconfig.
+    // Built incrementally: `exactOptionalPropertyTypes` forbids assigning
+    // `undefined` to an optional property outright.
     const params: ServerListParams = {};
     if (debouncedSearch) params.search = debouncedSearch;
     if (vendor) params.vendor = vendor;
@@ -131,14 +100,9 @@ export function InventoryPage() {
     useServersQuery(queryParams);
   const { data: facets } = useServerFacetsQuery(filterParams);
 
-  /** Append a filter option's match count to its label.
-   *
-   * Deliberately silent in two cases rather than showing a wrong number.
-   * When `filtered` is true this dimension already has a value selected,
-   * so the single request behind these counts only saw servers matching
-   * it — every other option would read as zero when it is really unknown.
-   * And an option genuinely matching nothing is absent from the response,
-   * which renders as a plain label rather than "(0)". */
+  /** Append a filter option's match count to its label. Silent when this
+   * dimension is already filtered (every other option would read as zero
+   * when it is really unknown) and when the option is absent from the response. */
   function withCount(
     label: string,
     counts: Record<string, number> | undefined,
@@ -150,10 +114,9 @@ export function InventoryPage() {
     return count === undefined ? label : `${label} (${count})`;
   }
 
-  /** Apply a filter patch to the URL and drop any in-flight cursor — the
-   * backend rejects a cursor from before a filter change, so the UI
-   * shouldn't send one. `replace: true` keeps keystroke-level search edits
-   * from spamming browser history. */
+  /** Apply a filter patch to the URL and drop the cursor, which the backend
+   * rejects after a filter change. `replace: true` keeps keystrokes out of
+   * browser history. */
   function updateFilters(patch: Record<string, string | null>) {
     setSearchParams(
       (prev) => {
@@ -214,11 +177,7 @@ export function InventoryPage() {
   const servers = data?.items ?? [];
   const hasMore = data?.page.has_more ?? false;
 
-  // What's actually filtering the list right now, named the way an
-  // operator would say it — a facet count beside a control answers "what
-  // would this option show me", not "what am I looking at", and an empty
-  // table with no other explanation reads as "no servers" rather than
-  // "no servers match what you asked for".
+  // Named for the empty state: "no servers match" rather than "no servers".
   const activeFilters: { key: string; label: string }[] = [];
   if (debouncedSearch) activeFilters.push({ key: "search", label: `Search "${debouncedSearch}"` });
   if (vendor) activeFilters.push({ key: "vendor", label: `Vendor ${vendor}` });
@@ -308,9 +267,6 @@ export function InventoryPage() {
           </select>
         </div>
 
-        {/* How a server is reached, which is a different question from who
-            built it. `REDFISH_STANDALONE` means the machine has no manager,
-            so there is no point looking for it in OpenManage or UCS. */}
         <div className="flex flex-col text-xs font-medium text-[var(--text-secondary)]">
           <label htmlFor="filter-source">Source</label>
           <select

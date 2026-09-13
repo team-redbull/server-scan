@@ -52,13 +52,8 @@ logger = structlog.get_logger(__name__)
 
 _PROVIDER_TYPE = ManagerType.REDFISH_STANDALONE.value
 
-# The separator `_collect_host` writes for a plain `RedfishUnreachableError`
-# only — exported so a caller can recognize it without re-deriving it.
+# `collection_errors` shapes, exported for `tools.run_collector` and `..openmanage`.
 UNREACHABLE_MARKER = ": unreachable — "
-
-# The shape `_record_auth_failure` writes, exported for the same reason —
-# see `tools.run_collector._is_benign_collection_error` and
-# `..openmanage.provider._is_uncollected`.
 AUTH_REJECTED_MARKER = ": login failed for credential "
 
 
@@ -136,13 +131,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         Verify the collector is configured well enough to run.
 
-        Deliberately makes no network call. There is no single endpoint
-        whose reachability means the fleet can be collected, and probing a
-        canary host would reintroduce the single point of failure this
-        collector exists to remove — one host being reimaged would kill
-        every other host's run. Credential validity is checked instead by
-        the pre-flight at the head of `_list_servers`, against a host that
-        actually answers.
+        Deliberately makes no network call (ADR-0016, 2026-09-13 update).
 
         Raises:
             ValueError: If the inventory is empty. `load_targets` already
@@ -156,19 +145,15 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         Collect every host in the inventory.
 
-        Yields each host's servers as that host finishes rather than
-        gathering the fleet, so a run killed at its deadline has already
-        persisted what completed. `collect()` (the base class) resets
-        `collection_errors` before calling this.
+        Each host's servers are yielded as it finishes, so a run killed at
+        its deadline has already persisted what completed.
 
         Yields:
             ProviderServer: One per `ComputerSystem` found.
         """
         self._auth_failures = 0
 
-        # Shuffled because completion order is not arrival order: without
-        # this the run budget would truncate the same slow hosts every
-        # run, leaving them permanently stale and invisible.
+        # Shuffled so a truncated sweep does not starve the same slow hosts.
         order = list(self._targets)
         random.shuffle(order)
 
@@ -180,28 +165,8 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         hosts_done = 0
         budget_expired = False
         try:
-            # The budget lives on `as_completed`'s own `timeout=`, not on an
-            # `asyncio.timeout()` wrapped around this loop, on purpose:
-            # this is a generator, and `asyncio.timeout()` captures
-            # `current_task()` once, at `__aenter__` — which here is
-            # whichever task is driving us via `asend`/`athrow`. When the
-            # deadline lands while we're suspended at the `yield` below —
-            # the normal case, since the real consumer awaits a Mongo
-            # upsert per server — that cancellation is raised in the
-            # *consumer's* frame, not ours, and the `except TimeoutError`
-            # below never ran. `as_completed(timeout=...)` instead raises
-            # `TimeoutError` from `await finished` itself, always inside
-            # this frame, regardless of who's driving the generator.
-            #
-            # That alone only bounds waiting for host tasks that haven't
-            # finished yet: if every host finishes quickly but *this*
-            # generator is kept waiting a long time between yields (a slow
-            # consumer), `as_completed` cancels its own timeout the moment
-            # the last host task completes, and it would never fire. The
-            # `loop.time() >= deadline` check below is what still bounds
-            # the whole run in that case — checked every time we're given
-            # control back, which is the most a generator can do without
-            # an external supervisor.
+            # `as_completed(timeout=)` plus the deadline check, never
+            # `asyncio.timeout()` around a generator — ADR-0016, 2026-09-13 update.
             for finished in asyncio.as_completed(tasks, timeout=self._run_budget):
                 try:
                     batch = await finished
@@ -238,20 +203,14 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         finally:
             for task in tasks:
                 task.cancel()
-            # Drained rather than abandoned, so each cancelled host still
-            # runs its session teardown.
+            # Drained, so each cancelled host still runs its session teardown.
             await asyncio.gather(*tasks, return_exceptions=True)
 
         self._log_summary(total=len(order), collected=collected)
 
     def _log_summary(self, *, total: int, collected: int) -> None:
         """
-        Emit one run summary, always.
-
-        Logged even when everything succeeded: "0 collected, 0 failed" is
-        the signature of an empty inventory, while "0 collected, 400
-        failed" is a credential or network fault, and without this they
-        look identical.
+        Emit one run summary, even when everything succeeded (ADR-0016, 2026-09-13 update).
 
         Args:
             total (int): Hosts attempted.
@@ -278,9 +237,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         Returns:
             list[ProviderServer]: Its servers, or an empty list on failure.
         """
-        # Acquired *before* the budget starts, so time spent queueing for
-        # a slot is not charged against the host. Reversing these makes
-        # every host past the first few "time out" without a packet sent.
+        # Slot first, then the budget — queueing is not charged to the host.
         async with semaphore:
             if not target.verify_tls:
                 logger.warning(
@@ -309,8 +266,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 logger.exception("redfish.tls_verify_failed", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}: TLS verification failed — {exc}")
             except RedfishUnreachableError as exc:
-                # ERROR: a caller may not fail the run over this (see
-                # UNREACHABLE_MARKER), so the log is the only signal left.
+                # ERROR: the log may be the only signal left (UNREACHABLE_MARKER).
                 logger.exception("redfish.host_unreachable", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}{UNREACHABLE_MARKER}{exc}")
             except (RedfishError, ValueError) as exc:
@@ -340,17 +296,8 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         Open a session and map every `ComputerSystem` the BMC exposes.
 
-        One BMC can expose more than one system, for two different
-        reasons that need opposite handling. OpenBMC multi-host genuinely
-        means several independent servers sharing a BMC — each becomes
-        its own `ProviderServer`. NVIDIA's DGX/HGX platforms instead
-        split *one* physical machine into a host system (e.g.
-        `/redfish/v1/Systems/DGX`) and a GPU-baseboard system with no CPU
-        at all (`/redfish/v1/Systems/HGX_Baseboard_0`) — ingesting both
-        independently would create a second, CPU-less, often
-        vendor-less "server" for the same box. `has_only_gpu_processors`
-        tells the two apart: a tray reports GPUs and nothing that looks
-        like a CPU. See docs/adr/0016's dated update.
+        A DGX/HGX GPU-baseboard tray is folded into its sibling host; an
+        OpenBMC multi-host system is not (ADR-0016's DGX/HGX update).
 
         Args:
             target (RedfishTarget): The BMC to collect.
@@ -379,9 +326,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
             bmc_mac = await self._bmc_mac(client, systems[0])
 
-            # Read every system's Processors + GPU telemetry up front, so
-            # a GPU-baseboard tray can be recognized and its metrics
-            # already in hand before deciding whether to merge it.
+            # Up front, so a tray is recognized before anything is mapped.
             fetched: list[
                 tuple[dict[str, Any], list[dict[str, Any]] | None, dict[str, Any], dict[str, Any]]
             ] = []
@@ -429,9 +374,6 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
             collected: list[ProviderServer] = []
             for system, processors, gpu_metrics, gpu_environment in emit:
-                # Never raises: a missing/null Manufacturer maps to
-                # Vendor.STANDALONE (vendor_from_manufacturer) rather than
-                # failing the system, so there is nothing to catch here.
                 collected.append(
                     system_to_provider_server(
                         system,
@@ -454,11 +396,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
     def _note_no_systems(self, target: RedfishTarget, *, reason: str) -> None:
         """
-        Record a BMC that authenticated but exposes no server.
-
-        Not silent: the inventory is the operator's own assertion that a
-        server is at this address, so nothing there is a wrong address, an
-        enclosure manager mistaken for a node, or a licensing limitation.
+        Record a BMC that authenticated but exposes no server (ADR-0016, 2026-09-13 update).
 
         Args:
             target (RedfishTarget): The BMC.
@@ -482,10 +420,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         Read a sub-collection, tolerating a BMC that cannot serve it.
 
-        Returns None rather than an empty list on failure, and that
-        distinction is load-bearing: the ingest pipeline carries a `None`
-        forward, where an empty list would overwrite good stored data and
-        — for drives — silently clear a failed-drive health finding.
+        `None` (never `[]`) on failure, which ingest carries forward.
 
         Args:
             client (Any): The authenticated client.
@@ -514,11 +449,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         Read every drive behind a system's `Storage` controllers.
 
-        `Storage.Drives` is an inline array of links, not a sub-collection,
-        so each drive is fetched by following its own `@odata.id` — the
-        normative URI is served under Chassis on some vendors and under
-        Systems on others, and constructing either would be wrong
-        somewhere.
+        Each `Drives[].@odata.id` is followed (ADR-0016, 2026-09-13 update).
 
         Args:
             client (Any): The authenticated client.
@@ -550,11 +481,8 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         Read each GPU's own `ProcessorMetrics` and `EnvironmentMetrics`.
 
-        Two extra requests per GPU, not per host — the real cost this
-        module's docstring warns about. A GPU whose metrics link is
-        absent or unreadable degrades that one GPU's telemetry to
-        unread, matching `_optional`'s tolerance, rather than failing
-        the server over an error-counter fetch.
+        Two requests per GPU, each failing to `None` rather than failing the
+        host (ADR-0016's GPU telemetry update).
 
         Args:
             client (Any): The authenticated client.
@@ -615,14 +543,10 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
     async def _psus(self, client: Any, system: dict[str, Any]) -> list[dict[str, Any]] | None:
         """
-        Read a system's power supplies, through its chassis.
+        Read a system's power supplies through `Links.Chassis`.
 
-        PSUs hang off `Chassis`, not `ComputerSystem`, so this follows
-        `Links.Chassis` first. Two schema generations are both live in the
-        field and both are tried: `PowerSubsystem/PowerSupplies` (Redfish
-        2020.4+, a real collection) and the deprecated `Power` resource,
-        which carries a `PowerSupplies` array inline. An iLO or iDRAC too
-        old for the former still answers the latter.
+        `PowerSubsystem/PowerSupplies` first, then the deprecated `Power`
+        resource (ADR-0016, 2026-09-13 update).
 
         Args:
             client (Any): The authenticated client.
@@ -650,8 +574,6 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             if supplies is not None:
                 return supplies
 
-        # Deprecated since 2020.4 but still what most fielded BMCs serve:
-        # one resource with the supplies inline, not a collection.
         power = await self._optional_link(client, chassis, "Power")
         if power is None:
             return None

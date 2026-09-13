@@ -65,13 +65,7 @@ async def get_request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
 
-# Placeholder until real authentication lands (the platform's own release
-# gate — see the session's approved plan): every audit event recorded from
-# an API request needs *some* actor, and until there's a `Principal` to
-# extract one from, every request is attributed to this well-known
-# unauthenticated actor rather than left null. `data.get("actor_id")` will
-# stop returning this constant the moment auth is wired in — nothing about
-# the audit event *shape* changes, only what this dependency returns.
+# Stands in until authentication lands (CLAUDE.md, convention 6).
 _UNAUTHENTICATED_ACTOR = Actor(type=ActorType.USER, id="unauthenticated", display="API (no auth)")
 
 

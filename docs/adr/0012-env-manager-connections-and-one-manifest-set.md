@@ -106,3 +106,45 @@ Helm natively.
   Central collector, not a list of endpoints.
 - `deploy/README.md` no longer documents two paths, and a change to a
   manifest is made once.
+
+## Update (2026-09-13): how `EnvConnectionResolver` is shaped, and one trap
+
+Recorded here from `app.infrastructure.credentials.env`'s comments, which
+this ADR's decision is the reason for.
+
+**Login and endpoint are two maps, split by manager type on purpose.**
+`_LOGIN_FIELDS` names the pair of `Settings` fields holding every type's
+credential, so one Secret and one values block serve every vendor. For
+most that pair is a username and a password; **Intersight's is an API Key
+ID and a PEM private key, and the fields are named that way** — calling
+them a username and a password made an operator's first guess (an
+account password) look plausible. The *shape* stays a pair; only the
+field names differ, which is what lets `ManagerNotConfiguredError` name
+the right variable to set.
+
+`_ENDPOINT_FIELD` deliberately omits two types, and the absence is why
+the maps are separate rather than one three-tuple:
+
+- **`UCS_MANAGER`** is reached by the UCS Central collector, once per
+  domain, at the address Central reports (`ComputeSystem.address`). There
+  is no `INVENTORY_UCS_MANAGER_IP`; an endpoint here would name a single
+  domain that nothing reads. `resolve_login` exists for exactly this: one
+  fleet-wide service account used many times, not a login per domain, and
+  `resolve()` says so in as many words rather than demanding a variable
+  that does not exist.
+- **`REDFISH_STANDALONE`** has a fleet-wide fallback login but no single
+  endpoint, because its endpoints are the hosts in its inventory file
+  (ADR-0016). It is the second instance of the shape the split expresses.
+
+`configured_manager_types` iterates the endpoint map, not the login map,
+so `UCS_MANAGER` can never appear in "what is configured" by
+construction rather than by a `resolve()` call guaranteed to fail.
+
+**The `SecretStr` trap.** Every password/PEM field on `Settings` is a
+`SecretStr` so it never prints in a log line or a `repr()` — and
+`str(a_secret_str)` deliberately returns the mask `"**********"`, not the
+value. A naive `str(getattr(settings, name))` therefore signs every
+collector connection with the literal string `"**********"`.
+`env._read` is the one place that unwraps it (`get_secret_value()`), for
+the one consumer downstream (`ManagerConnection`, `RedfishCredential`)
+that genuinely needs the raw string. Keep it that way.

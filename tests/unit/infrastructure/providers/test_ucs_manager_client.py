@@ -127,10 +127,9 @@ class TestErrorTranslation:
         [URLError("connection reset"), TimeoutError("timed out"), ConnectionResetError()],
     )
     async def test_query_translates_network_errors(self, error: Exception) -> None:
-        """`ucsdriver.post` re-raises urllib's errors untouched, and these
-        are all `OSError` subclasses — they are *not* part of either SDK
-        exception tree, so a mid-collection network drop would otherwise
-        escape as a raw `OSError`.
+        """`ucsdriver.post` re-raises urllib's errors untouched — `OSError`
+        subclasses outside either SDK's exception tree — so a network drop
+        would otherwise escape raw (docs/cisco-collectors.md).
         """
         client = _client(StubHandle(error=error))
         with pytest.raises(UcsManagerConnectionError, match="could not reach"):

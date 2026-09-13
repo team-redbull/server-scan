@@ -210,12 +210,9 @@ class TestComputeUnitToProviderServer:
         assert result.bmc_address_raw is None
 
     def test_management_ip_pool_address_is_preferred_over_mgmt_if_ext_ip(self) -> None:
-        """On real hardware `mgmtIf.ext_ip` was seen unset while the
-        service profile's management IP address policy had already
-        assigned a real address — recorded as a direct child of the
-        *profile's own DN*, not the physical `mgmtController`, confirmed
-        against real UCS Manager hardware. See
-        `ucs_common.management_ip_by_parent_dn`.
+        """On real hardware `mgmtIf.ext_ip` was unset while the profile's
+        management IP policy had assigned an address under the profile's
+        own DN (docs/cisco-collectors.md; `ucs_common.management_ip_by_parent_dn`).
         """
         profile = _profile()
         result = compute_unit_to_provider_server(
@@ -317,8 +314,7 @@ class TestComputeUnitToProviderServer:
             disk_units=[],
         )
         assert result.attachments == ()
-        # The NIC's MAC is still real and still reported, even though it
-        # isn't attached to a fabric — those are independent facts.
+        # The MAC is reported even with no fabric attachment.
         assert result.nic_macs == ("AA:BB:CC:DD:EE:01",)
 
     def test_multiple_adapters_preserve_order(self) -> None:
@@ -377,10 +373,9 @@ class TestComputeUnitToProviderServer:
     def test_physical_oper_state_recognizes_the_full_ucsmsdk_enum(
         self, oper_state: str, expected: str
     ) -> None:
-        """`AdaptorExtEthIf.OPER_STATE_*` has 13 values; only 8 were ever
-        mapped before a live UCS Central dry run (2026-09-07) confirmed
-        the full enum against the installed SDK. See ADR-0009's
-        "Update (2026-09-07)".
+        """`AdaptorExtEthIf.OPER_STATE_*` has 13 values; only 8 were mapped
+        before the 2026-09-07 live dry run. See ADR-0009's "Update
+        (2026-09-07)".
         """
         result = compute_unit_to_provider_server(
             _blade(),
@@ -399,12 +394,9 @@ class TestComputeUnitToProviderServer:
         assert attachment.oper_state == expected
 
     def test_indeterminate_oper_state_stays_unknown_on_purpose(self) -> None:
-        """Confirmed live 2026-09-07: `"indeterminate"` was 24% of one
-        fleet's physical interfaces — common, not an edge case — and is
-        Cisco's own name for "cannot be determined", the literal
-        definition of this platform's UNKNOWN. Deliberately not mapped;
-        this pins the current, correct behavior against a future change
-        that might otherwise guess a tier for it.
+        """Confirmed live 2026-09-07: `"indeterminate"` was 24% of one fleet's
+        physical interfaces and is Cisco's own "cannot be determined" —
+        deliberately unmapped (ADR-0009's "Update (2026-09-07)").
         """
         result = compute_unit_to_provider_server(
             _blade(),
@@ -565,9 +557,7 @@ class TestComputeUnitToProviderServer:
         assert result.cpu_sockets == expected
 
     def test_rack_unit_shape_maps_the_same_way(self) -> None:
-        # computeRackUnit carries the same relevant attribute set as
-        # computeBlade (see mapping.py's module docstring) — no
-        # chassis_id/slot_id needed for identity, `dn` alone is enough.
+        # Same attribute set as computeBlade; `dn` alone identifies it.
         rack_unit = SimpleNamespace(
             dn="sys/rack-unit-1",
             name="rack-unit-1",
@@ -769,13 +759,9 @@ class TestCpuAndStorage:
             ("self-test-failed", "CRITICAL"),
             ("something-unmapped", "UNKNOWN"),
             ("", "UNKNOWN"),
-            # Confirmed live 2026-09-07 (18117 sampled disks): both real
-            # StorageLocalDiskConsts.DISK_STATE_* values, deliberately
-            # left unmapped. "unknown" is Cisco's own "no verdict" state
-            # -- the fallback already answers it correctly. "NA" means
-            # "this field doesn't apply to this disk", not "unread" or
-            # "bad" -- guessing a tier would be a confident wrong answer.
-            # See ADR-0009's "Update (2026-09-07)".
+            # Confirmed live 2026-09-07 (18117 disks): both are real
+            # DISK_STATE_* values deliberately left unmapped — "unknown" is
+            # no verdict, "NA" is not applicable. See ADR-0009's "Update (2026-09-07)".
             ("unknown", "UNKNOWN"),
             ("na", "UNKNOWN"),
         ],
@@ -796,9 +782,7 @@ class TestCpuAndStorage:
         )
         assert result.storage_drives is not None
         assert result.storage_drives[0]["health"] == expected
-        # The raw disk_state health was reduced from, verbatim — None for
-        # an empty string, matching `health_detail`'s "no state to
-        # preserve" contract rather than reporting an empty string.
+        # An empty disk_state is None, per `health_detail`'s contract.
         assert result.storage_drives[0]["health_detail"] == (disk_state or None)
 
     def test_unmapped_device_type_is_unknown_media(self) -> None:
@@ -820,12 +804,9 @@ class TestCpuAndStorage:
 
 
 class TestPsus:
-    """Added 2026-09-02 at the user's request. `health` and `oper_power`
-    are deliberately both collected from `equipmentPsu`'s two separate
-    state fields (`oper_state` and `power`) — not yet reduced to one —
-    so a live run can show which tracks a real failure more reliably.
-    Only `health` (from `oper_state`) is part of the `Psu` domain model;
-    `oper_power` is dry-run-only, see `mapping._psu`.
+    """`health` (from `oper_state`) and `oper_power` (from `power`) are both
+    kept so a live run can show which tracks a real failure; only `health`
+    reaches the `Psu` model, `oper_power` is dry-run-only (`mapping._psu`).
     """
 
     def test_an_equipped_psu_is_reported(self) -> None:
@@ -876,10 +857,9 @@ class TestPsus:
         assert psu["oper_power"] == "failed"
 
     def test_an_empty_psu_bay_is_not_reported_as_a_failed_psu(self) -> None:
-        """A slot with no PSU installed is a different claim from a PSU
-        that failed — reporting it would permanently misreport
-        power.failed_psu_count for any server provisioned with fewer
-        PSUs than bays.
+        """A slot with no PSU installed is not a failed PSU — reporting it
+        would permanently misreport `power.failed_psu_count` for any server
+        with fewer PSUs than bays.
         """
         result = compute_unit_to_provider_server(
             _blade(),
@@ -936,11 +916,8 @@ class TestPsus:
 
 
 class TestGpus:
-    """Added 2026-09-02 at the user's request. `graphicsCard`, not
-    `coprocessorCard` — confirmed via Cisco's own UI documentation
-    ("Inventory > GPUs") and the NVIDIA-GRID-specific compute/graphics
-    mode enum. See mapping._gpu and docs/cisco-collectors.md, "GPUs
-    (coprocessor cards vs. graphics cards)".
+    """`graphicsCard`, not `coprocessorCard` — see `mapping._gpu` and
+    docs/cisco-collectors.md, "GPUs (coprocessor cards vs. graphics cards)".
     """
 
     def test_an_equipped_gpu_is_reported(self) -> None:

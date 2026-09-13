@@ -2,14 +2,10 @@ import { LinkStateBadge } from "@/components/LinkStateBadge";
 import { Reported } from "@/components/Reported";
 import type { NetworkInfo, NetworkInterface } from "@/types/server";
 
-/** `NIC.Slot.8-1-1` / `NIC.Integrated.1-2-1` -> the kind and its port. */
 const FQDD = /^NIC\.([A-Za-z]+)\.(\d+)-(\d+)-(\d+)$/;
 
-/** Where an interface physically is, in words.
- *
- * The stored `location` is `8/1/1`, which is exact and unreadable. This
- * says the same thing, and says "Onboard" rather than "Slot 1" for an
- * integrated NIC — the distinction the OS name hangs off. */
+/** `8/1/1` in words; "Onboard" rather than "Slot 1" for an integrated NIC,
+ * the distinction the OS name hangs off. */
 function describeLocation(iface: NetworkInterface): string | null {
   const match = FQDD.exec(iface.name);
   if (!match) return iface.location;
@@ -24,12 +20,10 @@ export function NetworkTab({
   unreadFields = [],
 }: {
   network: NetworkInfo | undefined;
-  /** FQDD -> OS-level name, for the interfaces a mapping is configured
-   * for. Absent entries render as nothing at all, never as a guess. */
+  /** FQDD -> OS-level name; absent entries render as nothing, never a guess. */
   osNames?: Record<string, string>;
-  /** `ServerDetail.unread_fields` — dotted paths the most recent collection
-   * could not read. Optional so the tab still renders for a caller with no
-   * such list (a document written before the field existed). */
+  /** `ServerDetail.unread_fields`; optional for a document written before
+   * the field existed. */
   unreadFields?: string[] | undefined;
 }) {
   if (!network) {
@@ -47,10 +41,8 @@ export function NetworkTab({
         </h2>
         {bmc ? (
           <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-            {/* The host alone: an operator wants the address they would
-             * ping or open, not the scheme, port and Redfish path the
-             * collector reported. The full URI is still stored, for the
-             * Metal3 `BareMetalHost` round-trip. */}
+            {/* The host alone; the full URI is still stored for the Metal3
+             * `BareMetalHost` round-trip. */}
             <Stat label="Address" value={bmc.host ?? bmc.address_raw ?? "—"} />
             {bmc.mac && <Stat label="MAC" value={bmc.mac} />}
           </dl>
@@ -77,18 +69,13 @@ export function NetworkTab({
                         {iface.mac ?? "—"}
                       </span>
                     </div>
-                    {/* Every field here dashes rather than disappearing
-                     * when it was not read. A missing row reads as "does
-                     * not apply"; a dash says the collector looked and got
-                     * nothing, which is the distinction this whole codebase
-                     * turns on. */}
+                    {/* A dash, not a missing row: the collector looked and
+                     * got nothing. */}
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-gray-500">
                       <span>{location ?? "—"}</span>
                       <span aria-hidden>·</span>
-                      {/* The MAC's position in discovery order. Existing
-                       * tooling selects the pair to bond by this ("the
-                       * third and fourth MACs"), so it is worth showing
-                       * next to the location that supersedes it. */}
+                      {/* Discovery-order position: existing tooling picks the
+                       * bond pair by it ("the third and fourth MACs"). */}
                       <span>MAC #{index + 1}</span>
                       <span aria-hidden>·</span>
                       <span>
@@ -98,9 +85,7 @@ export function NetworkTab({
                       <LinkStateBadge state={iface.link_state} />
                     </div>
                     {osName && (
-                      /* Labelled as derived on purpose: this one is
-                       * configuration, not something the BMC reported, and
-                       * an operator acting on it should know which. */
+                      /* Labelled as derived: configuration, not a BMC reading. */
                       <p className="mt-1 text-sm text-gray-500">
                         OS name (derived):{" "}
                         <span className="font-mono text-gray-700 dark:text-gray-300">

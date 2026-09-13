@@ -31,8 +31,7 @@ from app.infrastructure.providers.intersight.signing import (
 
 pytestmark = pytest.mark.unit
 
-# Fixed so `Date` is a literal in the assertions below rather than
-# whatever the suite happened to run at.
+# Frozen so `Date` is a literal in the assertions below.
 _NOW = 1756400000.0
 _DATE = "Thu, 28 Aug 2025 16:53:20 GMT"
 _KEY_ID = "61970b91aaaa/61970b91bbbb/626f24e5cccc"
@@ -103,11 +102,9 @@ def _sign(pem: str, *, query: str = "%24top=1000") -> dict[str, str]:
 
 def _signing_string(headers: dict[str, str], *, query: str = "%24top=1000") -> bytes:
     """
-    Rebuild the exact bytes the signature must cover.
-
-    Written out independently of the implementation rather than imported
-    from it, so a change to the construction fails here instead of
-    silently agreeing with itself.
+    Rebuild the exact bytes the signature must cover, independently of the
+    implementation so a construction change fails here instead of agreeing
+    with itself.
 
     Args:
         headers (dict[str, str]): The signed headers.
@@ -159,11 +156,9 @@ def test_date_and_digest_come_from_the_clock_and_an_empty_body() -> None:
 def test_the_signature_verifies_against_its_own_public_key(
     pem_factory: Callable[[], str],
 ) -> None:
-    """The cryptographic half, for both API key generations.
-
-    An RSA key must sign PKCS1v15 — the library default is PSS, which
-    Intersight rejects for a v2 key, and nothing but this test would
-    catch that before a live 401.
+    """The cryptographic half, for both API key generations. An RSA key must
+    sign PKCS1v15 — the library default is PSS, which Intersight rejects
+    for a v2 key (docs/cisco-collectors.md).
     """
     pem = pem_factory()
     headers = _sign(pem)

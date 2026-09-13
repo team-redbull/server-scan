@@ -1,8 +1,7 @@
 import type { HealthSeverity } from "@/types/server";
 
-// Keyed by the full `HealthSeverity` union (not a generic index signature),
-// so this stays exhaustive under `noUncheckedIndexedAccess` without an
-// `undefined` branch on lookup.
+// Keyed by the full union, so lookups need no `undefined` branch under
+// `noUncheckedIndexedAccess`.
 const SEVERITY_STYLES: Record<HealthSeverity, string> = {
   HEALTHY: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
   INFO: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",

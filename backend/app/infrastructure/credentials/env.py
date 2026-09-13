@@ -35,16 +35,7 @@ from app.domain.ports.credentials import (
     ManagerNotConfiguredError,
 )
 
-# manager type -> the two `Settings` fields holding its credential. Every
-# type this platform knows about is here, so the values file is uniform
-# across vendors.
-#
-# For most vendors that pair is a username and a password. **Intersight's
-# is not**: it signs each request with an API key, so its two fields are
-# an API Key ID and a PEM private key, and they are named that way. The
-# *shape* stays a pair so one Secret and one values block serve every
-# vendor; only the field names differ, which is what makes
-# `ManagerNotConfiguredError` name the right variable to set.
+# Always a pair; Intersight's is a key id and a PEM, named so (ADR-0012).
 _LOGIN_FIELDS: dict[ManagerType, tuple[str, str]] = {
     ManagerType.UCS_MANAGER: ("ucs_manager_username", "ucs_manager_password"),
     ManagerType.UCS_CENTRAL: ("ucs_central_username", "ucs_central_password"),
@@ -54,19 +45,7 @@ _LOGIN_FIELDS: dict[ManagerType, tuple[str, str]] = {
     ManagerType.REDFISH_STANDALONE: ("redfish_username", "redfish_password"),
 }
 
-# manager type -> the `Settings` field holding the address to connect to.
-#
-# `UCS_MANAGER` is deliberately absent, and that absence is the whole
-# point of this map being separate: a UCS Manager domain is reached by the
-# UCS Central collector, once per domain, at the address Central reports
-# for it. There is no `INVENTORY_UCS_MANAGER_IP` to set, so `resolve()`
-# says that in as many words rather than demanding a variable that no
-# longer exists.
-# `REDFISH_STANDALONE` is absent for the same reason `UCS_MANAGER` is,
-# and it is the second instance of the shape this split exists to
-# express: it has a fleet-wide fallback login but no single endpoint,
-# because its endpoints are the hosts in its inventory file. See
-# docs/adr/0016-redfish-standalone-collector.md.
+# `UCS_MANAGER` and `REDFISH_STANDALONE` are absent on purpose (ADR-0012).
 _ENDPOINT_FIELD: dict[ManagerType, str] = {
     ManagerType.UCS_CENTRAL: "ucs_central_ip",
     ManagerType.ONEVIEW: "oneview_ip",
@@ -92,15 +71,8 @@ def _read(settings: Settings, name: str) -> str:
     """
     Read one settings field as a plain string, unwrapping `SecretStr`.
 
-    Every password/PEM field on `Settings` is a `SecretStr` so it never
-    prints its real value in a log line or a `repr()` of the settings
-    object; `str(a_secret_str)` deliberately returns the masked
-    `"**********"`, not the value — so a naive `str(getattr(...))` here
-    would sign every collector connection with the literal string
-    `"**********"` instead of the real password. This is the one place
-    that unwraps it, for the one place downstream (`ManagerConnection`,
-    `RedfishCredential`) that genuinely needs the raw string to build an
-    SDK handle or an HTTP request body.
+    The one place that unwraps: `str(SecretStr)` is the mask, and a naive
+    `str(getattr(...))` would log in with `"**********"` (ADR-0012).
 
     Args:
         settings (Settings): The settings instance to read from.
@@ -187,17 +159,21 @@ class EnvConnectionResolver:
 
 
 def resolve_login(settings: Settings, manager_type: ManagerType) -> tuple[str, str]:
-    """A manager type's `(username, password)` **without** its endpoint.
+    """
+    A manager type's `(username, password)` without its endpoint.
 
-    For the one collector that discovers its endpoints at runtime instead
-    of reading one from configuration: the UCS Central collector logs into
-    each registered domain's UCS Manager, and Central itself supplies those
-    addresses (`ComputeSystem.address`). One UCS Manager service account is
-    valid across the domains of one fleet, so this is a single login used
-    many times, not a login per domain.
+    For the UCS Central collector, which logs into each domain at the
+    address Central reports with this one fleet-wide account.
 
-    Same error shape as `EnvConnectionResolver.resolve`: a missing value
-    names the environment variable to set.
+    Args:
+        settings (Settings): The settings instance to read from.
+        manager_type (ManagerType): The type whose login is wanted.
+
+    Returns:
+        tuple[str, str]: The username and password.
+
+    Raises:
+        ManagerNotConfiguredError: Naming the environment variables to set.
     """
     login_fields = _LOGIN_FIELDS.get(manager_type)
     if login_fields is None:
@@ -221,17 +197,17 @@ def resolve_login(settings: Settings, manager_type: ManagerType) -> tuple[str, s
 
 
 def configured_manager_types(settings: Settings) -> list[ManagerType]:
-    """Every manager type this deployment can be pointed at directly.
+    """
+    Every manager type this deployment can be pointed at directly.
 
-    Used to report what a deployment actually has configured, without each
-    caller re-implementing "is this one filled in".
+    Iterates `_ENDPOINT_FIELD`, so `UCS_MANAGER` can never appear — it is
+    collected only as part of a `UCS_CENTRAL` run.
 
-    `UCS_MANAGER` can never appear, by construction rather than by
-    accident: it is absent from `_ENDPOINT_FIELD`, so it has no address to
-    be pointed at and is collected only as part of a `UCS_CENTRAL` run.
-    Iterating the endpoint map rather than the login map is what makes
-    that a statement of intent instead of a `resolve()` call that is
-    guaranteed to fail.
+    Args:
+        settings (Settings): The settings instance to read from.
+
+    Returns:
+        list[ManagerType]: The types whose endpoint and login are both set.
     """
     resolver = EnvConnectionResolver(settings)
     configured: list[ManagerType] = []

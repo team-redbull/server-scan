@@ -28,10 +28,8 @@ from pydantic import BaseModel, Field
 from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 
-# UCS Manager is the only manager type that currently has a real parent
-# hierarchy (UCS Central owns UCS Manager domains). Declared explicitly so
-# an invalid hierarchy (e.g. an OPENMANAGE manager under a UCS_CENTRAL
-# parent) is a validation error, not a silently accepted document.
+# The one real hierarchy: UCS Central owns UCS Manager domains. Nothing
+# validates against this yet.
 ALLOWED_PARENT_TYPES: dict[ManagerType, frozenset[ManagerType]] = {
     ManagerType.UCS_MANAGER: frozenset({ManagerType.UCS_CENTRAL}),
 }
@@ -48,9 +46,7 @@ class ManagerRun(BaseModel):
     servers_updated: int
     ingest_errors: int
     collection_errors: int
-    # Exit 3: the run did not see the whole fleet for a reason worth a
-    # human looking at (tools.run_collector's PARTIAL decision).
-    partial: bool
+    partial: bool  # exit 3: tools.run_collector's PARTIAL decision
 
 
 class Manager(BaseModel):
@@ -63,16 +59,11 @@ class Manager(BaseModel):
     parent_manager_id: str | None = None
     endpoint: str | None = None
     enabled: bool = True
-    # Reserved and unused: talking to a BMC directly (redfish/IPMI, for
-    # power actions) is a separate concern from querying a manager, with
-    # a different blast radius, and will need its own credentials when
-    # that lands. Kept as a name rather than a value — no plaintext
-    # secret ever belongs in a document.
+    # Reserved for direct BMC actions (power); a secret's name, never its value.
     bmc_credential_ref: str | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
     audit: AuditFields
-    # Run state, not configuration: written by `record_run`, never by the
-    # config projection `upsert`, so it survives between runs.
+    # Written by `record_run`, never by `upsert`, so it survives between runs.
     last_run: ManagerRun | None = None
 
     model_config = {"populate_by_name": True}

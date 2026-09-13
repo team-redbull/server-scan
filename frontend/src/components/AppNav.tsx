@@ -6,21 +6,16 @@ const LINKS = [
   { to: "/rules", label: "Rules & Policies" },
 ];
 
-/** Minimal top-level nav for an internal admin tool — a horizontal bar,
- * no responsive hamburger menu needed. `pathname === to` (rather than
- * `startsWith`) so `/rules` doesn't also light up while on `/`, at the
- * cost of a nested route not lighting up its parent — good enough for a
- * three-link nav. */
+/** Top-level nav. `pathname === to`, not `startsWith`, so `/rules` does
+ * not light up on `/`; a nested route therefore does not light its parent. */
 export function AppNav() {
   const location = useLocation();
 
   return (
     <nav className="border-b border-[var(--border-subtle)] bg-[var(--surface-raised)]">
       <div className="mx-auto flex max-w-7xl items-center gap-6 px-8">
-        {/* Three classes place it, and nothing else does: `h-*` on the
-            img sizes it (width follows), `-ml-*` here pulls it outside
-            the container's own `px-8` toward the window edge, and the
-            wrapper's `gap-*` sets the distance to "Sites". */}
+        {/* `-ml-*` pulls the logo outside the container's `px-8`; `h-*` on
+            the img sizes it and the wrapper's `gap-*` spaces it. */}
         <Link to="/" className="-ml-2 flex shrink-0 items-center py-1">
           <img src="/redbull-logo.svg" alt="Red Bull" className="h-14 w-auto" />
         </Link>
@@ -38,8 +33,8 @@ export function AppNav() {
               }`}
             >
               {link.label}
-              {/* A 2px bar, not just a colour change: "where am I" should
-                  not depend on distinguishing two greys. */}
+              {/* A bar, not just a colour change, so "where am I" does not
+                  depend on telling two greys apart. */}
               {isActive && (
                 <span
                   aria-hidden="true"

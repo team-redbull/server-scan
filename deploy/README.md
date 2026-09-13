@@ -448,6 +448,19 @@ Central, read through that domain's own UCS Manager. `OPENMANAGE`,
 `INTERSIGHT`, `ONEVIEW` and `REDFISH_STANDALONE` each have a CronJob of
 their own, all shipped disabled.
 
+A collector pod's exit code is the only signal a CronJob carries: `0`
+complete, `1` the manager failed outright (`FAILED (see logs)`), `2` not
+configured — the message names the `INVENTORY_*` variables to set, and
+is checked before any connection is opened, so a half-configured Secret
+never reads as a fleet of bad passwords — and `3` PARTIAL, some servers
+written but not the whole fleet. A BMC that did not answer or rejected
+the login is printed and logged at ERROR but exits `0`, not `3` — on a
+real fleet those happen every run, and PARTIAL had stopped meaning
+anything (ADR-0016's 2026-09-10 updates). TLS failures, a per-host time
+budget exceeded and anything unrecognized still exit `3`. Each run also
+writes its outcome onto the `Manager` document, which is what the
+`server_scan_collector_last_run_*` gauges above read.
+
 `collectors.fake` is the sixth CronJob and the one that reaches no vendor
 at all: it runs `tools/seed_inventory.py`, for a cluster with no UCS,
 OneView, OME, Intersight or BMC to talk to — a demo, a UI environment, or
@@ -515,3 +528,31 @@ update, tracked as pending work in `CLAUDE.md`.
 `deploy/helm/openshift-membership` is the exception in one respect: it is
 written to be pointed at by an ArgoCD `Application` per cluster, so its
 per-cluster values are the only thing that differs between releases.
+
+## Configuration notes
+
+Two traps in `backend/app/config/settings.py` that the variable list in
+`.env.example` cannot express, recorded here (2026-09-13, moved out of
+the settings module's comments) because each cost a session:
+
+- **A field's name is its environment variable.** pydantic-settings
+  derives `INVENTORY_<FIELD>` from the field name with no alias, and
+  `extra="ignore"` means a variable nothing reads never raises. The GPU
+  catalog field originally shipped as `gpu_model_catalog`, so the
+  documented `INVENTORY_GPU_MODELS` was silently a no-op until the field
+  was renamed — confirmed live, not by reading: `Settings()` returned the
+  `INVENTORY_GPU_MODEL_CATALOG` value and ignored `INVENTORY_GPU_MODELS`.
+  A new field's name must match its documented variable letter for
+  letter, and `.env.example`, the Helm values and the field are the three
+  places to check.
+- **`INVENTORY_ENVIRONMENT=production` refuses the committed cursor
+  secret.** `cursor_secret` used to be "only a code comment, not enforced
+  at startup": an install that forgot `backend.cursorSecret` came up
+  healthy and stayed on the dev default forever. A forged cursor is not a
+  disclosure risk while every endpoint is open (CLAUDE.md convention 6),
+  but it becomes one the moment authentication lands, and rotating a
+  secret every deployed cursor already depends on is worse than failing
+  startup now. A blank value fails the same way as the default: a
+  `secretKeyRef` to an empty key still counts as "set" to
+  pydantic-settings, unlike leaving the variable out, so it is a separate
+  mistake with the same fix.

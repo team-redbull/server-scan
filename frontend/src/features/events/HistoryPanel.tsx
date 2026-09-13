@@ -8,11 +8,9 @@ import { formatTimestamp } from "@/lib/datetime";
 import type { AuditEventResponse } from "@/types/events";
 
 interface HistoryPanelProps {
-  /** Event types to fetch (one request per type — `GET /events` has no
-   * multi-value filter). */
+  /** One request per type — `GET /events` has no multi-value filter. */
   eventTypes: string[];
-  /** The key inside each event's `data` object that carries the entity id
-   * ("rule_id" for classification rules, "policy_id" for health policies). */
+  /** The `data` key carrying the entity id ("rule_id", "policy_id"). */
   idField: string;
   entityId: string;
 }
@@ -34,27 +32,16 @@ function formatValue(value: unknown): string {
 }
 
 /**
- * Simple audit-trail timeline for a single rule/policy. `GET /events` only
- * filters by `server_id`/`event_type`/`actor_id` — there is no server-side
- * filter on `data.rule_id`/`data.policy_id` — so this fetches one page per
- * relevant `event_type` and filters client-side to `entityId`. Fine at
- * current audit-log volumes (hundreds to low thousands of events); a
- * documented, deliberate scope choice, not an oversight.
+ * Audit-trail timeline for one rule/policy. `GET /events` cannot filter on
+ * `data.rule_id`/`policy_id`, so this fetches a page per `event_type` and
+ * filters client-side — deliberate at current audit-log volumes.
  */
 export function HistoryPanel({ eventTypes, idField, entityId }: HistoryPanelProps) {
   const results = useQueries({
     queries: eventTypes.map((eventType) => ({
       queryKey: queryKeys.events.list({ event_type: eventType, page_size: 200 }),
       queryFn: () => listEvents({ event_type: eventType, page_size: 200 }),
-      // Rule/policy mutations don't invalidate the events cache (a
-      // create/update/delete's own query invalidation only targets its
-      // own resource's list/detail keys — see the classification/health
-      // hooks — since audit events are a separate resource with no
-      // general relationship to any one mutation). Overriding the
-      // client's 30s default `staleTime` to 0 here means every mount of
-      // this panel (e.g. navigating back to a rule/policy right after
-      // editing it) always refetches instead of silently showing a
-      // pre-edit snapshot for up to 30 seconds.
+      // No mutation invalidates the events cache, so every mount refetches.
       staleTime: 0,
     })),
   });

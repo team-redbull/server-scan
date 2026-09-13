@@ -88,9 +88,7 @@ def _debug_http_enabled() -> bool:
     """
     Report whether `--debug-http` was passed.
 
-    Threaded through the environment rather than the factory signature so
-    it reaches every client the run constructs, matching how `--debug-xml`
-    already reaches `UcsManagerClient`.
+    Via the environment, so it reaches every client the run constructs.
 
     Returns:
         bool: True when HTTP tracing is on.
@@ -109,7 +107,7 @@ def _openmanage_provider(
     """
     Build the Dell collector: OME says who exists, each iDRAC says what it is.
 
-    See `PROVIDER_FACTORIES`' comment below.
+    See docs/adr/0020-dell-identity-from-ome-hardware-from-redfish.md.
 
     Args:
         manager (Manager): The `Manager` projection for `OPENMANAGE`.
@@ -127,10 +125,6 @@ def _openmanage_provider(
         ManagerNotConfiguredError: When the shared iDRAC login
             (`INVENTORY_OME_BMC_USERNAME`/`_PASSWORD`) is not set.
     """
-    # Raised here, before any connection is attempted, so a half-configured
-    # deployment gets the variable names to set rather than a per-BMC 401
-    # that reads like a fleet of bad passwords. `_run` turns
-    # `ManagerNotConfiguredError` into exit code 2 with this message.
     if not settings.ome_bmc_username or not settings.ome_bmc_password:
         raise ManagerNotConfiguredError(
             "The Dell collector reads hardware from each server's iDRAC over "
@@ -140,14 +134,10 @@ def _openmanage_provider(
             "docs/adr/0020-dell-identity-from-ome-hardware-from-redfish.md."
         )
     bmc_credential = RedfishCredential(
-        # Named, not anonymous: this string is what the Redfish collector's
-        # auth guard and every log line report in place of the secret.
         name="ome-bmc",
         username=settings.ome_bmc_username,
-        # `ome_bmc_password` is a `SecretStr` — unwrapped here because
-        # `RedfishCredential.password` is a plain `str` consumed directly
-        # in an HTTP login body. `str(settings.ome_bmc_password)` would
-        # silently sign every iDRAC login with the literal `"**********"`.
+        # `get_secret_value()`, not `str()`: the latter would sign every
+        # iDRAC login with the literal `"**********"`.
         password=settings.ome_bmc_password.get_secret_value(),
     )
 
@@ -181,9 +171,6 @@ def _openmanage_provider(
         timeout_seconds=timeout_seconds,
         bmc_credential=bmc_credential,
         redfish_provider_factory=redfish_for,
-        # Applied before any BMC is contacted: the expensive pass here is
-        # per-server, not per-appliance. The authoritative name filter is
-        # still `_NameFilteredProvider`.
         name_pattern=name_pattern,
         bmc_port=settings.ome_bmc_port,
         bmc_verify_tls=settings.ome_bmc_verify_tls,
@@ -209,7 +196,7 @@ def _ucs_central_provider(
     """
     Build the Cisco collector: Central names the domains, each domain's own UCS Manager for servers.
 
-    See `PROVIDER_FACTORIES`' comment below.
+    See docs/adr/0014-ucs-central-multi-domain-collector.md.
 
     Args:
         manager (Manager): The `Manager` projection for `UCS_CENTRAL`.
@@ -227,54 +214,17 @@ def _ucs_central_provider(
         ManagerNotConfiguredError: When the fleet-wide UCS Manager login
             (`INVENTORY_UCS_MANAGER_USERNAME`/`_PASSWORD`) is not set.
     """
-    # Raised here, before any connection is attempted, so a half-configured
-    # deployment gets the variable names to set rather than a per-domain
-    # login failure that reads like bad credentials. `_run` turns
-    # `ManagerNotConfiguredError` into exit code 2 with this message.
     domain_login = resolve_login(settings, ManagerType.UCS_MANAGER)
     return UcsCentralProvider(
         manager=manager,
         credentials=credentials,
         timeout_seconds=timeout_seconds,
         domain_login=domain_login,
-        # The same pattern `_NameFilteredProvider` applies, reused only to
-        # skip domains that certainly hold nothing of ours. It never
-        # decides which *servers* are ingested — see `domains_to_collect`.
         name_pattern=name_pattern,
         concurrency=settings.ucs_central_domain_concurrency,
     )
 
 
-# One entry per manager type this tool can be pointed at. Every type now
-# has one except UCS_MANAGER, whose absence is deliberate and explained
-# below; a future type without one gets a clear "not implemented yet"
-# from `_build_provider` rather than being silently skipped.
-#
-# Cisco has exactly one entry point, and it is UCS_CENTRAL:
-#
-#   UCS_CENTRAL  Central enumerates the registered domains and their
-#                service-profile names; each domain's real inventory is
-#                then read live from that domain's own UCS Manager through
-#                the emulator-validated `..ucs_manager` path. One Central
-#                login (INVENTORY_UCS_CENTRAL_*) plus one UCS Manager login
-#                valid fleet-wide (INVENTORY_UCS_MANAGER_USERNAME/
-#                _PASSWORD). There is no INVENTORY_UCS_MANAGER_IP: Central
-#                supplies each domain's address.
-#
-# UCS_MANAGER is deliberately absent. `UcsManagerProvider` is not gone —
-# it is the engine this collector drives once per domain — but it has no
-# endpoint of its own to be configured with any more, so pointing this
-# tool at UCS_MANAGER is a usage error rather than a missing feature, and
-# `_build_provider` says so in its own words instead of claiming no
-# collector exists.
-#
-# REDFISH_STANDALONE is the one entry that names no manager at all: it
-# reaches machines no aggregator owns, one BMC at a time, from an
-# inventory file. See docs/adr/0016-redfish-standalone-collector.md.
-#
-# Annotated rather than inferred: mypy would otherwise widen the value
-# type, and the annotation is also what pins the factory contract every
-# future provider must match.
 def _redfish_provider(
     *,
     manager: Manager,
@@ -283,24 +233,26 @@ def _redfish_provider(
     settings: Settings,
     name_pattern: str,
 ) -> ServerInventoryProvider:
-    """The standalone Redfish collector — one BMC at a time, from a file.
+    """
+    Build the standalone Redfish collector: one BMC at a time, from a file.
 
-    `name_pattern` is deliberately unused: this collector has no cheap
-    pre-filter to spend it on — every host in the inventory file is
-    contacted before its name is known. `_NameFilteredProvider` still
-    applies whatever `resolve_name_pattern` returned.
+    See docs/adr/0016-redfish-standalone-collector.md.
 
-    `timeout_seconds` is deliberately unused. This collector splits
-    connect from read (`INVENTORY_REDFISH_CONNECT_TIMEOUT_SECONDS` /
-    `_READ_TIMEOUT_SECONDS`), because one value cannot serve both a fleet
-    with dead hosts in it and a BMC that answers slowly. Named here so a
-    parameter this factory ignores is documented rather than surprising.
+    Args:
+        manager (Manager): The `Manager` projection for `REDFISH_STANDALONE`.
+        credentials (ManagerConnection): Unused — logins come from the
+            credentials file, with `INVENTORY_REDFISH_*` as the fallback.
+        timeout_seconds (float): Unused — connect and read are split
+            (`INVENTORY_REDFISH_CONNECT_TIMEOUT_SECONDS`/`_READ_TIMEOUT_SECONDS`).
+        settings (Settings): Process-wide settings, for the Redfish knobs.
+        name_pattern (str): Unused — every host is contacted before its
+            name is known; `_NameFilteredProvider` still applies it.
+
+    Returns:
+        ServerInventoryProvider: The standalone Redfish collector.
     """
     return RedfishStandaloneProvider(
         manager=manager,
-        # Parsed and fully validated before any connection is opened: a
-        # fan-out collector must not find a typo on host 380 of 400, and a
-        # credential must never reach a host a mistake put in front of.
         targets=load_targets(
             inventory_path=settings.redfish_inventory_file,
             credentials_path=settings.redfish_credentials_file,
@@ -325,25 +277,29 @@ def _intersight_provider(
     settings: Settings,
     name_pattern: str,
 ) -> ServerInventoryProvider:
-    """The Intersight collector — one endpoint, fleet-wide list queries.
+    """
+    Build the Intersight collector: one endpoint, fleet-wide list queries.
 
-    `name_pattern` is deliberately unused: every sub-resource is listed
-    once for the whole estate and joined in memory, so there is no
-    per-server cost a name filter could avoid paying.
-    `_NameFilteredProvider` still applies it.
+    See docs/adr/0017-intersight-collector.md.
 
-    `timeout_seconds` is the connect timeout only. Reading one page of a
-    fleet-wide query is a different question from reaching the endpoint
-    at all, so it has its own setting, the same split the Redfish
-    collector makes.
+    Args:
+        manager (Manager): The `Manager` projection for `INTERSIGHT`.
+        credentials (ManagerConnection): The API key — the resolver put
+            `INVENTORY_INTERSIGHT_API_KEY_ID`/`_PEM` in the username and
+            password slots.
+        timeout_seconds (float): The connect timeout only; a fleet-wide
+            page read has its own `INVENTORY_INTERSIGHT_READ_TIMEOUT_SECONDS`.
+        settings (Settings): Process-wide settings, for the Intersight knobs.
+        name_pattern (str): Unused — every sub-resource is listed once for
+            the whole estate, so there is no per-server cost to skip;
+            `_NameFilteredProvider` still applies it.
+
+    Returns:
+        ServerInventoryProvider: The Intersight collector.
     """
     modes = tuple(
         mode.strip() for mode in settings.intersight_management_modes.split(",") if mode.strip()
     )
-    # `ManagerConnection` carries a username/password pair because most
-    # vendors have one. Intersight does not: the resolver filled those two
-    # slots from INVENTORY_INTERSIGHT_API_KEY_ID/_PEM, and they are named
-    # for what they are from here on.
     return IntersightProvider(
         manager=manager,
         endpoint=credentials.endpoint,
@@ -366,22 +322,27 @@ def _oneview_provider(
     settings: Settings,
     name_pattern: str,
 ) -> ServerInventoryProvider:
-    """The HPE collector — OneView for every server, whatever its iLO.
+    """
+    Build the HPE collector: OneView for every server, whatever its iLO.
 
-    One endpoint and one login, like every other vendor here. There is
-    no BMC login and no Redfish pass: a deliberate decision for a mixed
-    iLO 4/5/6 fleet, recorded in
-    docs/adr/0022-oneview-only-hpe-collector.md.
+    No BMC login, no Redfish pass — docs/adr/0022-oneview-only-hpe-collector.md.
+
+    Args:
+        manager (Manager): The `Manager` projection for `ONEVIEW`.
+        credentials (ManagerConnection): The OneView appliance login.
+        timeout_seconds (float): Per-call timeout passed to the provider.
+        settings (Settings): Process-wide settings, for the OneView knobs.
+        name_pattern (str): The resolved name filter, applied to the
+            profile name to skip the per-server `/powerSupplies` and
+            `/processors` calls; `_NameFilteredProvider` stays authoritative.
+
+    Returns:
+        ServerInventoryProvider: The HPE collector.
     """
     return OneViewProvider(
         manager=manager,
         credentials=credentials,
         timeout_seconds=timeout_seconds,
-        # Applied to the *profile* name, which is the only place a HPE
-        # server's operator-assigned name exists. Still only an
-        # efficiency gate; `_NameFilteredProvider` remains authoritative
-        # — but it does decide which servers cost a `/powerSupplies` or
-        # `/processors` call, the two per-server costs this collector has.
         name_pattern=name_pattern,
         page_size=settings.oneview_page_size,
         collect_psus=settings.oneview_collect_psus,
@@ -394,12 +355,17 @@ def _oneview_provider(
 
 
 def _optional_login(settings: Settings, manager_type: ManagerType) -> tuple[str, str] | None:
-    """A type's fleet-wide login, or None when it has none configured.
+    """
+    A type's fleet-wide login, or None when none is configured.
 
-    Unlike `resolve_login`, a missing value is not an error here: an
-    estate where every BMC has its own account configures no fleet-wide
-    fallback at all, and `load_targets` then produces a far better message
-    naming the specific host whose credential could not be resolved.
+    Not an error: `load_targets` names the specific host left without one.
+
+    Args:
+        settings (Settings): The settings to resolve from.
+        manager_type (ManagerType): Whose login to resolve.
+
+    Returns:
+        tuple[str, str] | None: `(username, password)`, or None.
     """
     try:
         return resolve_login(settings, manager_type)
@@ -407,25 +373,11 @@ def _optional_login(settings: Settings, manager_type: ManagerType) -> tuple[str,
         return None
 
 
-# Types reached without a single configured endpoint. Both resolve a
-# login only; their addresses come from elsewhere at runtime — UCS Central
-# reports its domains, and the Redfish collector reads an inventory file.
-# `EnvConnectionResolver.resolve` would otherwise demand an `_IP` variable
-# that deliberately does not exist.
+# See docs/architecture.md, "How tools/run_collector.py is put together".
 _ENDPOINTLESS_TYPES = frozenset({ManagerType.REDFISH_STANDALONE})
 
-# The *global* `INVENTORY_COLLECTOR_NAME_PATTERN` is not applied to these
-# (a per-type override still is). The pattern exists because a vendor
-# manager holds the whole datacenter and the name is the only
-# discriminator; a standalone collector's inventory file is already that
-# filter, and a far more precise one. Applying `^ocp` over a name a BMC
-# does not know would discard every host the operator listed.
 _UNFILTERED_TYPES = frozenset({ManagerType.REDFISH_STANDALONE})
 
-# manager type -> the `Settings` field overriding `collector_name_pattern`
-# for that collector alone, reusing each type's own env prefix
-# (`INVENTORY_ONEVIEW_NAME_PATTERN`, …). Explicit rather than derived from
-# the member name, for the reason `..credentials.env`'s maps are.
 _NAME_PATTERN_FIELD: dict[ManagerType, str] = {
     ManagerType.UCS_CENTRAL: "ucs_central_name_pattern",
     ManagerType.INTERSIGHT: "intersight_name_pattern",
@@ -439,11 +391,8 @@ def resolve_name_pattern(manager_type: ManagerType, settings: Settings) -> str:
     """
     The name filter one collector actually runs with.
 
-    The single place the global, the per-type override and
-    `_UNFILTERED_TYPES` are reconciled — every reader goes through it, so
-    the authoritative `_NameFilteredProvider` and the collectors' own
-    pruning gates cannot end up filtering on different patterns and
-    silently collecting the intersection.
+    The single place the global, the per-type override and `_UNFILTERED_TYPES`
+    are reconciled, so the wrapper and a collector's own pruning agree.
 
     Args:
         manager_type (ManagerType): Which collector is being run.
@@ -461,26 +410,12 @@ def resolve_name_pattern(manager_type: ManagerType, settings: Settings) -> str:
     return settings.collector_name_pattern
 
 
-# The single source of truth for "which collectors exist". Public, and
-# read across the language boundary by
-# `tests/unit/test_frontend_manager_types.py`, because the alternative —
-# each consumer restating the same list by hand — is what let the Dell
-# and HPE collectors ship unfilterable in the UI while the guard written
-# to catch exactly that drifted along with them and stayed green.
+# Which collectors exist; `UCS_MANAGER` is deliberately absent (docs/architecture.md).
 PROVIDER_FACTORIES: dict[ManagerType, Callable[..., ServerInventoryProvider]] = {
     ManagerType.UCS_CENTRAL: _ucs_central_provider,
     ManagerType.OPENMANAGE: _openmanage_provider,
     ManagerType.REDFISH_STANDALONE: _redfish_provider,
-    # INTERSIGHT is in neither `_ENDPOINTLESS_TYPES` nor
-    # `_UNFILTERED_TYPES`, deliberately: it has a real configured
-    # endpoint, and the servers it reports carry the `ocp4-...` names
-    # `INVENTORY_COLLECTOR_NAME_PATTERN` exists to filter. See
-    # docs/adr/0017-intersight-collector.md.
     ManagerType.INTERSIGHT: _intersight_provider,
-    # ONEVIEW is ordinary: one endpoint, one login, and the name
-    # pattern applies, so it is in neither `_ENDPOINTLESS_TYPES` nor
-    # `_UNFILTERED_TYPES`. See
-    # docs/adr/0022-oneview-only-hpe-collector.md.
     ManagerType.ONEVIEW: _oneview_provider,
 }
 
@@ -542,18 +477,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def manager_for(manager_type: ManagerType, connection: ManagerConnection) -> Manager:
     """
-    Build the `Manager` document representing this deployment's single manager of `manager_type`.
+    Build the `Manager` document for this deployment's manager of `manager_type`.
 
-    Derived from configuration rather than read from MongoDB: with one
-    endpoint per vendor type, a stored document would be a second copy of
-    what the environment already says, free to drift from it. The id is
-    deterministic so re-running a collector updates the same document
-    instead of accumulating one per run, and so every server it ingests
-    keeps a stable `manager_id`.
-
-    It is still written to the `managers` collection on each run — the API
-    and UI resolve `Server.manager_id` through it — but as a projection of
-    config, never as its source.
+    A projection of configuration with a deterministic id, never read back
+    to decide where to connect — see docs/architecture.md.
 
     Args:
         manager_type (ManagerType): Which vendor manager type this is for.
@@ -574,27 +501,10 @@ def manager_for(manager_type: ManagerType, connection: ManagerConnection) -> Man
 
 class _NameFilteredProvider(ServerInventoryProvider):
     """
-    Drop every server whose name doesn't match `pattern` before it reaches the pipeline.
+    Drop every server whose name doesn't match `pattern` before the pipeline.
 
-    Implements `INVENTORY_COLLECTOR_NAME_PATTERN` and its per-collector
-    overrides, as reconciled by `resolve_name_pattern`.
-
-    A wrapper here rather than a guard inside `IngestService` because
-    *which servers to collect* is a collection concern: it belongs to the
-    thing pointed at a vendor manager holding the whole datacenter, not
-    to the pipeline shared with `tools/seed_inventory.py`, whose fake
-    servers have no manager to be filtered out of. Wrapping also keeps
-    `--dry-run` honest — it bypasses `IngestService` on purpose, so a
-    filter living there would make a dry run print servers a real run
-    would never write.
-
-    Vendor-agnostic by construction: it wraps `ServerInventoryProvider`,
-    so every real collector inherits it without a line of their own.
-
-    A wrapper, not a vendor: `collection_errors` is overridden to
-    delegate to `_inner`'s own rather than the base's — it never calls
-    `_record_error` itself, so accumulating into the inherited list would
-    silently under-report (a filtered run always reads back empty).
+    `INVENTORY_COLLECTOR_NAME_PATTERN` and its per-collector overrides, as
+    a wrapper rather than an `IngestService` guard — see docs/architecture.md.
     """
 
     def __init__(self, inner: ServerInventoryProvider, pattern: str) -> None:
@@ -633,12 +543,6 @@ class _NameFilteredProvider(ServerInventoryProvider):
                 name filter.
         """
         kept = skipped = 0
-        # `aclosing`, because this wrapper sits in front of *every*
-        # collector: a consumer stopping early (`--dry-run --limit`)
-        # throws `GeneratorExit` in at the `yield` below, and without this
-        # the inner provider's own teardown — cancelling its host/domain
-        # tasks, logging out of its sessions — waited on the asyncgen
-        # finalizer instead of running now.
         async with contextlib.aclosing(self._inner.collect()) as servers:
             async for provider_server in servers:
                 if self._pattern.search(provider_server.name):
@@ -646,10 +550,6 @@ class _NameFilteredProvider(ServerInventoryProvider):
                     yield provider_server
                 else:
                     skipped += 1
-        # Logged unconditionally, including the all-zero case: "0 kept, 0
-        # skipped" is the signature of a wrong endpoint, while "0 kept,
-        # 900 skipped" is the signature of a wrong pattern, and an
-        # otherwise-successful empty run looks identical without it.
         logger.info(
             "collector.name_filter_applied",
             pattern=self._pattern.pattern,
@@ -683,10 +583,6 @@ def _build_provider(
     """
     Build the provider for `manager.type` via `PROVIDER_FACTORIES`.
 
-    `settings` is threaded in rather than read here so a caller (and a
-    test) can decide which collector variant it is exercising. It defaults
-    to the process-wide settings for the callers that have no opinion.
-
     Args:
         manager (Manager): The manager to build a provider for.
         credential_resolver (CredentialResolver): Resolves the login or
@@ -705,10 +601,7 @@ def _build_provider(
     """
     factory = PROVIDER_FACTORIES.get(manager.type)
     if factory is None:
-        # UCS Manager gets its own message: the collector for it very much
-        # exists and runs on every Central run, it just has no endpoint of
-        # its own to be pointed at. "Not implemented yet" would send an
-        # operator looking for code that is already there.
+        # A usage error, not a missing feature — see docs/architecture.md.
         if manager.type is ManagerType.UCS_MANAGER:
             raise NotImplementedError(
                 "UCS Manager has no collector entry point of its own — it is collected "
@@ -730,16 +623,11 @@ def _build_provider(
         credentials=connection,
         timeout_seconds=timeout_seconds,
         settings=resolved,
-        # Threaded in rather than each factory reading `Settings` again:
-        # a collector's own pruning gate and `_NameFilteredProvider` must
-        # be the same pattern, or a run collects their intersection.
         name_pattern=resolve_name_pattern(manager.type, resolved),
     )
 
 
-# What a dry run prints for a field the provider could not read, as
-# distinct from `—` for a field it read and found empty. See
-# `app.domain.ports.provider.ProviderServer`.
+# A field the provider could not read, as distinct from `—` for read-and-empty.
 _UNREAD = "not read"
 
 
@@ -747,11 +635,7 @@ def _bmc_host(address_raw: str | None) -> str:
     """
     The BMC's address as an operator reads it: host only.
 
-    The scheme, port and Redfish path a collector reports are protocol
-    detail nobody checks by eye, and they push the one thing that matters
-    — the address you would ping or open — off to the middle of a line.
-    The full URI is still what gets stored, for the Metal3 `BareMetalHost`
-    round-trip.
+    The scheme, port and Redfish path are still stored in full.
 
     Args:
         address_raw (str | None): The collector's raw BMC address.
@@ -782,12 +666,10 @@ def _or_unread(value: object) -> str:
 
 def _format_capacity(capacity_bytes: int) -> str:
     """
-    Render a byte count as GiB, or TiB once GiB stops being readable at a glance.
+    Render a byte count as binary GiB/TiB.
 
-    Binary (base-1024), and kept for GPU VRAM specifically: Redfish reports
-    it in MiB, so a 80 GiB card reads as its nameplate size only in binary
-    units. Disk capacity uses `_format_tb`/`_format_disk_size` instead —
-    drives are marketed and reported decimal.
+    For GPU VRAM, which Redfish reports in MiB; drives are decimal and
+    use `_format_disk_size`.
 
     Args:
         capacity_bytes (int): The capacity to render, in bytes.
@@ -819,11 +701,9 @@ def _format_tb(capacity_bytes: int) -> str:
 
 def _format_disk_size(capacity_bytes: int) -> str:
     """
-    Render one drive's capacity in the unit its model is marketed in.
+    Render one drive's capacity in the decimal unit its model is marketed in.
 
-    Decimal (base-1000), switching to TB at 1 TB so a drive reads the way
-    its model names it — a `480GB` drive as GB, a `1.92TB` drive as TB —
-    rather than a 1.92 TB disk showing as `1920.0 GB`.
+    A `480GB` drive as GB, a `1.92TB` drive as TB.
 
     Args:
         capacity_bytes (int): The capacity to render, in bytes.
@@ -870,8 +750,6 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes}m {remainder}s"
 
 
-# Neither an unreachable host nor a rejected credential marks the CronJob
-# pod failed any more — added 2026-09-10 after real OME runs.
 _BENIGN_COLLECTION_ERROR_MARKERS = (
     UNREACHABLE_MARKER,
     AUTH_REJECTED_MARKER,
@@ -946,17 +824,10 @@ async def _dry_run_one_manager(
     provider_factory: Callable[..., ServerInventoryProvider] | None = None,
 ) -> int:
     """
-    Print what `manager` reports, writing nothing.
+    Print the raw `ProviderServer`s `manager` reports, writing nothing.
 
-    Deliberately bypasses `IngestService` entirely rather than passing it
-    some no-op repository: the point of a dry run is to see what the
-    *provider* produces, before classification, health evaluation and
-    correlation have had a chance to reshape it. Anything printed here is
-    the raw `ProviderServer` the collector would hand to the pipeline.
-
-    Timed end to end (provider construction through the last server),
-    wrapped in `finally` so a run that fails partway still reports how
-    long it took before dying — see `collector.run_complete` below.
+    Bypasses `IngestService` entirely so what is printed is what the
+    provider produced, before classification or correlation reshape it.
 
     Args:
         manager (Manager): The manager to collect from.
@@ -997,12 +868,7 @@ async def _dry_run_one_manager(
             print(f"    (only servers whose name matches {name_pattern!r} are shown/collected)")
 
         if limit == 0:
-            # A plain `async for` always fetches its *next* item before the
-            # loop body ever runs, so checking the limit at the bottom of the
-            # loop (below) — which is what stops this from pulling one server
-            # past every other `--limit N` — cannot also cover `N == 0`
-            # without ever entering the loop, and therefore the provider,
-            # at all. Handled here instead of inside it.
+            # `async for` would fetch one server before the bottom-of-loop check.
             print("  … stopped at --limit 0")
             return count
         async with contextlib.aclosing(provider.collect()) as servers:
@@ -1023,10 +889,6 @@ async def _dry_run_one_manager(
                     None if ps.storage_drives is None else len(ps.storage_drives)
                 )
                 macs = _UNREAD if ps.nic_macs is None else (", ".join(ps.nic_macs) or "—")
-                # Service profiles and fabric attachments are UCS concepts. A
-                # provider with neither (OpenManage, Redfish) printed "— " and "0"
-                # on every server, which reads as missing data rather than as a
-                # field its vendor has no equivalent for.
                 profile = f"\n     profile     : {ps.profile_dn}" if ps.profile_dn else ""
                 attachments = (
                     f"\n     attachments : {len(ps.attachments)}" if ps.attachments else ""
@@ -1054,19 +916,7 @@ async def _dry_run_one_manager(
                 )
                 for a in ps.attachments:
                     if a.interface_kind == "PHYSICAL":
-                        # Fabric-interconnect identity only makes sense on a
-                        # cabled physical uplink. A vNIC (`HostEthInterface` on
-                        # Intersight, `vnic` on UCS Manager/Central) structurally
-                        # never carries a fabric relationship at all — printing
-                        # "fabric None / FI model/serial=—/—" on every vNIC line
-                        # reads as missing data rather than as a field its kind
-                        # has no equivalent for. This is also why a standalone
-                        # server (which contributes zero PHYSICAL attachments —
-                        # nothing to cable to a Fabric Interconnect it doesn't
-                        # have) never shows an FI-shaped line at all: the
-                        # attachment fabric() already skips an uncabled physical
-                        # interface, so every one of its attachments is VNIC.
-                        # See docs/cisco-collectors.md, "PHYSICAL versus VNIC".
+                        # docs/cisco-collectors.md, "PHYSICAL versus VNIC".
                         print(
                             f"        [{a.interface_kind:8}] fabric {a.fabric}"
                             f"  ({a.fabric_name or '—'})"
@@ -1080,15 +930,9 @@ async def _dry_run_one_manager(
                             f"        [{a.interface_kind:8}] if={a.server_interface}"
                             f"  admin={a.admin_state} oper={a.oper_state}"
                         )
-                # Per-NIC detail for the providers that report it — Redfish, and so
-                # the Dell collector that delegates to it. The flat `nic macs` line
-                # above is all a provider without it has.
                 for nic in ps.nics:
-                    # `is not None`, not truthiness: a BMC that reports a
-                    # real `0` (an explicitly-down link some firmware
-                    # reports that way) is a read, not an absence, and
-                    # dashes the same way every other unread field here
-                    # does rather than disappearing silently.
+                    # `is not None`: some firmware reports a down link as a
+                    # real `0`, which is a read, not an absence.
                     speed = _format_speed(nic.speed_mbps) if nic.speed_mbps is not None else "—"
                     location = f"  [{nic.location}]" if nic.location else ""
                     print(
@@ -1131,12 +975,6 @@ async def _dry_run_one_manager(
                     )
                 for psu in ps.psus or ():
                     capacity = psu.get("capacity_watts")
-                    # Redfish only, and there for the same reason `power=`
-                    # below is: the raw `Status.Health`/`Status.State`
-                    # pair, so a live run can settle whether mapping
-                    # Warning to UNKNOWN rather than DOWN is right before
-                    # that becomes a CRITICAL finding. Empty for every
-                    # provider that doesn't report it.
                     redfish_status = psu.get("redfish_status")
                     status = f"  status={redfish_status}" if redfish_status else ""
                     print(
@@ -1144,12 +982,7 @@ async def _dry_run_one_manager(
                         f"  serial={psu.get('serial') or '—'}"
                         f"  {f'{capacity}W' if isinstance(capacity, int) else 'wattage unknown'}"
                         f"  health={psu.get('health')} ({psu.get('health_detail') or '—'})"
-                        # UCS Manager only: the equipmentPsu MO's separate `power`
-                        # field, collected alongside oper_state so a live run can
-                        # show which one tracks a real PSU failure more reliably
-                        # before this settles on one (docs/cisco-collectors.md,
-                        # "Power supplies (PSUs)"). Always "—" for a provider that
-                        # doesn't report it, Intersight included.
+                        # UCS Manager only — docs/cisco-collectors.md, "Power supplies (PSUs)".
                         f"  power={psu.get('oper_power') or '—'}"
                         f"{status}"
                     )
@@ -1163,10 +996,6 @@ async def _dry_run_one_manager(
             f"\n{manager.name}: {count} server(s) reported. Nothing was written. "
             f"(took {_format_duration(duration)})"
         )
-        # `seconds` stays a raw float — a dashboard graphs it, and a
-        # formatted string would break that. `took` is the same duration
-        # a second time, formatted, for whoever is scanning the log by
-        # eye rather than piping it into a metrics pipeline.
         logger.info(
             "collector.run_complete",
             dry_run=True,
@@ -1178,11 +1007,11 @@ async def _dry_run_one_manager(
 
 @dataclass(frozen=True, slots=True)
 class _RunOutcome:
-    """What one manager's run produced, and what it could not reach.
+    """
+    What one manager's run produced, and what it could not reach.
 
-    `summary` alone cannot express a partial run: a domain that failed
-    contributes no servers and no ingest errors, so its absence is
-    invisible in the counts.
+    A failed domain contributes no servers and no ingest errors, so
+    `summary` alone cannot express a partial run.
 
     Attributes:
         summary (IngestSummary): Fetched/created/updated/error counts.
@@ -1233,17 +1062,7 @@ async def _run_one_manager(
             ),
             name_pattern,
         )
-        # No explicit `provider.health_check()` here: `IngestService.
-        # ingest()` already calls it as its first step, and a UCS login is
-        # ~4 sequential HTTP round trips (auth, then the SDK's own
-        # is-this-UCSM / version / domain-name probes), so calling it here
-        # too would double that cost per manager and burn a second session
-        # against UCS Manager's per-user session cap for nothing — this
-        # `except` handles a health-check failure identically either way.
-        # `managers=[manager]` is what actually writes the `Manager`
-        # projection `manager_for()` builds. Without it every collected
-        # server carried a `manager_id` pointing at a document that was
-        # never created — see docs/adr/0016.
+        # `ingest()` runs `health_check` itself; `managers=` writes the projection (ADR-0016).
         summary = await ingest_service.ingest(provider, managers=[manager])
         return _RunOutcome(summary=summary, collection_errors=provider.collection_errors)
     except Exception:
@@ -1276,25 +1095,13 @@ async def _run(
         service_name=settings.service_name,
         environment=settings.environment,
     )
-    # Bound once for the whole run so every log line from here down —
-    # including `ingest.completed`, deep inside `IngestService.ingest`,
-    # which has no `manager_type` field of its own to log — carries which
-    # collector produced it, without threading the value through every
-    # intervening call.
     structlog.contextvars.bind_contextvars(manager_type=manager_type.value)
 
     try:
         credential_resolver = EnvConnectionResolver(settings)
 
-        # One manager per type, straight from configuration — nothing is
-        # read from the `managers` collection to decide where to connect.
         try:
             if manager_type in _ENDPOINTLESS_TYPES:
-                # No `_IP` variable exists for these, so `resolve()` would
-                # exit 2 naming a variable that cannot be set. The
-                # `Manager` projection carries the inventory path instead,
-                # which is the most informative answer to "where did these
-                # servers come from".
                 connection = ManagerConnection(
                     endpoint=settings.redfish_inventory_file,
                     username="",
@@ -1302,13 +1109,7 @@ async def _run(
                 )
             else:
                 connection = credential_resolver.resolve(manager_type)
-            # Pre-flight for the one collector that needs a *second* set of
-            # credentials: UCS Central also logs into each domain's UCS
-            # Manager. Checked here, beside the endpoint resolution, so a
-            # half-configured deployment exits 2 naming the variables to set
-            # — the provider factory raises the same error later, but by
-            # then the dry-run/ingest paths have turned it into a generic
-            # "FAILED (see logs)" exit 1.
+            # Pre-flight the second login so a missing one exits 2, not 1.
             if manager_type is ManagerType.UCS_CENTRAL:
                 resolve_login(settings, ManagerType.UCS_MANAGER)
         except ManagerNotConfiguredError as exc:
@@ -1319,7 +1120,6 @@ async def _run(
         name_pattern = resolve_name_pattern(manager_type, settings)
 
         if dry_run:
-            # No indexes, no ingest pipeline, no repositories at all.
             try:
                 await _dry_run_one_manager(
                     manager,
@@ -1335,11 +1135,6 @@ async def _run(
                 return 1
             return 0
 
-        # Everything above needs no MongoDB connection at all: `--dry-run`
-        # only talks to the vendor manager, never to the database, and
-        # connecting here unconditionally used to mean a misconfigured or
-        # unreachable Mongo could fail a dry run that was never going to
-        # touch it.
         mongo = MongoClientHolder(settings)
         await mongo.connect()
         try:
@@ -1367,12 +1162,6 @@ async def _run(
                 ),
                 audit=AuditService(repo=MongoAuditEventRepository(mongo)),
             )
-            # Timed here, around the call, rather than inside
-            # `_run_one_manager` itself: that function already swallows a
-            # failed run into `None` (so the CronJob doesn't die on one
-            # bad manager), and `finally` below is what makes a run that
-            # fails partway still report how long it took before dying —
-            # exactly the run most worth seeing the duration of.
             run_start = time.monotonic()
             run_started_at = utcnow()
             try:
@@ -1429,15 +1218,8 @@ async def _run(
                 seconds=run_duration,
                 took=_format_duration(run_duration),
             )
-            # A dead BMC or a rejected credential no longer makes the run
-            # PARTIAL — see `_is_benign_collection_error`.
             benign_count = len(outcome.collection_errors) - len(hard_errors)
             if partial:
-                # Exit 3, not 0: some servers were written, but this run did
-                # not see the whole fleet, for a reason worth a human
-                # looking at across many hosts (TLS, a per-host budget, an
-                # unrecognized error) — not just one dead BMC or credential,
-                # which `_is_benign_collection_error` already excluded above.
                 logger.error(
                     "collector.partial_run",
                     manager_id=manager.id,
@@ -1482,8 +1264,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     args = _parse_args(argv)
     if args.debug_xml:
-        # Read by `UcsManagerClient`; set here so it covers every provider
-        # this run constructs.
+        # Read by `UcsManagerClient`.
         os.environ["INVENTORY_UCS_DUMP_XML"] = "1"
     if args.debug_http:
         os.environ[_DEBUG_HTTP_VAR] = "1"

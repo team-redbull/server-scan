@@ -16,12 +16,8 @@ from pydantic import BaseModel, Field
 
 from app.domain.enums import InstallationType, ManagerType, Vendor
 
-# Priority bands per the spec: SITE_CUSTOM 500-599, MANAGER_CUSTOM 400-499,
-# VENDOR_CUSTOM 300-399, GLOBAL_CUSTOM 200-299, SYSTEM_DEFAULT 100-199.
-# A rule's `priority` must fall in its `source`'s band — enforced at write
-# time by the classification service, not here (this is a data model, not
-# a validator; the service layer owns cross-field business rules so the
-# same check isn't duplicated in every code path that constructs one).
+# Enforced at write time by the classification service, not here — see
+# docs/architecture.md, "Classification engine".
 PRIORITY_BANDS: dict[str, tuple[int, int]] = {
     "SITE_CUSTOM": (500, 599),
     "MANAGER_CUSTOM": (400, 499),
@@ -30,10 +26,6 @@ PRIORITY_BANDS: dict[str, tuple[int, int]] = {
     "SYSTEM_DEFAULT": (100, 199),
 }
 
-# The only fields a classification rule may match against. Deliberately a
-# closed set rather than an arbitrary dotted path into the document — this
-# is what keeps a rule author from regexing over raw provider payloads or
-# internal-only fields, and keeps the UI's field picker finite.
 CLASSIFIABLE_FIELDS = frozenset({"name", "hostname", "serial", "model", "site_id"})
 
 
@@ -48,9 +40,8 @@ class RuleScope(BaseModel):
         """
         Score how specific this scope is, for resolving overlapping rules.
 
-        Powers of two so more-specific scopes strictly outrank less
-        specific ones regardless of how many dimensions are set — see
-        `app.domain.services.classification`'s resolution algorithm.
+        Powers of two, so a more-specific scope strictly outranks a less
+        specific one however many dimensions are set.
 
         Returns:
             int: A specificity score; higher means more specific.
@@ -113,7 +104,7 @@ class ClassificationRule(BaseModel):
     pattern: str
     flags: RuleFlags = Field(default_factory=RuleFlags)
 
-    source: str  # SITE_CUSTOM | MANAGER_CUSTOM | VENDOR_CUSTOM | GLOBAL_CUSTOM | SYSTEM_DEFAULT
+    source: str
     priority: int
     order: int = 0
 

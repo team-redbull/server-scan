@@ -125,10 +125,8 @@ def domains_to_collect(
     """
     Split UCS Central's registered domains into those worth contacting and those to skip.
 
-    Skipping means "do not open a session", never a deletion, and is a pure
-    optimisation: `tools.run_collector._NameFilteredProvider` remains the
-    only thing that decides which servers are ingested. See
-    docs/cisco-collectors.md, "UCS Central domain discovery and pruning".
+    Skipping means "do not open a session", never a deletion — see
+    docs/cisco-collectors.md, "The pruning rules".
 
     Args:
         domains (Iterable[Any]): `computeSystem` managed objects from
@@ -176,9 +174,8 @@ class UcsCentralProvider(ServerInventoryProvider):
     """
     Collect every registered UCS Manager domain in one run.
 
-    Central is a directory; each domain's own UCS Manager is the source of
-    inventory. See docs/cisco-collectors.md, "UCS Central domain discovery
-    and pruning".
+    Central is a directory; each domain's own UCS Manager is the source.
+    See docs/cisco-collectors.md, "UCS Central domain discovery and pruning".
     """
 
     provider_type = _PROVIDER_TYPE
@@ -255,9 +252,6 @@ class UcsCentralProvider(ServerInventoryProvider):
         Reuses this collector's `Manager` with only the endpoint swapped, so
         every server keeps the single `mgr_ucs_central` manager id.
 
-        See docs/cisco-collectors.md, "UCS Central domain discovery and
-        pruning".
-
         Args:
             target (DomainTarget): The domain to collect from.
 
@@ -333,8 +327,7 @@ class UcsCentralProvider(ServerInventoryProvider):
             name_pattern=self._name_pattern or None,
             concurrency=self._concurrency,
         )
-        # A domain skipped for having no address is a fault, not a pruning
-        # decision: Central registered it but gave us nothing to connect to.
+        # No address is a fault, not pruning — docs, "The pruning rules".
         for t in skipped:
             if not t.endpoint:
                 self._record_error(
@@ -393,12 +386,7 @@ class UcsCentralProvider(ServerInventoryProvider):
             provider = self._domain_provider_factory(target)
             collected: list[ProviderServer] = []
             try:
-                # Appended one at a time rather than built as a comprehension
-                # (ruff PERF401) on purpose: the `except` below logs how many
-                # servers were collected *before* the domain failed, which
-                # needs `collected` to hold real partial progress mid-loop —
-                # a comprehension has no partial result to read if iteration
-                # raises on server N of M.
+                # Not a comprehension: the `except` reports partial progress.
                 async with contextlib.aclosing(provider.collect()) as servers:
                     async for provider_server in servers:
                         collected.append(  # noqa: PERF401
@@ -437,11 +425,8 @@ class UcsCentralProvider(ServerInventoryProvider):
         """
         `_collect_domain`, paired with the target that produced it.
 
-        A thin wrapper rather than changing `_collect_domain`'s own return
-        shape: `asyncio.as_completed` hands back whichever awaitable
-        finishes next, in completion order, not submission order — the
-        result has to carry its own domain identity, since nothing about
-        *which* task just finished says which domain it was.
+        `asyncio.as_completed` yields results in completion order, so each
+        must carry its own domain — ADR-0014's 2026-09-02 update.
 
         Args:
             target (DomainTarget): The domain to collect from.
@@ -457,19 +442,8 @@ class UcsCentralProvider(ServerInventoryProvider):
         """
         Collect every domain worth contacting and yield their servers.
 
-        Yields each domain's servers as that domain finishes rather than
-        gathering the fleet, so a run killed at its deadline has already
-        persisted what completed — the same shape
-        `..redfish.provider.RedfishStandaloneProvider._list_servers`
-        already uses, and for the same reason: before this, nothing was
-        yielded until every domain in flight had finished, so a kill at
-        `activeDeadlineSeconds` lost the *entire* run rather than just
-        the domains still in progress.
-
-        `collect()` (the base class) wraps this in `contextlib.aclosing`
-        and resets `collection_errors` before calling it.
-
-        See docs/cisco-collectors.md, "SDK behaviour, sessions and timeouts".
+        Each domain is yielded as it finishes, so a killed run has persisted what
+        completed (ADR-0014); early close: docs/cisco-collectors.md, "Sessions".
 
         Yields:
             ProviderServer: One server, with a domain-qualified external id.
@@ -481,11 +455,6 @@ class UcsCentralProvider(ServerInventoryProvider):
         targets, domain_mo_by_id = await self._plan()
         sem = asyncio.Semaphore(self._concurrency)
 
-        # A skipped domain's coverage line is already fully known — it was
-        # never contacted, and nothing about that changes while the
-        # targets below are collected — so it is logged now rather than
-        # waiting for the whole run, same as a collected domain now logs
-        # its own line the moment it finishes rather than at the end.
         collected_ids = {t.domain_id for t in targets}
         for domain_id, mo in domain_mo_by_id.items():
             if domain_id not in collected_ids:
@@ -501,16 +470,7 @@ class UcsCentralProvider(ServerInventoryProvider):
                 for provider_server in servers:
                     yield provider_server
         finally:
-            # A consumer that stops early (`--limit`, a killed run) throws
-            # `GeneratorExit` in at the `yield` above, which unwinds this
-            # frame but not the domain tasks still running — each of which
-            # holds a `UcsManagerProvider`, i.e. a live `UcsHandle` session
-            # against a per-user session cap. Cancelled *and* drained, so
-            # every domain still reaches `UcsManagerProvider._list_servers`'
-            # `finally: await client.logout()`. No `except TimeoutError`
-            # here, unlike Redfish's version of this same pattern — UCS
-            # Central has no run budget (ADR-0014:496-504 defers it
-            # deliberately), so this only guards early close.
+            # Cancel *and* drain so every domain still logs out — docs, "Sessions".
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -519,9 +479,8 @@ class UcsCentralProvider(ServerInventoryProvider):
         """
         Emit one domain's coverage: what UCS Central believes it holds vs. what came back.
 
-        Called once per domain, as soon as its own result is known — not
-        batched at run end — so a domain that already logged its coverage
-        line survives a kill at `activeDeadlineSeconds` (ADR-0014, 2026-09-02).
+        Called per domain as soon as its result is known, not at run end
+        (ADR-0014, 2026-09-02). See docs/cisco-collectors.md, "`_log_one_domain`".
 
         Args:
             mo (Any | None): The registered `computeSystem` MO for this

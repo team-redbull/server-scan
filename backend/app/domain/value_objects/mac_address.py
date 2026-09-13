@@ -25,15 +25,18 @@ _BROADCAST = "ffffffffffff"
 
 
 def normalize_mac(raw: str | None) -> str | None:
-    """Normalize a MAC address to lowercase, colon-separated form.
+    """
+    Normalize a MAC address to lowercase, colon-separated form.
 
-    Accepts colon (`aa:bb:cc:dd:ee:ff`), dash (`AA-BB-CC-DD-EE-FF`), Cisco
-    dotted (`aabb.ccdd.eeff`), bare hex (`aabbccddeeff`), and
-    space-separated forms, case-insensitively. Returns `None` for anything
-    that isn't exactly 12 hex characters once separators are stripped,
-    including the reserved all-zero and broadcast addresses (never a real
-    NIC's burned-in address, and far more likely to indicate missing data
-    than a real MAC).
+    Accepts colon, dash, Cisco-dotted, bare-hex and space-separated forms.
+
+    Args:
+        raw (str | None): The MAC as a vendor reported it, in any form.
+
+    Returns:
+        str | None: `aa:bb:cc:dd:ee:ff`, or `None` for anything that is not
+            12 hex characters once separators are stripped — the all-zero
+            and broadcast addresses included, which signal missing data.
     """
     if not raw:
         return None

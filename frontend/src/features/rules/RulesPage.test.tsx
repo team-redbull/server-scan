@@ -63,8 +63,7 @@ function policy(
   };
 }
 
-// Deliberately out of both section and severity order, so the page has
-// to sort them rather than inherit the database's order.
+// Deliberately out of section and severity order.
 const POLICIES_RESPONSE = {
   items: [
     policy("policy_1", "failed drive", "CRITICAL", {
@@ -132,8 +131,6 @@ describe("RulesPage", () => {
   });
 
   it("shows classification rules and health policies on one page", async () => {
-    // The two are read together far more often than either alone: a
-    // server's installation type decides which policies apply to it.
     renderRulesPage();
 
     expect(await screen.findByText("hypershift hostname")).toBeInTheDocument();
@@ -141,15 +138,10 @@ describe("RulesPage", () => {
   });
 
   it("offers no way to create, edit, enable or delete anything", async () => {
-    // The whole point. A rule that exists in one estate and not another
-    // makes two installations classify the same server differently, so
-    // the UI must not be a place one can be added.
     renderRulesPage();
     await screen.findByText("hypershift hostname");
 
-    // By role, not by text: "enabled"/"disabled" appear as status badges
-    // on every row, so matching those words would fail on the page's own
-    // legitimate content. What must not exist is anything interactive.
+    // By role, not by text: "enabled" is legitimate page content.
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
@@ -159,8 +151,6 @@ describe("RulesPage", () => {
   });
 
   it("asks the API for enabled entries only, and shows no status column", async () => {
-    // Everything listed is enabled, so a status column would repeat the
-    // same word on every row and say nothing.
     renderRulesPage();
     await screen.findByText("hypershift hostname");
 
@@ -173,8 +163,6 @@ describe("RulesPage", () => {
   });
 
   it("shows each rule's field and regex", async () => {
-    // Without the pattern the page cannot answer the question it exists
-    // to answer: why was this server classified UPI?
     renderRulesPage();
 
     expect(await screen.findByText(/\^ocp4-hypershift-/)).toBeInTheDocument();
@@ -196,7 +184,6 @@ describe("RulesPage", () => {
   });
 
   it("groups health policies by scope, General first", async () => {
-    // The section heading says the scope, so the row does not have to.
     renderRulesPage();
 
     const general = await screen.findByRole("heading", { name: "General" });
@@ -222,7 +209,6 @@ describe("RulesPage", () => {
   });
 });
 
-/** Whether `a` comes before `b` in document order. */
 function precedes(a: HTMLElement, b: HTMLElement): boolean {
   return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 }

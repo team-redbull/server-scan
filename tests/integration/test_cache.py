@@ -1,9 +1,7 @@
-"""Integration tests for `CacheClient`.
-
-Covers both the happy path against the live dev Redis (skips cleanly if
-unreachable — see `tests/integration/conftest.py`) and the degrade-on-
-failure path, which is the actually load-bearing behavior: every method
-must return fast (no hang) and never raise when Redis is unreachable.
+"""
+Integration tests for `CacheClient`: the happy path against the live dev
+Redis, and the load-bearing degrade path — every method returns fast and
+never raises when Redis is unreachable.
 """
 
 from __future__ import annotations
@@ -37,12 +35,9 @@ async def test_get_missing_key_returns_none(redis_holder: RedisClientHolder) -> 
 async def test_get_raw_returns_the_undecoded_bytes_get_would_have_parsed(
     redis_holder: RedisClientHolder,
 ) -> None:
-    """P2 (`docs/notes/2026-09-audit.md`): `get_raw` exists so a caller
-    about to hand a cached value straight back as an HTTP response body
-    never pays for `get`'s `json.loads` only to have it re-encoded
-    unchanged. Asserted here against `get`'s own decoded value, not just
-    "some bytes came back" — this is what makes it a safe drop-in for that
-    one use, not a different cache.
+    """`get_raw` skips `get`'s `json.loads` for a value going straight back as a
+    response body (docs/notes/2026-09-audit.md P2); asserted against `get`'s
+    own decoded value so it is a safe drop-in, not a different cache.
     """
     cache = CacheClient(redis_holder)
     value = {"hello": "world", "n": 5}
@@ -90,7 +85,7 @@ async def test_get_degrades_to_none_when_redis_unreachable() -> None:
     elapsed = time.monotonic() - start
 
     assert value is None
-    assert elapsed < 5.0  # fails fast, does not hang
+    assert elapsed < 5.0
     await holder.close()
 
 
@@ -103,7 +98,7 @@ async def test_get_raw_degrades_to_none_when_redis_unreachable() -> None:
     elapsed = time.monotonic() - start
 
     assert value is None
-    assert elapsed < 5.0  # fails fast, does not hang
+    assert elapsed < 5.0
     await holder.close()
 
 
@@ -112,7 +107,7 @@ async def test_set_degrades_silently_when_redis_unreachable() -> None:
     cache = CacheClient(holder)
 
     start = time.monotonic()
-    await cache.set("any-key", {"a": 1}, ttl_seconds=30)  # must not raise
+    await cache.set("any-key", {"a": 1}, ttl_seconds=30)
     elapsed = time.monotonic() - start
 
     assert elapsed < 5.0
@@ -124,7 +119,7 @@ async def test_delete_degrades_silently_when_redis_unreachable() -> None:
     cache = CacheClient(holder)
 
     start = time.monotonic()
-    await cache.delete("any-key")  # must not raise
+    await cache.delete("any-key")
     elapsed = time.monotonic() - start
 
     assert elapsed < 5.0

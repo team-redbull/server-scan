@@ -180,6 +180,18 @@ not the exit code. See `docs/arc42.md` §6.1 and §12 (`Server.reachable`),
 and `_is_uncollected`/`_unreachable_server` in `provider.py` for the
 exact matching rule.
 
+**The uncollected-host merge runs in a `finally`, behind
+`contextlib.aclosing`** (moved here from the code, 2026-09-13). A consumer
+that stops early (`--limit`, a killed run) throws `GeneratorExit` in at
+the `yield`, which used to skip the pass over `redfish.collection_errors`
+entirely — the same shape `..ucs_central.provider` handles, see
+`docs/cisco-collectors.md`'s "Sessions". In that pass a dead BMC and a
+rejected login are set aside as uncollected; every other failure is still
+recorded, still PARTIAL. The placeholder documents themselves are yielded
+only on normal completion of the Redfish pass: a consumer that stopped
+early never asked to see the rest of the fleet, so nothing is reported
+unreachable on its behalf.
+
 **Widened the same day: a rejected BMC credential is exit-0-safe too**,
 after a real OME run hit auth failures often enough that PARTIAL stopped
 meaning anything unusual — `tools.run_collector.
@@ -220,6 +232,55 @@ exact Dell form `app.domain.value_objects.bmc_address.parse_bmc_address`
 documents, which round-trips into a Metal3 `BareMetalHost`'s
 `spec.bmc.address`. OME's device summary does not expose the iDRAC's own
 MAC on the validated path, so `bmc_mac` is left unset.
+
+The `idrac-virtualmedia://` form is kept *in preference to* the
+`https://<host>` origin the shared Redfish mapping reports for a
+standalone BMC, even though the hardware now comes over Redfish:
+`OpenManageProvider._merged` reapplies OME's address after the Redfish
+pass, so collecting hardware over Redfish never silently downgrades a
+Dell server's stored BMC address (`mapping.idrac_bmc_address`).
+
+## NICs — one per physical port
+
+iDRAC names an `EthernetInterface` by Dell's FQDD, which the shared
+Redfish mapping carries through as `ProviderNic.location` (`Name` is the
+same "System Ethernet Interface" on every one of them and so names none).
+The FQDD is a kind, then `controller-port-partition`:
+
+    NIC.Integrated.1-1-1   integrated controller 1, port 1, partition 1
+    NIC.Slot.2-4-3         card in slot 2, port 4, partition 3
+
+The three numbers are what an operator reads as a NIC's location, and
+the partition is what NPAR multiplies: NIC partitioning splits each
+physical port into up to four logical functions, each reported as its own
+`EthernetInterface` with its own MAC, so a partitioned 4-port card is 16
+interfaces — the server's *logical* plumbing, not what is cabled. An
+operator asking "how many NICs does this box have" means four.
+
+`mapping.dell_port_nics` (applied in `OpenManageProvider._merged`, not in
+the shared Redfish mapping — only a Dell collector knows an FQDD well
+enough to tell a second partition from a second port) therefore reduces
+the list to one entry per physical port, by three rules:
+
+- **Keep the first partition, do not merge.** Partition 1 exists on every
+  Dell NIC whether NPAR is enabled or not, so an unpartitioned server is
+  unaffected, and the surviving entry is a real interface with a real MAC
+  rather than a synthesized summary. `nic_macs` is left whole — it is the
+  identity correlation key, and a server already ingested with all
+  sixteen MACs must keep matching on any of them.
+- **An unrecognized identifier is kept, appended after every FQDD-named
+  one.** The filter may only remove something it positively identified as
+  a non-first partition; a BMC naming its NICs some other way must not
+  have them silently dropped.
+- **Sorted by controller/port/partition, not by BMC report order**
+  (changed 2026-09-10 at the operator's request): iDRAC's own
+  `EthernetInterfaces` order is not documented as stable, so sorting on
+  the FQDD's numbers is what makes repeated collections of an unchanged
+  server agree — `NIC.Integrated.1-1-1` before `1-2-1` before `1-3-1`,
+  never by MAC.
+
+The surviving entry is named by its FQDD and located as
+`controller/port/partition` (`1/1/1`).
 
 ---
 

@@ -1,12 +1,7 @@
-"""`IngestService`-level proof that `gpu_catalog` enrichment reaches a
-stored `Server`, not just the pure `GpuCatalog.enrich()` function already
-covered by `tests/unit/domain/test_gpu_catalog.py`.
-
-No management plane this platform collects from reports GPU VRAM — see
-`app.domain.value_objects.gpu_catalog` — so the built-in table and
-`INVENTORY_GPU_MODELS` over it are the only sources for it, and an
-enriched value has to survive the full pipeline (carry-forward, pydantic
-construction, Mongo round-trip) to be useful.
+"""
+`IngestService`-level proof that `gpu_catalog` enrichment reaches a stored
+`Server` — survives carry-forward, pydantic construction and the Mongo
+round-trip — not just `GpuCatalog.enrich()` (`tests/unit/domain/test_gpu_catalog.py`).
 """
 
 from __future__ import annotations
@@ -126,10 +121,8 @@ async def test_an_identifier_nothing_recognizes_is_stored_unchanged(
 async def test_a_real_reported_memory_value_survives_the_full_pipeline_unchanged(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """Matches the platform-wide "a provider's value always wins over a
-    filled-in default" contract already proven for carry-forward
-    (`test_ingest_partial_reads.py`) — here proven for catalog enrichment
-    instead of a stale previous read.
+    """A provider's value always wins over a filled-in default — proven for
+    carry-forward in `test_ingest_partial_reads.py`, here for catalog enrichment.
     """
     service = _service(mongo_holder)
 
@@ -150,10 +143,8 @@ async def test_a_real_reported_memory_value_survives_the_full_pipeline_unchanged
 async def test_a_vendor_model_string_is_enriched_from_the_built_in_table(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The multi-vendor half of ADR-0021: a Dell or HPE BMC reports no
-    Cisco PID at all, only a model string, and an unconfigured deployment
-    must still resolve it — here through the whole pipeline, not just
-    `GpuCatalog.enrich()`.
+    """ADR-0021's multi-vendor half: a Dell or HPE BMC reports only a model
+    string, and an unconfigured deployment must still resolve it end to end.
     """
     service = _service(mongo_holder, gpu_catalog=GpuCatalog.from_spec(""))
 

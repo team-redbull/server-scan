@@ -1,13 +1,7 @@
-"""API tests for slice 4: `PUT`/`DELETE .../maintenance`,
-`GET /api/v1/events`, `GET /api/v1/servers/{id}/events`, and — the actual
-point of this file — that every mutation slice 4 was asked to audit
-(classification rule CRUD, health policy CRUD, reclassify, health
-recalculate, maintenance enable/disable) really does produce the right
-`AuditEvent`, not just the right HTTP response.
-
-Same `httpx.AsyncClient` + `ASGITransport` + lifespan pattern as
-`tests/api/test_servers.py`; test data inserted directly via Mongo
-repositories, never through ingestion.
+"""
+API tests for maintenance and events: `PUT`/`DELETE .../maintenance`,
+`GET /api/v1/events`, `GET /api/v1/servers/{id}/events`, and that every
+audited mutation really produces the right `AuditEvent`.
 """
 
 from __future__ import annotations
@@ -132,9 +126,6 @@ async def app_context() -> AsyncIterator[
             await mongo.db[name].delete_many({})
 
 
-# --- Maintenance ---
-
-
 async def test_enable_maintenance_sets_fields_and_returns_server_detail(
     app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
 ) -> None:
@@ -255,9 +246,6 @@ async def test_maintenance_on_missing_server_returns_404(
     assert resp.json()["code"] == "NOT_FOUND"
 
 
-# --- Reclassify / recalculate audit trail ---
-
-
 async def test_recalculate_health_records_health_status_changed_on_real_transition(
     app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
 ) -> None:
@@ -289,9 +277,6 @@ async def test_recalculate_health_records_no_event_when_unchanged(
 
     events = (await client.get(f"/api/v1/servers/{server.id}/events")).json()["items"]
     assert not any(e["event_type"] == "HEALTH_STATUS_CHANGED" for e in events)
-
-
-# --- GET /events filtering ---
 
 
 async def test_list_events_filters_by_event_type(
@@ -333,13 +318,3 @@ async def test_events_endpoint_is_read_only(
     client, _repo, _policy_repo = app_context
     resp = await client.post("/api/v1/events", json={})
     assert resp.status_code == 405
-
-
-# The classification-rule and health-policy CRUD audit-trail tests lived
-# here. Their endpoints were removed — rules and policies ship with the
-# platform, so there is no API path that creates, updates or deletes one
-# and therefore no audit event to record. The event *types* remain in
-# `EventType` and the audit service still writes them for anything that
-# does mutate a rule or policy in future; what is gone is the HTTP path
-# that used to. `tests/api/test_classification_rules.py` and
-# `test_health_policies.py` assert those verbs now answer 405.

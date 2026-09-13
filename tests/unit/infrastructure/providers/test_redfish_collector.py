@@ -45,8 +45,7 @@ def _target(
         host=host,
         port=port,
         credential=RedfishCredential(name="test", username="svc", password=password),
-        # The fixture serves plain HTTP on localhost; verification is off
-        # because there is no TLS to verify, not as a behavioural default.
+        # The fixture is plain HTTP; there is no TLS to verify.
         verify_tls=False,
         verify_tls_reason="in-process test fixture, plain HTTP",
         ca_bundle=None,
@@ -66,15 +65,9 @@ def _manager() -> Manager:
 
 
 class _PlainClient(RedfishClient):
-    """The fixture speaks HTTP, so the base URL is overridden for tests.
-
-    `connect_host` lets a target keep a distinct logical identity while
-    still reaching the one fixture — the credential breaker counts
-    distinct *targets*, so testing it needs several identities rather than
-    several listening sockets.
-
-    Nothing else changes: the session handshake, retries, redirect refusal
-    and `@odata.id` validation are all the production code paths.
+    """The fixture speaks HTTP, so the base URL is overridden; `connect_host`
+    lets several logical targets reach the one fixture. Handshake, retries,
+    redirect refusal and `@odata.id` validation stay the production paths.
     """
 
     def __init__(
@@ -127,16 +120,12 @@ class TestHealthyHost:
         assert server.memory_total_bytes == 512 * 1024**3
         assert server.nic_macs == ("00:00:5e:00:53:01",)
         assert server.bmc_mac == "00:00:5e:00:53:99"
-        # No fabric interconnect exists for a standalone server, so the
-        # seeded connectivity policies must have nothing to evaluate.
         assert server.attachments == ()
 
     async def test_a_dells_serial_is_its_oem_node_id_not_serialnumber(self) -> None:
-        """Confirmed against several live iDRAC9 servers, 2026-09-08: the
-        Service Tag shown in OME and the iDRAC UI is `Oem.Dell.DellSystem.
-        NodeID`, not the top-level `SerialNumber` this platform read
-        until then — that field is a manufacturing/board serial instead.
-        See docs/dell-collectors.md.
+        """Confirmed on live iDRAC9 servers 2026-09-08: the Service Tag is
+        `Oem.Dell.DellSystem.NodeID`; top-level `SerialNumber` is a board
+        serial. See docs/dell-collectors.md.
         """
         resources = minimal_service()
         system = dict(resources["/redfish/v1/Systems/1"])
@@ -173,10 +162,9 @@ class TestHealthyHost:
         assert gpus[0]["model"] == "Nvidia(R) TU102"
 
     async def test_gpu_telemetry_is_read_from_its_own_metrics_resources(self) -> None:
-        """Memory type, ECC mode and error counts, temperature and power
-        all come from resources linked off the GPU's own `Processor`
-        entry — `ProcessorMemory`, `MemorySummary.ECCModeEnabled`, its
-        own `ProcessorMetrics`, and its own `EnvironmentMetrics`.
+        """Memory type, ECC, error counts, temperature and power come from
+        resources linked off the GPU's own `Processor` entry
+        (`ProcessorMemory`, `ProcessorMetrics`, `EnvironmentMetrics`).
         """
         with RedfishFixture(resources=minimal_service()) as fixture:
             servers = await _collect(_provider(fixture.port))
@@ -211,7 +199,6 @@ class TestHealthyHost:
         assert mapped_gpu["uncorrectable_error_count"] is None
         assert mapped_gpu["temperature_celsius"] is None
         assert mapped_gpu["power_watts"] is None
-        # The rest of the GPU still maps.
         assert mapped_gpu["memory_type"] == "HBM2"
 
     async def test_a_gpus_metrics_fetch_failing_does_not_fail_the_host(self) -> None:
@@ -262,8 +249,7 @@ def _with_hgx_baseboard(resources: dict[str, Any]) -> dict[str, Any]:
         "@odata.type": "#ComputerSystem.v1_22_0.ComputerSystem",
         "Id": "HGX_Baseboard_0",
         "Name": "HGX Baseboard",
-        # No Manufacturer, no CPU — the shape that distinguishes a GPU
-        # tray from an independently bootable host.
+        # No Manufacturer, no CPU: a GPU tray, not a bootable host.
         "Processors": {"@odata.id": "/redfish/v1/Systems/HGX_Baseboard_0/Processors"},
     }
     resources["/redfish/v1/Systems/HGX_Baseboard_0/Processors"] = {
@@ -285,11 +271,9 @@ def _with_hgx_baseboard(resources: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestGpuBaseboardMerging:
-    """NVIDIA's DGX/HGX platforms split one physical machine into a host
-    `ComputerSystem` and a GPU-only baseboard one (confirmed against
-    NVIDIA's own Redfish docs — `/redfish/v1/Systems/DGX` alongside
-    `/redfish/v1/Systems/HGX_Baseboard_0`). See docs/adr/0016's dated
-    update.
+    """NVIDIA's DGX/HGX platforms split one machine into a host
+    `ComputerSystem` and a GPU-only `HGX_Baseboard_0` one, per NVIDIA's own
+    Redfish docs. See docs/adr/0016's dated update.
     """
 
     async def test_a_gpu_only_tray_is_merged_into_its_one_sibling_host(self) -> None:
@@ -297,7 +281,6 @@ class TestGpuBaseboardMerging:
         with RedfishFixture(resources=resources) as fixture:
             servers = await _collect(_provider(fixture.port))
 
-        # One server, not two — the tray is not ingested on its own.
         assert len(servers) == 1
         server = servers[0]
         assert server.name == "ocp4-prod-tlv-infra-01"
@@ -332,10 +315,7 @@ class TestGpuBaseboardMerging:
         with RedfishFixture(resources=resources) as fixture:
             servers = await _collect(_provider(fixture.port))
 
-        # All three ingest independently: the two real hosts, plus the
-        # tray on its own (as vendor=standalone, per the Manufacturer
-        # change) rather than being silently dropped or guessed onto
-        # either host.
+        # The tray ingests on its own as standalone, not guessed onto a host.
         assert len(servers) == 3
         assert sum(1 for s in servers if s.vendor == Vendor.STANDALONE.value) == 1
 
@@ -373,7 +353,6 @@ class TestFailureModes:
 
         assert servers[0].storage_drives is None
         assert servers[0].storage_total_bytes is None
-        # The rest of the server still maps.
         assert servers[0].cpu_cores == 64
 
     async def test_a_member_that_404s_does_not_fail_the_host(self) -> None:
@@ -397,24 +376,15 @@ class TestFailureModes:
         with RedfishFixture(resources=resources) as fixture:
             servers = await _collect(_provider(fixture.port))
 
-        # Falls back to summing the Memory collection (128 GiB, the two
-        # 64 GiB DIMMs `minimal_service()` fixtures) and the Processors
-        # collection respectively, same as an absent summary would.
+        # Falls back to the Memory (two 64 GiB DIMMs) and Processors collections.
         assert servers[0].memory_total_bytes == 128 * 1024**3
         assert servers[0].cpu_cores == 32
         assert servers[0].serial == "FCH2201V0AB"
 
     async def test_memory_falls_back_to_the_dimm_collection_with_no_summary_at_all(self) -> None:
-        """The shape confirmed against real hardware: `MemorySummary` is
-        schema-optional, and a BMC has been observed omitting it entirely
-        while `Memory` (one member per DIMM) is populated.
-
-        `minimal_service()`'s third member (`DIMM_B1`) is an empty slot
-        carrying a stale `CapacityMiB` but `Status.State == "Absent"` —
-        Redfish's empty-bay signal, the same one already relied on for
-        `Drive`. Landing on exactly 128 GiB (the two real 64 GiB DIMMs,
-        not 160) proves it was excluded *because* it is absent, not
-        merely because a capacity happened to be missing.
+        """A real BMC omits the schema-optional `MemorySummary` while `Memory`
+        is populated (ADR-0016). `DIMM_B1` is `Absent` with a stale
+        `CapacityMiB`; landing on 128 GiB, not 160, proves it was excluded.
         """
         resources = minimal_service()
         system = dict(resources["/redfish/v1/Systems/1"])
@@ -427,10 +397,8 @@ class TestFailureModes:
 
     async def test_a_system_without_a_manufacturer_ingests_as_standalone(self) -> None:
         """Reversed 2026-08-23 at the operator's request: a missing/null
-        Manufacturer now maps to Vendor.STANDALONE and the system is
-        still ingested, rather than being a collection failure. See
-        docs/adr/0016's dated update for the correlation-key tradeoff
-        this reopens.
+        Manufacturer maps to Vendor.STANDALONE and still ingests. See
+        docs/adr/0016's dated update for the correlation-key tradeoff.
         """
         resources = minimal_service()
         system = dict(resources["/redfish/v1/Systems/1"])
@@ -496,8 +464,6 @@ class TestPartialFleetAndTheBreaker:
         credential circuit breaker was removed — see ADR-0016's update.
         """
         with RedfishFixture(resources=minimal_service()) as fixture:
-            # Four distinct target identities, all reaching the one
-            # fixture, all with the wrong password.
             bad = [
                 _target(fixture.port, host=f"bmc-{n}.example", password="wrong")
                 for n in range(1, 5)
@@ -528,16 +494,9 @@ class TestPartialFleetAndTheBreaker:
     async def test_the_run_budget_reports_even_when_the_deadline_lands_between_yields(
         self,
     ) -> None:
-        """The shape `_collect`'s tight `async for` above never exercises,
-        and the one the old `asyncio.timeout()`-wrapped loop got wrong:
-        `asyncio.timeout()` captures whichever task drives it *once*, at
-        entry — the *consumer's* task, since a generator suspended at
-        `yield` has no task of its own. The real consumer
-        (`IngestService.ingest`) awaits a Mongo upsert per server, so the
-        deadline landing while it's doing that — not while this generator
-        itself is running — is the normal case, not an edge case. The old
-        code's `except TimeoutError` never ran when that happened; it
-        instead let a bare `CancelledError` escape into the consumer.
+        """`asyncio.timeout()` captures the consumer's task at entry, so a
+        deadline landing during the consumer's own await let a bare
+        `CancelledError` escape. See ADR-0016, "Provider (`provider.py`)".
         """
         with (
             RedfishFixture(resources=minimal_service()) as fast,
@@ -557,10 +516,9 @@ class TestPartialFleetAndTheBreaker:
             servers = []
             async for server in provider.collect():
                 servers.append(server)
-                # Longer than the run budget, and — unlike `_collect`'s
-                # bare `async for` — an actual `await` between yields, so
-                # the deadline has a chance to land here rather than
-                # inside the generator.
+                # Longer than the run budget, with an actual `await` between
+                # yields so the deadline can land here rather than inside
+                # the generator.
                 await asyncio.sleep(3.0)
 
         assert len(servers) == 1
@@ -608,8 +566,7 @@ class TestSecurityGuards:
             issued = fixture.tokens
 
         assert token in issued
-        # Nothing that could carry the secret is ever formatted: the
-        # session exchange is skipped outright rather than redacted.
+        # The session exchange is skipped outright, not redacted.
         assert all("Sessions" not in path for _, path in [("GET", "/redfish/v1/Systems/1")])
 
 

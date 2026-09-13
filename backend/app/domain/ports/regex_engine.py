@@ -17,9 +17,7 @@ class RegexTimeout(Exception):
     """
     Raised when a match against a subject exceeds the configured time budget.
 
-    Callers (the classification engine) catch this per-rule and
-    quarantine the offending rule rather than letting one pathological
-    pattern stall an entire classification run.
+    The classification engine catches this per rule and skips it, never stalling the run.
     """
 
 

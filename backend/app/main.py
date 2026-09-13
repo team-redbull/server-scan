@@ -60,9 +60,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Start and stop the app's own resources, in dependency order.
 
-    Settings -> logging -> Mongo -> bootstrap defaults -> Redis -> ready
-    on the way up; the reverse, plus draining any in-flight coalesced
-    computation first, on the way down.
+    Settings -> logging -> Mongo -> bootstrap defaults -> Redis up; the
+    reverse down, after draining in-flight coalesced computations (ADR-0007).
 
     Args:
         app (FastAPI): The application being started, to stash the
@@ -82,10 +81,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     mongo = MongoClientHolder(settings)
     await mongo.connect()
     await ensure_indexes(mongo.db)
-    # Idempotent — see `ensure_default_*`'s docstring for why "seed only
-    # if missing by name" is required here, not just convenient, and why
-    # each shipped default is validated (`validate_rule_write`/
-    # `validate_policy_write`) before it's ever written.
     regex_engine = RegexModuleEngine(
         max_pattern_length=settings.regex_max_pattern_length,
         match_timeout_seconds=settings.regex_match_timeout_seconds,
@@ -115,8 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         logger.info("app.stopping")
-        # Before the clients a still-running coalesced computation might
-        # be using disappear — see `singleflight.drain`'s docstring.
+        # Before the clients close — see `singleflight.drain`.
         await drain_singleflight()
         await redis.close()
         await mongo.close()
@@ -162,13 +156,7 @@ def create_app() -> FastAPI:
             response = await call_next(request)
             duration = time.monotonic() - start
             route = request.scope.get("route")
-            # `route` is `None` on a 404 — no matched path — so the raw
-            # caller-supplied URL was ending up as a Prometheus label,
-            # letting any unauthenticated caller mint unbounded label
-            # series (`GET /a1`, `/a2`, ...) on both a Counter and a
-            # Histogram. A fixed sentinel for the unmatched case bounds
-            # cardinality to the routes this app actually declares, plus
-            # one.
+            # `None` on a 404; a sentinel bounds label cardinality (architecture.md).
             path_label = route.path if route is not None else "<unmatched>"
             http_requests_total.labels(
                 method=request.method, path=path_label, status=response.status_code

@@ -89,9 +89,7 @@ class RedfishTarget:
 class InventoryError(ManagerNotConfiguredError):
     """The inventory could not be loaded, or does not describe a run.
 
-    Subclasses `ManagerNotConfiguredError` so `tools.run_collector` exits
-    2 naming what to fix, rather than treating a configuration mistake as
-    a collection failure.
+    A `ManagerNotConfiguredError`, so `tools.run_collector` exits 2 naming what to fix.
     """
 
 
@@ -114,9 +112,7 @@ def _normalize_host(raw: object, *, source: str) -> str:
         raise InventoryError(f"{source}: every [[hosts]] entry needs a non-empty `host`.")
     host = raw.strip().lower()
     if "@" in host:
-        # Rejected rather than stripped: a credential here would reach
-        # `bmc_address_raw`, and from there MongoDB, the API and the
-        # dry-run print, while the parsed fields beside it looked clean.
+        # Rejected, not stripped: stripped, it would still reach `bmc_address_raw`.
         raise InventoryError(
             f"{source}: host {raw!r} embeds credentials. Put the login in the credentials "
             "file and reference it by name."
@@ -211,9 +207,7 @@ def _load_credentials(path: Path | None) -> dict[str, RedfishCredential]:
             raise InventoryError(f"{path}: credential {name!r} must be a table.")
         username = str(entry.get("username", "") or "").strip()
         password = str(entry.get("password", "") or "")
-        # Same rule as `CredentialResolver.resolve`, and it matters more
-        # here: a blank password reaches the BMC as a real login attempt,
-        # and that attempt counts toward the account's lockout counter.
+        # A blank password reaches the BMC as a real, lockout-counted login.
         if not username or not password:
             raise InventoryError(
                 f"{path}: credential {name!r} needs both `username` and `password`."
@@ -251,11 +245,7 @@ def load_targets(
     ca_bundle: str | None = None,
 ) -> list[RedfishTarget]:
     """
-    Parse and fully validate the fleet list.
-
-    Every failure here is raised before the collector opens a connection,
-    because the alternative is discovering a typo on host 380 of 400 —
-    or worse, discovering it by presenting the wrong account to a machine.
+    Parse and fully validate the fleet list, before any connection is opened.
 
     Args:
         inventory_path (str): `INVENTORY_REDFISH_INVENTORY_FILE`.
@@ -311,9 +301,7 @@ def load_targets(
 
             group_name = entry.get("group")
             if group_name is not None and group_name not in groups:
-                # Fail closed. Falling through to the default credential
-                # here is exactly how a typo sprays a shared account
-                # across machines it was never meant for.
+                # Fail closed: the default credential must not reach a typo'd group.
                 known = ", ".join(sorted(groups)) or "none defined"
                 raise InventoryError(
                     f"{path}: host {host!r} names group {group_name!r}, which is not "
@@ -357,9 +345,6 @@ def load_targets(
             )
 
     if not targets:
-        # A different fault from "every host is down", and it must not
-        # print the same thing — see `collector.name_filter_applied`'s
-        # all-zero logging for the same reasoning.
         raise InventoryError(
             f"{inventory_path}: parsed 0 hosts. An empty inventory collects nothing and is "
             "almost always a ConfigMap that failed to mount — check the volume, not the file."
@@ -381,10 +366,8 @@ def _resolve_credential(
     """
     Resolve one host's login.
 
-    Precedence: the host's own `credential`, then a credential named after
-    the host, then its group's, then `[defaults]`, then the fleet-wide
-    login. The host-named rung is what keeps an estate where every BMC has
-    its own account from repeating the name on every entry.
+    Its own `credential`, one named after the host, its group's,
+    `[defaults]`, then the fleet-wide login (ADR-0016).
 
     Args:
         entry (dict[str, Any]): The host's own table.

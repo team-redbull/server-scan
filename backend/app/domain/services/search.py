@@ -36,10 +36,8 @@ from app.errors import (
     UnknownSortFieldError,
 )
 
-# API filter query-param name -> real Mongo field path on the `servers`
-# collection. Deliberately explicit (not derived from the `Server` model's
-# field names) so a domain-model rename doesn't silently change or break
-# the public query-param contract.
+# Query-param name -> Mongo path, explicit on purpose — see
+# docs/architecture.md, "Search, pagination, and caching".
 FILTER_FIELDS: dict[str, str] = {
     "site_id": "site_id",
     "vendor": "identity.vendor",
@@ -47,35 +45,19 @@ FILTER_FIELDS: dict[str, str] = {
     "installation_type": "classification.installation_type",
     "health_overall": "health.overall",
     "maintenance": "maintenance.enabled",
-    # Which collector produced a server, and so how it is reached.
-    # `?source_provider=REDFISH_STANDALONE` is what answers "these have
-    # no manager — do not look for them in OpenManage or UCS".
     "source_provider": "source_provider",
-    # Whether a cluster holds the server, as the OpenShift jobs report it.
-    # Distinct from `installation_type`, which is what its *name* claims:
-    # `?openshift_state=AVAILABLE` answers "what can I build on", and no
-    # regex over a hostname can.
     "openshift_state": "openshift.lifecycle_state",
     "cluster_name": "openshift.cluster_name",
 }
 
-# API sort query-param name -> real Mongo field path. Every value here
-# must be a field that is always present with a safe default on every
-# document (see `Server`'s docstring) and covered by a compound index in
-# `app.infrastructure.mongodb.indexes` alongside `_id` — that's what keeps
-# keyset pagination gap/duplicate free.
 SORT_FIELDS: dict[str, str] = {
     "name": "name_normalized",
     "serial": "identity.serial_normalized",
     "model": "model_normalized",
     "updated_at": "updated_at",
     "last_seen_at": "last_seen_at",
-    # Sorts AVAILABLE / INSTALLED / INSTALLED_TO_INVENTORY, which is
-    # alphabetical and happens to read free-to-busy. Backed by
-    # `openshift_state_name_id`.
     "openshift_state": "openshift.lifecycle_state",
-    # Both nullable, which is why `_cursor_position_clause` is null-aware
-    # (ADR-0026). Backed by `openshift_cluster_name_id` / `_mce_name_id`.
+    # Both nullable — `_cursor_position_clause` is null-aware (ADR-0026).
     "cluster_name": "openshift.cluster_name",
     "mce_name": "openshift.mce_name",
 }
@@ -83,18 +65,7 @@ SORT_FIELDS: dict[str, str] = {
 MIN_SEARCH_QUERY_LENGTH = 2
 MAX_SEARCH_QUERY_LENGTH = 64
 
-# Extracts the value a keyset cursor is built from for each sort field,
-# given a decoded `Server`. Kept alongside `SORT_FIELDS` because the two
-# must stay in lockstep: `SORT_FIELDS[k]` is the Mongo path the query sorts
-# on, `SORT_ACCESSORS[k]` is how the repository reads that same value back
-# off the last item on a page to build the next cursor.
-#
-# `last_seen_at` falls back to the Unix epoch when unset: the domain model
-# allows `None` there (a server that has never completed ingestion), but a
-# cursor position must always be a concrete, comparable value. In practice
-# every server upserted by `app.application.services.ingest` has
-# `last_seen_at` set, so this fallback is a defensive edge case, not the
-# common path.
+# `last_seen_at` falls back to the epoch: a cursor position must be concrete.
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 SORT_ACCESSORS: dict[str, Callable[[Server], str | datetime | None]] = {
@@ -163,9 +134,7 @@ def build_search_query(raw_query: str) -> dict[str, object]:
     """
     Validate a raw search string's length and build its safe Mongo filter fragment.
 
-    NEVER build a Mongo `$regex` from unescaped user input — `re.escape`
-    is mandatory and this is the single place in the codebase that does
-    it for server search, so there is exactly one thing to audit.
+    The single place server search escapes user input for `$regex`.
 
     Args:
         raw_query (str): The raw search string from the API request.

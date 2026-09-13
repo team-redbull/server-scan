@@ -18,19 +18,8 @@ is deliberately absent rather than guessed; an operator adds it with
 from __future__ import annotations
 
 DEFAULT_GPU_MODELS: tuple[tuple[str, int, tuple[str, ...]], ...] = (
-    # (friendly name, VRAM in GB, identifiers this row matches)
-    #
-    # An identifier is either a Cisco PID or a model string a vendor
-    # reports. Both are matched after normalization (see
-    # `gpu_catalog._normalize`), so only spellings that differ by more
-    # than case, whitespace and separators need their own entry.
-    #
-    # A bare model name ("A30") is an identifier only where that model
-    # shipped in exactly one capacity. A100/V100/H100/P100 shipped in
-    # two, so their rows require a capacity-qualified spelling — a bare
-    # "A100" is genuinely ambiguous and matching it would silently
-    # report the wrong number for half the fleet.
-    #
+    # (friendly name, VRAM in GB, identifiers this row matches). A bare
+    # model name keys only a single-capacity card — ADR-0021, decisions 2-3.
     # --- NVIDIA, Pascal ---
     ("NVIDIA Tesla P100 12GB", 12, ("UCSC-GPU-P100-12G", "Tesla P100-PCIE-12GB", "P100-12GB")),
     ("NVIDIA Tesla P100 16GB", 16, ("UCSC-GPU-P100-16G", "Tesla P100-PCIE-16GB", "P100-16GB")),
@@ -58,9 +47,7 @@ DEFAULT_GPU_MODELS: tuple[tuple[str, int, tuple[str, ...]], ...] = (
     # --- NVIDIA, Ampere ---
     ("NVIDIA A2 16GB", 16, ("A2",)),
     ("NVIDIA A10 24GB", 24, ("UCSC-GPU-A10", "A10")),
-    # The A16 is one card carrying four GPUs of 16GB each. This platform
-    # models a GPU, not a card, so the row is the per-GPU figure — see
-    # ADR-0021 for why, and override it if your estate reads the card.
+    # One card, four 16GB GPUs; the row is per GPU — ADR-0021, "Consequences".
     (
         "NVIDIA A16 16GB",
         16,

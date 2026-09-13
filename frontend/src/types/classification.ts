@@ -1,9 +1,5 @@
-/**
- * Hand-written types mirroring the backend's `/api/v1/classification-rules`
- * JSON shapes (see `backend/app/api/v1/classification_schemas.py`, which is
- * authoritative). Same "decoupled from the backend" convention as
- * `types/server.ts` — this only carries what the UI actually consumes.
- */
+/** Hand-written mirror of `/api/v1/classification-rules`
+ * (`backend/app/api/v1/classification_schemas.py` is authoritative). */
 
 import type { InstallationType, Vendor } from "@/types/server";
 
@@ -15,8 +11,8 @@ export type ManagerType =
   | "ONEVIEW"
   | "REDFISH_STANDALONE";
 
-/** Every `ManagerType`, as a person names it. Vendor-free on purpose, so a
- * label can sit beside its vendor without repeating it. */
+/** Every `ManagerType`, as a person names it; vendor-free so a label can sit
+ * beside its vendor. */
 export const MANAGER_TYPE_LABELS: Record<ManagerType, string> = {
   UCS_CENTRAL: "UCS Central",
   UCS_MANAGER: "UCS Manager",
@@ -33,9 +29,7 @@ export type RuleSource =
   | "GLOBAL_CUSTOM"
   | "SYSTEM_DEFAULT";
 
-/** The full set of valid sources. `SYSTEM_DEFAULT` rules can never be
- * created through the API (only seeded), so the create/edit form's source
- * picker uses `RULE_SOURCES_FOR_CREATE` instead of this. */
+/** `SYSTEM_DEFAULT` is seeded only, never created through the API. */
 export const RULE_SOURCES: RuleSource[] = [
   "SITE_CUSTOM",
   "MANAGER_CUSTOM",
@@ -51,9 +45,8 @@ export const RULE_SOURCES_FOR_CREATE: RuleSource[] = [
   "GLOBAL_CUSTOM",
 ];
 
-/** `priority` must fall in its `source`'s band (validated authoritatively
- * server-side; this is a client-side hint only). Mirrors
- * `app.domain.models.classification_rule.PRIORITY_BANDS` exactly. */
+/** Mirrors `app.domain.models.classification_rule.PRIORITY_BANDS`; the
+ * server validates, this is a hint. */
 export const PRIORITY_BANDS: Record<RuleSource, { low: number; high: number }> = {
   SITE_CUSTOM: { low: 500, high: 599 },
   MANAGER_CUSTOM: { low: 400, high: 499 },
@@ -62,8 +55,7 @@ export const PRIORITY_BANDS: Record<RuleSource, { low: number; high: number }> =
   SYSTEM_DEFAULT: { low: 100, high: 199 },
 };
 
-/** Mirrors `app.domain.models.classification_rule.CLASSIFIABLE_FIELDS` —
- * there is no API to fetch this list, it is hardcoded there and here. */
+/** Mirrors `app.domain.models.classification_rule.CLASSIFIABLE_FIELDS`. */
 export const CLASSIFIABLE_FIELDS = ["name", "hostname", "serial", "model", "site_id"] as const;
 export type ClassifiableField = (typeof CLASSIFIABLE_FIELDS)[number];
 

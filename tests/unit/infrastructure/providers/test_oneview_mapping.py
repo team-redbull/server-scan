@@ -60,8 +60,6 @@ def _hardware(**overrides: Any) -> dict[str, Any]:
     """
     member: dict[str, Any] = {
         "uri": "/rest/server-hardware/30373737-3237-4D32",
-        # The trap: a location string for a blade, `ILO<serial>` for a
-        # rack server. Never the server's name.
         "name": "ILOUSE31835LS",
         "serverName": "worker01.corp.example.net",
         "serverProfileUri": "/rest/server-profiles/abc",
@@ -166,16 +164,11 @@ def _mapped(**overrides: Any) -> Any:
     )
 
 
-# --- trap 1: the name -------------------------------------------------
-
-
 class TestName:
     def test_the_name_comes_from_the_profile_not_the_hardware(self) -> None:
-        """`server-hardware.name` is `"Encl1, bay 3"` for a blade and
-        `ILO<serial>` for a rack server; `serverName` is an OS hostname
-        reported through HPE AMS. Only the profile carries the name site
-        parsing and classification key off — the exact trap that named
-        every UCS server after its chassis slot.
+        """`server-hardware.name` is an enclosure/bay location and
+        `serverName` an AMS-reported OS hostname; only the profile carries
+        the name site parsing and classification key off (ADR-0022).
         """
         server = _mapped()
 
@@ -208,15 +201,11 @@ class TestName:
         assert server.vendor == Vendor.HP.value
 
 
-# --- trap 2: cores per processor --------------------------------------
-
-
 class TestCpu:
     def test_cores_are_multiplied_by_the_socket_count(self) -> None:
-        """`processorCoreCount` is documented as "Number of cores
-        available **per processor**", while this platform's `cpu_cores`
-        is whole-system. Reporting it unmultiplied halves every
-        two-socket server, silently and forever.
+        """`processorCoreCount` is per processor while `cpu_cores` is
+        whole-system; unmultiplied, every two-socket server is half its
+        real core count (docs/hpe-collectors.md).
         """
         server = _mapped()
 
@@ -248,9 +237,6 @@ class TestCpu:
         assert _mapped().cpu_model == "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz"
 
 
-# --- trap 3: memoryMb is MiB ------------------------------------------
-
-
 class TestMemory:
     def test_memory_is_converted_from_mib(self) -> None:
         """HPE documents the unit inline and spells out the factor:
@@ -265,9 +251,6 @@ class TestMemory:
         assert _mapped(memoryMb=0).memory_total_bytes is None
 
 
-# --- trap 7: InsufficientFirmware -------------------------------------
-
-
 class TestSubresourceStates:
     @pytest.mark.parametrize(
         "state",
@@ -275,13 +258,8 @@ class TestSubresourceStates:
     )
     def test_any_state_but_collected_reports_unread(self, state: str) -> None:
         """An iLO-4 server answers `InsufficientFirmware` for every
-        subresource ("The minimum version to collect some types of
-        inventory is iLO 5 v1.20"). Mapping that to an empty list would
-        report zero drives — which once took a machine from CRITICAL to
-        HEALTHY and logged that the drive had recovered.
-
-        `CollectedStale` is excluded too: HPE defines it as data that may
-        be "out of date **or missing** due to the server state".
+        subresource, and `CollectedStale` may be "out of date or missing";
+        only `Collected` is data (docs/hpe-collectors.md), the rest is `None`.
         """
         member = _hardware()
         member["subResources"]["Devices"]["collectionState"] = state
@@ -330,9 +308,6 @@ class TestSubresourceStates:
         assert len(rows) == 3
 
 
-# --- trap 8: GPUs -----------------------------------------------------
-
-
 class TestGpus:
     def test_only_gpu_devices_that_are_present_are_reported(self) -> None:
         """The `Devices` array carries NICs and empty slots too; HPE's own
@@ -373,9 +348,6 @@ class TestGpus:
         assert enriched["memory_bytes"] == 40 * 1024**3
 
 
-# --- storage ----------------------------------------------------------
-
-
 class TestStorage:
     def test_localstoragev2_capacity_is_taken_in_bytes(self) -> None:
         server = _mapped()
@@ -387,15 +359,9 @@ class TestStorage:
         assert server.storage_drives[0]["health_detail"] == "OK"
 
     def test_the_v1_schema_never_uses_the_marketing_capacity(self) -> None:
-        """`CapacityGB` is documented by HPE as "the marketing capacity
-        (base 10)". `CapacityMiB` is the real figure, and `SMR` is a hard
-        disk the Redfish enum has no member for.
-
-        `LocalStorage.data` is a list of `HpeSmartStorageArrayController`
-        objects, each with its own `PhysicalDrives[]` — confirmed against
-        a live appliance 2026-09-07 (`docs/adr/0022`'s validation
-        section), which is what this fixture models rather than a flat
-        drive list.
+        """`CapacityGB` is HPE's "marketing capacity (base 10)"; `CapacityMiB`
+        is real. `LocalStorage.data` is per-controller, each with its own
+        `PhysicalDrives[]` — confirmed live 2026-09-07 (ADR-0022).
         """
         member = _hardware()
         member["subResources"] = {
@@ -509,11 +475,9 @@ class TestStorage:
         assert server.storage_drives[0]["id"] == "0"
 
     def test_an_empty_v2_read_falls_back_to_v1(self) -> None:
-        """The bug found against a live appliance 2026-09-07: V2 collected
-        and genuinely empty (`data: []`) is not the same as "this server
-        has no drives" — V1 held the real ones. Confirmed on
-        `ocp4-five-compute-08` (four SATA SSDs behind a Smart Array
-        P408i-p, mapped as zero drives before this fix).
+        """Found live 2026-09-07 on `ocp4-five-compute-08`: V2 collected and
+        empty (`data: []`) while V1 held the real drives, mapped as zero
+        drives before this fix (ADR-0022, "Results, 2026-09-07").
         """
         member = _hardware()
         member["subResources"]["LocalStorageV2"] = {
@@ -540,10 +504,9 @@ class TestStorage:
         assert len(server.storage_drives) == 2
 
     def test_both_schemas_genuinely_empty_reports_zero_drives_not_unread(self) -> None:
-        """A diskless/boot-from-SAN server, where V2's empty read is the
-        real answer because V1 cannot be read at all — distinct from
-        neither subresource being readable (which stays `None`, see
-        `TestSubresourceStates`).
+        """A diskless/boot-from-SAN server: V2's empty read is the real answer
+        because V1 cannot be read at all — distinct from neither being
+        readable, which stays `None` (`TestSubresourceStates`).
         """
         member = _hardware()
         member["subResources"]["LocalStorageV2"] = {
@@ -561,9 +524,6 @@ class TestStorage:
         assert server.storage_drives == ()
 
 
-# --- NICs and the management-processor address ------------------------
-
-
 class TestNetwork:
     def test_only_physical_port_macs_reach_the_correlation_set(self) -> None:
         """`virtualPorts` are FlexNICs carved out of a physical port.
@@ -572,7 +532,6 @@ class TestNetwork:
         """
         server = _mapped()
 
-        # Normalized at the provider boundary, per `ProviderServer`.
         assert server.nic_macs == ("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02")
         assert len(server.nics) == 2
 
@@ -615,9 +574,6 @@ class TestNetwork:
         assert management_processor_address({}) is None
 
 
-# --- iLO generation ---------------------------------------------------
-
-
 class TestIloGeneration:
     @pytest.mark.parametrize(
         ("mp_model", "expected"),
@@ -636,24 +592,17 @@ class TestIloGeneration:
 
 
 class TestPsus:
-    """PSUs are the one thing OneView will not hand over in the bulk
-    sweep, and the one field no provider in this repo has ever populated
-    — the health engine's `power.psu_count` and `power.failed_psu_count`
-    have had nothing to read since they were written.
+    """PSUs are the one thing OneView will not hand over in the bulk sweep;
+    see docs/hpe-collectors.md, "Power supplies".
     """
 
     def test_no_power_supply_data_is_unread_not_empty(self) -> None:
         assert _mapped().psus is None
 
     def test_the_hpe_state_decides_health_in_the_platforms_up_down_vocabulary(self) -> None:
-        """OneView separates a PSU that lost AC input from one that is
-        degraded from one that failed outright, and each maps onto
-        `UP`/`DOWN`/`UNKNOWN` — never `HealthSeverity` (`HEALTHY`/
-        `WARNING`/`CRITICAL`), which is what a 2026-09-01 to 2026-09-07
-        bug shipped instead: `facts.py` counts `power.failed_psu_count`
-        by checking `health == "DOWN"`, so a `Psu.health` of `"CRITICAL"`
-        was silently counted as zero failures, forever, for every HPE
-        server. Fixed 2026-09-07 against a live appliance.
+        """Each HPE state maps onto `UP`/`DOWN`/`UNKNOWN`, never
+        `HealthSeverity`: `facts.py` counts `health == "DOWN"`, so `"CRITICAL"`
+        counted zero failures for every HPE server until 2026-09-07 (ADR-0022).
         """
         rows = [
             {
@@ -683,17 +632,14 @@ class TestPsus:
         assert [p["health"] for p in psus] == ["UP", "DOWN", "UNKNOWN"]
         assert psus[0]["capacity_watts"] == 800
         assert psus[0]["serial"] == "5WBXK0GLLDF123"
-        # health_detail names HPE's own state — the more specific source
-        # that actually decided each of these, not the generic Redfish
-        # Health/State pair every row above shares ("OK"/"Enabled").
+        # health_detail names the HPE state that decided each, not the shared
+        # Redfish "OK"/"Enabled" pair.
         assert [p["health_detail"] for p in psus] == ["Ok", "ACPowerLost", "Degraded"]
 
     def test_power_failed_psu_count_actually_counts_a_failed_oneview_psu(self) -> None:
-        """The regression that matters most: reproduces
-        `app.domain.services.health.facts.extract_facts`'s own counting
-        rule (`sum(1 for h in psu_healths if h == "DOWN")`) directly
-        against this mapping's output, rather than only asserting the
-        health string looks right in isolation.
+        """Reproduces `health.facts.extract_facts`'s own counting rule
+        (`h == "DOWN"`) against this mapping's output, rather than only
+        asserting the health string in isolation.
         """
         psus = psus_from(
             [
@@ -707,10 +653,9 @@ class TestPsus:
         assert failed == 1
 
     def test_an_unmapped_state_falls_back_to_the_shared_redfish_vocabulary(self) -> None:
-        """The fallback is `..redfish.mapping.psu_health` — the same
-        `UP`/`DOWN`/`DISABLED`/`UNKNOWN` vocabulary, reused because a
-        OneView PSU row is itself Redfish-schema-shaped, never
-        `health_of`'s `HealthSeverity` (that was the bug).
+        """The fallback is `..redfish.mapping.psu_health` — a OneView PSU row
+        is Redfish-schema-shaped — and so the same UP/DOWN vocabulary, never
+        `health_of`'s `HealthSeverity`.
         """
         psus = psus_from(
             [
@@ -721,9 +666,7 @@ class TestPsus:
 
         assert psus is not None
         assert [p["health"] for p in psus] == ["DOWN", "UP"]
-        # No HPE state on either row, so health_detail falls back to the
-        # same generic Redfish Health/State pair the fallback itself
-        # reduced — "—" standing in for the missing State half.
+        # No HPE state, so health_detail is the Redfish pair; "—" is the missing State.
         assert [p["health_detail"] for p in psus] == ["Critical/—", "OK/—"]
 
     def test_an_absent_bay_is_not_a_power_supply(self) -> None:
@@ -775,10 +718,9 @@ class TestCpuThreads:
         assert cpu_threads_from([{"Id": "0", "TotalCores": 26}]) is None
 
     def test_a_collected_but_empty_read_reports_unread_not_zero(self) -> None:
-        """An empty `Processors` list is not a real state for a server
-        that has a CPU by construction — this only happens when the
-        subresource genuinely has nothing usable in it, and should read
-        the same as `None` rather than as a confident zero threads.
+        """An empty `Processors` list is not a real state for a server that
+        has a CPU by construction; it reads as `None`, not a confident zero
+        threads.
         """
         assert cpu_threads_from([]) is None
 

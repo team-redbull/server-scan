@@ -20,9 +20,8 @@ export function HardwareTab({
   unreadFields = [],
 }: {
   hardware: HardwareInfo | undefined;
-  /** `ServerDetail.unread_fields` — dotted paths the most recent collection
-   * could not read. Optional so the tab still renders for a caller with no
-   * such list (a document written before the field existed). */
+  /** `ServerDetail.unread_fields`; optional for a document written before
+   * the field existed. */
   unreadFields?: string[] | undefined;
 }) {
   if (!hardware) {
@@ -67,12 +66,9 @@ export function HardwareTab({
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Storage</h2>
-        {/* Total first, exactly like Memory above it, and on its own —
-         * decoupled from whether per-drive detail is available at all.
-         * It used to be nested inside the drives block, so a real,
-         * nonzero total was hidden behind "No storage data." whenever
-         * `drives` alone was empty or unread, even though the total
-         * itself had nothing wrong with it. */}
+        {/* Total on its own, decoupled from per-drive detail: nested inside
+         * the drives block it hid behind "No storage data." whenever
+         * `drives` alone was empty. */}
         <Reported
           unread={unread.has("hardware.storage.total_bytes")}
           empty={!storage || storage.total_bytes <= 0}
@@ -205,12 +201,8 @@ export function HardwareTab({
   );
 }
 
-/**
- * One component's own reported condition. Badged when it is a severity
- * this UI can style, shown as the collector's raw word when it is not
- * (Cisco reports UP/DOWN here, not HEALTHY/CRITICAL), and dashed when the
- * collector read nothing at all.
- */
+/** A component's condition: badged when it is a `HealthSeverity`, the
+ * collector's raw word otherwise (Cisco reports UP/DOWN), dashed when unread. */
 function Health({ value, detail }: { value: ComponentHealth; detail?: string | null }) {
   if (value == null) {
     return <>—</>;
@@ -218,9 +210,7 @@ function Health({ value, detail }: { value: ComponentHealth; detail?: string | n
   return (
     <span className="inline-flex items-center gap-1.5">
       {isHealthSeverity(value) ? <HealthBadge severity={value} /> : <>{value}</>}
-      {/* The raw vendor reason `value` was reduced from — e.g. "self-test-failed"
-       * for a drive read as CRITICAL. Diagnosis only; the badge above is
-       * still the authoritative severity. */}
+      {/* The raw vendor reason `value` was reduced from; diagnosis only. */}
       {detail && <span className="text-xs text-gray-500">({detail})</span>}
     </span>
   );
@@ -235,8 +225,7 @@ function Stat({
   value: string | number | null | undefined;
   unread?: boolean;
 }) {
-  // `0` and `""` are the zero values `_carry_forward` writes for a field
-  // nobody has ever read — falsy is exactly the test that catches them.
+  // Falsy catches the `0`/`""` `_carry_forward` writes for a never-read field.
   const empty = !value;
   const className = unread
     ? empty

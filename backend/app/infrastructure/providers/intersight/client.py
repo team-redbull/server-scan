@@ -34,14 +34,8 @@ logger = structlog.get_logger(__name__)
 
 _API_ROOT = "/api/v1"
 
-# Retried with backoff. 429 is the throttle; the 5xx values are the ones
-# that are transient by definition rather than a bad request repeated.
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
-# Seconds of clock difference from the API's own `Date` header before the
-# collector treats its own clock as the problem. Generous, because the
-# signature only has to survive Intersight's validity window and this is
-# a diagnostic rather than a gate.
 _MAX_CLOCK_SKEW_SECONDS = 60.0
 
 
@@ -73,10 +67,8 @@ def validate_endpoint(endpoint: str) -> str:
     """
     Check that a configured endpoint is the bare host this client needs.
 
-    The one place a host becomes a URL. Everything downstream — the
-    `Host` header the signature covers, and `httpx`'s base URL — is
-    derived from the return value, so `https://https://host` cannot be
-    constructed further in.
+    The one place a host becomes a URL: the signed `Host` header and the
+    `httpx` base URL are both derived from the return value.
 
     Args:
         endpoint (str): `INVENTORY_INTERSIGHT_IP` as configured —
@@ -110,14 +102,8 @@ class IntersightClient:
     """
     One signed, paged conversation with an Intersight endpoint.
 
-    **Never verifies the endpoint's TLS certificate.** This is not
-    conditional on any setting — by explicit user decision, every
-    connection this class makes goes to whatever answers at `endpoint`,
-    indistinguishable from a man-in-the-middle, in every environment
-    including a real production tenant. There is no
-    `INVENTORY_INTERSIGHT_CA_BUNDLE` or `_TLS_VERIFY` to change this.
-
-    See docs/adr/0017-intersight-collector.md.
+    **Never verifies the endpoint's TLS certificate**, unconditionally and
+    by explicit user decision — ADR-0017, "Update (2026-08-31)".
     """
 
     def __init__(
@@ -189,9 +175,8 @@ class IntersightClient:
         """
         Prove the endpoint answers and the API key is accepted.
 
-        Asks for a single row of the cheapest inventory resource rather
-        than a dedicated probe endpoint: it exercises exactly the signing
-        path collection depends on, which a reachability check would not.
+        One row of the cheapest inventory resource, so the probe exercises
+        the same signing path collection depends on.
 
         Raises:
             IntersightUnreachableError: If the endpoint did not answer.
@@ -211,11 +196,8 @@ class IntersightClient:
         """
         Every managed object of one resource, a page at a time.
 
-        Ordered by `Moid`. `$top`/`$skip` is the only paging mechanism
-        the API offers — there is no continuation token — and nothing
-        documents the result set as stable across pages, so ordering on
-        an immutable key is what stops a concurrent change from skipping
-        or duplicating a row. See ADR-0017, "Decision 6".
+        `$top`/`$skip` ordered by `Moid` — see docs/cisco-collectors.md,
+        "Transport", and ADR-0017, "Decision 6".
 
         Args:
             resource (str): Path under `/api/v1`, e.g.
@@ -245,8 +227,6 @@ class IntersightClient:
 
             payload = await self._request(resource, params)
             results = payload.get("Results")
-            # `Results` is null rather than [] for an empty result set,
-            # which is a real shape the API returns and not an error.
             rows = list(results) if isinstance(results, list) else []
             for row in rows:
                 if isinstance(row, dict):
@@ -270,10 +250,7 @@ class IntersightClient:
             IntersightError: On a failure the retry budget cannot absorb.
         """
         path = f"{_API_ROOT}/{resource.lstrip('/')}"
-        # Encoded once, here, and both signed and sent verbatim. Letting
-        # httpx build the query from a dict would risk a different
-        # encoding of `$` than the one the signature covers, which fails
-        # as an indistinguishable 401.
+        # Encoded once and signed verbatim: httpx could encode `$` differently.
         query = urlencode(params)
         url = f"{path}?{query}"
 
@@ -335,11 +312,8 @@ class IntersightClient:
         """
         Intersight's own description of a failure, if it sent one.
 
-        Confirmed against the live service on 2026-08-29: an error body is
-        a JSON object carrying `code`, `message`, `messageId` and
-        `traceId`. The `traceId` is the one thing that lets Cisco find
-        this exact request, so it is worth surfacing even though nothing
-        here can interpret it.
+        Error-body shape confirmed live 2026-08-29 — see
+        docs/cisco-collectors.md, "Transport".
 
         Args:
             response (httpx.Response): The failed response.
@@ -381,12 +355,8 @@ class IntersightClient:
         """
         Explain a 401 as far as a 401 can be explained.
 
-        Intersight answers a drifted clock, an expired key, a revoked key
-        and a wrong key id with the same status and no distinguishing
-        body, so the one thing this collector *can* tell apart is its own
-        clock — checked here against the server's `Date` because a
-        CronJob pod on a drifted node is otherwise indistinguishable from
-        a credential problem.
+        Branches on `messageId`, then on this host's clock skew — see
+        docs/cisco-collectors.md, "Transport", for the live-confirmed ids.
 
         Args:
             response (httpx.Response): The rejected response.
@@ -394,13 +364,6 @@ class IntersightClient:
         Returns:
             str: The message for the raised error.
         """
-        # Intersight distinguishes these two in `messageId`, which is worth
-        # more than anything this collector could infer. Confirmed against
-        # the live service on 2026-08-29: a structurally malformed
-        # `Authorization` header answers `iam_apikey_signature_invalid`,
-        # while a well-formed one whose key cannot be verified answers
-        # `iam_apikey_authheader_invalid` — so the first means the fault is
-        # in this collector, and the second means it is in the credential.
         message_id = self._message_id(response)
         if message_id == "iam_apikey_signature_invalid":
             return (
@@ -460,10 +423,8 @@ class IntersightClient:
         """
         How long to wait before retrying.
 
-        Honours `Retry-After` when the server sends one, since a guess
-        cannot beat the server's own answer. Otherwise exponential with
-        full jitter — several collectors sharing one tenant must not
-        retry in lockstep.
+        `Retry-After` when sent, else exponential with full jitter so
+        collectors sharing a tenant do not retry in lockstep.
 
         Args:
             response (httpx.Response): The retryable response.

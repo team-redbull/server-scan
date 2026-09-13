@@ -29,22 +29,19 @@ from app.domain.enums import ManagerType
 
 
 class ManagerNotConfiguredError(Exception):
-    """No connection details are configured for a manager type.
+    """
+    No connection details are configured for a manager type.
 
-    Deliberately not an `app.errors.AppError` — those exist to become RFC
-    9457 responses for API clients, and this is raised in a collector CLI
-    process that never serves HTTP, so the collector's own top-level
-    handling (log + non-zero exit) is what deals with it.
+    Not an `AppError`: raised in a collector process that never serves HTTP.
     """
 
 
 @dataclass(frozen=True, slots=True)
 class ManagerConnection:
-    """Everything needed to reach one vendor manager.
+    """
+    Everything needed to reach one vendor manager.
 
-    `endpoint` is a bare hostname or IP, never a URL — each vendor SDK
-    builds its own URL, and a scheme here produces a mangled one (see
-    `app.infrastructure.providers.ucs_manager.client._validate_endpoint`).
+    `endpoint` is a bare host or IP, never a URL — each vendor SDK builds its own.
     """
 
     endpoint: str

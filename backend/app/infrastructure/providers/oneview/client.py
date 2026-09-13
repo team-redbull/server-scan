@@ -31,25 +31,13 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# The newest API version whose field tables this mapping was written
-# against — OneView 10.20, HPE API Reference `dp00006616en_us`. An
-# appliance reporting a newer `currentVersion` is clamped down to this,
-# because HPE guarantees older versions keep working ("It is upward
-# compatible from release to release") but guarantees nothing about a
-# contract we have never read. See docs/hpe-collectors.md, "API version".
+# OneView 10.20; newer appliances are clamped to it — docs/hpe-collectors.md, "API version".
 MAX_TESTED_API_VERSION = 8000
 
-# Sent as `count` on every collection GET. 256 is the documented hard
-# ceiling on `/rest/server-profiles`, and no other collection documents a
-# maximum, so one value serves every resource. Never `-1`: on the
-# profiles resource that means 64.
+# Never `-1` (that means 64) — docs/hpe-collectors.md, "Pagination, and the 256 ceiling".
 DEFAULT_PAGE_SIZE = 256
 
-# Page size for the `expand=all` sweep of `/rest/server-hardware`, which
-# inlines every server's DIMM/drive/device inventory. Deliberately small
-# and not a setting: HPE's own justification for `expand` being off by
-# default is response size, so this is a memory-safety choice rather than
-# a knob an operator has any information to tune.
+# Small on purpose, and not a setting — docs/hpe-collectors.md, "Subresources".
 EXPANDED_PAGE_SIZE = 25
 
 
@@ -57,10 +45,8 @@ class OneViewConnectionError(Exception):
     """
     Any failure talking to a OneView appliance.
 
-    Covers rejected credentials, a non-2xx REST response, and a
-    network-level failure reaching the appliance at all — the same single
-    error surface `OmeClient` and the Cisco clients present, so
-    `provider.py` handles one exception type per vendor.
+    Rejected credentials, a non-2xx response, or an unreachable appliance
+    — one exception type per vendor.
     """
 
 
@@ -69,16 +55,7 @@ class OneViewClient:
     One authenticated OneView session, held for a single appliance's run.
 
     Use as an async context manager so the session is deleted on the
-    appliance when the run ends:
-
-        async with OneViewClient(...) as client:
-            profiles = await client.get_all("/rest/server-profiles")
-
-    Logging out matters more here than for most vendors: an appliance
-    allows 2400 active sessions and only 960 from one source IP, and a
-    session that is never deleted lives for 24 idle hours. A CronJob that
-    leaks one session per run burns that budget. See
-    docs/hpe-collectors.md, "Sessions".
+    appliance when the run ends (docs/hpe-collectors.md, "Sessions").
     """
 
     def __init__(
@@ -124,14 +101,8 @@ class OneViewClient:
         self._configured_api_version = api_version
         self._api_version: int | None = None
         self._session_id: str | None = None
-        # One message per `get_all` call that paged short of the
-        # collection's own reported `total` — read by `OneViewProvider`
-        # after every bulk call this client makes, so a run that lost
-        # part of the appliance's inventory to a paging ceiling reports
-        # PARTIAL rather than a silently-complete success. See ADR-0023.
+        # One message per short `get_all` — docs/hpe-collectors.md, "Pagination".
         self.truncations: list[str] = []
-        # verify=False is deliberate for self-signed appliances — see the
-        # `verify_tls` argument docstring.
         self._http = httpx.AsyncClient(
             base_url=f"https://{host}",
             timeout=timeout_seconds,
@@ -176,17 +147,8 @@ class OneViewClient:
         """
         Settle which `X-Api-Version` this run will send.
 
-        `GET /rest/version` is the one operation HPE documents as needing
-        neither `Auth` nor `X-Api-Version`, so this runs before login and
-        cannot fail for credential reasons.
-
-        The result is clamped to `MAX_TESTED_API_VERSION`. HPE states an
-        API version's behaviour "remains the same … upward compatible
-        from release to release", so an older version stays correct on a
-        newer appliance, whereas a newer `currentVersion` is a contract
-        this mapping has never been read against. The clamp is skipped
-        only when the appliance's own `minimumVersion` is already above
-        it, where sending the clamped value would simply be rejected.
+        Discovered from the unauthenticated `GET /rest/version` and clamped
+        to `MAX_TESTED_API_VERSION` (docs/hpe-collectors.md, "API version").
 
         Returns:
             int: The version to send on every subsequent request.
@@ -246,10 +208,8 @@ class OneViewClient:
         """
         Discover the API version, then authenticate and hold the session.
 
-        OneView returns a bare `sessionID` that is replayed in an `Auth`
-        header — not `Authorization: Bearer`. `loginMsgAck` is always
-        sent, because an appliance configured to require login-message
-        acknowledgement rejects a login without it.
+        `sessionID` is replayed in an `Auth` header and `loginMsgAck` is
+        always sent (docs/hpe-collectors.md, "Sessions").
 
         Raises:
             OneViewConnectionError: If the appliance is unreachable or
@@ -275,10 +235,8 @@ class OneViewClient:
         """
         Delete the session and close the connection pool, best-effort.
 
-        Always safe to call from a `finally`/`__aexit__`: a failed logout
-        is logged and swallowed so it can never mask the error the caller
-        is already handling, and a logout before a successful login only
-        closes the pool.
+        A failed logout is logged, never raised, so it cannot mask the
+        caller's own error.
         """
         try:
             if self._session_id is not None:
@@ -300,19 +258,8 @@ class OneViewClient:
         """
         Fetch every member of a paged OneView collection.
 
-        Follows `nextPageUri` until it is null, which is the only correct
-        loop: HPE states the appliance "may limit the number of resources
-        returned", so `start += count` can skip members. Two guards the
-        SDK also carries are copied — a `nextPageUri` equal to the page's
-        own `uri`, and a repeat of a URI already fetched, both of which
-        would otherwise loop forever.
-
-        **Truncation is detected, not assumed away.** Each response
-        reports the collection's `total`; if fewer members than that were
-        fetched and paging stopped, an error is logged naming both
-        numbers. That is the documented risk on `/rest/server-profiles`,
-        whose 256 ceiling HPE describes as truncating the list without
-        saying whether `nextPageUri` is populated past it.
+        Follows `nextPageUri` with the SDK's two loop guards, and detects
+        truncation against `total` (docs/hpe-collectors.md, "Pagination, and the 256 ceiling").
 
         Args:
             path (str): Collection path, e.g. `"/rest/server-hardware"`.
@@ -356,9 +303,6 @@ class OneViewClient:
             next_path = following
 
         if total is not None and len(members) < total:
-            # Loud, and an error rather than a warning: a collector that
-            # silently sees a third of the estate looks exactly like a
-            # healthy run against a smaller fleet.
             logger.error(
                 "oneview.collection_truncated",
                 endpoint=self._endpoint,
@@ -373,10 +317,7 @@ class OneViewClient:
                     "past it. Servers beyond this point were NOT collected."
                 ),
             )
-            # Named for `OneViewProvider.collection_errors`: an operator
-            # reading a failed CronJob needs the three numbers in one
-            # line to tell a lost connection from the paging ceiling
-            # without opening the logs.
+            # Read into `collection_errors` — docs/hpe-collectors.md, "Pagination".
             self.truncations.append(
                 f"{path}: appliance reports {total} member(s) but paging with "
                 f"count={page_size} returned only {len(members)} — /rest/server-profiles "
@@ -388,12 +329,8 @@ class OneViewClient:
         """
         Make one unwrapped GET and hand back the whole response.
 
-        Exists for `tools/verify_oneview.py`, which has to ask questions
-        the collector itself never asks — chiefly what an appliance does
-        when `X-Api-Version` is *omitted*, which HPE documents as
-        required and then says nothing more about. That probe needs the
-        status code and the raw body, neither of which survives
-        `get_all`'s envelope handling.
+        For `tools/verify_oneview.py`, which probes what an appliance does
+        when `X-Api-Version` is omitted and needs the raw status and body.
 
         Args:
             path (str): Absolute appliance path.

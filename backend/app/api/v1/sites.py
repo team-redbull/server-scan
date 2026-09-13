@@ -45,25 +45,11 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["sites"])
 
-# Short TTL, not a long one with explicit invalidation: `site_breakdown`
-# is a full collection scan, and a collector run changes these numbers
-# continuously, so there is no clean event to invalidate on. Thirty
-# seconds keeps the landing page off the aggregation on every refresh
-# while staying fresh enough that a maintenance toggle shows up on the
-# next look — the same cache-aside, degrade-to-Mongo contract every other
-# read path here follows.
+# A short TTL, not invalidation — docs/architecture.md, "caching".
 _STATS_TTL_SECONDS = 30
-
-# The `:3:` is a schema version, bumped whenever this response's shape
-# changes: a deploy that kept the old key would try to validate up to 30
-# seconds of cached payloads against the new schema. Most field additions
-# validate fine and render as zeroes; `fleet` is a new required field, so
-# an old payload without it would fail validation outright rather than
-# degrade quietly — this version bump is what avoids that.
+# `:4:` is a schema version; bump it with every change to the response shape.
 _STATS_CACHE_KEY = "si:4:sites:stats"
 
-# Fixed presentation order for the per-vendor breakdown, so the three
-# columns never reorder between renders.
 _VENDOR_ORDER: tuple[str, ...] = tuple(v.value for v in Vendor)
 _HEALTH_ORDER: tuple[str, ...] = tuple(s.value for s in HealthSeverity)
 _INSTALLATION_ORDER: tuple[str, ...] = tuple(t.value for t in InstallationType)
@@ -141,9 +127,8 @@ def _empty_stats(site_id: str, *, name: str) -> SiteStats:
 def _accumulate(entry: Breakdown, row: SiteBreakdownRow) -> None:
     """Add one aggregation bucket into a breakdown, in place.
 
-    A value the current enums do not know falls into the catch-all bucket
-    (`UNKNOWN` health, no vendor column) rather than being dropped, so the
-    slice totals always add up to the fleet size.
+    An unknown enum value lands in the catch-all bucket rather than being
+    dropped, so slice totals always add up to the fleet size.
 
     Args:
         entry (Breakdown): The breakdown to add into.
@@ -180,19 +165,8 @@ def _pivot(
 ) -> tuple[list[SiteStats], FleetSummary]:
     """Fold the flat `$group` buckets into one record per site, and one fleet-wide summary.
 
-    Every configured site is seeded first so the shape of the response
-    does not depend on what happens to be in the database — the UI can
-    render a card per site without null-checking each one, and a site
-    with no servers yet still appears.
-
-    This endpoint is also the *only* place the frontend learns which
-    sites exist, so reconfiguring `INVENTORY_SITES` reaches the UI with
-    no frontend change at all.
-
-    The fleet-wide summary is folded from the same rows in the same pass
-    rather than a second aggregation or a second pass over `rows` — every
-    row already belongs to exactly one site and is accumulated into the
-    fleet totals alongside its site's own.
+    Every configured site is seeded first, so the response shape never
+    depends on the database; docs/architecture.md, "caching", has the rest.
 
     Args:
         rows (list[SiteBreakdownRow]): The aggregation's flat buckets.
@@ -221,9 +195,8 @@ def _pivot(
         site_id = row.site_id or UNASSIGNED_SITE_ID
         entry = stats.get(site_id)
         if entry is None:
-            # A site value that is no longer configured (data written
-            # before a rename). Counted under `unassigned` rather than
-            # dropped, so the totals still add up to the real fleet size.
+            # A site renamed away since the document was written counts as
+            # unassigned, so totals still add up.
             entry = stats[UNASSIGNED_SITE_ID]
 
         _accumulate(entry, row)

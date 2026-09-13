@@ -1,10 +1,7 @@
-"""Integration tests for `MongoClassificationRuleRepository` against the
-live dev MongoDB (see `tests/integration/conftest.py` for the
-skip-if-unreachable `mongo_holder` fixture). Covers CRUD round-trip, the
-unique `name` index, `list_all`'s resolution-order sort, and — the actual
-point of the `enabled_priority_order_id` compound index — that the
-standard "load all enabled rules in resolution order" query is an IXSCAN,
-never a COLLSCAN.
+"""
+Integration tests for `MongoClassificationRuleRepository` against the live
+dev Mongo: CRUD round-trip, the unique `name` index, `list_all`'s resolution
+order, and that the resolution-order query is an IXSCAN.
 """
 
 from __future__ import annotations
@@ -136,8 +133,7 @@ async def test_list_all_sorts_by_priority_desc_order_asc_id_asc(
     mid_priority_first_order = _make_rule("mid-order-0", priority=200, order=0)
     mid_priority_second_order = _make_rule("mid-order-1", priority=200, order=1)
 
-    # Insert in an order that doesn't match expected output, to prove the
-    # sort (not insertion order) drives the result.
+    # Inserted out of order, to prove the sort drives the result.
     for rule in (mid_priority_second_order, low_priority, high_priority, mid_priority_first_order):
         await repo.upsert(rule)
 
@@ -158,16 +154,11 @@ async def test_default_system_rules_round_trip(mongo_holder: MongoClientHolder) 
 
     rules = await repo.list_all(enabled_only=True)
     assert len(rules) == len(default_system_rules(SITES))
-    # Round-tripping must preserve the pattern verbatim — these are regexes
-    # with alternations and anchors, and a mangled one silently
-    # misclassifies rather than erroring.
+    # A mangled pattern silently misclassifies rather than erroring.
     stored = {r.name: r for r in rules}
     for original in default_system_rules(SITES):
         assert stored[original.name].pattern == original.pattern
         assert stored[original.name].installation_type == original.installation_type
-
-
-# --- Index assertions ---
 
 
 async def test_declared_indexes_exist(mongo_holder: MongoClientHolder) -> None:
@@ -188,10 +179,8 @@ async def test_declared_indexes_exist(mongo_holder: MongoClientHolder) -> None:
 async def test_load_enabled_rules_in_resolution_order_uses_index_scan(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The whole point of the `enabled_priority_order_id` compound index:
-    the standard "load all enabled rules in resolution order" query —
-    filter `{enabled: true}`, sort `(priority DESC, order ASC, _id ASC)`
-    — must be an IXSCAN, never a COLLSCAN/blocking in-memory SORT stage.
+    """The `enabled_priority_order_id` index: `{enabled: true}` sorted
+    `(priority DESC, order ASC, _id ASC)` must be an IXSCAN, never a blocking SORT.
     """
     repo = MongoClassificationRuleRepository(mongo_holder)
     for i in range(20):
@@ -207,8 +196,6 @@ async def test_load_enabled_rules_in_resolution_order_uses_index_scan(
 
     assert "COLLSCAN" not in explain_str
     assert "IXSCAN" in explain_str
-    # No blocking in-memory sort stage: the index itself must already
-    # produce the requested order.
     assert '"stage": "SORT"' not in explain_str
 
 

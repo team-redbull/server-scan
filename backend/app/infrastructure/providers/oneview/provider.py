@@ -205,22 +205,14 @@ class OneViewProvider(ServerInventoryProvider):
         async with self._client_factory() as client:
             profiles = await client.get_all(_SERVER_PROFILES, page_size=self._page_size)
             templates = await client.get_all(_SERVER_PROFILE_TEMPLATES, page_size=self._page_size)
-            # `expand=all` inlines every server's subresource data — the
-            # DIMMs, drives and PCI devices — in the list response, which
-            # is the difference between three calls for the appliance and
-            # three per server. Paged small because that payload is why
-            # HPE leaves `expand` off by default.
+            # `expand=all` inlines the subresources — docs/hpe-collectors.md, "Subresources".
             hardware = await client.get_all(
                 _SERVER_HARDWARE, page_size=EXPANDED_PAGE_SIZE, params={"expand": "all"}
             )
             matched = self._matched(profiles=profiles, templates=templates, hardware=hardware)
             power_supplies = await self._power_supplies(client, [member for member, _ in matched])
             processors = await self._processors(client, [member for member, _ in matched])
-            # A truncated profiles/templates/hardware page means real
-            # servers were never even listed — the same failure class as
-            # an unreachable UCS domain or Redfish host, unlike a
-            # per-server unreadable subresource (handled by `psus=None`/
-            # `unread_fields` below, never a collection error).
+            # Truncation is PARTIAL — docs/hpe-collectors.md, "Pagination".
             for message in client.truncations:
                 self._record_error(message)
 
@@ -279,12 +271,7 @@ class OneViewProvider(ServerInventoryProvider):
         for member in hardware:
             profile = by_uri.get(str(member.get("serverProfileUri") or ""))
             if profile is None:
-                # No profile means no operator-assigned name: OneView's
-                # own `name` is a bay location or `ILO<serial>`, which
-                # carries no site token and matches no classification
-                # rule, so such a server is skipped rather than ingested
-                # under a name nothing downstream can use. An unassigned
-                # server is by definition carrying no workload.
+                # No profile, no usable name — docs/hpe-collectors.md, "The name trap".
                 unassigned += 1
                 continue
             if self._pattern is not None and not self._pattern.search(profile.name):
@@ -306,10 +293,7 @@ class OneViewProvider(ServerInventoryProvider):
         if filtered:
             logger.info("oneview.profiles_filtered", endpoint=self._endpoint, servers=filtered)
         if unreadable:
-            # One aggregated line, not one per host: on a mixed estate
-            # every iLO-4 server answers `InsufficientFirmware` for every
-            # subresource, and a per-host line would bury the run's real
-            # output.
+            # One aggregated line, not one per host — "Subresources and `collectionState`".
             logger.warning(
                 "oneview.subresources_unreadable",
                 endpoint=self._endpoint,
@@ -329,16 +313,8 @@ class OneViewProvider(ServerInventoryProvider):
         """
         Collect each matched server's power supplies, the cheap way first.
 
-        `/powerSupplies` returns a `SubResourceV10` envelope but has no
-        matching `SubResourceName` value, so whether `expand=all` already
-        included it is undetermined in HPE's own documentation. Any
-        server whose expanded payload carried it costs nothing; only the
-        rest are fetched, under a semaphore, and only when
-        `INVENTORY_ONEVIEW_COLLECT_PSUS` is on.
-
-        Which path ran is logged with counts, because the difference
-        between them is ~15 requests and ~2500 against an appliance whose
-        rate limits HPE does not document at all.
+        The expanded payload where it carried them, a bounded per-server
+        call for the rest (docs/hpe-collectors.md, "Power supplies").
 
         Args:
             client (OneViewClient): The logged-in client.
@@ -392,24 +368,13 @@ class OneViewProvider(ServerInventoryProvider):
                     return uri, None
                 return uri, [row for row in rows if isinstance(row, dict)]
             except Exception:
-                # The parse (`body.get(...)` etc.) is inside this `try` as
-                # well as the call: this function's whole job is to turn
-                # one server's failure into `None`, and leaving the
-                # shape-reading outside meant that held only because
-                # `OneViewClient._request_json` happens to coerce a
-                # non-object body to `{}` — a coercion two files away,
-                # not a guarantee this function's own contract should
-                # rest on.
+                # Parse included on purpose — docs/hpe-collectors.md, "Power supplies".
                 return uri, None
 
         failures = 0
         results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException):
-                # One bad PSU must not fail the whole appliance. Without
-                # `return_exceptions=True` above, one escaping exception
-                # aborted `gather` immediately and abandoned every other
-                # still-in-flight fetch mid-request.
                 failures += 1
                 continue
             uri, rows = result
@@ -418,8 +383,6 @@ class OneViewProvider(ServerInventoryProvider):
             else:
                 collected[uri] = rows
         if failures:
-            # Aggregated, and not fatal: a server whose PSUs could not be
-            # read reports `psus=None`, which ingest carries forward.
             logger.warning(
                 "oneview.power_supplies_unreadable",
                 endpoint=self._endpoint,
@@ -434,15 +397,8 @@ class OneViewProvider(ServerInventoryProvider):
         """
         Collect each matched server's processors, the cheap way first.
 
-        Same shape as `_power_supplies` — `/processors` has no matching
-        `SubResourceName` value either, so whether `expand=all` already
-        included it is undetermined; confirmed present alongside
-        `PowerSupplies` in `subResources` on a live appliance 2026-09-07.
-        Any server whose expanded payload carried it costs nothing; only
-        the rest are fetched, under a semaphore, and only when
-        `INVENTORY_ONEVIEW_COLLECT_CPU_THREADS` is on. This is the only
-        source `cpu_threads` has — `server-hardware`'s own fields carry
-        no thread count.
+        Same shape as `_power_supplies`; `cpu_threads`' only source
+        (docs/hpe-collectors.md, "CPU threads").
 
         Args:
             client (OneViewClient): The logged-in client.
@@ -496,9 +452,7 @@ class OneViewProvider(ServerInventoryProvider):
                     return uri, None
                 return uri, [row for row in rows if isinstance(row, dict)]
             except Exception:
-                # Same reasoning as `_power_supplies.fetch`: this
-                # function's whole job is to turn one server's failure
-                # into `None`.
+                # Parse included on purpose — same as `_power_supplies.fetch`.
                 return uri, None
 
         failures = 0
@@ -513,9 +467,6 @@ class OneViewProvider(ServerInventoryProvider):
             else:
                 collected[uri] = rows
         if failures:
-            # Aggregated, and not fatal: a server whose processors could
-            # not be read reports `cpu_threads=None`, which ingest
-            # carries forward.
             logger.warning(
                 "oneview.processors_unreadable",
                 endpoint=self._endpoint,
@@ -529,9 +480,7 @@ class OneViewProvider(ServerInventoryProvider):
         """
         Record one server whose subresources could not be read.
 
-        Keyed by `<collectionState>/iLO<generation>` so one line answers
-        both "why" and "which hardware" — the two questions an operator
-        seeing unread inventory actually has.
+        Keyed by `<collectionState>/iLO<generation>` — "why" and "which hardware".
 
         Args:
             member (dict[str, Any]): One `/rest/server-hardware` member.

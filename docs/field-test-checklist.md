@@ -179,6 +179,25 @@ not query — a server configured that way has genuinely **zero**
 - `N/A` means every sampled server already reported at least one
   `storage.PhysicalDisk` row — nothing to investigate.
 
+### e. Any drive the mapping cannot size
+
+Output section **"6. DISK CAPACITY"**, prompted by a live report of one
+server whose drives all showed correct model/serial/type/health but
+`size unknown` while the Intersight UI showed a real size for the same
+drives. `NonCoercedSizeBytes` and `Size` are the only two fields the
+mapping reads for capacity (`docs/cisco-collectors.md`, "Units"); the
+section prints both raw values for every drive it cannot parse rather
+than guessing at a third field or a sentinel. Sections 5 and 6 resolve a
+disk to its server through its `storage.Controller`, which carries three
+owner relationships (`ComputeBlade`/`ComputeRackUnit`/`ComputeBoard`,
+confirmed against Cisco's generated Go SDK, `model_storage_controller.go`)
+— the tool prints how many resolved which way, because "0 direct, all via
+`ComputeBoard`" was the collector's real, live-confirmed join defect
+(ADR-0017, "The `ComputeBoard` join gap"). The probe carries its own
+copy of that join rather than importing the collector's private helpers:
+it queries classes the collector does not read, and should not be
+coupled to internals built for a different set of resources.
+
 ---
 
 ## If the key is rejected

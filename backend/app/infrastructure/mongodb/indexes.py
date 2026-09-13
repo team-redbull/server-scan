@@ -72,38 +72,19 @@ AUDIT_EVENTS_COLLECTION = "audit_events"
 SERVER_INDEXES: list[IndexModel] = [
     IndexModel(
         [("identity.system_uuid", ASCENDING)],
-        # Renamed from "uniq_system_uuid" 2026-09-09; that name is in
-        # `RETIRED_INDEXES` so a deployed database drops it on startup.
-        name="system_uuid",
-        # NOT unique, since 2026-09-09 — see the module docstring for why
-        # a live UCS domain proved this field cannot be trusted to be
-        # unique. Still partial (`$type: "string"`, not `$exists: true`:
-        # MongoDB's `$exists` is true for a field that is *present and
-        # null*, and `model_dump(mode="json")` always emits
-        # `identity.system_uuid`) — that keeps every UUID-less server out
-        # of the index, which is now purely a size optimisation rather
-        # than what stops a null-keyed collision, but is still worth
-        # doing. See docs/adr/0016-redfish-standalone-collector.md.
+        name="system_uuid",  # was "uniq_system_uuid"; retired below
+        # `$type`, not `$exists`: the field is always present, often null.
         partialFilterExpression={"identity.system_uuid": {"$type": "string"}},
     ),
     IndexModel(
         [("identity.vendor", ASCENDING), ("identity.serial_normalized", ASCENDING)],
         name="uniq_vendor_serial",
         unique=True,
-        # MongoDB partial-index filter expressions support only a small
-        # operator subset ($eq, $exists, $gt/$gte/$lt/$lte, $type, and
-        # $and of those) — no $ne. `$gt: ""` is the allowed-operator way
-        # to express "non-empty string": every non-empty string sorts
-        # lexicographically after "".
+        # No `$ne` in partial filters; `$gt: ""` means non-empty (ADR-0026).
         partialFilterExpression={"identity.serial_normalized": {"$gt": ""}},
     ),
-    # Multikey — backs `app.domain.services.search.build_search_query`'s
-    # anchored-prefix regex match.
     IndexModel([("search_tokens", ASCENDING)], name="search_tokens"),
-    # One compound index per filter whitelisted in
-    # `app.domain.services.search.FILTER_FIELDS`, each ending in the
-    # default sort field + `_id` so "filter by X, sorted by name" is a
-    # single IXSCAN for the common case.
+    # One per `search.FILTER_FIELDS` entry, ending in the default sort + `_id`.
     IndexModel(
         [("site_id", ASCENDING), ("name_normalized", ASCENDING), ("_id", ASCENDING)],
         name="site_name_id",
@@ -132,10 +113,7 @@ SERVER_INDEXES: list[IndexModel] = [
         ],
         name="openshift_state_name_id",
     ),
-    # Also the OpenShift jobs' own working set: each run reads every
-    # server naming its cluster, to free the ones the cluster stopped
-    # listing. Without this that is a collection scan every 15 minutes,
-    # from every cluster at once.
+    # Also the membership jobs' working set (ADR-0024).
     IndexModel(
         [
             ("openshift.cluster_name", ASCENDING),
@@ -160,25 +138,13 @@ SERVER_INDEXES: list[IndexModel] = [
         [("source_provider", ASCENDING), ("name_normalized", ASCENDING), ("_id", ASCENDING)],
         name="source_provider_name_id",
     ),
-    # Backs "which servers from this collector have not been seen lately",
-    # which is the only way a fleet of standalone BMCs surfaces a host that
-    # quietly stopped answering — a CronJob pod is never scraped, so no
-    # collector-side metric can report its own absence.
+    # The fleet gauges' staleness query (ADR-0029).
     IndexModel(
         [("source_provider", ASCENDING), ("last_seen_at", ASCENDING)],
         name="source_provider_last_seen",
     ),
     IndexModel([("updated_at", DESCENDING), ("_id", DESCENDING)], name="updated_at_id"),
-    # Unfiltered sorts (no `FILTER_FIELDS` value supplied) still need a
-    # supporting index per `SORT_FIELDS` entry, or they fall back to an
-    # in-memory sort. `last_seen_at` originally shipped as a single-field
-    # index with no `_id` tiebreak — unlike every other entry in this
-    # block — which meant an unfiltered `sort=last_seen_at` request forced
-    # a full COLLSCAN plus a blocking in-memory sort at 10k+ scale. Caught by
-    # `tools/verify_indexes.py` running `.explain()` against a real 50k-
-    # document collection — small enough test fixtures didn't expose it,
-    # since MongoDB's planner is happy to pick a COLLSCAN over a
-    # barely-selective index at low document counts anyway.
+    # One `(field, _id)` per `SORT_FIELDS` entry, or unfiltered sorts COLLSCAN (ADR-0007).
     IndexModel([("last_seen_at", ASCENDING), ("_id", ASCENDING)], name="last_seen_at_id"),
     IndexModel([("name_normalized", ASCENDING), ("_id", ASCENDING)], name="name_id"),
     IndexModel([("identity.serial_normalized", ASCENDING), ("_id", ASCENDING)], name="serial_id"),
@@ -194,11 +160,7 @@ MANAGER_INDEXES: list[IndexModel] = [
     IndexModel([("parent_manager_id", ASCENDING)], name="parent_manager_id"),
 ]
 
-# `(enabled, policy_key, priority DESC, order ASC, _id ASC)` mirrors the
-# exact family-resolution sort order `app.domain.services.health.evaluate.
-# resolve_families`/`_family_sort_key` applies in memory after loading —
-# loading the collection pre-sorted this way means the evaluator's own
-# sort is over an already-ordered stream, not a hidden collection scan.
+# Mirrors `evaluate.resolve_families`'s sort order (ADR-0026).
 HEALTH_POLICY_INDEXES: list[IndexModel] = [
     IndexModel([("name", ASCENDING)], name="uniq_name", unique=True),
     IndexModel(
@@ -216,14 +178,7 @@ HEALTH_POLICY_INDEXES: list[IndexModel] = [
     IndexModel([("scope.site_id", ASCENDING)], name="scope_site_id"),
 ]
 
-# `(enabled, priority DESC, order ASC, _id ASC)` is literally the
-# classification resolution order (see `app.domain.services.classification.
-# _sort_key`, minus the in-memory specificity tiebreak that index can't
-# express) — the standard "load all enabled rules" query filters on
-# `enabled` and sorts on `(priority, order, _id)`, which is an IXSCAN over
-# this single compound index end to end. The three single-field indexes
-# below back admin filtering by scope (e.g. "show all rules scoped to this
-# site/vendor/manager type"), not the resolution path itself.
+# Mirrors `classification._sort_key` minus the specificity tiebreak (ADR-0026).
 CLASSIFICATION_RULE_INDEXES: list[IndexModel] = [
     IndexModel([("name", ASCENDING)], name="uniq_name", unique=True),
     IndexModel(
@@ -240,14 +195,7 @@ CLASSIFICATION_RULE_INDEXES: list[IndexModel] = [
     IndexModel([("scope.manager_type", ASCENDING)], name="scope_manager_type"),
 ]
 
-# Unlike the rule/policy/site/manager collections above, `audit_events` is
-# unbounded and append-only — it grows for the lifetime of the deployment,
-# never shrinks, and every read is a "most recent N, optionally filtered"
-# query. All three indexes end in `_id DESC` to match the keyset
-# pagination's fixed `(created_at DESC, _id DESC)` sort
-# (`app.infrastructure.mongodb.audit_event_repository`), so every one of
-# the three real read patterns — global feed, one server's history,
-# one actor's history — is an IXSCAN, never an in-memory sort.
+# Every index ends in the fixed keyset sort `(created_at DESC, _id DESC)`.
 AUDIT_EVENT_INDEXES: list[IndexModel] = [
     IndexModel([("created_at", DESCENDING), ("_id", DESCENDING)], name="created_at_id"),
     IndexModel(
@@ -268,12 +216,8 @@ AUDIT_EVENT_INDEXES: list[IndexModel] = [
 _INDEX_KEY_SPECS_CONFLICT = 86
 _INDEX_NOT_FOUND = 27
 
-# Indexes this file once declared and no longer does, by collection.
-# `_create_indexes` reconciles on *name*, so a renamed index leaves its
-# predecessor in place with its old options still enforced — which is how
-# a `uniq_system_uuid` that stopped being declared kept rejecting real
-# servers long after the declaration said it was not unique. Renaming or
-# removing an index means adding its old name here.
+# Reconciliation is by name, so renaming or removing an index means adding
+# its old name here, or a deployed database keeps enforcing it (ADR-0026).
 RETIRED_INDEXES: dict[str, tuple[str, ...]] = {
     SERVERS_COLLECTION: ("uniq_system_uuid",),
 }
@@ -285,13 +229,8 @@ async def _create_indexes(
     """
     Create a collection's declared indexes, replacing any changed ones.
 
-    MongoDB rejects `createIndexes` outright (`IndexKeySpecsConflict`)
-    when an index of the same name exists with different options, so
-    without this a changed specification does not merely fail to apply —
-    it raises on every process startup and every collector run, taking
-    the deployment down rather than migrating it. See
-    docs/adr/0016-redfish-standalone-collector.md, where correcting
-    `uniq_system_uuid`'s partial filter first surfaced this.
+    An `IndexKeySpecsConflict` is a changed declaration to migrate, not an
+    error to propagate — see the module docstring.
 
     Args:
         db (AsyncDatabase[dict[str, Any]]): The database to act on.
@@ -311,8 +250,7 @@ async def _create_indexes(
     else:
         return
 
-    # Rebuilt one at a time so a single changed specification cannot drop
-    # indexes that were already correct.
+    # One at a time, so one changed spec cannot drop the correct ones.
     for index in indexes:
         name = index.document.get("name")
         try:

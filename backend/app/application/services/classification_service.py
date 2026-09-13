@@ -85,9 +85,7 @@ def validate_rule_write(
         RegexInvalidAppError: The pattern does not compile.
     """
     if is_create and rule.source == _SYSTEM_DEFAULT:
-        # SYSTEM_DEFAULT rules are seeded (see `default_system_rules` in
-        # `app.infrastructure.mongodb.classification_rule_repository`),
-        # never authored through the API.
+        # SYSTEM_DEFAULT rules are seeded by `bootstrap`, never authored here.
         raise RuleScopeInvalidError(
             "SYSTEM_DEFAULT rules cannot be created via the API; they are seeded.",
             details={"source": rule.source},
@@ -159,8 +157,7 @@ def _validate_pattern(
         engine.validate(pattern, ignore_case=ignore_case, multiline=multiline, dotall=dotall)
     except RegexUnsafeError as exc:
         raise RegexUnsafeAppError(str(exc), details={"pattern": pattern}) from exc
-    except Exception as exc:  # defensive: any other regex-compile error the
-        # engine implementation might let through, not just RegexUnsafeError.
+    except Exception as exc:  # any other compile error the engine lets through
         raise RegexInvalidAppError(str(exc), details={"pattern": pattern}) from exc
 
 
@@ -187,9 +184,7 @@ class ClassificationService:
         """
         Load every enabled rule and resolve `classifiable` against it.
 
-        Quarantined rules are excluded by the domain `classify()` function
-        itself, not pre-filtered here — this method only supplies the
-        enabled ruleset.
+        Quarantined rules are excluded by `classify()` itself, not here.
 
         Args:
             classifiable (ClassifiableServer): The server to classify.
@@ -203,13 +198,10 @@ class ClassificationService:
 
     async def load_ruleset(self) -> list[ClassificationRule]:
         """
-        The current active (enabled) ruleset.
+        The current enabled ruleset, loaded once per run.
 
-        For a caller that will classify many servers against the same
-        snapshot in one run — the ingestion pipeline, never a fresh
-        `classify_server` call repeated per server. Centralizing
-        `enabled_only=True` here keeps this method (and `classify_server`)
-        the only two places that filter can be forgotten.
+        Load-once/classify-many is the ingest loop's shape; see
+        docs/architecture.md, "Ingestion".
 
         Returns:
             list[ClassificationRule]: The rules to pass into
@@ -224,9 +216,7 @@ class ClassificationService:
         Classify against an already-loaded ruleset (`load_ruleset`).
 
         The ingest-loop counterpart to `classify_server`, which loads its
-        own ruleset on every call. A caller classifying many servers in
-        one run should call `load_ruleset` once and this per server, never
-        `classify_server` in a loop.
+        own ruleset on every call.
 
         Args:
             classifiable (ClassifiableServer): The server to classify.

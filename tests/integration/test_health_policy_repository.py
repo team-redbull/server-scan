@@ -1,11 +1,7 @@
-"""Integration tests for `MongoHealthPolicyRepository` against the live
-dev MongoDB (see `tests/integration/conftest.py` for the
-skip-if-unreachable `mongo_holder` fixture). Covers CRUD round-trip, the
-unique `name` index, and — the actual point of the
-`enabled_policy_key_priority_order_id` compound index — that the family-
-resolution load order the domain evaluator expects
-(`enabled`, `policy_key`, `priority DESC`, `order ASC`, `_id ASC`) is an
-IXSCAN, never a COLLSCAN/blocking in-memory sort.
+"""
+Integration tests for `MongoHealthPolicyRepository` against the live dev
+Mongo: CRUD round-trip, the unique `name` index, and that the family-
+resolution load order is an IXSCAN.
 """
 
 from __future__ import annotations
@@ -156,9 +152,6 @@ async def test_default_system_policies_round_trip(mongo_holder: MongoClientHolde
     assert all(p.source == "SYSTEM_DEFAULT" for p in policies)
 
 
-# --- Index assertions ---
-
-
 async def test_declared_indexes_exist(mongo_holder: MongoClientHolder) -> None:
     repo = MongoHealthPolicyRepository(mongo_holder)
     await repo.upsert(_make_policy("index-probe"))  # ensure collection exists
@@ -177,11 +170,9 @@ async def test_declared_indexes_exist(mongo_holder: MongoClientHolder) -> None:
 async def test_family_resolution_load_order_uses_index_scan(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The whole point of the `enabled_policy_key_priority_order_id`
-    compound index: the standard "load all enabled policies pre-sorted
-    for family resolution" query — filter `{enabled: true}`, sort
-    `(policy_key ASC, priority DESC, order ASC, _id ASC)` — must be an
-    IXSCAN, never a COLLSCAN/blocking in-memory SORT stage.
+    """The `enabled_policy_key_priority_order_id` index: `{enabled: true}` sorted
+    `(policy_key ASC, priority DESC, order ASC, _id ASC)` must be an IXSCAN,
+    never a blocking SORT.
     """
     repo = MongoHealthPolicyRepository(mongo_holder)
     for i in range(20):

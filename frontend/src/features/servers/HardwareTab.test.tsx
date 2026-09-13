@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import { HardwareTab } from "@/features/servers/HardwareTab";
 import type { HardwareInfo } from "@/types/server";
 
-/** An HPE Gen9: OneView refuses every subresource call against its iLO 4,
- * so storage and GPUs arrive as the model's zero rather than a reading. */
+/** An HPE Gen9 on iLO 4: storage and GPUs arrive as the model's zero. */
 function ilo4Hardware(): HardwareInfo {
   return {
     cpu: { sockets: 2, cores: 32, threads: 64, model: "Xeon E5-2690 v4" },
@@ -22,16 +21,11 @@ describe("HardwareTab unread fields", () => {
   it("says 'Not reported' rather than showing the zero a collector never read", () => {
     render(<HardwareTab hardware={ilo4Hardware()} unreadFields={UNREAD} />);
 
-    // Storage total, storage drives and GPU are each their own block —
-    // three, not two: total and drives are unread independently of each
-    // other (2026-09-09), matching Memory's total being independent of
-    // its own module list.
+    // Storage total, storage drives and GPU are each their own block.
     expect(screen.getAllByText("Not reported")).toHaveLength(3);
-    // The zero must not be presented as a reading anywhere.
     expect(screen.queryByText(/No storage data/)).not.toBeInTheDocument();
     expect(screen.queryByText(/0 B total/)).not.toBeInTheDocument();
 
-    // Fields the same run *did* read stay untouched.
     expect(screen.getByText("Xeon E5-2690 v4")).toBeInTheDocument();
     expect(screen.getByText(/256.0 GB total/)).toBeInTheDocument();
   });
@@ -54,8 +48,7 @@ describe("HardwareTab unread fields", () => {
     };
     render(<HardwareTab hardware={hardware} unreadFields={UNREAD} />);
 
-    // Good data is never hidden — only dimmed and explained, and the
-    // explanation is visible text, not just a hover-only title.
+    // The explanation is visible text, not a hover-only title.
     const drive = screen.getByText("MZ7LH3T8");
     expect(drive).toBeInTheDocument();
     const wrapper = drive.closest("div.opacity-70");
@@ -69,10 +62,7 @@ describe("HardwareTab unread fields", () => {
   it("renders unchanged when nothing was unread", () => {
     render(<HardwareTab hardware={ilo4Hardware()} />);
     expect(screen.queryByText("Not reported")).not.toBeInTheDocument();
-    // A confirmed-read zero total is a real reading, same as Memory's own
-    // "0 B total" would be — it renders plainly rather than as
-    // "No storage data.", which is reserved for the per-drive block
-    // genuinely having nothing.
+    // A confirmed-read zero total is a real reading.
     expect(screen.getByText(/0 B total/)).toBeInTheDocument();
     expect(screen.getByText("No per-drive detail.")).toBeInTheDocument();
     expect(screen.getByText("No GPUs.")).toBeInTheDocument();
@@ -80,11 +70,8 @@ describe("HardwareTab unread fields", () => {
 });
 
 describe("a GPU field the provider could not read", () => {
-  /** The API serialises Python `None` as JSON `null`, never as an absent
-   * key. `x !== undefined` therefore passed for a null and
-   * `null.toFixed()` threw, unmounting the whole detail page — the E2E
-   * suite caught it as "the Hardware tab button does not exist".
-   */
+  /** `None` arrives as `null`, never an absent key; `null.toFixed()` once
+   * unmounted the whole detail page (see `types/server.ts`). */
   it("renders a dash instead of crashing the tab", () => {
     const hardware = ilo4Hardware();
     hardware.gpus = [
@@ -109,16 +96,12 @@ describe("a GPU field the provider could not read", () => {
     render(<HardwareTab hardware={hardware} unreadFields={[]} />);
 
     expect(screen.getByText("NVIDIA A100 80GB")).toBeInTheDocument();
-    // Every unreadable figure degrades to the same dash rather than to
-    // "NaN", "0" or a thrown TypeError.
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(6);
   });
 });
 
 describe("a drive, PSU or GPU the collector reported partially", () => {
-  /** Nothing on the wire distinguishes "unread" from "zero" at field
-   * level, so every one of these must degrade to the tab's dash rather
-   * than to a `0 B`, a blank cell, or an unstyled badge. */
+  /** Every null field must degrade to the dash, not `0 B` or an unstyled badge. */
   it("dashes every unread drive field instead of stating a zero", () => {
     const hardware = ilo4Hardware();
     hardware.storage = {
@@ -138,14 +121,12 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
 
     render(<HardwareTab hardware={hardware} unreadFields={[]} />);
 
-    // Model, serial, capacity and health — four dashes, and no "0 B".
     expect(screen.getAllByText("—")).toHaveLength(4);
     expect(screen.queryByText("0 B")).not.toBeInTheDocument();
   });
 
   it("shows a PSU's own model, rating and state", () => {
-    // These read `psu.status`/`psu.watts`, which the API has never sent —
-    // every PSU rendered as the literal word "unknown".
+    // Regression: `psu.status`/`psu.watts` were read, which the API never sent.
     const hardware = ilo4Hardware();
     hardware.power = {
       psus: [
@@ -176,9 +157,7 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
   });
 
   it("shows a Cisco health word rather than an unstyled severity badge", () => {
-    // `health` is UP/DOWN on Cisco and HEALTHY/CRITICAL on Redfish. The
-    // severity badge has no class for "UP", so it rendered the word with
-    // no colour at all.
+    // `health` is UP/DOWN on Cisco; the severity badge has no class for it.
     const hardware = ilo4Hardware();
     hardware.gpus = [
       {
@@ -201,8 +180,6 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
 
     render(<HardwareTab hardware={hardware} unreadFields={[]} />);
 
-    // Rendered as the collector's own word, not through the severity
-    // badge, whose colour table has no "UP" key.
     expect(screen.getByText(/UP/)).toBeInTheDocument();
     expect(screen.queryByText("UP", { selector: "span.rounded-full" })).not.toBeInTheDocument();
   });
@@ -210,11 +187,7 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
 
 describe("Storage's total, independent of per-drive detail", () => {
   it("shows a real total even when the drive list is empty", () => {
-    // The bug this fixes: the total used to live *inside* the same
-    // Reported block as the drives table, so a real, nonzero total was
-    // hidden behind "No storage data." whenever drives alone came back
-    // empty — exactly the OME/OpenManage shape where a bulk total is
-    // known before any per-drive detail is.
+    // Regression: the total hid behind "No storage data." when drives were empty.
     const hardware = ilo4Hardware();
     hardware.storage = { total_bytes: 4 * 1024 ** 4, drives: [] };
 
@@ -280,8 +253,7 @@ describe("a component's health reason, alongside its severity", () => {
 
     render(<HardwareTab hardware={hardware} unreadFields={[]} />);
 
-    // Scoped to the drive's own row: Memory's own "(0 modules)" text
-    // elsewhere on the page would otherwise false-match a broader query.
+    // Scoped to the row: Memory's "(0 modules)" would false-match page-wide.
     const row = screen.getByText("MZ7LH3T8").closest("tr") as HTMLElement;
     expect(within(row).queryByText(/\(.*\)/)).not.toBeInTheDocument();
   });

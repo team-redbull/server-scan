@@ -25,9 +25,9 @@ from pydantic import BaseModel, Field
 class ConnectivityAttachment(BaseModel):
     """One reported fabric attachment — a physical uplink or a vNIC carved out of one."""
 
-    type: str = "UNKNOWN"  # e.g. FABRIC_INTERCONNECT
-    provider: str | None = None  # e.g. UCS_MANAGER
-    fabric: str | None = None  # "A" | "B" | ... — nullable, never assumed
+    type: str = "UNKNOWN"
+    provider: str | None = None
+    fabric: str | None = None
     fabric_name: str | None = None
     fabric_id: str | None = None
     fabric_model: str | None = None
@@ -36,21 +36,17 @@ class ConnectivityAttachment(BaseModel):
     server_port: str | None = None
     fabric_port: str | None = None
     admin_state: str = "UNKNOWN"
-    oper_state: str = "UNKNOWN"  # UP | DOWN | UNKNOWN
+    oper_state: str = "UNKNOWN"
     speed_mbps: int | None = None
-    # "PHYSICAL" (a cabled uplink) or "VNIC" (an OS-facing NIC carved out
-    # of one). Both report the same fabric, so only the physical ones are
-    # fabric *paths* — see `compute_connectivity_facts`.
-    interface_kind: str = "PHYSICAL"
+    interface_kind: str = "PHYSICAL"  # or "VNIC"; only PHYSICAL counts as a fabric path
     last_seen: datetime | None = None
 
 
 class ConnectivityFacts(BaseModel):
-    """Fabric-path scalars derived from `attachments` once at ingest and stored.
+    """
+    Fabric-path scalars derived from `attachments` once at ingest and stored.
 
-    Health policies read these rather than re-aggregating `attachments` on
-    every evaluation. `total != up + down` is possible and deliberate: an
-    attachment in an UNKNOWN or DEGRADED oper_state counts toward neither.
+    `total != up + down` is deliberate: UNKNOWN/DEGRADED counts toward neither.
     """
 
     fabric_paths_total: int = 0
@@ -67,17 +63,11 @@ class Connectivity(BaseModel):
 
 
 def compute_connectivity_facts(attachments: list[ConnectivityAttachment]) -> ConnectivityFacts:
-    """Derive `ConnectivityFacts` from a list of attachments.
+    """
+    Derive `ConnectivityFacts` from a list of attachments.
 
-    Called by the ingestion pipeline immediately after normalizing
-    attachments, so the stored facts are never allowed to drift from the
-    attachments they were derived from.
-
-    Only `PHYSICAL` attachments count. A UCS server reports its vNICs
-    alongside the ports they ride on, and counting both would report a
-    2-up server as having six fabric paths and, when a port drops, six
-    down — which the seeded `connectivity.fabric_paths_down` policies
-    would read as a far worse outage than happened.
+    Only `PHYSICAL` attachments count as paths — see docs/architecture.md,
+    "The provider contract".
 
     Args:
         attachments (list[ConnectivityAttachment]): Every attachment

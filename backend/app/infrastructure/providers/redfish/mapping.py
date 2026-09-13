@@ -30,10 +30,6 @@ from app.domain.ports.provider import ProviderNic, ProviderServer
 _MIB = 1024**2
 _GIB = 1024**3
 
-# Manufacturer strings vary ("Dell Inc.", "Hewlett Packard Enterprise"),
-# so matching is on a normalized prefix rather than equality — but only
-# against this closed set. Anything unrecognized becomes STANDALONE,
-# which is a correct-but-less-specific answer rather than a wrong one.
 _VENDOR_PREFIXES: tuple[tuple[str, Vendor], ...] = (
     ("dell", Vendor.DELL),
     ("cisco", Vendor.CISCO),
@@ -42,17 +38,13 @@ _VENDOR_PREFIXES: tuple[tuple[str, Vendor], ...] = (
     ("hp ", Vendor.HP),
 )
 
-# `Status.Health` is exactly these three in every schema version.
 _HEALTH: dict[str, str] = {
     "OK": HealthSeverity.HEALTHY.value,
     "Warning": HealthSeverity.WARNING.value,
     "Critical": HealthSeverity.CRITICAL.value,
 }
 
-# SMBIOS placeholders that reach `SerialNumber` on whitebox hardware.
-# Treated as no serial at all: `IngestService` correlates on
-# `(vendor, serial_normalized)`, so letting these through would collapse
-# every such machine into one document, silently, reporting success.
+# SMBIOS placeholders, treated as no serial at all (ADR-0016, 2026-09-13 update).
 _PLACEHOLDER_SERIALS = frozenset(
     {
         "",
@@ -191,9 +183,7 @@ def is_absent(resource: dict[str, Any]) -> bool:
     """
     Report whether a component is physically not installed.
 
-    `Status.State == "Absent"` is Redfish's empty-bay signal — the direct
-    analogue of `ucs_common.is_equipped`, and the reason an empty drive
-    bay must not be counted as a drive.
+    `Status.State == "Absent"`, the analogue of `ucs_common.is_equipped`.
 
     Args:
         resource (dict[str, Any]): Any Redfish resource.
@@ -209,10 +199,7 @@ def media_type_of(drive: dict[str, Any]) -> str:
     """
     Map a drive onto this platform's `MediaType`.
 
-    Redfish's own `MediaType` enum is exactly HDD/SSD/SMR — **it has no
-    NVMe member**, which lives on the separate `Protocol` property. So
-    reading `MediaType` alone reports every NVMe drive in a fleet as an
-    SSD.
+    NVMe lives on `Protocol`, not `MediaType` (ADR-0016, "Evidence").
 
     Args:
         drive (dict[str, Any]): A `Drive` resource.
@@ -226,8 +213,6 @@ def media_type_of(drive: dict[str, Any]) -> str:
         return MediaType.NVME.value
     if media == "SSD":
         return MediaType.SSD.value
-    # SMR is shingled magnetic recording — a hard disk. Reporting it as
-    # UNKNOWN would lose information this platform can represent.
     if media in ("HDD", "SMR"):
         return MediaType.HDD.value
     return MediaType.UNKNOWN.value
@@ -294,11 +279,8 @@ def cpu_summary(
     """
     Resolve a server's CPU counts and model.
 
-    `ProcessorSummary` counts **central** processors only and normatively
-    excludes GPUs, so it is right for the socket count and must never be
-    used for anything GPU-related. `CoreCount` was only added in
-    ComputerSystem v1_14_0 (Redfish 2020.4), so summing the `Processors`
-    collection is a required fallback rather than a defensive one.
+    `ProcessorSummary` first, falling back to summing `Processors` — a
+    required fallback (ADR-0016, "Evidence").
 
     Args:
         system (dict[str, Any]): The `ComputerSystem` resource.
@@ -345,10 +327,7 @@ def is_gpu_processor(processor: dict[str, Any]) -> bool:
     """
     Report whether a `Processor` entry represents a GPU rather than a CPU.
 
-    The single filter `gpus_from_processors` applies, factored out so
-    `provider.py` can use the exact same test to decide which
-    processors are worth a `Metrics`/`EnvironmentMetrics` follow-up
-    fetch, without a second, driftable copy of the condition.
+    The single filter both this module and `provider.py` apply.
 
     Args:
         processor (dict[str, Any]): A `Processor` resource.
@@ -362,13 +341,9 @@ def is_gpu_processor(processor: dict[str, Any]) -> bool:
 
 def has_only_gpu_processors(processors: list[dict[str, Any]] | None) -> bool:
     """
-    Report whether a `ComputerSystem` is a GPU-only baseboard tray, not a bootable host.
+    Report whether a `ComputerSystem` is a DGX/HGX GPU-baseboard tray.
 
-    NVIDIA's DGX/HGX platforms expose the GPU baseboard as its own
-    `ComputerSystem` (e.g. `HGX_Baseboard_0` beside a separate `DGX` host);
-    `provider.py` uses this to merge a tray's GPUs into its sibling host
-    instead of ingesting it as a second, CPU-less "server". See ADR-0016's
-    dated update.
+    See ADR-0016's DGX/HGX update.
 
     Args:
         processors (list[dict[str, Any]] | None): The system's
@@ -411,11 +386,7 @@ def _gpu_error_counts(metrics: dict[str, Any] | None) -> tuple[int | None, int |
     """
     A GPU's correctable and uncorrectable error counts.
 
-    DMTF's `ProcessorMetrics` scopes error counts to "core" and "other"
-    components without specifying which bucket a GPU's own HBM stacks
-    report under, so both are summed rather than guessed apart — revisit
-    once real hardware confirms which field(s) actually carry non-zero
-    counts for a GPU. See docs/adr/0016's dated update.
+    "Core" and "other" are summed — ADR-0016's GPU telemetry update says why.
 
     Args:
         metrics (dict[str, Any] | None): The GPU's own `ProcessorMetrics`
@@ -442,12 +413,9 @@ def _gpu_error_counts(metrics: dict[str, Any] | None) -> tuple[int | None, int |
 
 def _sensor_reading(container: dict[str, Any] | None, key: str) -> float | None:
     """
-    Read a Redfish `SensorExcerpt`-shaped property's `.Reading`.
+    Read a Redfish `SensorExcerpt`-shaped property's nested `.Reading`.
 
-    `EnvironmentMetrics.TemperatureCelsius`/`.PowerWatts` are objects
-    with a nested `Reading`, not bare numbers — the replacement shape
-    for `ProcessorMetrics.TemperatureCelsius`/`.ConsumedPowerWatt`,
-    deprecated since Redfish 1.2.
+    See ADR-0016's 2026-09-13 update.
 
     Args:
         container (dict[str, Any] | None): The `EnvironmentMetrics`
@@ -479,17 +447,10 @@ def gpus_from_processors(
     environment_by_processor: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, object], ...] | None:
     """
-    Extract GPUs from a server's `Processors` collection.
+    Extract GPUs (`ProcessorType == "GPU"`) from a server's `Processors`.
 
-    `ProcessorType == "GPU"` has been valid since Redfish 1.0 and is the
-    standard path. Its memory is `MemorySummary.TotalMemorySizeMiB` —
-    **MiB**, where `ComputerSystem.MemorySummary` is GiB; conflating them
-    is a 1024x error, so the conversion happens here at the provider
-    boundary rather than downstream.
-
-    Coverage is best-effort by design: no evidence was found that Dell or
-    HPE populate this for arbitrary add-in GPUs, so an empty tuple means
-    "none discoverable here", never "none installed".
+    VRAM is `MemorySummary.TotalMemorySizeMiB` — MiB, not GiB — and coverage
+    is best-effort (ADR-0016, "Evidence" and "What is still unproven").
 
     Args:
         processors (list[dict[str, Any]] | None): `Processors` members, or
@@ -517,8 +478,7 @@ def gpus_from_processors(
         summary = summary if isinstance(summary, dict) else {}
         mib = _as_int(summary.get("TotalMemorySizeMiB"))
         if mib is None:
-            # Pre-2020.4 firmware has no MemorySummary on a Processor;
-            # ProcessorMemory[] is the only path there.
+            # Pre-2020.4 firmware has no `MemorySummary` on a `Processor`.
             banks = processor.get("ProcessorMemory")
             if isinstance(banks, list):
                 sizes = [_as_int(b.get("CapacityMiB")) for b in banks if isinstance(b, dict)]
@@ -572,11 +532,7 @@ def macs_from_interfaces(interfaces: list[dict[str, Any]] | None) -> tuple[str, 
     return tuple(macs)
 
 
-# Redfish `EthernetInterface.LinkStatus` onto `LinkState`'s value set.
-# These four are the schema's enumeration, so unlike OME's link status
-# there is nothing to guess at here. `NoLink` and `LinkDown` are distinct
-# in Redfish — no carrier vs. carrier but down — and both map to DOWN,
-# which is the only distinction `LinkState` models.
+# `EthernetInterface.LinkStatus` onto `LinkState` (ADR-0016, 2026-09-13 update).
 _LINK_STATUS = {
     "LinkUp": "UP",
     "Up": "UP",
@@ -586,12 +542,7 @@ _LINK_STATUS = {
 }
 
 
-# Redfish `Status.State` values that mean "this bay holds no working PSU",
-# mapped onto the platform's UP/DOWN/DISABLED/UNKNOWN vocabulary — the one
-# `app.domain.models.hardware.Psu.health` uses, and which
-# `power.failed_psu_count` counts `DOWN` from. Deliberately NOT
-# `HealthSeverity`: a policy counting "CRITICAL" here would count nothing,
-# the mirror of the bug facts.py records for the OK/DOWN confusion.
+# `Psu.health` vocabulary, never `HealthSeverity` — ADR-0016, 2026-09-13 update.
 _PSU_STATE = {
     "Enabled": "UP",
     "StandbyOffline": "UP",
@@ -603,22 +554,10 @@ _PSU_STATE = {
 
 def psu_health(supply: dict[str, Any]) -> str:
     """
-    One power supply's state, in the platform's vocabulary.
+    One power supply's state, in the platform's UP/DOWN/DISABLED/UNKNOWN vocabulary.
 
-    Public (not `_`-prefixed) because `..oneview.mapping.psus_from`
-    reuses it as its own fallback — a OneView `/powerSupplies` row is "in
-    JSON format based on RedFish schema" per HPE's own docs, so the
-    generic Redfish `Status.Health`/`Status.State` reading applies there
-    too, once HPE's own richer `Oem.Hpe.PowerSupplyStatus.State` has
-    nothing to say.
-
-    `Status.Health` decides it when present, because a PSU that is
-    `Enabled` but `Critical` is a failed PSU, not a working one. `Warning`
-    maps to `UNKNOWN` rather than `DOWN`: it is a degraded supply still
-    delivering power, and `power.failed_psu_count` counting it would raise
-    a CRITICAL finding for a server that has not lost redundancy. The raw
-    strings ride along in `redfish_status` so a live run can settle this
-    on evidence — see `psus_from_supplies`.
+    `Status.Health` decides first (ADR-0016, 2026-09-13 update). Public
+    because `..oneview.mapping.psus_from` reuses it as its fallback.
 
     Args:
         supply (dict[str, Any]): One `PowerSupply` resource.
@@ -645,11 +584,8 @@ def psus_from_supplies(
     """
     Map a chassis's power supplies onto the platform's PSU shape.
 
-    An **absent** supply is dropped rather than reported as failed, the
-    same rule the Cisco collectors apply to an unequipped PSU bay: a
-    chassis with four bays and two supplies fitted is not a server with two
-    failed PSUs, and counting it as one would permanently misreport
-    `power.failed_psu_count` for every partially-populated chassis.
+    Absent bays are dropped (docs/architecture.md, "Every collector now
+    reports power supplies").
 
     Args:
         supplies (list[dict[str, Any]] | None): `PowerSupply` resources,
@@ -696,12 +632,7 @@ def memory_modules_from_dimms(
     """
     Map the `Memory` collection onto the platform's DIMM shape.
 
-    The same members `memory_bytes` already sums, so this costs no extra
-    request — only the health, slot and speed it was throwing away.
-
-    An **absent** slot is dropped, the rule every other component mapping
-    here follows: an empty DIMM socket is not a degraded DIMM, and a
-    half-populated board would otherwise report a dozen bad modules.
+    Absent slots are dropped.
 
     Args:
         dimms (list[dict[str, Any]] | None): `Memory` members, or None
@@ -738,11 +669,8 @@ def nics_from_interfaces(interfaces: list[dict[str, Any]] | None) -> tuple[Provi
     """
     Build the per-interface view from a server's `EthernetInterfaces`.
 
-    `macs_from_interfaces` above stays the flat MAC set identity
-    correlation keys on; this is the richer view that populates
-    `NetworkInfo.interfaces`. Both read the same members — an interface
-    with no usable MAC still appears here, because a NIC that reports a
-    name and a link state is worth showing even unaddressed.
+    This populates `NetworkInfo.interfaces`; `macs_from_interfaces` stays
+    the identity correlation key.
 
     Args:
         interfaces (list[dict[str, Any]] | None): The `EthernetInterfaces`
@@ -760,12 +688,7 @@ def nics_from_interfaces(interfaces: list[dict[str, Any]] | None) -> tuple[Provi
     for interface in interfaces:
         mac = interface.get("MACAddress") or interface.get("PermanentMACAddress")
         speed = interface.get("SpeedMbps")
-        # `Id` is carried through as `location` rather than dropped: on
-        # iDRAC it is the FQDD (`NIC.Integrated.1-1-1`), the only thing
-        # distinguishing one partition from another, while `Name` is the
-        # same generic "System Ethernet Interface" on every one of them.
-        # A vendor collector that understands the identifier rewrites this
-        # into a readable form; see `..openmanage.mapping.dell_port_nics`.
+        # `Id` is the FQDD on iDRAC — docs/dell-collectors.md, "NICs".
         identifier = str(interface.get("Id") or "").strip()
         nics.append(
             ProviderNic(
@@ -785,15 +708,8 @@ def memory_bytes(system: dict[str, Any], dimms: list[dict[str, Any]] | None) -> 
     """
     A server's total memory, in bytes.
 
-    `MemorySummary.TotalSystemMemoryGiB` is schema-optional, and real
-    hardware has been observed omitting it entirely while its `Memory`
-    collection (one member per installed DIMM) is populated — the same
-    shape `cpu_summary` already handles for `ProcessorSummary.CoreCount`,
-    so summing `Memory[].CapacityMiB` is a required fallback here too,
-    not a defensive one. `TotalSystemMemoryGiB` is also typed `number`,
-    not `integer`, so a fractional value is schema-legal and does occur —
-    a real 768 GB machine has been observed reporting `715.256064`. The
-    rounding is ours to do either way.
+    `MemorySummary.TotalSystemMemoryGiB` (a `number`, rounded here), else the
+    sum of `Memory[].CapacityMiB` — a required fallback (ADR-0016, 2026-08-23).
 
     Args:
         system (dict[str, Any]): The `ComputerSystem` resource.
@@ -893,9 +809,7 @@ def system_to_provider_server(
         system_uuid=system.get("UUID") or None,
         nic_macs=macs_from_interfaces(interfaces),
         nics=nics_from_interfaces(interfaces),
-        # Composed from the host we connected to plus the system's own
-        # path — never from the operator's raw string, so a credential
-        # accidentally written into an address can never reach MongoDB.
+        # Never from the operator's raw string — ADR-0016, 2026-09-13 update.
         bmc_address_raw=f"{base_url.replace('https://', 'redfish://')}{odata_id}",
         bmc_mac=bmc_mac,
         manager_id=manager_id,
@@ -909,10 +823,7 @@ def system_to_provider_server(
         memory_modules=memory_modules_from_dimms(dimms),
         psus=psus,
         gpus=gpus,
-        # A standalone server has no fabric interconnect, so there is
-        # nothing to attach. An empty tuple keeps the seeded
-        # `connectivity.fabric_paths_down` policies from evaluating
-        # against fiction.
+        # No fabric interconnect to attach to — ADR-0016's Decision.
         attachments=(),
         tags=(),
     )
@@ -922,11 +833,7 @@ def _server_name(system: dict[str, Any]) -> str:
     """
     The name an operator would use for this machine.
 
-    `HostName` is preferred but is OS-populated and goes null when the
-    host is powered off, which would flip a server's name — and with it
-    its parsed site and classification — every time it was shut down. So
-    the stable `Name`/`Id` win over an absent `HostName` rather than the
-    server falling back to nothing.
+    `HostName`, else the stable `Name`/`Id` (ADR-0016, 2026-09-13 update).
 
     Args:
         system (dict[str, Any]): The `ComputerSystem` resource.

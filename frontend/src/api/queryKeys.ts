@@ -3,20 +3,15 @@ import type { EventListParams } from "@/api/events";
 import type { HealthPolicyListParams } from "@/api/healthPolicies";
 import type { ServerListParams } from "@/api/servers";
 
-/**
- * Central TanStack Query key factory. Keeps key shape/order consistent
- * across hooks so invalidation (`queryClient.invalidateQueries`) can target
- * a whole resource (`queryKeys.servers.all`) or a narrower slice
- * (`queryKeys.servers.lists()`) without every call site hand-rolling arrays.
- */
+/** Central TanStack Query key factory, so invalidation can target a whole
+ * resource or one slice of it. */
 export const queryKeys = {
   servers: {
     all: ["servers"] as const,
     lists: () => [...queryKeys.servers.all, "list"] as const,
     list: (params: ServerListParams) => [...queryKeys.servers.lists(), params] as const,
-    // `facets` is a SIBLING of `lists()` under `all`, not a child — so
-    // invalidating the list does not touch it, and vice versa. `facetsAll`
-    // is the prefix that reaches every params variant of it.
+    // `facets` is a sibling of `lists()`, not a child: invalidating one
+    // does not touch the other.
     facetsAll: () => [...queryKeys.servers.all, "facets"] as const,
     facets: (params: ServerListParams) => [...queryKeys.servers.facetsAll(), params] as const,
     details: () => [...queryKeys.servers.all, "detail"] as const,

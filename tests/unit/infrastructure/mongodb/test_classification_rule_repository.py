@@ -1,19 +1,8 @@
-"""Unit test (no I/O) for `default_system_rules` — pure object
-construction, no Mongo connection involved.
-
-The important assertions here are behavioural, not structural: the seeded
-patterns are checked against the estate's *real* hostnames, resolved
-through the actual `classify()` engine rather than a naive "which
-patterns match" check. That distinction matters since 2026-09-08: every
-default is now a broad prefix/substring catch-all (`^ocp4-hypershift`,
-`^ocp-`, `mce`, and, since 2026-09-10, UPI's unconditional `.*`) rather
-than a narrow, mutually-exclusive shape, so several of them textually
-match the same hostname — only
-`classify()`'s real priority/order resolution, not raw pattern matching,
-says which one actually wins. A test that only asserted "there are three
-rules with these names" would have happily passed the previous
-`^ocp-.*` / `^upi-.*` defaults, which matched none of the names this
-platform actually ingests.
+"""
+Unit test (no I/O) for `default_system_rules`, resolved through the real
+`classify()` engine against the estate's real hostnames: since 2026-09-08
+every default is a broad, overlapping catch-all, so only priority/order
+resolution — not raw pattern matching — says which one wins.
 """
 
 from __future__ import annotations
@@ -86,9 +75,7 @@ def test_every_default_rule_is_a_locked_unscoped_system_rule() -> None:
     ],
 )
 def test_hosted_cluster_hostnames_classify_as_hosted_cluster(name: str) -> None:
-    """Every one of these also textually matches UPI's `ocp4` catch-all
-    (the hypershift ones do; the ocp-<vendor>-<model>-... ones don't, since
-    that family never carries the `ocp4` prefix at all) — HOSTED_CLUSTER's
+    """The hypershift names also match UPI's catch-all; HOSTED_CLUSTER's
     rules sort ahead of UPI's, so they win regardless.
     """
     assert _classify(name) == InstallationType.HOSTED_CLUSTER
@@ -119,15 +106,12 @@ def test_mce_hostnames_classify_as_mce(name: str) -> None:
         "ocp4-prod-tlv-infra-01",
         "ocp4-prep-five-compute-01",
         "ocp4-bat-yam-infra-07",
-        # Broadened 2026-09-08: UPI is now a bare `ocp4` prefix catch-all,
-        # so a name whose site token is invalid, or missing entirely, is
-        # no longer UNCLASSIFIED — only HOSTED_CLUSTER's and MCE's more
-        # specific patterns are still checked for structure at all.
+        # Since 2026-09-08 UPI is a catch-all: an invalid or missing site
+        # token no longer means UNCLASSIFIED.
         "ocp4-tlvx-01",  # "tlv" is a substring, not a real site token
         "ocp4-prod-infra-01",  # no site token
-        # Broadened again 2026-09-10: UPI is now unconditional, so a name
-        # that used to fall through every pattern to UNCLASSIFIED is UPI
-        # too — see `test_nothing_classifies_as_unclassified_any_more`.
+        # Since 2026-09-10 UPI is unconditional (`.*`), so these are UPI too —
+        # see `test_nothing_classifies_as_unclassified_any_more`.
         "random-server-0009",
         "some-unmanaged-box",
         "",
@@ -146,12 +130,9 @@ def test_nothing_classifies_as_unclassified_any_more() -> None:
 
 
 def test_hosted_cluster_and_mce_outrank_the_upi_catch_all() -> None:
-    """UPI's pattern matches every hostname unconditionally, HOSTED_CLUSTER
-    and MCE names included — deliberate (2026-09-10), not a regression of
-    the mutual-exclusivity the previous design had. `order` is what keeps
-    the more specific rules winning: HOSTED_CLUSTER (order 0-1) and MCE
-    (order 2) both sort ahead of UPI (order 3), so `classify()`'s
-    first-match-wins never reaches UPI for these names.
+    """UPI matches every hostname (deliberate, 2026-09-10); `order` keeps the
+    specific rules winning — HOSTED_CLUSTER (0-1) and MCE (2) sort ahead of
+    UPI (3), so first-match-wins never reaches UPI for these names.
     """
     names_and_expected = [
         ("ocp4-hypershift-five-01", InstallationType.HOSTED_CLUSTER),

@@ -72,9 +72,7 @@ describe("HistoryPanel", () => {
       expect(screen.getByText("CLASSIFICATION_RULE_CREATED")).toBeInTheDocument();
     });
 
-    // The matching event's other data fields render...
     expect(screen.getByText("dell-vendor-hosted-cluster")).toBeInTheDocument();
-    // ...but the event for a different rule_id does not.
     expect(screen.queryByText("some-other-rule")).not.toBeInTheDocument();
   });
 

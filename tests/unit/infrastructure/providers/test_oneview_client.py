@@ -133,9 +133,6 @@ def _logged_in(
     return handle
 
 
-# --- version negotiation ----------------------------------------------
-
-
 class TestApiVersion:
     async def test_discovered_version_is_clamped_to_what_this_code_was_written_against(
         self,
@@ -200,9 +197,6 @@ class TestApiVersion:
         assert "X-Api-Version" not in probe.headers
 
 
-# --- session lifecycle ------------------------------------------------
-
-
 class TestSession:
     async def test_logout_deletes_the_session(self) -> None:
         """2400 sessions per appliance and 960 per source IP, each living
@@ -260,9 +254,6 @@ class TestSession:
         client = _client(handle)
         await client.login()
         await client.logout()  # must not raise
-
-
-# --- pagination -------------------------------------------------------
 
 
 class TestPagination:
@@ -368,9 +359,6 @@ class TestPagination:
         async with _client(_logged_in({})) as client:
             with pytest.raises(OneViewConnectionError, match="404"):
                 await client.get_all("/rest/missing")
-
-
-# --- probe ------------------------------------------------------------
 
 
 class TestRawGet:

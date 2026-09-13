@@ -1,13 +1,9 @@
 import { isRouteErrorResponse, Link, useRouteError } from "react-router";
 
 /**
- * Catches a render throw anywhere in the routed tree.
- *
- * Without this, react-router's data router unmounts the whole app on any
- * render error — `commit 1a896af` fixed one such crash (a `null` GPU
- * field treated as a number), but nothing stopped the *next* one from
- * blanking the page again. `e2e/unread-fields.spec.ts` exists to catch
- * that class of bug; this is the backstop for the one it doesn't.
+ * Catches a render throw anywhere in the routed tree. Without it
+ * react-router's data router unmounts the whole app on any render error
+ * (commit 1a896af was one such crash).
  */
 export function RouteErrorBoundary() {
   const error = useRouteError();

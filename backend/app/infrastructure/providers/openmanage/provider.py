@@ -56,9 +56,7 @@ logger = structlog.get_logger(__name__)
 _PROVIDER_TYPE = ManagerType.OPENMANAGE.value
 
 
-# The two ways an iDRAC can leave a server wholly unmeasured while OME
-# still knows exactly who it is. See docs/dell-collectors.md's
-# "Collection flow".
+# Both leave a server unmeasured — docs/dell-collectors.md, "Collection flow".
 _UNCOLLECTED_MARKERS = (UNREACHABLE_MARKER, AUTH_REJECTED_MARKER)
 
 
@@ -175,11 +173,9 @@ class OpenManageProvider(ServerInventoryProvider):
 
     async def health_check(self) -> None:
         """
-        Verify the appliance is reachable and the credentials are accepted.
+        Verify the OME appliance is reachable and the credentials are accepted.
 
-        Deliberately checks OME only. A BMC that rejects the iDRAC account
-        is one server's failure, and the Redfish collector's own auth guard
-        already aborts a run whose credential is wrong fleet-wide.
+        Checks OME only: a BMC that rejects the iDRAC account is one server's failure.
 
         Raises:
             OmeConnectionError: If login fails for any reason.
@@ -231,13 +227,7 @@ class OpenManageProvider(ServerInventoryProvider):
                         reached.add(parsed.host)
                     yield self._merged(server, identities)
         finally:
-            # In a `finally`, and behind `aclosing`: a consumer that stops
-            # early (`--limit`, a killed run) throws `GeneratorExit` in at
-            # the `yield` above, which used to skip this merge entirely —
-            # see `..ucs_central.provider.UcsCentralProvider._collect_domain`
-            # for the same shape. A dead BMC and a rejected login are both
-            # set aside as `uncollected` (the loop below); every other
-            # failure keeps today's behaviour — still counted, still PARTIAL.
+            # Runs on early close too — docs/dell-collectors.md, "Collection flow".
             for message in redfish.collection_errors:
                 host = next(
                     (h for h in identities if h not in reached and _is_uncollected(message, h)),
@@ -248,20 +238,14 @@ class OpenManageProvider(ServerInventoryProvider):
                 else:
                     self._record_error(message)
 
-        # Only reached on normal completion of the loop above — a consumer
-        # that stopped early never asked to see the rest of the fleet, so
-        # nothing here is reported as unreachable on its behalf.
         for host in uncollected:
             yield self._unreachable_server(identities[host])
 
     async def _discover(self) -> dict[str, OmeIdentity]:
         """
-        Enumerate the appliance and keep the matched, addressable profiles.
+        Enumerate the appliance in two bulk calls and keep the matched profiles.
 
-        Two bulk calls regardless of fleet size. A profile whose name does
-        not match is dropped here, before it costs a BMC session; a profile
-        with no target device is undeployed — no server exists behind it —
-        and is counted, not reported as a fault.
+        See docs/dell-collectors.md, "Collection flow".
 
         Returns:
             dict[str, OmeIdentity]: Matched identities, keyed by BMC
@@ -273,9 +257,7 @@ class OpenManageProvider(ServerInventoryProvider):
             profiles = await client.get_all("/ProfileService/Profiles")
             devices = await client.get_all("/DeviceService/Devices")
 
-        # Joined on OME's display name, not an address — the two sides
-        # agree on it either way; mapping._network_address supplies the
-        # actual BMC host once this join has found the right device.
+        # Joined on display name, not address — docs/dell-collectors.md, 2026-09-10.
         device_by_ip = {
             str(device.get("DeviceName")): device
             for device in devices
@@ -334,10 +316,8 @@ class OpenManageProvider(ServerInventoryProvider):
         """
         Build the Redfish target for one discovered server.
 
-        `name` carries OME's profile name through to
-        `system_to_provider_server(override_name=...)`, which is what keeps
-        a collected Dell server named the thing site parsing and
-        classification need rather than whatever iDRAC calls it.
+        `name` carries OME's profile name through to `override_name`
+        (docs/dell-collectors.md, "Collection flow").
 
         Args:
             identity (OmeIdentity): One matched, addressable profile.
@@ -384,17 +364,10 @@ class OpenManageProvider(ServerInventoryProvider):
 
     def _merged(self, server: ProviderServer, by_host: dict[str, OmeIdentity]) -> ProviderServer:
         """
-        Put OME's identity back onto one Redfish-collected server.
+        Put OME's identity back onto one Redfish-collected server, joined on host.
 
-        Joined on the BMC host rather than the name, so a chassis that
-        reports several systems behind one address gets the same identity
-        applied to each rather than only the first.
-
-        The BMC address is deliberately OME's `idrac-virtualmedia://` form,
-        not the `https://<host>` origin the Redfish collector reports for a
-        standalone BMC — see `mapping.idrac_bmc_address`. Model and serial
-        fall back to OME only where the BMC reported nothing, so measured
-        values always win.
+        Measured values win; OME's address and NIC reduction apply regardless
+        (docs/dell-collectors.md, "BMC address" and "NICs").
 
         Args:
             server (ProviderServer): One server as Redfish collected it.
@@ -414,12 +387,7 @@ class OpenManageProvider(ServerInventoryProvider):
         return dataclasses.replace(
             server,
             manager_id=self._manager.id,
-            # Dell-specific, so applied here rather than in the shared
-            # Redfish mapping: only a Dell collector knows an iDRAC FQDD
-            # well enough to tell a second NPAR partition from a second
-            # physical port. `nic_macs` is deliberately left whole — it is
-            # the identity correlation key, and a server already ingested
-            # with all sixteen MACs must keep matching on any of them.
+            # `nic_macs` stays whole on purpose — docs/dell-collectors.md, "NICs".
             nics=dell_port_nics(server.nics),
             profile_template_name=identity.profile_template_name,
             profile_template_external_id=identity.profile_template_external_id,

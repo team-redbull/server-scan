@@ -1,6 +1,6 @@
 """Deterministic fake inventory data.
 
-Produces `ProviderServer` DTOs in the shapes the four collectors that
+Produces `ProviderServer` DTOs in the shapes the five collectors that
 actually exist emit, so dev and CI fixtures exercise the same field
 shapes, vocabularies and absences production does:
 
@@ -21,8 +21,8 @@ no telemetry at all, only Redfish reports both — and OneView reports
 nothing but identity for an iLO-4 server. A fixture richer than the real
 thing hides exactly the gaps worth seeing.
 
-No collector reports a GPU's VRAM (see docs/adr/0021), so no fake server
-does either: every GPU here carries `memory_bytes=None` and the number
+No collector but Redfish reports a GPU's VRAM (see docs/adr/0021), and no
+fake server does: every GPU here carries `memory_bytes=None` and the number
 the UI shows comes from `GpuCatalog` at ingest, exactly as in production.
 
 Determinism: every random choice goes through a single `random.Random(seed)`
@@ -48,24 +48,10 @@ from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderAttachment, ProviderNic, ProviderServer
 from app.domain.value_objects.site import SiteCatalog, site_catalog
 
-# --- Fixed reference universe -----------------------------------------
-#
-# Managers are a small, fixed set independent of `seed`/`count` —
-# re-seeding with a different seed or count must not create duplicate
-# manager documents (unique index on `name`). Only the *servers*
-# generated vary with `seed`/`count`.
-#
-# Sites are not fixed here at all: they come from the configured
-# `SiteCatalog`, so a deployment that reconfigures INVENTORY_SITES gets
-# fake data whose hostnames carry ITS site tokens. Seeding names built
-# from some other estate's sites would produce a fleet that is entirely
-# "Unassigned" — which is exactly the bug this generator exists to catch
-# rather than create.
+# Managers are fixed; sites come from the catalog — see docs/architecture.md,
+# "The fake provider's shape" (every "the doc" pointer in this file means it).
 _DEFAULT_SITES = site_catalog("")
 
-# The manager types that have a collector. `OPENMANAGE` has a
-# configuration slot and no implementation, so seeding servers behind it
-# would invent a data path that cannot exist.
 COLLECTOR_TYPES: tuple[ManagerType, ...] = (
     ManagerType.UCS_CENTRAL,
     ManagerType.INTERSIGHT,
@@ -76,14 +62,9 @@ COLLECTOR_TYPES: tuple[ManagerType, ...] = (
 
 
 def _site_id(code: str) -> str:
-    """A site's id *is* its code.
+    """A site's id *is* its code, with no prefix.
 
-    No `site_fake_<code>` prefix: a server's site is derived from its name
-    (`app.domain.value_objects.site.parse_site_code`), which can only ever
-    yield a bare `SiteCode`. Prefixing the `Site` document's id would mean
-    the id a server carries and the id a site document has are different
-    strings — which is exactly the mismatch that made filtering by site
-    silently return nothing.
+    See docs/architecture.md, "The fake provider's shape".
 
     Args:
         code (str): A `SiteCode` value.
@@ -98,9 +79,7 @@ def manager_id_for(manager_type: ManagerType) -> str:
     """
     The `Manager` document id a collector of this type writes.
 
-    Deliberately identical to `tools.run_collector.manager_for`'s id, so a
-    seeded fleet and a really-collected one resolve `Server.manager_id`
-    through the same document instead of two near-duplicates.
+    Identical to `tools.run_collector.manager_for`'s id on purpose.
 
     Args:
         manager_type (ManagerType): The collector's manager type.
@@ -129,9 +108,8 @@ def _is_ilo4(model: str) -> bool:
     """
     Whether an HPE model carries an iLO 4 rather than an iLO 5/6.
 
-    Gen9 is the iLO-4 generation, and OneView's own subresource calls are
-    documented to fail against one (docs/notes/oneview-api.md), so this
-    decides which HPE servers come back as identity-only records.
+    Gen9 is the iLO-4 generation, whose servers come back identity-only
+    (docs/hpe-collectors.md, "Subresources and `collectionState`").
 
     Args:
         model (str): The model string, e.g. `"ProLiant DL380 Gen9"`.
@@ -146,15 +124,8 @@ def collector_for(vendor: str, model: str) -> ManagerType:
     """
     Which collector would really have found this server.
 
-    Cisco is split the way the two Cisco collectors actually split it:
-    a blade sits in a chassis inside a UCS domain, which is what UCS
-    Central registers and collects; a rack unit is the shape claimed
-    directly into Intersight. Nothing is collected by both, mirroring the
-    `ManagementMode` partition the Intersight collector enforces.
-
-    HPE goes to OneView and Dell to OpenManage, the aggregators that
-    actually own that hardware in this estate. Only `standalone` — a
-    manufacturer this platform does not model — is left on its own BMC.
+    Split the way the real collectors split the estate (docs/architecture.md,
+    "The fake provider's shape").
 
     Args:
         vendor (str): A `Vendor` value.
@@ -178,16 +149,8 @@ def provider_type_for(server: ProviderServer) -> str:
     """
     Which collector owns an already-generated server.
 
-    Read back off `external_id` rather than recomputed from the server's
-    fields, because `external_id` is the one thing a real collector
-    stamps with its own identity — so this cannot drift from what
-    `collector_for` decided when the server was built.
-
-    Dell is the one case `external_id` alone cannot settle, and it is not
-    a shortcut: OpenManage reads a Dell's hardware from its own iDRAC over
-    Redfish (ADR-0020), so an OME-collected Dell carries the *same*
-    `redfish://` identifier a standalone BMC would. The vendor is what
-    separates them, exactly as it does in `collector_for`.
+    Read back off `external_id`, except Dell, which the vendor decides
+    (docs/architecture.md, "The fake provider's shape").
 
     Args:
         server (ProviderServer): A generated server.
@@ -234,10 +197,7 @@ def list_managers() -> list[Manager]:
     """
     The managers the seeded fleet is collected through.
 
-    One document per implemented collector, mirroring the projection
-    `tools.run_collector.manager_for` writes on every real run. There is
-    no UCS Central -> UCS Manager pair here any more: `--manager-type
-    UCS_MANAGER` was removed, and Central is the single Cisco entry point.
+    One document per collector, mirroring `tools.run_collector.manager_for`.
 
     Returns:
         list[Manager]: One `Manager` per entry in `COLLECTOR_TYPES`.
@@ -255,19 +215,12 @@ def list_managers() -> list[Manager]:
     ]
 
 
-# --- Vendor-specific catalogs -------------------------------------------
-
-# `standalone` is a real vendor, not a fallback: a Lenovo/Supermicro/
-# whitebox machine reached at its own BMC, which is what the Redfish
-# collector maps any manufacturer this platform does not model onto.
 _VENDORS = ("dell", "cisco", "hp", "standalone")
 
 _MODELS: dict[str, tuple[str, ...]] = {
     "dell": ("PowerEdge R650", "PowerEdge R750", "PowerEdge R6515"),
     "cisco": ("UCS C220 M6", "UCS C240 M6", "UCS B200 M6"),
-    # Three ProLiant generations on purpose: Gen11/Gen10 carry an iLO 5
-    # or 6 and inventory fully, Gen9 carries an iLO 4 and comes back as
-    # an identity-only record — see `_is_ilo4`.
+    # Gen9 carries an iLO 4 and comes back identity-only — see `_is_ilo4`.
     "hp": (
         "ProLiant DL380 Gen11",
         "ProLiant DL360 Gen11",
@@ -287,58 +240,28 @@ _CPU_MODELS: dict[str, tuple[str, ...]] = {
     "standalone": ("Intel Xeon Gold 6438Y+", "AMD EPYC 9454"),
 }
 
-# UPI node roles, in the real cluster vocabulary.
 _NAME_ROLES = ("compute", "control-plane", "infra")
 
-# A Dell hostname's hardware token and the PCIe slot its add-in NIC sits
-# in. The token is what an operator reads ("this is a GPU node"); the slot
-# is what decides the interface's OS-level name once the host boots, since
-# systemd derives `ens<slot>f<function>np<port>` from PCI topology. Both
-# halves are here so a seeded fleet exercises the join between them.
-#
-# `""` is the default profile: onboard NICs only, `NIC.Integrated.1-*`,
-# which boots as `eno...` rather than `ens...`.
+# Hostname hardware token -> the add-in NIC's PCIe slot — see the doc above.
 _NIC_PROFILE_SLOTS: tuple[tuple[str, int], ...] = (
     ("h100", 8),
     ("h200", 33),
     ("10tb-", 2),
     ("5tb-", 2),
 )
-_NAME_HARDWARE_PROFILES = ("", "", "h100", "h200", "10tb", "5tb")
+_NAME_HARDWARE_PROFILES = ("", "", "h100", "h200", "10tb", "5tb")  # "" = onboard only
 
-# Dell's PowerEdge onboard NIC is a two-port LOM, so a server with no
-# add-in card has exactly two interfaces and one with a card has four —
-# which is what makes "the third and fourth MACs" name the card's ports.
+# PowerEdge's onboard NIC is a two-port LOM.
 _ONBOARD_PORTS = 2
 _SLOT_PORTS = 2
 
-# The collectors that read a BMC over Redfish and so report FQDD-shaped
-# interface names. Dell is in both senses one of them: OpenManage takes a
-# Dell's identity from the appliance but its hardware from the server's
-# own iDRAC (ADR-0020), reusing the Redfish mapping unchanged.
+# The collectors that read a BMC over Redfish and so report FQDD names (ADR-0020).
 _FQDD_COLLECTORS = (ManagerType.OPENMANAGE, ManagerType.REDFISH_STANDALONE)
 _FABRIC_COLLECTORS = (ManagerType.UCS_CENTRAL, ManagerType.INTERSIGHT)
 
-# Environment segment some UPI hostnames carry (`ocp4-prod-tlv-infra-01`),
-# and some don't (`ocp4-nyc-control-plane-02`). Both real shapes.
 _NAME_ENVIRONMENTS = ("prod", "prep", None)
 
-# (pattern-family, weight) — weighted so "unclassified-shaped" names stay
-# a small minority, matching a realistic mixed estate. This family
-# deliberately carries no site token, exercising the UI's "Unassigned
-# site" state — it does NOT exercise "Unclassified" any more, since UPI's
-# system-default pattern became unconditional 2026-09-10; every one of
-# these names classifies UPI too, same as everything else that isn't
-# hosted-cluster or MCE. Kept under its original name rather than
-# renamed, since the shape (siteless, non-`ocp`-prefixed) is still what
-# it is generating — see `docs/architecture.md`'s classification section.
-#
-# UPI outweighs hosted-cluster rather than tying it, so the sites
-# overview's fleet cards read as different numbers rather than several
-# landing on the same count, which looks like a bug in the page rather
-# than a property of the fleet. MCE stays a single-weight minority for
-# the same reason unclassified is — it is a real but small slice of a
-# UPI-installed estate, not a mainstream shape.
+# Weighted name families; the weights are deliberate — see the doc above.
 _NAME_FAMILIES = (
     "hosted_cluster",
     "hosted_cluster",
@@ -353,18 +276,11 @@ _NAME_FAMILIES = (
 
 _DRIVE_MEDIA = ("NVME", "SSD", "SSD", "HDD")
 
-# Both collectors normalize component health onto `HealthSeverity` at the
-# provider boundary (`redfish.mapping.health_of`, `ucs_manager.mapping.
-# _disk_health`), so fixtures must speak that vocabulary and not an
-# invented OK/DEGRADED/FAILED one — the seeded storage policy counts
-# CRITICAL drives.
+# `HealthSeverity`, the vocabulary every provider boundary normalizes to.
 _COMPONENT_HEALTHS = ("HEALTHY", "HEALTHY", "HEALTHY", "HEALTHY", "WARNING", "CRITICAL")
 
-# `health_detail`'s stand-in per reduced tier — Redfish's own real
-# `Status.Health` strings, cosmetic only, never read by anything.
+# Cosmetic stand-ins, never read by anything.
 _HEALTH_DETAIL_SAMPLES = {"HEALTHY": "OK", "WARNING": "Warning", "CRITICAL": "Critical"}
-
-# Same idea for a PSU's separate UP/DOWN/DISABLED/UNKNOWN vocabulary.
 _PSU_HEALTH_DETAIL_SAMPLES = {
     "UP": "operable",
     "DOWN": "inoperable",
@@ -378,12 +294,7 @@ _DRIVE_CAPACITIES_BYTES: dict[str, tuple[int, ...]] = {
     "HDD": (2_000_000_000_000, 4_000_000_000_000, 8_000_000_000_000),
 }
 
-# The GPU identifiers each management plane really answers with, in its
-# own spelling. Cisco reports its part number; a BMC reports the vendor's
-# model string and no PID at all. `GpuCatalog` matches both, normalized —
-# so the fleet has to carry both or the local view only ever proves one
-# half of the catalog works.
-#
+# GPU identifiers in each management plane's own spelling — see the doc above.
 # (vendor, Cisco PID)
 _CISCO_GPU_PIDS: tuple[tuple[str, str], ...] = (
     ("NVIDIA", "UCSC-GPU-L40S"),
@@ -393,8 +304,7 @@ _CISCO_GPU_PIDS: tuple[tuple[str, str], ...] = (
     ("NVIDIA", "UCSX-GPU-A16"),
 )
 
-# (vendor, model string, memory type) — what a Redfish `Processor` with
-# `ProcessorType == "GPU"` reports on an iDRAC or an iLO.
+# (vendor, model string, memory type), as a BMC reports a GPU `Processor`
 _BMC_GPU_MODELS: tuple[tuple[str, str, str], ...] = (
     ("NVIDIA", "NVIDIA A100-PCIE-40GB", "HBM2e"),
     ("NVIDIA", "NVIDIA H100 80GB HBM3", "HBM3"),
@@ -403,13 +313,7 @@ _BMC_GPU_MODELS: tuple[tuple[str, str, str], ...] = (
     ("AMD", "AMD Instinct MI300X", "HBM3"),
 )
 
-# Cards the built-in catalog deliberately does not answer for, so the
-# "VRAM unknown" path is visible in dev instead of being discovered in
-# production. `UCSC-GPU-A100-40` is a PID the table has never been
-# taught; a bare `NVIDIA A100` is genuinely ambiguous (the A100 shipped
-# in 40GB and 80GB) and the catalog refuses it rather than guessing; the
-# RTX A6000 is simply absent. An operator closes all three with
-# `INVENTORY_GPU_MODELS`.
+# Cards the built-in catalog deliberately cannot answer for — see the doc above.
 _UNCATALOGED_CISCO_GPU_PIDS: tuple[tuple[str, str], ...] = (("NVIDIA", "UCSC-GPU-A100-40"),)
 _UNCATALOGED_BMC_GPU_MODELS: tuple[tuple[str, str, str], ...] = (
     ("NVIDIA", "NVIDIA A100", "HBM2e"),
@@ -426,14 +330,11 @@ _OPER_STATE_PATTERNS: dict[int, tuple[tuple[str, ...], ...]] = {
     4: (("UP", "UP", "UP", "UP"), ("UP", "UP", "UP", "DOWN"), ("UP", "DOWN", "UP", "DOWN")),
 }
 
-# The seeded minority whose links really are down, so the two link
-# policies have something to fire on now that a Cisco server's UNKNOWN
-# vNICs no longer trip them by accident (ADR-0027's "Seeded data").
+# The seeded link-fault minority — ADR-0027's "Seeded data".
 _ALL_LINKS_DOWN_PER_MILLE = 30
 _SINGLE_LINK_UP_PER_MILLE = 40
 
-# vNICs UCS carves out of each physical port (adaptorHostEthIf per
-# adaptorExtEthIf). Two is the common OCP bond.
+# vNICs per physical port; two is the common OCP bond.
 _VNICS_PER_PORT = 2
 
 
@@ -531,17 +432,8 @@ def _fake_ip(site_index: int, host_index: int) -> str:
     return f"10.{site_index + 10}.{host_index // 256}.{host_index % 256}"
 
 
-# UCS Manager Service Profile Templates. Only Cisco gets one: the Redfish
-# collector reads a BMC, which knows nothing about profiles, and the OME/
-# OneView collectors that would report their own templates do not exist.
-# Every collector whose real mapping populates `profile_template_name`/
-# `_external_id` (see docs/architecture.md's "Server.profile_template"
-# entry) gets a plausible set here. A template's name is an operator's
-# own choice, not a vendor-fixed vocabulary, so these are illustrative,
-# not researched facts the way a vendor enum value would have to be.
-# REDFISH_STANDALONE is deliberately absent: a bare BMC has no template
-# concept, and `OverviewTab`'s `PROFILE_TEMPLATE_LABELS` omits its row
-# entirely for exactly that reason — this fixture must not paper over it.
+# Illustrative names, one set per collector with the concept; no
+# REDFISH_STANDALONE row on purpose — docs/architecture.md, "The fake provider's shape".
 _TEMPLATE_NAMES: dict[ManagerType, tuple[str, ...]] = {
     ManagerType.UCS_CENTRAL: ("SPT-OCP-Worker-B200", "SPT-OCP-Master-C240", "SPT-UPI-Generic"),
     ManagerType.INTERSIGHT: ("IMM-Worker-Template", "IMM-Master-Template", "UCS-X-Standard"),
@@ -558,9 +450,8 @@ def _profile_template(rng: random.Random, collector: ManagerType) -> tuple[str |
     """
     The deployment/profile template this server was provisioned from.
 
-    ~10% of servers from a collector that has this concept get none — a
-    profile applied ad hoc rather than from a template is a real, common
-    state, same as in production.
+    ~10% of servers from a collector that has the concept get none
+    (docs/architecture.md, "The fake provider's shape").
 
     Args:
         rng (random.Random): The seeded generator.
@@ -583,15 +474,8 @@ def _profile_dn(collector: ManagerType, *, name: str, site_code: str) -> str | N
     """
     The service profile's own DN, which doubles as its org path.
 
-    The org segment is what `app.domain.value_objects.site.parse_site_code`
-    falls back to when a server's *name* carries no site token, so the
-    siteless name family still resolves to a site on UCS — exactly as it
-    does in production.
-
-    Only `UCS_CENTRAL` reports one. An Intersight `server.Profile` has no
-    `Dn` field at all, so its servers get `None` and a siteless name
-    there really does resolve to no site — a real gap this fixture is
-    meant to show rather than paper over.
+    Only `UCS_CENTRAL` reports one; Intersight has no `Dn` at all
+    (docs/architecture.md, "The fake provider's shape").
 
     Args:
         collector (ManagerType): The collector that owns the server.
@@ -618,11 +502,8 @@ def _build_name(
     """
     A hostname in the shapes this estate actually uses.
 
-    Every shape but the deliberate `unclassified` minority embeds
-    `site_code` as a whole `-`-delimited token, because the name is what
-    `app.domain.value_objects.site.parse_site_code` reads the site back
-    out of, and what the seeded classification rules key on to decide
-    HOSTED_CLUSTER vs MCE vs UPI.
+    Every shape but the siteless minority embeds `site_code` as a whole
+    `-`-delimited token (docs/architecture.md, "The fake provider's shape").
 
     Args:
         rng (random.Random): The seeded generator.
@@ -658,10 +539,7 @@ def _build_name(
         )
 
     if family == "mce":
-        # ocp4-mce-tlv-01 — an MCE hub's own nodes. Matched by name alone
-        # (the "mce" substring), same as every other family here, so it
-        # deliberately also matches the UPI catch-all below; the
-        # classification rules' own ordering is what keeps it out of UPI.
+        # ocp4-mce-tlv-01 — also matches the UPI catch-all; rule order decides.
         return f"ocp4-mce-{site_code}-{index % 100:02d}"
 
     if family == "upi":
@@ -715,10 +593,8 @@ def _gpu_identity(rng: random.Random, collector: ManagerType) -> tuple[str, str,
     """
     The vendor, identifier and memory type one server's GPUs report.
 
-    Which *kind* of identifier depends on the management plane, not the
-    card: Cisco answers with its own PID, a BMC with the vendor's model
-    string. A fifth of servers draw a card the built-in catalog cannot
-    answer for, so "VRAM unknown" is reachable locally.
+    Cisco answers with a PID, a BMC with the vendor's model string; a fifth
+    draw a card the catalog cannot answer for (docs/architecture.md, "The fake provider's shape").
 
     Args:
         rng (random.Random): The seeded generator.
@@ -808,8 +684,7 @@ def _build_gpus(rng: random.Random, collector: ManagerType) -> tuple[dict[str, o
                     "ecc_mode_enabled": None,
                     "correctable_error_count": None,
                     "uncorrectable_error_count": None,
-                    # The one real telemetry field UCS has, read off the
-                    # card's own temperature stats MO.
+                    # The one telemetry field UCS reports for a GPU.
                     "temperature_celsius": float(rng.randint(38, 82)),
                     "power_watts": None,
                 }
@@ -849,8 +724,6 @@ def _build_gpus(rng: random.Random, collector: ManagerType) -> tuple[dict[str, o
                 "memory_bytes": None,
                 "health": health,
                 "health_detail": _HEALTH_DETAIL_SAMPLES[health],
-                # Redfish has no PCI address on a `Processor`; the
-                # collector reports None rather than inventing one.
                 "pci_address": None,
                 "firmware_version": f"{rng.randint(535, 560)}.{rng.randint(0, 99):02d}.01",
                 "memory_type": memory_type,
@@ -868,10 +741,8 @@ def _build_attachments(rng: random.Random, *, site_code: str) -> tuple[ProviderA
     """
     A Cisco server's fabric attachments.
 
-    The UCS collector reports both the physical uplinks (`adaptorExtEthIf`)
-    and the vNICs carved out of them (`adaptorHostEthIf`), telling them
-    apart with `interface_kind` — so the fixture does too, or nothing in
-    dev ever sees the two kinds together.
+    Physical `adaptorExtEthIf` uplinks and the `adaptorHostEthIf` vNICs
+    carved out of them, told apart by `interface_kind`.
 
     Args:
         rng (random.Random): The seeded generator.
@@ -926,10 +797,8 @@ def nic_slot_for(name: str) -> int | None:
     """
     Which PCIe slot a server's add-in NIC sits in, read from its name.
 
-    The hostname token is the only thing that says so — no management API
-    reports an OS-level interface name, and the slot is what one is
-    derived from. Public because it is the same lookup anything generating
-    per-server network configuration needs.
+    Public because anything generating per-server network configuration
+    needs the same lookup (docs/architecture.md, "The fake provider's shape").
 
     Args:
         name (str): The server's hostname.
@@ -990,9 +859,8 @@ def _nics_for(
     """
     Build the per-interface view for one server, in its collector's shape.
 
-    Every collector populates this: UCS Central/Intersight report a
-    vNIC's own name (`eth0`), Redfish an FQDD — see
-    `..ucs_manager.mapping._nics`/`..intersight.mapping._nics`.
+    UCS Central/Intersight name a vNIC `eth0`, Redfish an FQDD, OneView a
+    port number (docs/architecture.md, "The fake provider's shape").
 
     Args:
         rng (random.Random): The seeded generator.
@@ -1004,8 +872,7 @@ def _nics_for(
         tuple[ProviderNic, ...]: One entry per physical port.
     """
     if collector in (ManagerType.UCS_CENTRAL, ManagerType.INTERSIGHT):
-        # No FQDD, no location, no speed — matching real UCS/Intersight
-        # mapping. UNKNOWN link_state matches ADR-0009's 99.75% figure.
+        # No FQDD, no speed, UNKNOWN link state — ADR-0009's 99.75% figure.
         return tuple(
             ProviderNic(name=f"eth{i}", mac=mac, speed_mbps=None, link_state="UNKNOWN")
             for i, mac in enumerate(macs)
@@ -1023,10 +890,7 @@ def _nics_for(
             )
             for port, (mac, state) in enumerate(zip(macs, states, strict=True), start=1)
         )
-    # Onboard first, then the add-in card, because that is the order a
-    # BMC enumerates them and therefore the order the MACs come back in.
-    # It is what makes "the third and fourth MACs" name the card's ports
-    # on a four-interface server: onboard contributes the first two.
+    # Onboard first, then the add-in card — the order a BMC enumerates them.
     nics: list[ProviderNic] = []
     for port, mac in enumerate(macs[:_ONBOARD_PORTS], start=1):
         nics.append(
@@ -1058,9 +922,8 @@ def generate_servers(
     """
     Yield `count` deterministic `ProviderServer` DTOs for the given `seed`.
 
-    Every random decision is drawn from one `random.Random(seed)` in a
-    fixed order, so this is fully reproducible: same `(seed, count)` ->
-    field-for-field identical output, every run.
+    One `random.Random(seed)` drawn in a fixed order, so the same `(seed,
+    count)` is identical every run (docs/architecture.md, "The fake provider's shape").
 
     Args:
         seed (int): The RNG seed.
@@ -1077,19 +940,12 @@ def generate_servers(
     for index in range(count):
         site_index = index % len(site_codes)
         site_code = site_codes[site_index]
-        # Stepped by site cycle, not by `index`: there are as many vendors
-        # as sites, so a plain `index % len(_VENDORS)` locks each site to
-        # exactly one vendor and leaves every per-site vendor breakdown a
-        # single bar.
+        # Stepped by site cycle, not index, then jittered — see the doc above.
         vendor = _VENDORS[(index // len(site_codes)) % len(_VENDORS)]
-        # Shuffle vendor pick slightly so it isn't perfectly periodic —
-        # still fully deterministic (drawn from `rng`), just less uniform.
         if rng.random() < 0.15:
             vendor = rng.choice(_VENDORS)
 
-        # `model` and `memory_gib` are drawn before `name` because one of
-        # the real hostname shapes embeds both
-        # (`ocp-dell-r650-tlv-128c-1024gb-<serial>`).
+        # Drawn before `name`: one hostname shape embeds both.
         model = rng.choice(_MODELS[vendor])
         collector = collector_for(vendor, model)
         memory_gib = rng.choice((128, 256, 512, 1024))
@@ -1116,8 +972,7 @@ def generate_servers(
         gpus = _build_gpus(rng, collector)
         psus = _build_psus(rng)
 
-        # A small fraction of Dell servers exercise `reachable=False`, the
-        # one shape `OpenManageProvider._unreachable_server` can produce.
+        # The shape `OpenManageProvider._unreachable_server` produces.
         reachable = not (collector is ManagerType.OPENMANAGE and rng.random() < 0.03)
         if not reachable:
             system_uuid = None
@@ -1129,27 +984,16 @@ def generate_servers(
             storage_drives = storage_total_bytes = None
             gpus = psus = None
 
-        # A Gen9's iLO 4 is the one partial record in this fleet: every
-        # OneView subresource call against one fails, so its detailed
-        # hardware is `None` — unread — while its identity is intact.
-        # Never `()` or `0`: an empty drive list reads as "no drives
-        # installed" and takes a healthy server to CRITICAL, which is the
-        # exact bug the `None`-means-unread contract exists to prevent.
+        # A Gen9's iLO 4: hardware `None` (unread), never `()` or `0` — see the doc above.
         if collector is ManagerType.ONEVIEW and _is_ilo4(model):
             nic_macs = None
-            # `()` rather than `None`: `nics` has no unread state — it is
-            # the richer view of the interfaces `nic_macs` lists, so a
-            # server whose MACs went unread cannot coherently report
-            # per-port detail for them.
-            nics = ()
+            nics = ()  # `nics` has no unread state — see the doc above
             storage_drives = None
             storage_total_bytes = None
             gpus = None
             psus = None
 
-        # Only the two fabric-interconnect collectors report attachments —
-        # the same set the seeded `connectivity.fabric_paths_down`
-        # policies are scoped to (docs/adr/0030).
+        # The set ADR-0030's `connectivity.fabric_paths_down` policies are scoped to.
         attachments = (
             _build_attachments(rng, site_code=site_code) if collector in _FABRIC_COLLECTORS else ()
         )
@@ -1181,8 +1025,6 @@ def generate_servers(
             gpus=gpus,
             psus=psus,
             attachments=attachments,
-            # No collector reports tags: UCS's are per-org labels the
-            # provider does not read, Intersight's are not mapped, and a
-            # BMC has none at all.
+            # No collector reports tags.
             tags=(),
         )

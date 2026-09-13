@@ -10,14 +10,8 @@ interface OverviewTabProps {
   server: ServerDetail;
 }
 
-/** What each collector's own vendor calls this concept — Cisco UCS's
- * "Service Profile Template" is not HPE's or Cisco Intersight's "Server
- * Profile Template" is not Dell's "Deployment Template", even though
- * `ProfileTemplate` stores all three the same way. `REDFISH_STANDALONE`
- * is deliberately absent: a bare BMC has no template concept to name, so
- * that row simply does not render for a standalone server rather than
- * showing a label for a thing that was never possible to have.
- */
+/** Each vendor's own name for a profile template. `REDFISH_STANDALONE` is
+ * absent on purpose: a bare BMC has no template concept, so no row renders. */
 const PROFILE_TEMPLATE_LABELS: Record<string, string> = {
   UCS_CENTRAL: "Service profile template",
   INTERSIGHT: "Server profile template",
@@ -45,9 +39,7 @@ export function OverviewTab({ server }: OverviewTabProps) {
       <Field label="OpenShift" value={<OpenShiftValue server={server} />} />
       <Field label="Overall health" value={<HealthBadge severity={server.health.overall} />} />
       <Field label="Health breakdown" value={<HealthBreakdown health={server.health} />} />
-      {/* Read-only on purpose: maintenance is switched from the inventory
-          list, where the operator can see the whole fleet. This only says
-          whether it is on, and why. */}
+      {/* Read-only: maintenance is switched from the inventory list. */}
       <Field
         label="Maintenance"
         value={
@@ -78,13 +70,8 @@ export function OverviewTab({ server }: OverviewTabProps) {
   );
 }
 
-/** Whether a server is in use, according to OpenShift.
- *
- * Deliberately shown next to Classification rather than merged with it.
- * Classification is a regex verdict on the hostname; this is a cluster or
- * an MCE reporting what it actually holds. When the two disagree the
- * server is misnamed or misplaced, and seeing both is the only way to
- * notice — so this never falls back to the classification. */
+/** OpenShift's own report, shown beside Classification and never falling
+ * back to it: the two disagreeing is how a misnamed server is noticed. */
 function OpenShiftValue({ server }: { server: ServerDetail }) {
   const { lifecycle_state, cluster_name, mce_name } = server.openshift;
 
@@ -101,11 +88,7 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
   );
 }
 
-/** The six categories behind "Overall health" — `overall` is shown on its
- * own field above and omitted here. Without this, the page opened to
- * answer "why is this unhealthy" only ever said the overall verdict, never
- * which subsystem earned it, even though the API sends all seven on every
- * request. */
+/** The six categories behind "Overall health"; `overall` has its own field. */
 const HEALTH_CATEGORIES: { key: keyof Omit<HealthSummary, "overall">; label: string }[] = [
   { key: "cpu", label: "CPU" },
   { key: "memory", label: "Memory" },

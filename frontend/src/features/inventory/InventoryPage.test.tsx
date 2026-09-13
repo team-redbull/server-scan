@@ -67,8 +67,7 @@ function pageResponse(
   };
 }
 
-/** The site filter reads `GET /api/v1/sites` — the only definition of
- * which sites exist — so every test has to answer it. */
+/** Every test has to answer `GET /api/v1/sites` for the site filter. */
 const SITES_RESPONSE = {
   items: [
     {
@@ -110,12 +109,8 @@ function renderInventoryPage() {
   return { router };
 }
 
-/** The most recent request for the server *list*.
- *
- * `/api/v1/servers/facets` is excluded as well as `/api/v1/sites`: the
- * page fires it alongside every list request and it deliberately drops the
- * pagination params, so treating it as "the last request" makes every
- * cursor assertion here read `null`. */
+/** The most recent request for the server *list* — facets and sites
+ * requests are excluded, since facets drops the pagination params. */
 function lastRequestUrl(fetchMock: ReturnType<typeof vi.fn>): URL {
   const urls = (fetchMock.mock.calls as [string, RequestInit][])
     .map(([input]) => new URL(input, "http://localhost"))
@@ -127,8 +122,6 @@ function lastRequestUrl(fetchMock: ReturnType<typeof vi.fn>): URL {
   return last;
 }
 
-/** Counts for the filter dropdowns, as the page requests them alongside
- * every list query. */
 const FACETS_RESPONSE = {
   total: 2,
   vendor: { dell: 1, cisco: 1 },
@@ -142,8 +135,7 @@ const FACETS_RESPONSE = {
 describe("InventoryPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  /** Route the sites request to the fixed list and everything else to the
-   * test's own handler, so no test has to restate the site filter's data. */
+  /** Route the sites request to the fixed list, everything else to `handler`. */
   function mockServerList(handler: (url: URL) => unknown) {
     fetchMock.mockImplementation((input: string) => {
       const url = new URL(input, "http://localhost");
@@ -187,11 +179,8 @@ describe("InventoryPage", () => {
       expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
     });
     expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
-    // Model is one of the three columns the table keeps.
     expect(screen.getByText("UCS C240")).toBeInTheDocument();
-    // The merged State column renders one badge per row. Fabric, vendor,
-    // site and classification are deliberately not columns any more —
-    // they live on the detail page.
+    // Fabric, vendor, site and classification are not columns any more.
     expect(screen.getAllByText("Healthy")).toHaveLength(2);
     expect(screen.queryByText("2/2 up")).not.toBeInTheDocument();
   });
@@ -205,7 +194,6 @@ describe("InventoryPage", () => {
       expect(screen.getByRole("columnheader", { name: /cluster/i })).toBeInTheDocument();
     });
     expect(screen.getAllByText("ocp4-tlv").length).toBeGreaterThan(0);
-    // An estate with no MCE would otherwise scan a column of dashes.
     expect(screen.queryByRole("columnheader", { name: /^mce$/i })).not.toBeInTheDocument();
   });
 
@@ -386,8 +374,6 @@ describe("InventoryPage", () => {
 
     renderInventoryPage();
 
-    // The counts come from the facets request, which carries the same
-    // filters as the list, so they describe the view rather than the fleet.
     expect(
       await screen.findByRole("option", { name: "dell (1)" }),
     ).toBeInTheDocument();
@@ -404,14 +390,11 @@ describe("InventoryPage", () => {
 
     renderInventoryPage();
 
-    // hp is absent from FACETS_RESPONSE.vendor. A "(0)" would be a claim;
-    // a bare label is the absence of one.
+    // hp is absent from FACETS_RESPONSE.vendor.
     expect(await screen.findByRole("option", { name: "hp" })).toBeInTheDocument();
   });
 
   it("drops pagination params from the facets request", async () => {
-    // The counts describe the whole filtered set, not one page of it, so
-    // sending a cursor would split the cache per page for no gain.
     mockServerList(() =>
       jsonResponse({ items: [], page: { next_cursor: null, has_more: false } }),
     );
@@ -443,7 +426,6 @@ describe("InventoryPage", () => {
       await screen.findByRole("button", { name: "Put ocp-dell-worker-001 into maintenance" }),
     );
 
-    // The card, not the mutation: clicking the icon must not write anything.
     const card = screen.getByRole("dialog");
     expect(
       (fetchMock.mock.calls as [string, RequestInit | undefined][]).some(
@@ -462,10 +444,8 @@ describe("InventoryPage", () => {
           init?.method === "PUT" && input.endsWith("/api/v1/servers/srv_1/maintenance"),
       );
       expect(put).toBeDefined();
-      // Trimmed, so a stray space does not become the audit trail's reason.
       expect(JSON.parse(put?.[1]?.body as string)).toEqual({ reason: "Replacing PSU 2" });
     });
-    // The row's own click handler must not have fired alongside the button's.
     expect(router.state.location.pathname).toBe("/");
   });
 

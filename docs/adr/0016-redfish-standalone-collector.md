@@ -714,3 +714,199 @@ does (`..openmanage.provider._is_uncollected`). The reasoning in the
 2026-09-10 entry above is unchanged for `REDFISH_STANDALONE` — a
 standalone target still has no serial to correlate a placeholder against,
 so it still writes none.
+
+## Update (2026-09-13): implementation facts moved out of the code
+
+CLAUDE.md convention 8 became a CI gate on 2026-09-10; the facts below
+lived as inline comments and long docstrings in
+`app.infrastructure.providers.redfish` and are recorded here so the code
+can carry a one-line pointer. Provenance per item: "DSP0266" is the
+Redfish specification 1.14.0 read for this ADR; "live BMC" is the
+operator's own hardware (2026-08-23 run); "measured" is this codebase.
+
+### Client (`client.py`)
+
+- **A 403 after a successful login is `RedfishForbiddenError`, never
+  `RedfishAuthError`.** A ReadOnly BMC account — which this collector
+  asks operators to use — legitimately gets 403 on some vendors'
+  resources. Treating those as authentication failures would have made
+  a correctly configured estate read as a bad credential on every run
+  (and, while the breaker existed, aborted the run). Only a 401, or a
+  403 on the session-creation POST itself, is an auth failure.
+- **`build_ssl_context` returning `False` is the one TLS opt-out in the
+  codebase**, per host, reason-gated at inventory load, logged every
+  run. ruff's `S501` does **not** flag it — the rule matches only a
+  literal `verify=False` keyword argument — so once the escape hatch
+  exists the linter stops helping;
+  `test_verification_is_on_unless_a_host_opts_out` is the control.
+- **The Sessions URI is never hardcoded.** DSP0266 §13.3.4.1: find it at
+  `ServiceRoot.Links.Sessions` or `SessionService.@odata.id`, and it is
+  posted exactly as advertised (the trailing-slash defect above).
+- **A non-401/403 error on session creation is `RedfishProtocolError`,
+  logged with its status**: some BMCs are reported to answer a bad
+  password with 400, and only real hardware settles that.
+- **`Members@odata.count` is deliberately ignored** when paging a
+  collection. DSP0266 defines it as the total across *all* pages, so
+  comparing it to one page's length is meaningless, and trusting it in
+  place of following `Members@odata.nextLink` would silently truncate
+  the fleet. A member that arrives already expanded is used as-is and a
+  bare link is fetched — one branch makes `$expand` on and off the same
+  code path.
+- **Redirects are never followed** (`follow_redirects=False`) and a 3xx
+  is an error: it is the other way an untrusted device retargets the
+  next request, and httpx cannot know a custom `X-Auth-Token` is
+  sensitive the way it knows `Authorization` is. Same reasoning as the
+  `@odata.id` validation in the Decision.
+- **`Connection: close` plus a zero-keepalive pool**
+  (`max_connections=1, max_keepalive_connections=0`): the header is sent
+  for the BMC's benefit and the pool setting is what makes our side
+  actually honour it rather than merely ask.
+- **Logout is shielded and `CancelledError` is re-raised.** Without
+  `asyncio.shield`, a cancelled task's `await` on the logout raises
+  immediately, the DELETE is never sent, and the leaked session counts
+  against a BMC session cap that is often as low as 16. Any other logout
+  failure is logged and swallowed so it never masks the error that caused
+  teardown — but `CancelledError` must propagate: `__aexit__` runs inside
+  every caller's own task, including one `provider.py` is about to cancel
+  and drain, and swallowing it there would make that task appear to
+  finish normally instead of stopping.
+- **The response cap is 32 MiB, checked after the body is read.** httpx
+  has decompressed by then, which is what makes the cap meaningful
+  rather than advisory — a `Content-Length` check alone is defeated by
+  compression. Redfish payloads are small and this runs on a LAN, so
+  nothing is lost; an unbounded `.json()` on a wedged or hostile BMC
+  takes the whole run's pod with it.
+- **`--debug-http` logs method, path and status only, and excludes the
+  session exchange outright** rather than redacting it: that one request
+  carries the password and its response the token, and a redactor that
+  must be perfect is a worse design than never formatting the value.
+- **Only transport failures are retried** (3 attempts, exponential
+  backoff capped at 8 s with jitter, `Retry-After` honoured up to 30 s
+  on 429/503). Never a 4xx — a rejected credential retried across an
+  estate is what locks accounts — and never an `SSLError`, which is a
+  configuration problem, not a transient one (sushy's rule).
+
+### Mapping (`mapping.py`)
+
+- **`Manufacturer` is matched on a normalized prefix** (`dell`, `cisco`,
+  `hpe`, `hewlett`, `hp `) rather than equality, because the strings vary
+  (`"Dell Inc."`, `"Hewlett Packard Enterprise"`), and only against that
+  closed set; anything else is `STANDALONE`, a correct-but-less-specific
+  answer rather than a wrong one.
+- **SMBIOS placeholder serials are treated as no serial at all**
+  (`""`, `0123456789`, `Default string`, `To be filled by O.E.M.`, `Not
+  Specified`, `None`, `N/A`, `Unknown`, `System Serial Number`). These
+  reach `SerialNumber` on whitebox hardware, and since `IngestService`
+  correlates on `(vendor, serial_normalized)`, letting them through would
+  collapse every such machine into one document, silently, reporting
+  success.
+- **`_server_name` prefers `HostName` but falls through to `Name`/`Id`
+  when it is absent**: `HostName` is OS-populated and goes null when the
+  host is powered off, which would flip a server's name — and with it
+  its parsed site and classification — every shutdown.
+- **`LinkStatus` is exactly four schema values**, unlike OME's link
+  status there is nothing to guess at. `NoLink` (no carrier) and
+  `LinkDown` (carrier but down) are distinct in Redfish and both map to
+  `DOWN`, the only distinction `LinkState` models.
+- **`Status.State == "Absent"` is the empty-bay signal** — the direct
+  analogue of `ucs_common.is_equipped` — and applies to drives, DIMMs,
+  processors and PSUs alike. `Drive.MediaType == "SMR"` is shingled
+  magnetic recording, a hard disk, and maps to HDD rather than UNKNOWN.
+- **PSU state vocabulary**: `Enabled`/`StandbyOffline`/`StandbySpare`
+  -> `UP`, `Disabled` -> `DISABLED`, `UnavailableOffline` -> `DOWN`;
+  `Status.Health` decides first when present (`Critical` -> `DOWN`,
+  `Warning` -> `UNKNOWN`, `OK` with an unlisted state -> `UP`). The
+  raw `Health/State` pair rides along as `redfish_status` for the
+  dry-run print, unpersisted, so a live run can settle the `Warning`
+  question on evidence. `psu_health` is public because
+  `..oneview.mapping.psus_from` reuses it as its fallback — a OneView
+  `/powerSupplies` row is "in JSON format based on RedFish schema".
+- **`memory_modules_from_dimms` reads the same `Memory` members
+  `memory_bytes` already sums** — no extra request, only the health, slot
+  and speed that were being thrown away. A DIMM's `health` is a
+  `HealthSeverity`, the vocabulary drives use.
+- **`TotalSystemMemoryGiB` is typed `number`, not `integer`**: a real
+  768 GB machine has been observed reporting `715.256064`, so the
+  rounding is ours to do.
+- **`EthernetInterface.Id` is carried through as `ProviderNic.location`**
+  rather than dropped: on iDRAC it is the FQDD, the only thing
+  distinguishing one partition from another, while `Name` is the same
+  generic string on every one. `..openmanage.mapping.dell_port_nics`
+  rewrites it into a readable form (`docs/dell-collectors.md`, "NICs").
+- **`bmc_address_raw` is composed from the host we connected to plus the
+  system's own `@odata.id`**, never from the operator's raw inventory
+  string, so a credential accidentally written into an address can never
+  reach MongoDB. `attachments` is always `()` — see the Decision.
+- **`EnvironmentMetrics.TemperatureCelsius`/`.PowerWatts` are
+  `SensorExcerpt` objects with a nested `Reading`**, not bare numbers —
+  the replacement for `ProcessorMetrics.TemperatureCelsius`/
+  `.ConsumedPowerWatt`, deprecated since Redfish 1.2. A GPU's
+  `memory_type` is the first `ProcessorMemory[].MemoryType`; HBM stacks
+  are uniform, so the first is representative.
+- **`is_gpu_processor` is the single filter** both `gpus_from_processors`
+  and `provider.py`'s telemetry follow-up apply, so the two cannot drift.
+
+### Provider (`provider.py`)
+
+- **The run budget lives on `asyncio.as_completed(timeout=...)`, not on
+  an `asyncio.timeout()` around the loop, and the reason is that
+  `_list_servers` is a generator.** `asyncio.timeout()` captures
+  `current_task()` once, at `__aenter__` — whichever task is driving the
+  generator via `asend`/`athrow`. When the deadline lands while the
+  generator is suspended at its `yield` (the normal case: the real
+  consumer awaits a Mongo upsert per server), the cancellation is raised
+  in the *consumer's* frame, and the generator's own `except
+  TimeoutError` never runs. `as_completed(timeout=)` raises from `await
+  finished` itself, always inside the generator's frame. That alone only
+  bounds waiting on unfinished host tasks: if every host finishes quickly
+  but a slow consumer keeps the generator waiting between yields,
+  `as_completed` cancels its own timeout the moment the last task
+  completes. The explicit `loop.time() >= deadline` check on every
+  resumption is what still bounds the whole run — the most a generator
+  can do without an external supervisor. Both the timeout and a
+  `hosts_unfinished` count are logged before the CronJob's
+  `activeDeadlineSeconds` could kill the pod with no summary.
+- **Cancelled host tasks are drained, not abandoned** (`gather(...,
+  return_exceptions=True)` in the `finally`), so each still runs its
+  session teardown.
+- **The semaphore is acquired *before* the per-host budget starts**, so
+  time spent queueing for a slot is not charged to the host. Reversed,
+  every host past the first few "times out" without a packet sent.
+- **Hosts are shuffled each run** because completion order is not
+  arrival order: without it the run budget truncates the same slow hosts
+  every run, leaving them permanently stale and invisible.
+- **`health_check` makes no network call.** There is no single endpoint
+  whose reachability means the fleet can be collected, and probing a
+  canary host would reintroduce the single point of failure this
+  collector exists to remove — one host being reimaged would kill every
+  other host's run. (It used to say a pre-flight in `_list_servers`
+  checked the credential; that went with the breaker on 2026-09-12.)
+- **The run summary is logged even when everything succeeded**: "0
+  collected, 0 failed" is the signature of an empty inventory, "0
+  collected, 400 failed" a credential or network fault, and without the
+  line they look identical.
+- **A BMC that authenticates but exposes no `ComputerSystem` is recorded
+  as an error**, not skipped silently: the inventory is the operator's
+  own assertion that a server is at this address, so nothing there is a
+  wrong address, an enclosure manager mistaken for a node, or a
+  licensing limitation.
+- **`Storage.Drives` is an inline array of links, not a sub-collection**,
+  so each drive is fetched by following its own `@odata.id` — the
+  normative URI is served under `Chassis` on some vendors and under
+  `Systems` on others, and constructing either would be wrong somewhere.
+  Drives are deduplicated by `@odata.id`.
+- **PSUs hang off `Chassis`, reached through `Links.Chassis`, and two
+  schema generations are both live in the field**:
+  `PowerSubsystem/PowerSupplies` (Redfish 2020.4+, a real collection) is
+  tried first, then the deprecated `Power` resource with its inline
+  `PowerSupplies` array, which is still what most fielded BMCs serve. An
+  iLO or iDRAC too old for the former still answers the latter. `None`
+  (not `[]`) when neither could be read, so `_carry_forward` keeps
+  stored PSUs.
+- **The BMC's own MAC** is read once per host through
+  `Links.ManagedBy[0]`'s `EthernetInterfaces`, preferring
+  `PermanentMACAddress`.
+- **Every system's `Processors` and GPU telemetry are fetched before
+  any system is mapped**, so a GPU-baseboard tray can be recognized and
+  its metrics already in hand before deciding whether to merge it (the
+  DGX/HGX update above).

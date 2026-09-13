@@ -1,9 +1,5 @@
-/**
- * Thin fetch wrapper. Every non-2xx response from this API is an RFC 9457
- * problem-details body (see backend `app.exception_handlers`); this parses
- * it into a typed `ApiError` so callers never hand-parse `error.detail`
- * strings themselves.
- */
+/** Thin fetch wrapper: every non-2xx response is an RFC 9457 problem-details
+ * body (`app.exception_handlers`), parsed into a typed `ApiError`. */
 
 export interface ProblemDetails {
   type: string;
@@ -26,16 +22,12 @@ export class ApiError extends Error {
   }
 }
 
-// Empty string: same-origin in production (the API is served behind the
-// same host/Route as the SPA). In dev, Vite's proxy (vite.config.ts) sends
-// /api/* to the local backend, so this stays empty there too.
+// Same-origin in production; Vite's proxy (vite.config.ts) covers dev.
 const API_BASE = "";
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  // `RequestInit["headers"]` (HeadersInit) can be a plain object, a
-  // `Headers` instance, or a `string[][]` of tuples — only one of those
-  // three shapes is safe to object-spread, so build the merged set through
-  // the `Headers` API instead, which accepts and normalizes all three.
+  // `HeadersInit` may be an object, a `Headers` or tuples; only the first is
+  // spreadable, so merge through `Headers`, which normalizes all three.
   const headers = new Headers(init?.headers);
   headers.set("Accept", "application/json");
   if (init?.body) {

@@ -36,8 +36,7 @@ describe("StatusPage", () => {
 
     expect(screen.getByText("Checking…")).toBeInTheDocument();
 
-    // "ok" legitimately appears three times (status/mongo/redis), so assert
-    // on the count rather than a single unique match.
+    // "ok" appears three times (status/mongo/redis).
     await waitFor(() => {
       expect(screen.getAllByText("ok")).toHaveLength(3);
     });

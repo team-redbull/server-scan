@@ -48,9 +48,7 @@ from app.infrastructure.providers.intersight.client import (
 from app.infrastructure.providers.intersight.signing import IntersightKeyError
 from app.infrastructure.providers.ucs_common import normalize_oper_state
 
-# Matches `intersight.mapping._BYTES_PER_MB` — a `storage.PhysicalDisk`'s
-# `Size` is documented "in MB" and this collector assumes 2**20 bytes,
-# the same assumption `_check_disk_capacity` mirrors below.
+# Matches `intersight.mapping._BYTES_PER_MB`: `Size` is "in MB", assumed 2**20.
 _MIB = 1024 * 1024
 
 
@@ -222,11 +220,7 @@ async def _inspect(client: IntersightClient, *, show_names: int, sample: int) ->
             note = "  <- owned by the UCS Central collector; not collected here by default"
         _p(f"  ManagementMode {mode:<22} {count:>6}{note}")
 
-    # Same parsing `tools/run_collector.py` uses to build the real
-    # collector's `management_modes` tuple — a bare `.split(",")` leaves
-    # whitespace on every token after the first, so "Intersight,
-    # IntersightStandalone" (a space after the comma, easy to type) would
-    # never match anything and silently collect zero servers.
+    # Same parsing as `tools/run_collector.py`, stripped.
     configured_modes = {
         mode.strip() for mode in settings.intersight_management_modes.split(",") if mode.strip()
     }
@@ -299,18 +293,10 @@ async def _inspect(client: IntersightClient, *, show_names: int, sample: int) ->
 
 async def _check_memory_unit(client: IntersightClient, summaries: list[dict[str, Any]]) -> None:
     """
-    Settle `TotalMemory`'s undocumented unit against two independent signals.
+    Settle `TotalMemory`'s undocumented unit against two documented signals.
 
-    ADR-0017's highest-risk open item. `TotalMemory` carries no unit
-    anywhere in the contract, and the collector assumes MiB — if that is
-    wrong, every server's memory is over-reported by 4.86%, silently.
-
-    Two checks, cheapest first. `AvailableMemory` sits on the same object
-    and *is* documented "in MB", so comparing the two costs no extra
-    request at all. The authoritative check sums the server's DIMMs,
-    whose `memory.Unit.Capacity` is documented "in MiB" — reached through
-    `memory.Array`, because a `memory.Unit` carries no reference to its
-    server.
+    `AvailableMemory` (same object, MB) and a DIMM sum via `memory.Array`
+    (MiB) — see docs/cisco-collectors.md, "Units".
 
     Args:
         client (IntersightClient): A connected client.
@@ -327,7 +313,6 @@ async def _check_memory_unit(client: IntersightClient, summaries: list[dict[str,
     _p(f"server            : {candidate.get('Serial')}")
     _p(f"TotalMemory       : {total}   (no documented unit)")
 
-    # --- signal 1: the sibling field, free.
     available = _int(candidate.get("AvailableMemory"))
     if available:
         _p(f"AvailableMemory   : {available}   (documented 'in MB')")
@@ -337,7 +322,6 @@ async def _check_memory_unit(client: IntersightClient, summaries: list[dict[str,
         else:
             _p(f"  -> they differ (ratio {total / available:.4f}); not the same measure.")
 
-    # --- signal 2: the DIMMs, authoritative.
     try:
         arrays = [
             array
@@ -405,11 +389,7 @@ async def _resource_by_owner(
     """
     Count rows of one resource, keyed by the `Moid` an owner field names.
 
-    A local, minimal join rather than reaching into
-    `intersight.provider`'s private `_owning_server`/`_group_by` helpers:
-    this probe queries classes the collector itself does not (yet) read,
-    so it should not be coupled to internals built for a different set of
-    resources.
+    A local join, deliberately not the collector's private helpers.
 
     Args:
         client (IntersightClient): A connected client.
@@ -439,20 +419,10 @@ async def _resource_by_owner(
 
 async def _storage_controller_owner_map(client: IntersightClient) -> dict[str, str]:
     """
-    `storage.Controller` `Moid` -> owning server `Moid`, following the same `ComputeBoard` fallback.
+    Map `storage.Controller` `Moid` -> owning server `Moid`.
 
-    Shared by sections 5 and 6, both of which need to resolve a disk to
-    its server through its controller. A local copy of
-    `IntersightProvider._owning_server`'s logic rather than importing it:
-    this tool is a probe an operator runs and should not be coupled to
-    the collector's internals.
-
-    `storage.Controller` carries THREE owner relationships
-    (`ComputeBlade`/`ComputeRackUnit`/`ComputeBoard`, confirmed against
-    Cisco's own generated Go SDK, model_storage_controller.go). Prints
-    how many resolved which way, since "0 direct, all via ComputeBoard"
-    was a real, live-confirmed defect in the collector's original join —
-    see ADR-0017's "The `ComputeBoard` join gap".
+    With the `ComputeBoard` fallback, printing how many resolved which
+    way — see docs/field-test-checklist.md, Part 1 (e).
 
     Args:
         client (IntersightClient): A connected client.
@@ -505,18 +475,10 @@ async def _check_boot_optimized_storage(
     client: IntersightClient, summaries: list[dict[str, Any]], controller_owner: dict[str, str]
 ) -> None:
     """
-    Check whether Cisco's boot-optimized M.2/SD storage explains a zero-drive report.
+    Check whether boot-optimized M.2/SD storage explains a zero-drive report.
 
-    `pci.Device` was checked and ruled out during the follow-up research
-    that prompted this (`docs/notes/intersight-inventory-model.md`,
-    "Follow-up 2026-09-01", §12 — it is a GPU-riser identity MO with no
-    storage relationship). The leading remaining explanation is that a
-    server boots from an M.2 RAID module or legacy SD card, modelled as
-    `storage.FlexUtilController`/`FlexUtilPhysicalDrive` (current
-    generation) or `storage.FlexFlashController`/`FlexFlashPhysicalDrive`
-    (legacy) — separate MO classes the collector does not query, joined
-    through `compute.Board` rather than `ComputeBlade`/`ComputeRackUnit`
-    directly. See ADR-0017's UNVERIFIED list, item 11.
+    `FlexUtil`/`FlexFlash` classes, joined through `compute.Board` —
+    ADR-0017's UNVERIFIED list, items 11 and 12.
 
     Args:
         client (IntersightClient): A connected client.
@@ -642,14 +604,10 @@ async def _check_disk_capacity(
     client: IntersightClient, summaries: list[dict[str, Any]], controller_owner: dict[str, str]
 ) -> None:
     """
-    Flag every drive whose capacity the mapping cannot parse, with the raw fields it sent.
+    Flag every drive whose capacity the mapping cannot parse.
 
-    Prompted by a live report: one server's drives all showed correct
-    model/serial/type/health but "size unknown", while the Intersight UI
-    showed a real size for the same drives. `NonCoercedSizeBytes` and
-    `Size` are the only two fields the mapping reads for capacity
-    (ADR-0017's storage section); this checks both directly rather than
-    guessing at a third field or a sentinel value.
+    Prints the raw `NonCoercedSizeBytes`/`Size` it sent — see
+    docs/field-test-checklist.md, Part 1 (e).
 
     Args:
         client (IntersightClient): A connected client.

@@ -1,19 +1,8 @@
-"""Shared "is the dev stack up" memo for every test directory that talks to
-the live dev Mongo/Redis (`scripts/dev-up.sh`).
-
-`tests/integration/conftest.py` originally owned this logic alone — one
-memoized "unreachable" reason per service, remembered for the rest of the
-session so ~60 function-scoped fixtures don't each pay
-`mongo_server_selection_timeout_ms` to rediscover the same dead server (see
-that module's own docstring for the measured before/after). `tests/api/`
-needs the identical skip-cleanly behaviour: its fixtures build a real app
-and drive `app.router.lifespan_context(app)`, whose own `mongo.connect()`
-raises straight out of that context manager on a dead Mongo — an error, not
-a skip, which is exactly the "hung suite" symptom this module exists to
-prevent. Lifted out so both directories share one memo instead of two that
-could drift.
-
-Not a filename pytest would collect as a test module — no `test_` prefix.
+"""
+Shared "is the dev stack up" memo for every test directory that talks to the
+live dev Mongo/Redis: one memoized unreachable verdict per service, so ~60
+function-scoped fixtures pay the connection timeout once, not each. Shared
+because `tests/api/`'s lifespan raises on a dead Mongo instead of skipping.
 """
 
 from __future__ import annotations
@@ -55,10 +44,8 @@ async def connect_mongo_or_skip(settings: Settings) -> MongoClientHolder:
     try:
         await holder.connect()
     except (PyMongoError, OSError) as exc:
-        # OSError alongside PyMongoError: a malformed URI scheme raises
-        # outside pymongo's own hierarchy, and would otherwise propagate as
-        # an error instead of memoizing — reintroducing the exact symptom
-        # this module exists to prevent for that one case.
+        # OSError too: a malformed URI scheme raises outside pymongo's hierarchy
+        # and would propagate as an error instead of memoizing.
         reason = f"MongoDB not reachable at {settings.mongo_uri}: {exc}"
         _UNREACHABLE["mongo"] = reason
         pytest.skip(reason)

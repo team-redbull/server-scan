@@ -69,8 +69,7 @@ describe("OverviewTab maintenance", () => {
   it("says a server is not in maintenance, and offers no way to change that", () => {
     render(<OverviewTab server={makeServer()} />);
     expect(screen.getByText("Not in maintenance")).toBeInTheDocument();
-    // Maintenance is switched from the inventory list only. This page
-    // must carry no control for it at all.
+    // Maintenance is switched from the inventory list only.
     expect(screen.queryByRole("button", { name: /maintenance/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
@@ -88,9 +87,7 @@ describe("OverviewTab maintenance", () => {
 
 describe("OverviewTab OpenShift membership", () => {
   it("shows a server no cluster holds as available, not as a gap in the data", () => {
-    // AVAILABLE is the default and the only state reached by absence. It
-    // must never borrow the classification, which is a regex verdict on
-    // the hostname rather than proof of anything.
+    // AVAILABLE is the default; it must never borrow the classification.
     render(<OverviewTab server={makeServer()} />);
 
     expect(screen.getByText("Available")).toBeInTheDocument();
@@ -142,9 +139,7 @@ describe("OverviewTab OpenShift membership", () => {
   });
 
   it("shows a disagreement with the classification rather than hiding it", () => {
-    // The whole reason the two are separate: an UNCLASSIFIED name on a
-    // server a hosted cluster is really running is a misnamed server, and
-    // both values have to be visible to notice.
+    // A misnamed server is only noticeable when both values are visible.
     const server = makeServer();
     server.classification.installation_type = "UNCLASSIFIED";
     server.openshift = {

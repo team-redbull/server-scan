@@ -125,9 +125,7 @@ def _present(value: object) -> str:
     """
     Render whether a field came back populated.
 
-    The whole point of this tool: distinguishing "OneView reported this"
-    from "OneView reported nothing", which is what decides whether the
-    iLO-4 fallback path exists at all.
+    "OneView reported this" versus "reported nothing" is the point of this tool.
 
     Args:
         value (object): The raw reported value.
@@ -144,13 +142,8 @@ async def _check_core_count(client: OneViewClient, hardware: list[dict[str, Any]
     """
     Cross-check the whole-system core count against `/processors`.
 
-    The headline check. `processorCoreCount` is documented as cores
-    **per processor**, so this collector reports
-    `processorCount * processorCoreCount`. `/processors` reports each
-    socket's own `TotalCores`, and summing those is a direct measurement
-    of the same quantity — if the two disagree, every server's core
-    count is wrong fleet-wide, silently, and that is the single most
-    consequential mapping in this collector.
+    `processorCount * processorCoreCount` versus the sum of each socket's
+    `TotalCores` — open question 0 in docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         client (OneViewClient): A logged-in client.
@@ -223,11 +216,8 @@ async def _report_power_supplies(client: OneViewClient, hardware: list[dict[str,
     """
     Report which route supplies PSUs, and what one server's look like.
 
-    `/powerSupplies` returns a `SubResourceV10` envelope but has no
-    matching `SubResourceName` value, so whether `expand=all` already
-    carried it is undetermined. If it does, PSUs are free; if it does
-    not, they cost one call per server, which is the whole difference
-    between a ~15-request sweep and a ~2500-request one.
+    `expand=all` for free, or `/powerSupplies` at one call per server —
+    see docs/hpe-collectors.md, "Power supplies".
 
     Args:
         client (OneViewClient): A logged-in client.
@@ -274,12 +264,8 @@ async def _probe_version(client: OneViewClient) -> None:
     """
     Report what the appliance supports and what this run will send.
 
-    Answers open question 5 as a side effect: the same collection is
-    fetched with and without `X-Api-Version`, and the status codes and
-    resource `type` markers are compared. HPE documents the header as
-    required and says nothing about omitting it; a silent fallback to an
-    ancient version would return a different schema rather than an error,
-    which is the dangerous outcome.
+    Also fetches the same collection with and without `X-Api-Version` —
+    open question 5 in docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         client (OneViewClient): A logged-in client.
@@ -310,11 +296,7 @@ async def _probe_profiles(client: OneViewClient, page_size: int) -> list[dict[st
     """
     Enumerate the server profiles and report whether paging is complete.
 
-    Answers open question 1. HPE documents `/rest/server-profiles` as
-    restricting a request to 256 profiles and says "the list is
-    truncated", without saying whether `nextPageUri` continues past that
-    point. On an appliance with more than 256 profiles this prints the
-    answer directly.
+    Open question 1 in docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         client (OneViewClient): A logged-in client.
@@ -357,9 +339,7 @@ def _report_generations(hardware: list[dict[str, Any]]) -> None:
     """
     Report the estate's iLO/model mix.
 
-    Answers open question 3: `mpModel` is documented with exactly one
-    example value and no enum, so the real value set has to be read off
-    an appliance before anything may equality-test against it.
+    `mpModel`'s real value set — open question 3 in docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         hardware (list[dict[str, Any]]): Every server-hardware member.
@@ -396,10 +376,7 @@ def _report_ilo4_fidelity(hardware: list[dict[str, Any]]) -> None:
     """
     Report which hardware fields populate, split by iLO generation.
 
-    Answers open question 2, the one that decides how much a mixed
-    iLO 4/5/6 estate actually loses. Every *subresource* on an iLO-4
-    server is documented to fail with `InsufficientFirmware`; whether the
-    *top-level* fields do too is documented nowhere.
+    Open question 2 in docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         hardware (list[dict[str, Any]]): Every server-hardware member.
@@ -435,9 +412,8 @@ def _report_addresses(hardware: list[dict[str, Any]], sample: int) -> None:
     """
     Print `mpHostInfo` verbatim for a sample of servers.
 
-    Answers open question 4. Neither the ordering nor the cardinality of
-    `mpIpAddresses` is documented, and the mapping's `Static` -> `DHCP`
-    -> `Lookup` preference is a stated assumption.
+    `mpIpAddresses` ordering and cardinality — open question 4 in
+    docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         hardware (list[dict[str, Any]]): Every server-hardware member.
@@ -466,10 +442,7 @@ def _report_names(
     """
     Show the three competing names side by side, and the site each parses to.
 
-    This is the trap that named every UCS server after its chassis slot.
-    `server-hardware.name` is a bay location or `ILO<serial>`;
-    `serverName` is an OS hostname reported through HPE AMS (open
-    question 6); only the profile carries the operator's name.
+    Only the profile carries the operator's name — docs/hpe-collectors.md.
 
     Args:
         hardware (list[dict[str, Any]]): Every server-hardware member.
@@ -500,10 +473,7 @@ async def _report_gpus(client: OneViewClient, hardware: list[dict[str, Any]]) ->
     """
     Report every GPU found and whether the catalog knows its VRAM.
 
-    Answers open questions 7 and 8. OneView reports no GPU memory field
-    anywhere, so `Gpu.memory_bytes` comes entirely from the catalog keyed
-    on the model string — and HPE rebrands NVIDIA cards, so whether those
-    strings match is the difference between real VRAM figures and none.
+    Open questions 7 and 8 in docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         client (OneViewClient): A logged-in client.
@@ -611,9 +581,8 @@ def _report_subresource_shape(hardware: list[dict[str, Any]]) -> None:
     """
     Report whether `subResources` is an object or an array.
 
-    HPE documents the per-subresource fields but not the container's
-    shape; the mapping accepts both rather than guessing, and this says
-    which one is real so the dead branch can be deleted later.
+    So the mapping's dead branch can be deleted — open question 9 in
+    docs/adr/0022-oneview-only-hpe-collector.md.
 
     Args:
         hardware (list[dict[str, Any]]): Every server-hardware member.

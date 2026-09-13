@@ -38,9 +38,8 @@ class RedisClientHolder:
         """
         Create the process-wide Redis connection pool.
 
-        Idempotent — a second call is a no-op if a client already exists.
-        A failed startup ping is logged and swallowed, not raised: Redis
-        is a cache, not a dependency the service requires to start.
+        Idempotent. A failed startup ping is logged, not raised: Redis is
+        a cache, not a dependency the service requires to start.
         """
         if self._client is not None:
             return
@@ -56,9 +55,6 @@ class RedisClientHolder:
             await self._client.ping()
             logger.info("redis.connected")
         except RedisError:
-            # Deliberately non-fatal: Redis is a cache, not a dependency the
-            # service requires to start. Requests will fall back to Mongo
-            # until Redis becomes reachable.
             logger.warning("redis.connect_failed_at_startup")
 
     async def close(self) -> None:

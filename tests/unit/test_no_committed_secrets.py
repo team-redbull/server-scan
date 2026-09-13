@@ -1,17 +1,8 @@
-"""Guards that no real BMC credential or captured mockup reaches git.
-
-`.gitignore` is a convenience — it does not stop `git add -f`, and it
-does not help once a file is already tracked. This runs in the same CI
-job as the rest of the suite and fails the build instead.
-
-The exposure is specific to this platform. A Redfish credentials file is
-a fleet-wide, root-equivalent secret, and an inventory or a raw
-`Redfish-Mockup-Creator` capture discloses the estate's topology —
-doubly so here, because this project encodes the site code in the server
-name (`ocp4-prod-tlv-infra-01` -> site `tlv`). And committed is forever:
-`git rm` does not remove a file from history.
-
-See docs/adr/0016-redfish-standalone-collector.md.
+"""
+Guards that no real BMC credential or captured mockup reaches git —
+`.gitignore` does not stop `git add -f`, and committed is forever. A Redfish
+credentials file is a fleet-wide root-equivalent secret, and a capture
+discloses the estate's topology. See ADR-0016.
 """
 
 from __future__ import annotations
@@ -26,7 +17,6 @@ pytestmark = pytest.mark.unit
 
 _REPO = Path(__file__).resolve().parents[2]
 
-# The one directory allowed to hold credential-shaped example content.
 _EXAMPLES = "docs/examples/"
 
 # Values a committed example may carry. Anything else in a `password`
@@ -36,7 +26,6 @@ _ALLOWED_PLACEHOLDERS = frozenset({"CHANGE-ME", "", "***"})
 
 _PASSWORD_LINE = re.compile(r"""^\s*password\s*=\s*["']?([^"'\n]*)["']?\s*$""", re.MULTILINE)
 
-# Header names that only ever appear in a real captured exchange.
 _CAPTURE_MARKERS = ("X-Auth-Token", "Set-Cookie", "Authorization: Basic", "-----BEGIN")
 
 
@@ -114,9 +103,6 @@ def test_no_tracked_file_looks_like_a_raw_bmc_capture() -> None:
 
 
 def test_the_example_files_exist_and_are_placeholders_only() -> None:
-    """The examples are the documented starting point, so their being
-    safe is load-bearing rather than incidental.
-    """
     credentials = _REPO / _EXAMPLES / "redfish-credentials.example.toml"
     inventory = _REPO / _EXAMPLES / "redfish-inventory.example.toml"
     assert credentials.exists() and inventory.exists()
@@ -124,8 +110,6 @@ def test_the_example_files_exist_and_are_placeholders_only() -> None:
     for value in _PASSWORD_LINE.findall(credentials.read_text()):
         assert value.strip() == "CHANGE-ME", f"example carries a plausible password: {value!r}"
 
-    # An inventory is not a place for credentials at all, and the loader
-    # rejects a host that embeds them. Checked as an assignment rather
-    # than as the bare word, since the file's own comments warn about
-    # exactly this.
+    # The loader rejects a host that embeds credentials. Checked as an
+    # assignment, not the bare word: the file's own comments warn about it.
     assert not _PASSWORD_LINE.findall(inventory.read_text())

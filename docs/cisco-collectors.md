@@ -638,6 +638,18 @@ decision — none exists yet.
 Only equipped cards are reported, via `is_equipped()` — the same
 presence check used everywhere else in this module.
 
+**How a card joins to its server.** `graphicsCard`'s only parent is
+`computeBoard`, a DN path segment directly under the server's own DN
+(confirmed via `ComputeBoard`'s own `mo_meta`: `rn="board"`, parents
+`computeBlade`/`computeRackUnit`/`computeServerUnit`), so a card's DN is
+`.../blade-3/board/graphics-card-1` — the same pattern `processorUnit`
+already uses (`.../board/cpu-1`). `group_by_owning_server_dn`'s
+ancestor-walk therefore resolves a GPU's owning server with no new
+logic, for blades and rack units alike — unlike PSUs, which have no such
+path back to a blade at all. `graphicsController` (the per-die child)
+carries no field this collector does not already read off
+`graphicsCard`, checked against the installed SDK, and is not queried.
+
 ### `INVENTORY_GPU_MODELS` — filling the `memory_bytes` gap this API leaves
 
 **Added 2026-09-02.** Neither `graphicsCard` here nor Intersight's
@@ -731,7 +743,14 @@ documentation:
 - **Constructor**: `UcsHandle(ip, username, password, port=None,
   secure=None, proxy=None, timeout=None)`. `timeout` is urllib's, so it
   bounds each individual socket operation (connect, and each blocking
-  read). It is **not** a total-request or total-run deadline.
+  read). It is **not** a total-request or total-run deadline. Read from
+  the same source (moved here from `UcsManagerClient._with_timeout`'s
+  docstring, 2026-09-13): `socket.create_connection` resolves DNS
+  *before* applying that timeout at all, one `post()` can retry up to
+  three times internally (a TLSv1 fallback, a redirect), and a fresh
+  `login()` issues up to three `post_elem` calls of its own — so
+  `login()` alone is unbounded in the DNS-hang case and only loosely
+  bounded otherwise, which is why the wrapper's own deadline exists.
 - **Endpoint must be a bare hostname or IP.** `UcsSession.__create_uri`
   builds `"%s://%s:%s" % (protocol, ip, port)` with `ip` interpolated
   raw, so a scheme or an embedded port produces a mangled URL
@@ -849,6 +868,19 @@ single client instance keeps every call to that handle sequential.
 `contextlib.aclosing` — abandoning the generator part-way leaves sessions
 to be cleaned up at GC time, and both Central and UCS Manager enforce a
 per-user session cap. `IngestService.ingest` drains it fully.
+
+**Early close of `UcsCentralProvider._list_servers` cancels *and drains*
+the domain tasks** (moved here from the code, 2026-09-13). A consumer
+that stops early (`--limit`, a killed run) throws `GeneratorExit` in at
+the `yield`, which unwinds that frame but not the per-domain tasks still
+running — each holding a `UcsManagerProvider`, i.e. a live `UcsHandle`
+session against that per-user cap. The `finally` therefore cancels every
+task and then `gather`s them with `return_exceptions=True`, so each domain
+still reaches `UcsManagerProvider._list_servers`'s own
+`finally: await client.logout()`. Unlike Redfish's version of the same
+pattern there is no `except TimeoutError`: UCS Central has no run budget
+(ADR-0014's 2026-09-02 update defers it deliberately), so this guards
+early close only.
 
 ### Debugging
 

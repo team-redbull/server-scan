@@ -87,9 +87,6 @@ def _page(rows: list[dict[str, Any]]) -> httpx.Response:
     return httpx.Response(200, json={"Count": len(rows), "Results": rows})
 
 
-# --- paging -----------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_paging_walks_every_page_and_stops_on_a_short_one() -> None:
     """A full page implies another may follow; a short page ends it.
@@ -172,9 +169,6 @@ async def test_a_filter_is_sent_only_when_there_is_one() -> None:
     assert captured[1]["$filter"] == "ManagementMode eq 'Intersight'"
 
 
-# --- throttling and retries -------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_a_throttled_request_is_retried_and_then_succeeds(
     monkeypatch: pytest.MonkeyPatch,
@@ -243,9 +237,6 @@ async def test_a_bad_request_is_not_retried() -> None:
     assert calls["n"] == 1
 
 
-# --- failures an operator can fix -------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_a_401_names_every_cause_it_cannot_distinguish() -> None:
     """Intersight answers an expired key, a revoked key, a wrong id and a
@@ -308,9 +299,6 @@ async def test_a_non_json_body_is_a_protocol_error() -> None:
     await client.aclose()
 
 
-# --- endpoint validation ----------------------------------------------
-
-
 def test_a_url_endpoint_is_rejected_with_the_host_to_use() -> None:
     """`https://https://host` is the failure this prevents."""
     with pytest.raises(ValueError, match=re.escape("use 'intersight.com'")):
@@ -338,26 +326,14 @@ def test_a_bare_host_is_accepted_and_lowercased() -> None:
     assert validate_endpoint("  Appliance.Example.COM ") == "appliance.example.com"
 
 
-# --- TLS certificate verification is unconditionally off ----------------
-
-
 def test_certificate_verification_is_unconditionally_disabled() -> None:
-    """The one invariant this module must never regress on: nothing in
-    `IntersightClient`'s signature can turn certificate verification back
-    on — see its docstring and docs/adr/0017's 2026-08-31 update.
-
-    Asserted against the real `httpx` transport's SSL context rather than
-    a `MockTransport` (which never builds one, so `verify=` would have no
-    observable effect through it) — this is the one test in the module
-    that constructs a client without an injected transport, so a change
-    to how `verify=False` is wired would actually fail it.
+    """Nothing in `IntersightClient`'s signature can turn verification back on
+    (docs/adr/0017's 2026-08-31 update). Asserted on the real `httpx`
+    transport's SSL context — a `MockTransport` never builds one.
     """
     client = IntersightClient(endpoint="intersight.com", key_id="a/b/c", private_key_pem=_KEY)
     pool = client._client._transport._pool  # ty: ignore[unresolved-attribute]
     assert pool._ssl_context.verify_mode == ssl.CERT_NONE
-
-
-# --- what must never be logged ----------------------------------------
 
 
 @pytest.mark.asyncio
@@ -380,11 +356,8 @@ async def test_debug_tracing_logs_no_header_body_or_key() -> None:
     assert "/api/v1/compute/PhysicalSummaries" in rendered
 
 
-# --- the API's own error document ------------------------------------
-#
-# Shape confirmed against the live intersight.com service on 2026-08-29:
-# {"code","message","messageId","traceId"}. The research notes had marked
-# this schema UNVERIFIED.
+# Shape {"code","message","messageId","traceId"} confirmed live against
+# intersight.com on 2026-08-29; see docs/cisco-collectors.md.
 
 
 @pytest.mark.asyncio
@@ -406,7 +379,6 @@ async def test_an_error_surfaces_intersights_own_message_and_trace_id() -> None:
     message = str(excinfo.value)
     assert "authorization header is invalid" in message
     assert "gYSrkd4GlTKLsQjg6vDZ" in message
-    # Our own guidance survives alongside it.
     assert "INVENTORY_INTERSIGHT_API_KEY_ID" in message
 
 
@@ -421,13 +393,8 @@ async def test_an_error_without_a_body_still_produces_our_guidance() -> None:
     await client.aclose()
 
 
-# --- messageId tells apart faults that share a status code ------------
-#
-# Confirmed against the live intersight.com service on 2026-08-29 by
-# sending deliberately broken headers: a malformed Authorization answers
-# `iam_apikey_signature_invalid`, a well-formed one whose key cannot be
-# verified answers `iam_apikey_authheader_invalid`, and sending none at
-# all answers `iam_cookie_invalid`. All three are HTTP 401.
+# All three `iam_*` messageIds below are HTTP 401, confirmed live against
+# intersight.com on 2026-08-29; see docs/cisco-collectors.md.
 
 
 @pytest.mark.asyncio
@@ -448,7 +415,6 @@ async def test_a_malformed_header_blames_the_collector_not_the_key() -> None:
     message = str(excinfo.value)
     assert "collector's request signing" in message
     assert "not in your API key" in message
-    # It must NOT send them off checking credentials.
     assert "INVENTORY_INTERSIGHT_API_KEY_ID" not in message
 
 

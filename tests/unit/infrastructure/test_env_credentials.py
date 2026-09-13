@@ -1,19 +1,7 @@
-"""`app.infrastructure.credentials.env` — the one place a collector learns
-where a vendor manager is and how to log into it.
-
-The behaviour worth pinning down is the failure shape: a half-configured
-vendor must be rejected as a configuration error naming the missing
-variables, not attempted as a login that then fails as "bad credentials"
-and sends an operator looking in the wrong place.
-
-Since the standalone UCS Manager collector was removed, **a login and an
-endpoint are separate questions**. Every manager type has a login;
-`UCS_MANAGER` alone has no endpoint, because a UCS Manager domain is never
-pointed at directly any more — it is reached once per registered domain by
-the UCS Central collector, at the address Central reports for it
-(`ComputeSystem.address`). `resolve()` therefore refuses `UCS_MANAGER`
-outright, and `resolve_login()` is how its fleet-wide service account is
-read.
+"""
+`app.infrastructure.credentials.env` — where a collector learns a vendor
+manager's address and login. A half-configured vendor must fail naming the
+missing variables; `UCS_MANAGER` alone has a login but no endpoint (CLAUDE.md).
 """
 
 from __future__ import annotations
@@ -130,10 +118,8 @@ class TestResolve:
 
 
 class TestUcsManagerHasNoEndpointOfItsOwn:
-    """The message is the whole feature here. An operator who reaches for
-    `--manager-type UCS_MANAGER` needs to be told where the domain
-    credentials now go and which collector to run, not merely that
-    something is unset.
+    """The message is the whole feature: `--manager-type UCS_MANAGER` must say
+    where the domain credentials go and which collector to run instead.
     """
 
     def test_resolve_refuses_ucs_manager_and_points_at_ucs_central(self) -> None:
@@ -204,9 +190,6 @@ class TestResolveLogin:
             resolve_login(settings, ManagerType.UCS_MANAGER)
 
     def test_works_for_a_vendor_that_also_has_an_endpoint(self) -> None:
-        """Nothing about it is UCS-Manager-specific — it just answers the
-        login half of the question.
-        """
         assert resolve_login(_settings(**CENTRAL), ManagerType.UCS_CENTRAL) == (
             "central-admin",
             "s3cret",

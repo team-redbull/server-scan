@@ -89,10 +89,7 @@ async def _run(*, count: int, seed: int) -> None:
     await mongo.connect()
     try:
         await ensure_indexes(mongo.db)
-        # Idempotent — see `ensure_default_*`'s docstring. Seeded here (not
-        # just in app startup) so `seed_inventory` also works as a
-        # standalone script against a fresh database with no API server
-        # ever having run against it.
+        # Also seeded at app startup; repeated here for a database no API has touched.
         rule_repo = MongoClassificationRuleRepository(mongo)
         policy_repo = MongoHealthPolicyRepository(mongo)
         sites = site_catalog(settings.sites)
@@ -109,11 +106,6 @@ async def _run(*, count: int, seed: int) -> None:
             site_repo=MongoSiteRepository(mongo),
             manager_repo=MongoManagerRepository(mongo),
             sites=sites,
-            # Threaded explicitly for the same reason `sites` is: the
-            # parameter default is the built-in table with nothing
-            # configured over it, so without this `INVENTORY_GPU_MODELS`
-            # silently did nothing to seeded data — the one place a local
-            # override is easiest to try.
             gpu_catalog=gpu_catalog(settings.gpu_models),
             classification_service=ClassificationService(rule_repo=rule_repo, engine=regex_engine),
             health_service=HealthPolicyService(
@@ -122,9 +114,7 @@ async def _run(*, count: int, seed: int) -> None:
             ),
             audit=AuditService(repo=MongoAuditEventRepository(mongo)),
         )
-        # One pass per collector: `Server.source_provider` is stamped from
-        # the provider, so a single pass would label the whole fake fleet
-        # with one collector that never found most of it.
+        # One pass per collector, so `Server.source_provider` varies across the fleet.
         fetched = created = updated = errors = 0
         manager_repo = MongoManagerRepository(mongo)
         for provider in fake_providers(seed=seed, count=count, sites=sites):
@@ -137,8 +127,7 @@ async def _run(*, count: int, seed: int) -> None:
             created += summary.created
             updated += summary.updated
             errors += summary.errors
-            # A run record per fake collector, so the seeded cluster shows
-            # the `collector_last_run_*` gauges too (ADR-0029).
+            # So the seeded cluster shows the `collector_last_run_*` gauges (ADR-0029).
             await manager_repo.record_run(
                 manager_id_for(ManagerType(provider.provider_type)),
                 ManagerRun(
@@ -166,9 +155,7 @@ async def _run(*, count: int, seed: int) -> None:
             errors=errors,
             openshift_reported=reported,
         )
-        print(  # CLI output, distinct from the structured log line above
-            f"fetched={fetched} created={created} updated={updated} errors={errors}"
-        )
+        print(f"fetched={fetched} created={created} updated={updated} errors={errors}")
     finally:
         await mongo.close()
 
@@ -177,11 +164,8 @@ async def _seed_openshift(repo: MongoServerRepository) -> int:
     """
     Stand in for the two OpenShift jobs, over the fleet just seeded.
 
-    Runs as a second pass rather than through the providers, because that
-    is the real shape: a `ProviderServer` has no `openshift` field at all,
-    since cluster membership is observed by a different system on a
-    different schedule from the hardware. Seeding it through a collector
-    would model a data path that does not exist.
+    A second pass: a `ProviderServer` has no `openshift` field, and seeding
+    it through a collector would model a data path that does not exist.
 
     Args:
         repo (MongoServerRepository): Where the fleet was just written.

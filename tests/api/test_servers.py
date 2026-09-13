@@ -1,8 +1,7 @@
-"""API tests for `GET /api/v1/servers` and `GET /api/v1/servers/{id}`,
-against a real running app (lifespan included) and the live dev Mongo +
-Redis stack. Test data is inserted directly via `MongoServerRepository`
-— never through the fake generator/ingest pipeline — to keep these tests
-focused on the HTTP/query/cache contract, not ingestion.
+"""
+API tests for `GET /api/v1/servers` and `GET /api/v1/servers/{id}` against a
+real app and the live dev Mongo + Redis. Data is inserted through
+`MongoServerRepository`, never ingestion, to pin the HTTP/query/cache contract.
 """
 
 from __future__ import annotations
@@ -80,10 +79,8 @@ async def app_context() -> AsyncIterator[tuple[AsyncClient, MongoServerRepositor
         redis: RedisClientHolder = app.state.redis
         for name in ("servers", "sites", "managers"):
             await mongo.db[name].delete_many({})
-        # Different tests reuse the same filter/sort combinations, and the
-        # list cache key doesn't know about test boundaries — flush so one
-        # test's cached page can never leak into the next.
-        # Best-effort: cache tests don't require Redis to be up.
+        # Tests reuse the same filter/sort combinations, so flush the list cache
+        # between them. Best-effort: cache tests don't require Redis to be up.
         with contextlib.suppress(Exception):
             await redis.client.flushdb()
 
@@ -115,9 +112,6 @@ async def test_list_returns_expected_items(
         "model",
         "site_id",
         "manager_id",
-        # Which collector produced the record. Distinct from `vendor`:
-        # a Dell reached at its own BMC is still vendor `dell`, and what
-        # makes it unmanaged is source_provider REDFISH_STANDALONE.
         "source_provider",
         "classification",
         "health",
@@ -161,11 +155,8 @@ async def test_search_matches_by_token(
 async def test_search_matches_by_bmc_host(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
-    """`build_search_tokens` has indexed `network.bmc.host` since before
-    this test existed — `NetworkTab.tsx` shows exactly this value as
-    "Address", so search already matched what an operator would copy off
-    the server's own page. What was missing was the inventory search
-    box's own placeholder never mentioning it, not the behavior itself.
+    """`build_search_tokens` indexes `network.bmc.host` — the value `NetworkTab.tsx`
+    shows as "Address", so search matches what an operator copies off the page.
     """
     client, repo = app_context
     await repo.upsert(_make_server(1, name="srv-with-bmc", bmc_host="10.20.30.41"))
@@ -197,11 +188,9 @@ async def test_filter_by_site_id(app_context: tuple[AsyncClient, MongoServerRepo
 async def test_filter_by_unassigned_site(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
-    """`?site_id=unassigned` lists the servers whose name carries no site.
-
-    Absence of a site is stored as null, so it has no value a filter could
-    match on — without the translation in `build_filter_query` the site
-    overview's own Unassigned card linked to an always-empty list.
+    """`?site_id=unassigned` lists the servers whose site is stored as null;
+    without `build_filter_query`'s translation the Unassigned card linked to
+    an always-empty list.
     """
     client, repo = app_context
     for i in range(3):
@@ -348,7 +337,6 @@ async def test_get_detail_200_for_existing_server(
 async def test_get_detail_derives_cisco_eno_names(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
-    """Cisco's one computed OS-name rule — see `cisco_eno_names`."""
     client, repo = app_context
     server = _make_server(
         1,
@@ -380,9 +368,8 @@ async def test_get_detail_200_is_cache_stable_on_second_read(
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json() == second.json()
-    # The second read is served straight from the cached bytes (P2,
-    # `docs/notes/2026-09-audit.md`), never decoded/re-validated/
-    # re-encoded — still a real, well-formed `application/json` response.
+    # The second read is the cached bytes verbatim (docs/notes/2026-09-audit.md
+    # P2) and must still be a well-formed `application/json` response.
     assert second.headers["content-type"] == "application/json"
 
 
@@ -434,11 +421,8 @@ async def test_get_detail_404_for_missing_server(
 
 
 async def test_list_returns_200_from_mongo_when_redis_unreachable() -> None:
-    """The whole point of cache-aside-with-degradation: a Redis outage
-    must never turn into a request failure, only a cache miss. Built as a
-    standalone test (not via `app_context`) because it needs to swap
-    `app.state.redis` for a holder pointed at an unreachable port after
-    startup, without disturbing the real Mongo connection.
+    """A Redis outage is a cache miss, never a request failure. Standalone (not
+    `app_context`) so `app.state.redis` can be swapped for an unreachable port.
     """
     app = create_app()
     async with (

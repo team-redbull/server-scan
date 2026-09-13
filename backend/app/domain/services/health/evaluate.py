@@ -80,9 +80,7 @@ class HealthState:
 
 
 def _family_sort_key(policy: HealthPolicy) -> tuple[int, int, str]:
-    # specificity DESC, priority DESC, id ASC — id is the final tiebreak
-    # (no `order` field ambiguity within a family the way classification
-    # rules have, since policy_key families are usually small/deliberate).
+    # specificity DESC, priority DESC, id ASC
     return (-policy.scope.specificity(), -policy.priority, policy.id)
 
 
@@ -92,10 +90,8 @@ def resolve_families(
     """
     Resolve each `policy_key` family to its single winning policy (ADR-0005).
 
-    Groups scope-matching policies (including disabled ones — a disabled,
-    high-priority, scoped policy is how an operator switches a default off
-    for that scope) by `policy_key`; within a family, the winner is the
-    highest scope specificity, then highest priority, then lowest id.
+    Disabled policies compete too — that is how a scope switches a default
+    off. Winner: highest specificity, then priority, then lowest id.
 
     Args:
         policies (list[HealthPolicy]): The candidate policies, any order.
@@ -139,10 +135,8 @@ def evaluate_health(
     """
     Evaluate every policy family and roll the results up into overall health.
 
-    Resolves each `policy_key` family to its winner (`resolve_families`),
-    evaluates each non-disabled, non-suppressed winner's condition against
-    `facts`, then takes the highest active severity per category and the
-    highest category severity overall.
+    Each family's winner (`resolve_families`) is evaluated unless disabled or
+    suppressed; the worst active severity wins per category, then overall.
 
     Args:
         facts (dict[str, Any]): The extracted server facts (see

@@ -29,18 +29,12 @@ see `app.application.services.ingest`. `/` is a separator here for that
 reason.
 
 A code spelled with a separator (`bat-yam`) matches a run of consecutive
-tokens, exactly. Every code and alias also matches as a **substring of a
-single token** — `ocp4-computezn-01` matches an alias `zn`, glued
-together with no separator of its own — a deliberate reversal, made at
-the operator's explicit request 2026-09-09, of this module's original
-design: matching used to require a token to *equal* a code outright,
-specifically to reject `ocp4-tlvx-01` "containing" `tlv` while naming no
-site at all. That false-positive risk is now accepted, consciously, in
-exchange for letting a short alias (`zn`, `fn`) match wherever it appears
-glued into a name. A name whose tokens resolve to two *different* sites
-is still `None` rather than a guess (see `SiteCatalog.parse`) — that
-safety net is unchanged, and matters more now that substrings match more
-often.
+tokens, exactly. Every code and alias also matches as a substring of a
+single token (`ocp4-computezn-01` -> alias `zn`) — an operator-requested
+reversal, 2026-09-09, that accepts a real false-positive risk; the
+canonical-before-alias tier and the leftmost-alias tiebreak followed on
+2026-09-10. ADR-0018's dated updates carry each decision and the
+collision that forced it.
 
 A name with no site token returns `None`. That is a real state the UI
 surfaces ("Unassigned"), never a silent default to some arbitrary site —
@@ -54,33 +48,24 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 
-# Split on any run of the separators these hostnames and UCS DNs actually
-# use. Keeping this to an explicit character class (rather than `\W+`)
-# means a name in an unexpected format yields no tokens and so no site,
-# instead of being creatively re-interpreted.
+# An explicit class, not `\W+`: an unexpected name format yields no
+# tokens and so no site, rather than a creative reinterpretation.
 _SEPARATORS = re.compile(r"[-_./]+")
 
-# A site code is what appears inside a hostname, so it is restricted to
-# what a hostname can carry. Rejected loudly at startup rather than
-# silently never matching anything.
+# What a hostname can carry; rejected at startup rather than never matching.
 _VALID_CODE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
-# The shipped default, and the set this platform was built against. It is
-# a default rather than a requirement: a deployment sets INVENTORY_SITES
-# and never edits this file.
 DEFAULT_SITES_SPEC = "nyc:New York City,tlv:Tel Aviv,bat-yam:Bat Yam,five:Site Five"
 
-# Wire spelling for a server whose name carries no site token; stored as
-# `None` on the document.
+# Wire spelling for a `site_id` stored as `None`.
 UNASSIGNED_SITE_ID = "unassigned"
 
 
 class SiteConfigurationError(ValueError):
-    """`INVENTORY_SITES` could not be read.
+    """
+    `INVENTORY_SITES` could not be read.
 
-    Raised at startup, never during a request: a typo in the site list
-    changes which servers get a site at all, so it has to fail loudly
-    while someone is still looking at the deployment.
+    Raised at startup, never during a request, so a typo fails loudly.
     """
 
 
@@ -111,11 +96,9 @@ class SiteDefinition:
 @dataclass(frozen=True, slots=True)
 class SiteCatalog:
     """
-    The sites this deployment knows about.
+    The sites this deployment knows about: closed at runtime, from configuration.
 
-    Closed at runtime, but its contents come from configuration rather
-    than from source — which is the whole point. Immutable once built, so
-    it can be shared freely and cannot drift mid-run.
+    Immutable once built, so it can be shared freely and cannot drift mid-run.
     """
 
     definitions: tuple[SiteDefinition, ...]
@@ -123,23 +106,10 @@ class SiteCatalog:
     @classmethod
     def from_spec(cls, spec: str) -> SiteCatalog:
         """
-        Parse `INVENTORY_SITES` into a catalog.
+        Parse `INVENTORY_SITES` (`code:Display Name`, comma-separated) into a catalog.
 
-        The format is `code:Display Name`, comma-separated:
-
-            nyc:New York City,tlv:Tel Aviv,bat-yam:Bat Yam
-
-        The display half is optional — `nyc,tlv` gives codes with
-        title-cased names — because a deployment that does not care about
-        pretty labels should not have to invent them.
-
-        The code half may itself be `|`-separated aliases, e.g.
-        `znif|prep:Znif` — the first token is canonical (`Server.site_id`,
-        every URL, the `Site` document's own id), the rest are other
-        tokens a hostname may carry for that same site, so a naming
-        convention that changed over time — or two teams' different
-        abbreviations for one site — still combines onto one site card
-        rather than splitting across two.
+        The display half is optional; the code half may be `|`-separated
+        aliases, the first of which is canonical (ADR-0018, 2026-09-08 update).
 
         Args:
             spec (str): The raw configured value. Empty means the shipped
@@ -233,12 +203,7 @@ class SiteCatalog:
         """
         Every site code and alias as one regex alternation.
 
-        No production caller left as of 2026-09-08 — the seeded
-        classification rules that used to interpolate this were broadened
-        into plain prefix/substring catch-alls with no site token at all
-        (`app.infrastructure.mongodb.classification_rule_repository.
-        default_system_rules`). Kept, and kept correct, for whatever next
-        needs "every token that means a configured site" as one pattern.
+        No production caller since 2026-09-08 (ADR-0018); kept correct for the next one.
 
         Returns:
             str: e.g. `"nyc|tlv|bat-yam|five"`, regex-escaped.
@@ -253,45 +218,8 @@ class SiteCatalog:
         """
         The site code embedded in `name`, or `None` if it holds none.
 
-        Case-insensitive, because hostnames arrive from vendor APIs with
-        inconsistent casing. **Canonical codes are tried first, aliases
-        only if that finds nothing at all** — added 2026-09-10, after a
-        real collision: with `znif|prep:Znif` and `five:Site Five`
-        both configured, `ocp4-prep-five-compute-01` carries `five` (a
-        real site's own code) and `prep` (someone else's alias) at once.
-        Treating both tiers as one pool made that name ambiguous — two
-        sites "matched" — and dropped it to Unassigned, even though
-        `five` alone is exactly what a name with no alias in it would
-        have resolved to. A canonical code is never in question the way
-        an alias can be, so it wins outright; aliases are consulted only
-        when no real code named anything, which is the case they exist
-        for (`ocp4-prep-compute-01`, no `five`/`znif`/... token at all,
-        still resolves through `prep` to `znif`).
-
-        Two ways a code or alias can match, within whichever tier is
-        being tried:
-
-        1. As a run of one or more whole, consecutive tokens, exactly —
-           what makes a multi-token code (`bat-yam`) match its own
-           separator-spelled form.
-        2. As a **substring of a single token**, glued in with no
-           separator of its own (`ocp4-computezn-01` matches an alias
-           `zn`) — a deliberate reversal, 2026-09-09, of matching only
-           whole tokens; see the module docstring for why and what it
-           trades away.
-
-        Two *real codes* named at once is still `None` rather than a
-        guess — that tier's ambiguity is a naming bug worth surfacing,
-        never resolved by picking a side. **Two different *aliases* named
-        at once picks the leftmost one instead** (2026-09-10, at the
-        operator's request, reversing what this docstring said until
-        then): `fn`/`prep` both configured, `fn-data-prep-ocp-compute-01`
-        resolves through `fn` (`five`), not `None` — no real code is ever
-        in play here to make the pick actually risky the way it would be
-        for two real codes. A name carrying two different tokens (or
-        substrings) that both alias the *same* site is not ambiguous
-        either way — it resolves to that one canonical code, same as
-        repeating the code itself would.
+        Canonical codes before aliases; two real codes is `None`, two aliases
+        picks the leftmost — each rule's date and collision is in ADR-0018.
 
         Args:
             name (str | None): A hostname, or a UCS org/profile DN.
@@ -320,9 +248,7 @@ class SiteCatalog:
         found = self._matches(tokens, with_aliases)
         if not found:
             return None
-        # 2+ aliases at once picks whichever matched the earliest token —
-        # see the docstring above for why this is safe where two real
-        # codes at once deliberately is not.
+        # 2+ aliases at once picks the leftmost (ADR-0018, 2026-09-10).
         return min(found.items(), key=lambda item: item[1])[0]
 
     @staticmethod
@@ -351,12 +277,8 @@ class SiteCatalog:
                 code = by_value.get(candidate)
                 if code is not None:
                     positions[code] = min(positions.get(code, start), start)
-        # A code/alias appearing anywhere inside one token, not just a
-        # token that equals it outright — e.g. "zn" inside "computezn". A
-        # multi-token code (containing its own "-") can never be a
-        # substring of one token, since splitting already removed every
-        # "-" from each token, so this only ever fires for single-token
-        # codes/aliases — exactly the short ones this exists for.
+        # Substring of one token ("zn" in "computezn"), ADR-0018's 2026-09-09
+        # update; a multi-token code can never be one, its "-" is gone.
         for index, hostname_token in enumerate(tokens):
             for candidate, code in by_value.items():
                 if candidate in hostname_token:
@@ -382,9 +304,7 @@ def site_catalog(spec: str) -> SiteCatalog:
     """
     A cached catalog for one configured spec.
 
-    Cached because the API builds one per request from the same settings
-    string, and parsing it every time would be pure waste. Keyed on the
-    spec itself rather than on `Settings`, so a test can pass a literal.
+    Keyed on the spec, not `Settings`, so a test can pass a literal.
 
     Args:
         spec (str): The `INVENTORY_SITES` value.
@@ -402,9 +322,7 @@ def parse_site_code(name: str | None, catalog: SiteCatalog) -> str | None:
     """
     The site code embedded in `name`, against a given catalog.
 
-    A free function as well as a method because the collectors read it
-    that way, and because passing the catalog explicitly is what keeps
-    this module free of any dependency on application configuration.
+    The explicit catalog keeps this module free of application configuration.
 
     Args:
         name (str | None): A hostname, or a UCS org/profile DN.

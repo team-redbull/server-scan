@@ -40,7 +40,6 @@ from typing import Any
 class ErrorCode:
     """Stable, machine-matchable error identifiers returned to API clients."""
 
-    # --- Generic / cross-cutting ---
     VALIDATION_ERROR = "VALIDATION_ERROR"
     NOT_FOUND = "NOT_FOUND"
     CONFLICT = "CONFLICT"
@@ -50,8 +49,6 @@ class ErrorCode:
     RATE_LIMITED = "RATE_LIMITED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
-
-    # --- Search / pagination ---
     UNKNOWN_FILTER = "UNKNOWN_FILTER"
     UNKNOWN_SORT_FIELD = "UNKNOWN_SORT_FIELD"
     SEARCH_QUERY_TOO_SHORT = "SEARCH_QUERY_TOO_SHORT"
@@ -59,19 +56,13 @@ class ErrorCode:
     PAGE_SIZE_TOO_LARGE = "PAGE_SIZE_TOO_LARGE"
     CURSOR_INVALID = "CURSOR_INVALID"
     CURSOR_FILTER_MISMATCH = "CURSOR_FILTER_MISMATCH"
-
-    # --- Classification ---
     REGEX_UNSAFE = "REGEX_UNSAFE"
     REGEX_INVALID = "REGEX_INVALID"
     RULE_SCOPE_INVALID = "RULE_SCOPE_INVALID"
-
-    # --- Health policies ---
     METRIC_OPERATOR_MISMATCH = "METRIC_OPERATOR_MISMATCH"
     UNKNOWN_METRIC = "UNKNOWN_METRIC"
     TEMPLATE_INVALID = "TEMPLATE_INVALID"
     CONDITION_INVALID = "CONDITION_INVALID"
-
-    # --- Managers ---
     MANAGER_HAS_CHILDREN = "MANAGER_HAS_CHILDREN"
     INVALID_MANAGER_HIERARCHY = "INVALID_MANAGER_HIERARCHY"
 
@@ -190,12 +181,6 @@ class ServiceUnavailableError(AppError):
     code = ErrorCode.SERVICE_UNAVAILABLE
 
 
-# --- Search / pagination ---
-# All 400s except `PageSizeTooLargeError`, which mirrors FastAPI/Pydantic's
-# own convention of using 422 for a query-parameter constraint violation
-# (as opposed to a structurally malformed request).
-
-
 class UnknownFilterError(AppError):
     """400: a `?filter` query param names a field `/servers` doesn't filter on."""
 
@@ -225,7 +210,7 @@ class SearchQueryTooLongError(AppError):
 
 
 class PageSizeTooLargeError(AppError):
-    """422: `?page_size` exceeds the server-side cap."""
+    """422, not 400 like its siblings: FastAPI's own convention for a query-parameter constraint."""
 
     status_code = 422
     code = ErrorCode.PAGE_SIZE_TOO_LARGE
@@ -243,9 +228,6 @@ class CursorFilterMismatchError(AppError):
 
     status_code = 400
     code = ErrorCode.CURSOR_FILTER_MISMATCH
-
-
-# --- Classification ---
 
 
 class RegexUnsafeAppError(AppError):
@@ -267,9 +249,6 @@ class RuleScopeInvalidError(AppError):
 
     status_code = 422
     code = ErrorCode.RULE_SCOPE_INVALID
-
-
-# --- Health policies ---
 
 
 class MetricOperatorMismatchError(AppError):
@@ -300,16 +279,11 @@ class ConditionInvalidError(AppError):
     code = ErrorCode.CONDITION_INVALID
 
 
-# --- Managers ---
-
-
 class ManagerHasChildrenError(AppError):
     """409: a manager can't be removed while servers still reference it.
 
-    Not raised by any current code path — managers are read-only
-    projections of environment config now (see CLAUDE.md's collector
-    architecture section), so nothing deletes one. Kept per `ErrorCode`'s
-    append-only contract rather than removed.
+    Not raised by any current code path — managers are read-only projections
+    of environment config (ADR-0012). Kept for `ErrorCode`'s append-only contract.
     """
 
     status_code = 409

@@ -80,10 +80,8 @@ async def run_abandonable[T](func: Callable[..., T], /, *args: Any, name: str) -
     bridge: concurrent.futures.Future[T] = concurrent.futures.Future()
 
     def _runner() -> None:
-        # Mirrors what a real `Executor` does before running a work item:
-        # if the caller's side has already cancelled `bridge` (the await
-        # below never even started, or `asyncio.wait_for`'s deadline fired
-        # before this thread got scheduled), don't make the call at all.
+        # As a real `Executor` does: if the caller already cancelled
+        # `bridge` (a `wait_for` deadline fired first), skip the call.
         if not bridge.set_running_or_notify_cancel():
             return
         try:

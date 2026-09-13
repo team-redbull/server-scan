@@ -108,11 +108,8 @@ async def app_context() -> AsyncIterator[tuple[AsyncClient, MongoServerRepositor
 
 async def _seed(repo: MongoServerRepository) -> None:
     """
-    Two sites with deliberately different vendor mixes.
-
-    tlv gets 3 Dell (OpenManage) and 2 Cisco (Intersight); nyc gets 1 Dell
-    and 4 HPE (OneView). A count that ignored the site filter would report
-    4 Dell for tlv, which is the bug these tests exist to catch.
+    Two sites with different vendor mixes: tlv gets 3 Dell and 2 Cisco, nyc
+    gets 1 Dell and 4 HPE, so a count ignoring the site filter reads 4 Dell for tlv.
 
     Args:
         repo (MongoServerRepository): Where to write them.
@@ -135,7 +132,6 @@ async def _seed(repo: MongoServerRepository) -> None:
 async def test_unfiltered_counts_cover_the_whole_fleet(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
-    """The baseline every other case is measured against."""
     client, repo = app_context
     await _seed(repo)
 
@@ -181,7 +177,6 @@ async def test_an_option_matching_nothing_here_is_absent_not_zero(
 async def test_filters_compose(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
-    """Two filters narrow together, as they do on the list endpoint."""
     client, repo = app_context
     await _seed(repo)
 

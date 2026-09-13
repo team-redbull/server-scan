@@ -224,8 +224,7 @@ def _provider(handler: Callable[[httpx.Request], httpx.Response], **kwargs: Any)
             endpoint=_ENDPOINT, username="collector", password="secret"
         ),
         "timeout_seconds": 5.0,
-        # Off unless a test is exercising it, so the cheap path is what
-        # every other test measures.
+        # Off by default so every other test measures the cheap path.
         "collect_psus": False,
         "collect_cpu_threads": False,
         "client_factory": lambda: OneViewClient(
@@ -256,10 +255,9 @@ async def _collect(provider: OneViewProvider) -> list[ProviderServer]:
 
 class TestCollection:
     async def test_the_whole_appliance_costs_three_bulk_calls(self) -> None:
-        """`GET /rest/server-hardware` returns the full object per member
-        and `expand=all` folds in the subresources, so nothing here is
-        per-server — which is what makes this collector two orders of
-        magnitude cheaper than the Dell one.
+        """`GET /rest/server-hardware` returns the full object per member and
+        `expand=all` folds in the subresources, so nothing here is per-server
+        (ADR-0022).
         """
         seen: list[httpx.Request] = []
         provider = _provider(
@@ -357,11 +355,9 @@ class TestCollection:
 
 
 class TestCollectionErrors:
-    """`collection_errors` — the motivating bug this refactor's provider
-    contract exists to close. Before it, OneView had no member at all:
-    `oneview.collection_truncated` logged at ERROR and the run still
-    exited 0, indistinguishable from a healthy run against a smaller
-    estate. See ADR-0023.
+    """`collection_errors` — before it, `oneview.collection_truncated` logged
+    at ERROR and the run still exited 0, indistinguishable from a healthy
+    run against a smaller estate. See ADR-0023.
     """
 
     async def test_a_truncated_page_becomes_a_collection_error(self) -> None:
@@ -421,8 +417,7 @@ class TestCollectionErrors:
 
         servers = await _collect(provider)
 
-        # The run still collects what it could reach — a paging ceiling
-        # is not the same failure as an unreachable appliance.
+        # A paging ceiling still collects what it reached.
         assert len(servers) == 1
         assert provider.collection_errors
         assert "/rest/server-profiles" in provider.collection_errors[0]
@@ -521,20 +516,9 @@ class TestPowerSupplies:
         assert servers[0].psus is None
 
     async def test_a_psu_fetch_that_raises_does_not_abort_the_appliance(self) -> None:
-        """One malformed `/powerSupplies` response must not cost every
-        other server its PSU data, or the run itself.
-
-        `client.get_json` is monkeypatched directly (returning `None`, a
-        contract violation `OneViewClient` itself cannot actually produce
-        — `_request_json` always coerces to a dict) rather than routed
-        through the real HTTP transport: the real client's own coercion
-        already makes this unreachable in production, so this is a
-        defense-in-depth test of `_power_supplies`'s own contract, not a
-        reproduction of a live crash. It still matters — the two bugs it
-        exercises (a bare `gather()` aborting on the first exception, and
-        the parse running outside the `try` that was supposed to contain
-        server failures) are both real changes in this function, just not
-        both independently triggerable through today's real client.
+        """One malformed `/powerSupplies` response must not cost every other
+        server its PSU data, or the run. `get_json` is monkeypatched to return
+        `None` — unreachable through the real client, so defense in depth only.
         """
         hardware_ok = _hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a")
         hardware_bad = _hardware(_HARDWARE_B, profile_uri="/rest/server-profiles/b")

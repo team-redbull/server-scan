@@ -45,8 +45,7 @@ pytestmark = pytest.mark.unit
         ("equipped-identity-unestablishable", True),
         ("equipped-with-malformed-fru", True),
         ("equipped-unsupported", True),
-        # The secondary half of a multi-node server: physically present,
-        # but not an independently addressable server — ingesting it would
+        # The secondary half of a multi-node server; ingesting it would
         # double-count one machine.
         ("equipped-slave", False),
         ("equipped-not-primary", False),
@@ -77,10 +76,9 @@ class TestGroupByOwningServerDn:
         assert grouped["sys/chassis-1/blade-1"] == [mgmt_if, host_eth]
 
     def test_drops_mos_owned_by_non_servers(self) -> None:
-        """A domain-wide `query_classid("mgmtIf")` also returns interfaces
-        belonging to chassis, fabric interconnects and IO modules —
-        `mgmtIf` hangs off a dozen parent classes. Those must be dropped,
-        not mis-attributed to a server.
+        """A domain-wide `query_classid("mgmtIf")` also returns chassis, FI
+        and IOM interfaces — `mgmtIf` hangs off a dozen parent classes.
+        Those must be dropped, not mis-attributed to a server.
         """
         grouped = _group_by_owning_server_dn(
             [
@@ -167,8 +165,6 @@ def _provider(client: FakeUcsClient) -> UcsManagerProvider:
         ),
         timeout_seconds=5.0,
     )
-    # `_new_client` is the intended seam — the provider builds its own
-    # client per call, so overriding the factory is all a test needs.
     provider._new_client = lambda: client  # ty: ignore[invalid-assignment]
     return provider
 
@@ -260,11 +256,9 @@ async def _collect(provider: UcsManagerProvider) -> list[Any]:
 
 class TestListServers:
     async def test_joins_grandchild_mos_onto_their_server(self) -> None:
-        """The regression test for the original defect: `mgmtIf` and
-        `adaptorHostEthIf` live two levels below a compute unit, so they
-        have to be fetched domain-wide and joined by DN prefix. If they
-        aren't found, BMC address, NIC MACs and fabric attachments all
-        silently come back empty.
+        """`mgmtIf` and `adaptorHostEthIf` live two levels below a compute
+        unit, so they are fetched domain-wide and joined by DN prefix;
+        unjoined, BMC address, MACs and attachments all come back empty (ADR-0009).
         """
         client = FakeUcsClient(responses=_domain())
         [server] = await _collect(_provider(client))
@@ -273,9 +267,8 @@ class TestListServers:
         assert server.bmc_mac == "00:11:22:33:44:55"
         assert server.nic_macs == ("00:aa:bb:cc:dd:ee",)
         assert [a.fabric for a in server.attachments] == ["A"]
-        # Added 2026-09-07: `fabric_name` — `topSystem.name`, the domain's
-        # own cluster name — confirmed live against a real air-gapped
-        # domain. See ADR-0009's "Update (2026-09-07)".
+        # `fabric_name` is `topSystem.name`, confirmed live 2026-09-07
+        # (ADR-0009's "Update (2026-09-07)").
         assert [a.fabric_name for a in server.attachments] == ["myc-03"]
 
     async def test_a_rack_units_own_psu_joins_directly(self) -> None:
@@ -312,13 +305,9 @@ class TestListServers:
         assert server.psus[0]["capacity_watts"] == 1050
 
     async def test_a_blade_chassis_psu_is_not_attributed_to_the_blade(self) -> None:
-        """A blade's PSUs belong to its shared chassis
-        (`sys/chassis-1/psu-1`) — a *sibling* of the blade
-        (`sys/chassis-1/blade-1`), not an ancestor of it. The
-        ancestor-walk join correctly finds no match and drops the PSU
-        rather than misattributing it to the blade. This is the
-        documented capability gap, not a bug — see
-        docs/cisco-collectors.md, "Power supplies (PSUs)".
+        """A blade's PSUs (`sys/chassis-1/psu-1`) are siblings of the blade,
+        not ancestors, so the ancestor-walk join drops them — the documented
+        capability gap (docs/cisco-collectors.md, "Power supplies (PSUs)").
         """
         domain = _domain()
         domain["equipmentPsu"] = [
@@ -338,11 +327,9 @@ class TestListServers:
         assert server.psus == ()
 
     async def test_a_blades_own_gpu_joins_directly_unlike_psus(self) -> None:
-        """Unlike `equipmentPsu`, `graphicsCard`'s parent (`computeBoard`)
-        is a DN path segment directly under the server itself
-        (`sys/chassis-1/blade-1/board/graphics-card-1`) for both blades
-        and rack units — confirmed via `ComputeBoard`'s own `mo_meta`.
-        The ancestor-walk join resolves it with no capability gap.
+        """`graphicsCard`'s parent (`computeBoard`) sits directly under the
+        server (`.../blade-1/board/graphics-card-1`) for blades and rack
+        units alike, per `ComputeBoard`'s `mo_meta`, so the ancestor walk finds it.
         """
         domain = _domain()
         domain["graphicsCard"] = [
@@ -367,12 +354,9 @@ class TestListServers:
         assert server.gpus[0]["temperature_celsius"] == 42.5
 
     async def test_management_ip_pool_address_under_the_profile_dn_is_preferred(self) -> None:
-        """Real hardware, unlike UCSPE, can have `mgmtIf.ext_ip` unset while
-        the service profile's management IP address policy already
-        assigned a real address — recorded as a direct child of the
-        *service profile's own DN* (`org-root/ls-worker-01/ipv4-pooled-addr`
-        in `_domain()`'s fixture), confirmed to be the one UCS Manager
-        actually populates. See `ucs_common.management_ip_by_parent_dn`.
+        """Real hardware, unlike UCSPE, can have `mgmtIf.ext_ip` unset while a
+        pooled address sits under the profile's own DN
+        (`org-root/ls-worker-01/ipv4-pooled-addr`). See docs/cisco-collectors.md.
         """
         domain = _domain()
         domain["mgmtIf"] = [
@@ -390,8 +374,7 @@ class TestListServers:
         [server] = await _collect(_provider(client))
 
         assert server.bmc_address_raw == "ipmi://10.9.8.7:623"
-        # The MAC still comes off the physical mgmtIf regardless of which
-        # source supplied the address.
+        # The MAC still comes off the physical mgmtIf.
         assert server.bmc_mac == "00:11:22:33:44:55"
 
     async def test_management_ip_pool_address_falls_back_to_the_mgmt_controller_dn(self) -> None:
@@ -423,10 +406,9 @@ class TestListServers:
         assert server.profile_dn == "org-root/ls-worker-01"
 
     async def test_fabric_interconnect_identity_is_joined_by_switch_id(self) -> None:
-        """`networkElement` is queried domain-wide (exactly two per
-        domain in practice — the redundant FI pair) and joined onto every
-        attachment by its bare `switch_id`, the same "A"/"B" `adaptorHostEthIf`/
-        `adaptorExtEthIf` already report.
+        """`networkElement` is queried domain-wide (the redundant FI pair) and
+        joined onto every attachment by its bare `switch_id`, the same "A"/"B"
+        the adaptor interfaces report.
         """
         domain = _domain()
         domain["networkElement"] = [
@@ -521,9 +503,8 @@ class TestListServers:
         servers = await _collect(_provider(client))
 
         assert len(servers) == 50
-        # 14, not 13: bumped 2026-09-07 for the one new domain-wide
-        # `topSystem` query (a domain singleton, so still O(1) per
-        # domain, not per server — the property this test guards).
+        # 14 since 2026-09-07's `topSystem` query — still O(1) per domain,
+        # which is the property guarded.
         assert len([c for c in client.calls if c.startswith("query_classid:")]) == 14
 
     async def test_no_topsystem_returned_leaves_fabric_name_none(self) -> None:
@@ -573,10 +554,9 @@ class TestListServers:
         assert server.storage_drives == ()
 
     async def test_joins_cpu_and_storage_grandchildren_onto_their_server(self) -> None:
-        """The same grandchildren-join defect class ADR-0009 found for
-        `mgmtIf`/`adaptorHostEthIf` applies here: `processorUnit` and
-        `storageLocalDisk` are both two-or-more levels below a compute
-        unit, not children of it.
+        """The grandchildren-join defect class ADR-0009 found for `mgmtIf`
+        applies here too: `processorUnit` and `storageLocalDisk` are two or
+        more levels below a compute unit, not children of it.
         """
         client = FakeUcsClient(responses=_domain())
         [server] = await _collect(_provider(client))

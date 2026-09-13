@@ -99,13 +99,9 @@ async def test_a_later_call_after_completion_runs_fresh() -> None:
 
 
 async def test_a_cancelled_waiter_does_not_fail_the_leader() -> None:
-    """The bug this module exists to fix: a *later* caller being cancelled
-    used to cancel the bare `Future` every caller — including the one
-    actually running `compute()` — shared, crashing the leader with
-    `InvalidStateError`. Owning `compute()` in its own `Task` and only
-    ever `shield()`ing it removes that: `Task.cancel()` on a caller
-    cancels whatever *that caller* is awaiting (the outer `shield()`
-    Future), never the shared task itself.
+    """Failure mode 1 of the singleflight module docstring: a cancelled waiter
+    used to cancel the shared bare `Future` and crash the leader with
+    `InvalidStateError`.
     """
     started = asyncio.Event()
 
@@ -127,12 +123,8 @@ async def test_a_cancelled_waiter_does_not_fail_the_leader() -> None:
 
 
 async def test_a_cancelled_leader_does_not_fail_the_waiters() -> None:
-    """The other half of the same bug: the *first* caller used to run
-    `compute()` directly in its own task, so cancelling it stored a
-    `CancelledError` onto the shared Future, failing every other,
-    uninvolved waiter too — even ones a `shield()`-only fix would
-    otherwise protect. `compute()` now runs in a `Task` nobody's own
-    cancellation reaches.
+    """Failure mode 2 of the same docstring: a cancelled leader used to store
+    `CancelledError` onto the shared Future, failing every uninvolved waiter.
     """
     call_count = 0
     started = asyncio.Event()
@@ -158,11 +150,8 @@ async def test_a_cancelled_leader_does_not_fail_the_waiters() -> None:
 
 
 async def test_the_entry_stays_until_the_task_settles_even_if_every_caller_cancels() -> None:
-    """Not "a cancelled caller leaves no entry behind" — the computation
-    is still running and still owns the key until it actually finishes.
-    Removing the entry the moment a caller cancels would let a second,
-    unrelated caller start a duplicate computation while the first is
-    still in flight.
+    """The running computation owns the key until it finishes; dropping the
+    entry on a caller's cancel would let a second caller start a duplicate.
     """
     started = asyncio.Event()
     release = asyncio.Event()
@@ -188,20 +177,9 @@ async def test_the_entry_stays_until_the_task_settles_even_if_every_caller_cance
 async def test_an_unretrieved_exception_is_logged_not_silently_dropped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Every waiter cancelling before `compute()` fails must not mean the
-    failure vanishes without a trace — that's what asyncio's own bare
-    "exception was never retrieved" GC-time warning would otherwise be.
-
-    Asserted via `monkeypatch` on the module's own `logger`, not
-    `structlog.testing.capture_logs()`: `structlog`'s
-    `cache_logger_on_first_use` (this project's own logging config, see
-    `app.infrastructure.logging.config.configure_logging`) freezes a
-    logger's processors the *first* time it actually logs — and a prior,
-    unrelated test elsewhere in the suite booting the real app can be that
-    first use, against a `structlog.configure()` call that has since been
-    replaced by a later one. `capture_logs()` can then no longer reach an
-    already-frozen logger. Spying on the call directly sidesteps that
-    entirely and is a fair test of "was this warning emitted" regardless.
+    """A failure every waiter cancelled away from must be logged, not left to
+    asyncio's GC-time warning. Spied via `monkeypatch`, not `capture_logs()`:
+    `cache_logger_on_first_use` freezes a logger's processors on its first use.
     """
     calls: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(
@@ -226,16 +204,9 @@ async def test_an_unretrieved_exception_is_logged_not_silently_dropped(
 
 
 async def test_eager_task_execution_still_cleans_up_the_entry() -> None:
-    """Reproduces the race a `finally` inside the task itself would hit
-    under `asyncio.eager_task_factory` (3.12+, not enabled by this
-    project today, but a real risk if it ever is): eager execution can
-    run `compute()` to completion *inside* `create_task()`, before the
-    caller gets to register the task in `_inflight` at all. A `finally`
-    clause inside the task's own coroutine would then find nothing to
-    clean up and exit silently, leaving the already-finished task cached
-    under this key forever. Registering cleanup via `add_done_callback`
-    *after* insertion survives this because a callback added to an
-    already-done Task is still scheduled, just one tick later.
+    """Under `asyncio.eager_task_factory` `compute()` can finish inside
+    `create_task()`, before `_inflight` registration; cleanup via
+    `add_done_callback` after insertion survives that (see `coalesce`'s comment).
     """
     loop = asyncio.get_running_loop()
     previous_factory = loop.get_task_factory()

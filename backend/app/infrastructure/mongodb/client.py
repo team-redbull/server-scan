@@ -27,10 +27,6 @@ from app.observability.metrics import mongo_ping_failures_total
 
 logger = structlog.get_logger(__name__)
 
-# Document type is left as `dict[str, Any]` at this layer: repositories
-# (added in the inventory slice) are what convert raw documents to/from
-# typed Pydantic domain models, so this generic parameter is deliberately
-# untyped rather than bound to any one collection's shape.
 _MongoClient = AsyncMongoClient[dict[str, Any]]
 _MongoDatabase = AsyncDatabase[dict[str, Any]]
 
@@ -53,9 +49,8 @@ class MongoClientHolder:
         """
         Create the process-wide `AsyncMongoClient` and verify connectivity.
 
-        Idempotent — a second call is a no-op if a client already exists.
-        Pings Mongo once so a misconfigured or unreachable server fails
-        startup rather than the first request.
+        Idempotent. Pings once so an unreachable server fails startup, not
+        the first request.
         """
         if self._client is not None:
             return
@@ -68,8 +63,6 @@ class MongoClientHolder:
             minPoolSize=self._settings.mongo_min_pool_size,
             appname=self._settings.service_name,
         )
-        # Fail fast at startup rather than on the first request if Mongo is
-        # unreachable or misconfigured.
         await self._client.admin.command("ping")
         logger.info("mongo.connected", database=self._settings.mongo_db)
 

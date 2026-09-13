@@ -1,21 +1,14 @@
 import type { ReactNode } from "react";
 
-/** A field the last collection could not read, with nothing stored from an
- * earlier one: the `0`/`[]` below it is the model's zero, not a reading. */
+/** Unread this run, with nothing carried forward: the value is the model's
+ * zero, not a reading. */
 export const NOT_READ_TITLE = "The most recent collection could not read this.";
 
-/** Read on an earlier run and carried forward — real data, just not
- * confirmed by the latest collection. Shown, marked, never hidden. */
+/** Unread this run, carried forward from an earlier one. */
 export const STALE_TITLE = "Not confirmed by the most recent collection.";
 
-/**
- * A visible "unconfirmed" marker for carried-forward data.
- *
- * Real text rather than a `title` tooltip or opacity alone, so a keyboard
- * or screen-reader user gets the same fact a sighted mouse user gets from
- * hovering — the one mechanism this codebase has to stop a confident zero
- * used to be conveyed only through channels those users cannot reach.
- */
+/** A visible "unconfirmed" marker — real text, not a `title` tooltip or
+ * opacity alone, so keyboard and screen-reader users get the same fact. */
 export function UnconfirmedMarker() {
   return (
     <span className="ml-1.5 align-middle text-[10px] font-medium tracking-wide text-amber-600 uppercase dark:text-amber-400">
@@ -24,12 +17,8 @@ export function UnconfirmedMarker() {
   );
 }
 
-/**
- * Renders a block honestly when the most recent collection could not read
- * it: "Not reported" in place of the zero it would otherwise state as
- * fact, or the carried-forward value dimmed and marked "unconfirmed" when
- * there is one. A field that was read renders its children untouched.
- */
+/** "Not reported" in place of an unread zero, or the carried-forward value
+ * dimmed and marked "unconfirmed"; a field that was read renders untouched. */
 export function Reported({
   unread,
   empty,
@@ -37,10 +26,8 @@ export function Reported({
   children,
 }: {
   unread: boolean;
-  /** Whether the stored value is the model's zero (`0`, `[]`) — the case
-   * where showing it at all would be a claim no collector ever made. */
+  /** Whether the stored value is the model's zero (`0`, `[]`). */
   empty: boolean;
-  /** Render inside a line of text rather than as its own block. */
   inline?: boolean;
   children: ReactNode;
 }) {

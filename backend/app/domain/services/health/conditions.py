@@ -39,11 +39,8 @@ class Condition(BaseModel):
     """
     A single node in a health-policy condition tree.
 
-    Exactly one of (`all_of`, `any_of`, `not_`, `metric`) must be set.
-    Pydantic's `model_validator` enforces that shape rather than a
-    discriminated union, since the "one of N mutually exclusive field
-    groups" shape doesn't map cleanly onto a `Literal`-tagged union
-    without an artificial `kind` field no caller would ever want to type.
+    Exactly one of `all_of`, `any_of`, `not_`, `metric` is set, enforced by a
+    `model_validator` rather than a tagged union nobody would want to type.
     """
 
     all_of: list[Condition] | None = None
@@ -53,8 +50,6 @@ class Condition(BaseModel):
     metric: str | None = None
     operator: str | None = None
     value: Any = None
-    # COUNT_* only: the element value to count matches for. If unset, a
-    # COUNT_* operator counts the list's own length (every element).
     equals: Any = None
 
     model_config = {"populate_by_name": True}
@@ -111,10 +106,8 @@ def validate_condition(condition: Condition, registry: MetricRegistry) -> None:
     """
     Reject a condition tree that would be unsafe or meaningless to evaluate.
 
-    Called when a system-default policy is seeded or re-synced at startup
-    (`app.application.services.bootstrap`, via `validate_policy_write`),
-    never at evaluation time — evaluation trusts a condition that passed
-    this once.
+    Called at policy write/seed time, never at evaluation — evaluation
+    trusts a condition that passed this once.
 
     Args:
         condition (Condition): The tree to validate, root node.
@@ -220,10 +213,8 @@ def evaluate_leaf(condition: Condition, facts: dict[str, Any], registry: MetricR
     if op == "ANY":
         return bool(condition.value in actual)
     if op == "ALL":
-        # Vacuous truth on an empty list is deliberately NOT returned here:
-        # "all NICs are UP" evaluating true when zero NICs were even
-        # reported would hide a data-collection gap, not confirm a healthy
-        # server.
+        # No vacuous truth: "all NICs UP" over zero reported NICs would
+        # hide a collection gap, not confirm a healthy server.
         return len(actual) > 0 and all(x == condition.value for x in actual)
     if op in _COUNT_OPERATORS:
         count = (

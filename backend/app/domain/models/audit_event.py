@@ -50,16 +50,8 @@ class EventType(StrEnum):
     HEALTH_POLICY_CREATED = "HEALTH_POLICY_CREATED"
     HEALTH_POLICY_UPDATED = "HEALTH_POLICY_UPDATED"
     HEALTH_POLICY_DISABLED = "HEALTH_POLICY_DISABLED"
-    # Not upstream in the original spec's event list, added for symmetry
-    # with CLASSIFICATION_RULE_DELETED: a deleted policy is a distinct,
-    # irreversible event from a disabled one and deserves its own type
-    # rather than overloading DISABLED to mean two different things.
     HEALTH_POLICY_DELETED = "HEALTH_POLICY_DELETED"
     HEALTH_STATUS_CHANGED = "HEALTH_STATUS_CHANGED"
-    # A cluster claimed or released a server. Recorded on transition only,
-    # like CLASSIFICATION_CHANGED: the OpenShift jobs run every 15 minutes
-    # over the whole fleet, so an event per observation would be noise
-    # measured in millions, and the only interesting moment is the change.
     OPENSHIFT_STATE_CHANGED = "OPENSHIFT_STATE_CHANGED"
     MAINTENANCE_ENABLED = "MAINTENANCE_ENABLED"
     MAINTENANCE_UPDATED = "MAINTENANCE_UPDATED"
@@ -75,11 +67,7 @@ class AuditEvent(BaseModel):
 
     id: str = Field(alias="_id")
     event_type: EventType
-    # Nullable: most event types are server-scoped, but rule/policy events
-    # (e.g. CLASSIFICATION_RULE_CREATED) are not about any one server — the
-    # affected rule/policy id lives in `data` instead, so this field isn't
-    # overloaded to mean two different things depending on event_type.
-    server_id: str | None = None
+    server_id: str | None = None  # None for rule/policy events; their id is in `data`
     actor: Actor
     request_id: str | None = None
     created_at: datetime

@@ -88,10 +88,7 @@ async def list_policies(
     Returns:
         HealthPolicyListResponse: The matching policies.
     """
-    # `bool(enabled)` was wrong and silently so: it collapsed `False` and
-    # `None` to the same "no filter", so `?enabled=false` returned every
-    # policy including the enabled ones. The classification-rule endpoint
-    # has always distinguished the three states; these now agree.
+    # Three states: `bool(enabled)` collapsed `?enabled=false` into "no filter".
     if enabled is None:
         policies = await policy_repo.list_all()
     elif enabled:

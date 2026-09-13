@@ -8,8 +8,6 @@ from app.domain.models.server import Identity, Server
 from app.domain.services.health.facts import extract_facts
 
 NOW = datetime.now(UTC)
-# `Identity.vendor` is required (no UNKNOWN fallback) — these tests do not
-# exercise vendor, so one shared value keeps them focused.
 IDENTITY = Identity(vendor=Vendor.DELL)
 
 
@@ -64,11 +62,8 @@ def test_extract_facts_reads_connectivity_facts_directly() -> None:
 
 
 def test_extract_facts_counts_failed_psus() -> None:
-    """`Psu.health` uses `normalize_oper_state`'s UP/DOWN/DISABLED/UNKNOWN
-    vocabulary — the same OperState-sourced pattern `Gpu.health` already
-    uses — not a literal "OK"/"FAILED" pair. UNKNOWN is deliberately not
-    counted as failed, matching `storage.failed_drive_count`: a read
-    failure is not evidence of a failure.
+    """`Psu.health` is UP/DOWN/DISABLED/UNKNOWN, not "OK"/"FAILED", and UNKNOWN
+    is not counted as failed (ADR-0027).
     """
     server = Server(
         _id="srv_x",

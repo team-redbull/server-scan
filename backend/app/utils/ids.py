@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import uuid
 
-# One entry per document kind that gets an application-generated id.
 ID_PREFIXES = {
     "server": "srv",
     "site": "site",
@@ -25,9 +24,14 @@ ID_PREFIXES = {
 def new_id(kind: str) -> str:
     """Generate a new prefixed id for the given document kind.
 
-    Raises KeyError for an unregistered kind rather than silently emitting
-    an unprefixed id — every id in the system should be traceable to a
-    collection at a glance.
+    Args:
+        kind (str): A key of `ID_PREFIXES`.
+
+    Returns:
+        str: `<prefix>_<uuid4 hex>`.
+
+    Raises:
+        KeyError: For an unregistered kind, rather than an unprefixed id.
     """
     prefix = ID_PREFIXES[kind]
     return f"{prefix}_{uuid.uuid4().hex}"

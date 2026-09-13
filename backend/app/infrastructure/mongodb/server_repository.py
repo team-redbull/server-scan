@@ -42,16 +42,8 @@ def _cursor_position_clause(
     """
     Build the `$or` clause selecting documents strictly past `position`.
 
-    Either the sort field is strictly beyond the cursor's value, or it's
-    tied and `_id` breaks the tie in the same direction. Both legs must
-    agree with the query's own `.sort()` direction or the page would skip
-    or repeat rows.
-
-    A nullable sort field needs more than `$gt`/`$lt`, because Mongo sorts
-    null before every string but its range operators are type-bracketed:
-    `{$gt: null}` matches nothing at all and `{$lt: "abc"}` skips nulls
-    entirely. Both would silently drop rows — see
-    `docs/adr/0026-nullable-sort-fields.md`.
+    Both legs must agree with the query's own `.sort()` direction, and a
+    nullable sort field needs the null-aware branches (ADR-0026).
 
     Args:
         sort_field (str): The field being sorted on.
@@ -67,16 +59,13 @@ def _cursor_position_clause(
     }
 
     if position.sort_value is None:
-        # Nulls sort first ascending, last descending. Everything
-        # non-null is therefore still ahead of us going up, and nothing
-        # is going down.
+        # Nulls sort first ascending: everything non-null is still ahead.
         ahead: list[dict[str, object]] = [{sort_field: {"$ne": None}}] if direction == 1 else []
         return {"$or": [*ahead, tie]}
 
     legs: list[dict[str, object]] = [{sort_field: {op: position.sort_value}}]
     if direction == -1:
-        # Type bracketing leaves nulls out of `$lt`, but descending they
-        # come after every string, so they are exactly what is left.
+        # `$lt` skips nulls, and descending they are exactly what is left.
         legs.append({sort_field: None})
     legs.append(tie)
     return {"$or": legs}
@@ -107,13 +96,7 @@ class FacetRow:
 
 
 class MongoServerRepository:
-    """
-    Implements `app.domain.ports.repository.ServerRepository`.
-
-    Structural typing (the Protocol has no `register()`/ABC to inherit
-    from) means this class satisfies the port by matching its method
-    signatures, not by subclassing it.
-    """
+    """Implements `app.domain.ports.repository.ServerRepository`, structurally."""
 
     def __init__(self, mongo: MongoClientHolder, *, cursor_secret: str) -> None:
         """
@@ -160,13 +143,8 @@ class MongoServerRepository:
         """
         Compare-and-set a server on its `revision`.
 
-        The filter only matches the document a caller actually read
-        (`_id` *and* the revision it saw), so a concurrent writer that
-        already advanced the revision loses the race here instead of
-        silently clobbering the other's write. No `upsert=True` — this
-        never creates a document, so a filter that matches nothing is
-        unconditionally a conflict, distinguished below by whether the
-        document exists at all.
+        The filter matches `_id` *and* the revision the caller read, so a
+        concurrent writer loses the race instead of clobbering. Never creates.
 
         Args:
             server (Server): The server to persist, as read plus changes.
@@ -268,8 +246,6 @@ class MongoServerRepository:
             )
             query_filter = {"$and": [base_filter, cursor_clause]} if base_filter else cursor_clause
 
-        # Fetch one extra document to detect `has_more` without a second
-        # round trip.
         raw_docs = await (
             self._collection.find(query_filter)
             .sort([(sort_field, direction), ("_id", direction)])
@@ -319,21 +295,8 @@ class MongoServerRepository:
         """
         Per-combination server counts for one filtered view, in one round trip.
 
-        A single `$group` over a composite key rather than a `$facet` with
-        one sub-pipeline per dimension, for the same reason
-        `site_breakdown` uses one: the key's cardinality is bounded by the
-        enums and not by the estate — 4 vendors x 5 collectors x 4
-        installation types x 6 severities x 2 maintenance states x 3
-        OpenShift states, so about 5,700 small rows at absolute worst, and
-        in practice a tiny fraction of that since most combinations never
-        occur — and each dimension's counts are the marginals the caller
-        sums out of them. The alternative is a `count_documents` per
-        option, which is one round trip per number on the screen.
-
-        `site_id` is deliberately not part of the key. It is a filter an
-        operator has usually already applied by the time they want these
-        numbers, and including it would multiply the rows by the site
-        count to answer a question the site overview already answers.
+        One `$group` over a composite key whose cardinality the enums bound;
+        why, and why `site_id` is not in it: docs/architecture.md, "caching".
 
         Args:
             filters (dict[str, object]): The same Mongo filter document
@@ -406,9 +369,8 @@ class MongoServerRepository:
                             "$group": {
                                 "_id": "$source_provider",
                                 "total": {"$sum": 1},
-                                # Missing and null both sort below any
-                                # string in BSON, so a never-seen server
-                                # is stale by this comparison.
+                                # Missing sorts below any string in BSON,
+                                # so a never-seen server is stale.
                                 "stale": {
                                     "$sum": {"$cond": [{"$lt": ["$last_seen_at", cutoff]}, 1, 0]}
                                 },
@@ -507,9 +469,7 @@ class MongoServerRepository:
                 structural.setdefault(provider, []).append(field)
         if not totals:
             return {}
-        # Which fields to ignore depends on the row's own provider, so the
-        # per-provider lists are folded into one `$switch` — which Mongo
-        # rejects with zero branches, hence the literal empty list.
+        # Mongo rejects a `$switch` with zero branches, hence the literal.
         ignored: Any = (
             {
                 "$switch": {
@@ -543,20 +503,8 @@ class MongoServerRepository:
         """
         Per-(site, vendor, health, maintenance, installation, OpenShift) counts.
 
-        Server counts for the whole estate, in one round trip. A single
-        `$group` over every server rather than one count query
-        per cell: the grouping key has a bounded cardinality (sites x 4
-        vendors x 6 severities x 2 maintenance states x 4 installation
-        types x 3 OpenShift states), so the four shipped sites plus the
-        unassigned bucket give a few thousand small rows at absolute
-        worst and far fewer in practice — and that stays bounded by the
-        configured site count, never by the size of the estate. The caller pivots
-        them in Python. The alternative — a `count_documents` per cell —
-        would be that many round trips to build one screen.
-
-        This is a full pass over the collection, which no index avoids for
-        a grouping with no match stage. That is why the route in front of
-        it caches: see `app.api.v1.sites`.
+        One `$group` over every server — a full collection pass, which is
+        why `app.api.v1.sites` caches it (docs/architecture.md, "caching").
 
         Returns:
             list[SiteBreakdownRow]: One row per non-empty combination.

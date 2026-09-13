@@ -186,6 +186,16 @@ A collector that silently sees a third of the estate looks exactly like a
 healthy run against a smaller fleet — which is how a wrong number stays
 invisible for weeks.
 
+A truncated profiles, templates or hardware page means real servers were
+never even listed — the same failure class as an unreachable UCS domain
+or Redfish host, unlike a per-server unreadable subresource (handled by
+`psus=None`/`unread_fields`, never a collection error). So each message
+`get_all` records on `OneViewClient.truncations` — the three numbers in
+one line, so an operator reading a failed CronJob can tell a lost
+connection from the paging ceiling without opening the logs — is copied
+onto `OneViewProvider.collection_errors` after the bulk calls, and the run
+reports PARTIAL rather than a silently-complete success (ADR-0023).
+
 **Confirmed 2026-09-07, against a live appliance with 685 profiles:** the
 cap is **per request**, not per query. `nextPageUri` was followed past
 the first 256 and fetched all 685. Paging works; no `filter` sharding is
@@ -636,6 +646,18 @@ A `/powerSupplies` call that fails, or reports a `collectionState` other
 than `Collected`, yields `None` for that server — unread, carried
 forward — and is counted into one aggregated
 `oneview.power_supplies_unreadable` warning. It never aborts the run.
+
+Two details of that containment are load-bearing (moved here from the
+code, 2026-09-13; `_processors` is the same shape). The per-server
+`fetch` wraps the *parse* (`body.get(...)`, the `collectionState` check)
+inside its `try` as well as the call: its whole job is to turn one
+server's failure into `None`, and leaving the shape-reading outside held
+only because `OneViewClient._request_json` happens to coerce a non-object
+body to `{}` — a coercion two files away, not a guarantee this function's
+contract should rest on. And the fetches are gathered with
+`return_exceptions=True`: without it one escaping exception aborted
+`gather` immediately and abandoned every other still-in-flight fetch
+mid-request, so one bad PSU failed the whole appliance.
 
 ## What OneView does not have at all
 

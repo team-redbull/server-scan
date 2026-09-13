@@ -14,9 +14,7 @@ def normalize_text(value: str | None) -> str:
     """
     Lowercase and collapse internal whitespace, for a `*_normalized` sort/filter field.
 
-    Deliberately simpler than `build_search_tokens` (no splitting into
-    tokens), since these fields are compared/sorted as whole strings, not
-    searched.
+    No tokenizing: these fields are compared and sorted as whole strings.
 
     Args:
         value (str | None): The raw text, or `None`.

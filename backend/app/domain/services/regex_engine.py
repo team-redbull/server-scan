@@ -26,22 +26,13 @@ import regex
 
 from app.domain.ports.regex_engine import RegexMatch, RegexTimeout, RegexUnsafeError
 
-# Canary inputs run against every pattern at validate() time, under the
-# same timeout a real match would get. A pattern that can't handle these
-# quickly is rejected before it's ever saved, not discovered mid-ingest.
-#
-# The 2000-char canary length is deliberate, not arbitrary: empirically,
-# the `regex` module's backtracking is measurably more resistant to
-# classic pathological shapes like `(a+)+$` than stdlib `re` is — a short
-# ~40-char pathological subject completes in under a millisecond here,
-# where it would hang `re` immediately. The same pattern still blows up
-# exponentially given a long enough subject (observed timing out well
-# under 2000 chars). A canary tuned to stdlib `re`'s much lower blowup
-# threshold would give this engine's pathological patterns a false pass.
+# Probed at validate() time under the real match timeout. 2000 chars, not
+# ~40: `regex` resists `(a+)+$`-style blowup far longer than stdlib `re`
+# does — see docs/architecture.md, "Classification engine".
 _CANARY_INPUTS = (
     "",
     "a" * 200,
-    "a" * 2000 + "!",  # classic catastrophic-backtracking trigger shape
+    "a" * 2000 + "!",
     "ocp-dell-worker-0001-" + "x" * 100,
 )
 

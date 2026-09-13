@@ -23,10 +23,8 @@ import ipaddress
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-# Schemes whose absent port has a well-known default. Only `ipmi` has one
-# in practice (623 is IPMI's standard port); Redfish-over-HTTPS schemes are
-# left with `port=None` when unspecified rather than guessing 443, since
-# vendor Redfish endpoints are frequently proxied on non-standard ports.
+# Only IPMI has a well-known default port; Redfish endpoints are often
+# proxied on non-standard ports, so those stay `port=None` rather than 443.
 _DEFAULT_PORTS: dict[str, int] = {"ipmi": 623}
 
 
@@ -60,9 +58,7 @@ def parse_bmc_address(raw: str | None) -> BmcAddress | None:
 
     text = raw.strip()
 
-    # A bare host/IP with no "scheme://" prefix is valid input (some
-    # providers report just an address) but `urlsplit` would otherwise
-    # parse the whole thing as a relative path with no netloc.
+    # Without a scheme, `urlsplit` reads a bare host as a path with no netloc.
     candidate = text if "://" in text else f"//{text}"
 
     parts = urlsplit(candidate)

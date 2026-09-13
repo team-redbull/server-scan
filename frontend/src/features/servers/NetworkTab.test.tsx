@@ -4,9 +4,7 @@ import { describe, expect, it } from "vitest";
 import { NetworkTab } from "@/features/servers/NetworkTab";
 import type { NetworkInfo } from "@/types/server";
 
-/** A BMC that answered, and one interface it could not read a MAC or a
- * speed for — every field here is `X | None` on the backend, so `null` is
- * what arrives, not a missing key. */
+/** A BMC that answered, and one interface it could not read a MAC or speed for. */
 function partialNetwork(): NetworkInfo {
   return {
     bmc: { address_raw: null, scheme: null, host: null, port: null, mac: null },
@@ -21,7 +19,6 @@ describe("NetworkTab unread fields", () => {
     render(<NetworkTab network={partialNetwork()} />);
 
     expect(screen.getByText("NIC.Slot.1-1")).toBeInTheDocument();
-    // Address, location, MAC and speed — all four degrade to the dash.
     expect(screen.getAllByText("—")).toHaveLength(4);
   });
 
@@ -43,8 +40,7 @@ describe("NetworkTab unread fields", () => {
 });
 
 describe("NetworkTab OS names", () => {
-  /** A Dell with its onboard LOM and a card in slot 8, as a Redfish
-   * collector reports it. */
+  /** A Dell with its onboard LOM and a card in slot 8. */
   function dellNetwork(): NetworkInfo {
     return {
       bmc: { address_raw: null, scheme: null, host: "10.0.0.5", port: null, mac: null },
@@ -70,7 +66,6 @@ describe("NetworkTab OS names", () => {
   it("reads an FQDD's location in words, distinguishing onboard from a slot", () => {
     render(<NetworkTab network={dellNetwork()} />);
 
-    // The distinction the OS name hangs off: `eno...` versus `ens8...`.
     expect(screen.getByText("Onboard · port 1")).toBeInTheDocument();
     expect(screen.getByText("Slot 8 · port 1")).toBeInTheDocument();
   });
@@ -95,8 +90,7 @@ describe("NetworkTab OS names", () => {
   });
 
   it("shows nothing at all for an interface with no configured name", () => {
-    // A guess here produces a boot configuration that silently does not
-    // come up, so absence has to stay visible as absence.
+    // A guessed name yields a boot configuration that silently does not come up.
     render(<NetworkTab network={dellNetwork()} osNames={{}} />);
 
     expect(screen.queryByText(/OS name \(derived\)/)).not.toBeInTheDocument();

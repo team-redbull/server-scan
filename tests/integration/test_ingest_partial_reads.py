@@ -1,11 +1,7 @@
-"""Regression tests for the three defects ADR-0016 found in shipped code.
-
-Each test fails without its fix. They live together because they share one
-root cause — the pipeline could not tell "the collector read this and found
-nothing" from "the collector could not read this at all" — which is exactly
-the distinction DSP0266 §9.6.1 draws between an absent property and a null
-one, and which a fan-out collector over hundreds of independent BMCs hits
-routinely rather than exceptionally.
+"""
+Regression tests for the defects ADR-0016 found in shipped code. One root
+cause: the pipeline could not tell "read this and found nothing" from
+"could not read this" — DSP0266 §9.6.1's absent-versus-null distinction.
 """
 
 from __future__ import annotations
@@ -118,22 +114,15 @@ def _fully_read(**overrides: Any) -> ProviderServer:
 async def test_a_sub_resource_that_could_not_be_read_does_not_erase_stored_hardware(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The defect that motivated ADR-0016's port change.
-
-    A Redfish host whose `Storage` collection 404s — which sushy 5.10.0 had
-    to handle, because HGX boards advertise members that 404 — used to
-    report zeros that overwrote good data. `storage.failed_drive_count`
-    then fell to 0, so the seeded `storage.failed_drive` policy stopped
-    firing: a server with a genuinely failed disk healed itself by not
-    being read.
+    """The defect behind ADR-0016's port change: a 404ing `Storage` collection
+    used to write zeros over good data, so a server with a failed disk healed
+    itself by not being read.
     """
     service = _service(mongo_holder)
 
     await service.ingest(_OneShotProvider(_fully_read()))
 
-    # Same host, next run: Processors/Memory/Storage/EthernetInterfaces all
-    # failed. `None`, not zero — the collector is saying "I don't know",
-    # not "there are none".
+    # Next run every sub-resource failed: `None` means "don't know", not zero.
     summary = await service.ingest(
         _OneShotProvider(
             _fully_read(
@@ -150,10 +139,9 @@ async def test_a_sub_resource_that_could_not_be_read_does_not_erase_stored_hardw
         )
     )
 
-    # Without the carry-forward this is 1, not 0: the provider's `None`
-    # reaches `Cpu(sockets=...)`, pydantic rejects it, and the per-server
-    # handler counts an error. The stored document survives by accident,
-    # which is why the assertions below are not sufficient on their own.
+    # Without the carry-forward this is 1: pydantic rejects `Cpu(sockets=None)`
+    # and the stored document survives only by accident, so the asserts
+    # below are not sufficient on their own.
     assert summary.errors == 0
     assert summary.updated == 1
 
@@ -175,15 +163,11 @@ async def test_a_sub_resource_that_could_not_be_read_does_not_erase_stored_hardw
     assert server.hardware.cpu.model == "Xeon Gold 6338"
     assert server.hardware.memory.total_bytes == 512 * 1024**3
     assert server.identity.nic_macs == ["00:00:5e:00:53:01"]
-    # Added 2026-09-01: `psus` follows the identical carry-forward
-    # contract — `IngestService` used to hardcode `Power(psus=[])`
-    # unconditionally, which this same-shaped defect would have produced
-    # regardless of what the provider reported.
+    # `psus` follows the same carry-forward contract — `IngestService` used to
+    # hardcode `Power(psus=[])` unconditionally.
     assert [p.health for p in server.hardware.power.psus] == ["DOWN"]
-    # Added 2026-09-07: `health_detail` — the raw vendor state `health`
-    # was reduced from — carries through the same dict-to-domain-model
-    # boundary (`IngestService._drive_from_dict`/`_psu_from_dict`) and
-    # survives the same carry-forward as `health` itself.
+    # `health_detail` (the raw vendor state) crosses `_drive_from_dict`/
+    # `_psu_from_dict` and survives the same carry-forward as `health`.
     assert [d.health_detail for d in server.hardware.storage.drives] == ["self-test-failed"]
     assert [p.health_detail for p in server.hardware.power.psus] == ["inoperable"]
 
@@ -191,13 +175,9 @@ async def test_a_sub_resource_that_could_not_be_read_does_not_erase_stored_hardw
 async def test_a_profile_template_that_could_not_be_read_survives(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """Added 2026-09-08, alongside the frontend first surfacing this
-    field: `profile_template_name`/`_external_id` used to be written
-    straight into `ProfileTemplate` with no carry-forward at all, unlike
-    every other optional field in this pipeline — a transient failure of
-    a vendor's own template lookup (OME's `/ProfileService/Profiles`,
-    Intersight's `server/ProfileTemplates` join, ...) would have silently
-    blanked an already-known template rather than preserving it.
+    """`profile_template_name`/`_external_id` used to be written with no
+    carry-forward, so a transient failure of a vendor's template lookup
+    silently blanked an already-known template (fixed 2026-09-08).
     """
     service = _service(mongo_holder)
 
@@ -210,7 +190,6 @@ async def test_a_profile_template_that_could_not_be_read_survives(
         )
     )
 
-    # Same host, next run: the template lookup failed this time.
     summary = await service.ingest(
         _OneShotProvider(_fully_read(profile_template_name=None, profile_template_external_id=None))
     )
@@ -276,12 +255,8 @@ async def test_gpu_health_detail_survives_the_full_ingest_pipeline(
 
 
 async def test_an_empty_read_still_overwrites(mongo_holder: MongoClientHolder) -> None:
-    """The other half of the contract, and the reason `None` had to be a
-    distinct value rather than reusing the zero.
-
-    A collector that successfully read a host and found no drives must be
-    able to say so — pulling a disk is a real event the inventory has to
-    reflect.
+    """The other half of the contract: a collector that read a host and found
+    no drives must be able to say so — which is why `None` is distinct from zero.
     """
     service = _service(mongo_holder)
     await service.ingest(_OneShotProvider(_fully_read(serial="SN-PARTIAL-2")))
@@ -308,10 +283,7 @@ async def test_an_empty_read_still_overwrites(mongo_holder: MongoClientHolder) -
 async def test_a_partial_read_does_not_write_a_health_recovery_event(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The defect's second-order harm.
-
-    `_emit_transition_events` compares health before and after, so zeroed
-    storage did not merely lose data — it wrote a durable
+    """The defect's second-order harm: zeroed storage also wrote a durable
     HEALTH_STATUS_CHANGED event asserting the failed drive had recovered.
     """
     service = _service(mongo_holder)
@@ -353,18 +325,12 @@ async def test_a_partial_read_does_not_write_a_health_recovery_event(
 async def test_two_servers_without_a_system_uuid_can_both_be_ingested(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """`uniq_system_uuid`'s partial filter used `$exists: true`, which
-    MongoDB satisfies for a field that is present *and null* — and
-    `model_dump(mode="json")` always emits the key.
-
-    So every UUID-less server entered a unique index keyed on null, and
-    exactly one of them could exist fleet-wide. `ComputerSystem.UUID` is
-    schema-optional, so this blocked OpenBMC whiteboxes and older firmware
-    outright.
+    """`$exists: true` matches a present-and-null field, so every UUID-less
+    server used to enter a unique index keyed on null and only one could
+    exist fleet-wide (ADR-0016, `docs/notes/redfish-plan.md` 1.1).
     """
-    # `mongo_holder` already ran `ensure_indexes`, so the `system_uuid`
-    # index is present with its declared specification — re-creating it
-    # here would race the fixture's own migration.
+    # `mongo_holder` already ran `ensure_indexes`; re-creating the index here
+    # would race the fixture's own migration.
     service = _service(mongo_holder)
     summary = await service.ingest(
         _OneShotProvider(
@@ -380,19 +346,9 @@ async def test_two_servers_without_a_system_uuid_can_both_be_ingested(
 async def test_two_different_servers_sharing_a_system_uuid_both_ingest(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The real bug, reproduced: a live Cisco UCS domain reported the same
-    `system_uuid` for two genuinely different physical servers — a UUID
-    Suffix Pool misconfiguration, not a correlation bug. `system_uuid`'s
-    unique index used to turn that into a permanent per-run failure for
-    the second server (`DuplicateKeyError`, uncaught here since the two
-    servers have different serials, so `IngestService`'s recovery path —
-    which only looks up by vendor+serial — found nothing to reuse).
-
-    Fixed 2026-09-09 by dropping `system_uuid`'s uniqueness entirely:
-    correlation was never based on it (`vendor`+`serial_normalized` is
-    the real key), so two different, correctly-identified servers sharing
-    a vendor-reported UUID must ingest as two documents, not fail one of
-    them forever.
+    """A live UCS domain reported one `system_uuid` for two servers (a UUID
+    Suffix Pool misconfiguration); the unique index failed the second forever.
+    Dropped 2026-09-09 — correlation is `vendor`+`serial_normalized` (`indexes.py`).
     """
     service = _service(mongo_holder)
     summary = await service.ingest(
@@ -431,15 +387,9 @@ async def test_two_different_servers_sharing_a_system_uuid_both_ingest(
 async def test_the_document_records_which_fields_this_run_could_not_read(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The display half of the same contract.
-
-    Carrying a value forward keeps the data correct but leaves the
-    document unable to say the value is stale, and a `0`/`[]` on a server
-    nobody has read yet is indistinguishable from a real reading. So the
-    run names what it could not read — and, on the next run that reads it,
-    stops naming it. The re-ingest half is the assertion that matters: a
-    list merged rather than replaced would keep every field flagged
-    forever.
+    """`unread_fields` names what this run could not read and is recomputed,
+    never merged, so the re-ingest half matters most: a merged list would keep
+    every field flagged forever (CLAUDE.md, `Server.unread_fields`).
     """
     service = _service(mongo_holder)
     repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
@@ -474,16 +424,12 @@ async def test_the_document_records_which_fields_this_run_could_not_read(
         "hardware.storage.drives",
         "hardware.storage.total_bytes",
         "identity.nic_macs",
-        # `_fully_read()`'s base never sets these (added 2026-09-08) —
-        # a provider that reports nothing for them, same as any other
-        # optional field, shows up here rather than silently reading None.
+        # `_fully_read()`'s base never sets these, so they read as unread.
         "profile_template.external_id",
         "profile_template.name",
     ]
 
-    # Same host, next run, everything read. `gpus=()` is a real answer —
-    # "there are none installed" — so it must clear the flag too, same as
-    # a real template name/id clears the profile_template flags.
+    # `gpus=()` is a real answer ("none installed"), so it clears the flag too.
     await service.ingest(
         _OneShotProvider(
             _fully_read(

@@ -47,20 +47,14 @@ pytestmark = pytest.mark.unit
 
 
 def _settings(**overrides: Any) -> Settings:
-    """Settings built from explicit values only.
-
-    `_env_file=None` matters: `Settings` reads `.env` by default, so a
-    developer's real UCS credentials sitting in one would otherwise decide
-    which collector these tests build.
+    """Settings built from explicit values only — `_env_file=None` keeps a
+    developer's real `.env` credentials from deciding which collector is built.
     """
     return Settings(_env_file=None, **overrides)
 
 
 def _central_settings(**overrides: Any) -> Settings:
-    """Settings that can actually build the UCS Central collector: it needs
-    a fleet-wide UCS Manager login on top of the Central connection, since
-    it logs into each registered domain itself.
-    """
+    """Settings with the fleet-wide UCS Manager login the Central collector needs."""
     return _settings(
         ucs_manager_username="domain-admin",
         ucs_manager_password="domain-secret",
@@ -69,10 +63,7 @@ def _central_settings(**overrides: Any) -> Settings:
 
 
 def _central_settings_for_run() -> Settings:
-    """Everything `_run` needs to get as far as the exit-code decision: the
-    Central connection it resolves an endpoint from, plus the fleet-wide UCS
-    Manager login its pre-flight check demands.
-    """
+    """Everything `_run` needs to reach the exit-code decision."""
     return _central_settings(
         ucs_central_ip="central.lab.example.com",
         ucs_central_username="central-admin",
@@ -81,9 +72,7 @@ def _central_settings_for_run() -> Settings:
 
 
 def _manager(**overrides: Any) -> Manager:
-    """Defaults to UCS Central — the only manager type this tool can be
-    pointed at since the standalone UCS Manager entry point was removed.
-    """
+    """A `Manager`, UCS Central by default."""
     defaults: dict[str, Any] = {
         "_id": "mgr-1",
         "name": "ucs-central-lab",
@@ -111,9 +100,6 @@ class FakeCredentialResolver:
 
 
 class TestFormatDuration:
-    """The 60s boundary is the whole logic: below it, seconds with one
-    decimal; at or above it, whole minutes and seconds."""
-
     @pytest.mark.parametrize(
         ("seconds", "expected"),
         [
@@ -149,10 +135,8 @@ class TestFormatSpeed:
 
 class TestBuildProvider:
     async def test_builds_a_provider_for_oneview(self) -> None:
-        """The HPE entry point: one appliance, one login, and no BMC
-        login at all — OneView is the only source for every HPE server
-        whatever its iLO generation. See
-        docs/adr/0022-oneview-only-hpe-collector.md.
+        """The HPE entry point: one appliance, one login, no BMC login at all
+        (docs/adr/0022-oneview-only-hpe-collector.md).
         """
         resolver = FakeCredentialResolver()
         provider = _build_provider(
@@ -165,12 +149,8 @@ class TestBuildProvider:
         assert resolver.resolved == [ManagerType.ONEVIEW]
 
     async def test_builds_a_provider_for_openmanage(self) -> None:
-        """The Dell entry point: one OME appliance covers the whole Dell
-        estate, so `_build_provider` needs no per-domain login the way
-        UCS Central does — but it does need a BMC login on top of the
-        OME one, since `_openmanage_provider` reads each server's
-        hardware from its own iDRAC rather than from OME
-        (docs/adr/0020-dell-identity-from-ome-hardware-from-redfish.md).
+        """The Dell entry point: one OME login plus a BMC login, since hardware
+        is read from each iDRAC (docs/adr/0020-dell-identity-from-ome-hardware-from-redfish.md).
         """
         resolver = FakeCredentialResolver()
         provider = _build_provider(
@@ -183,10 +163,6 @@ class TestBuildProvider:
         assert resolver.resolved == [ManagerType.OPENMANAGE]
 
     async def test_openmanage_without_a_bmc_login_is_rejected_before_connecting(self) -> None:
-        """The Dell collector's own `ManagerNotConfiguredError` — a half-
-        configured deployment gets the variable names to set rather than
-        a per-BMC 401 that reads like a fleet of bad passwords.
-        """
         with pytest.raises(ManagerNotConfiguredError) as excinfo:
             _build_provider(
                 _manager(type=ManagerType.OPENMANAGE),
@@ -199,13 +175,8 @@ class TestBuildProvider:
         assert "INVENTORY_OME_BMC_PASSWORD" in message
 
     async def test_builds_a_provider_for_ucs_central(self) -> None:
-        """The one Cisco entry point: Central discovers every registered
-        domain, and each domain's own UCS Manager supplies the inventory.
-
-        `settings` is passed explicitly rather than left to default,
-        because the collector reads its domain login and name pattern from
-        there — a test that did not pin it would silently exercise whatever
-        the ambient environment happened to configure.
+        """The one Cisco entry point. `settings` is pinned explicitly because the
+        collector reads its domain login and name pattern from there.
         """
         resolver = FakeCredentialResolver()
         provider = _build_provider(
@@ -218,10 +189,8 @@ class TestBuildProvider:
         assert resolver.resolved == [ManagerType.UCS_CENTRAL]
 
     async def test_pointing_the_tool_at_ucs_manager_says_use_ucs_central(self) -> None:
-        """`UcsManagerProvider` is not gone — it is the engine the Central
-        collector drives once per domain — so "no collector implemented
-        yet" would send an operator looking for code that is already there.
-        The message has to name the replacement instead.
+        """`UcsManagerProvider` still exists as the engine `UCS_CENTRAL` drives per
+        domain, so the message must name the replacement, not "not implemented".
         """
         with pytest.raises(NotImplementedError) as excinfo:
             _build_provider(
@@ -236,10 +205,8 @@ class TestBuildProvider:
         assert "INVENTORY_UCS_MANAGER_USERNAME" in message
 
     async def test_without_a_domain_login_the_variables_are_named(self) -> None:
-        """The established failure shape for a half-configured vendor: say
-        exactly which environment variables to set, rather than attempting
-        a login that fails as "bad credentials". Raised before any
-        connection, so it costs no round trip.
+        """A half-configured vendor names the variables to set, before any
+        connection, rather than failing a login as "bad credentials".
         """
         with pytest.raises(ManagerNotConfiguredError) as excinfo:
             _build_provider(
@@ -306,12 +273,8 @@ class TestRunOneManager:
         """
 
         class PartiallyFailedProvider:
-            """Duck-typed, not `ServerInventoryProvider`: `FakeIngestService`
-            below never drives `collect()`/`_list_servers()` at all, so a
-            plain `collection_errors` attribute — what a real run would have
-            reported by the time `_run_one_manager` reads it — is the
-            honest double here, not a body that looks like it runs but
-            never gets called.
+            """Duck-typed on purpose: `FakeIngestService` never drives `collect()`,
+            so a plain `collection_errors` attribute is the honest double.
             """
 
             provider_type = "UCS_CENTRAL"
@@ -406,10 +369,8 @@ class TestRunOneManager:
         assert result is None
 
     async def test_a_manager_type_with_no_entry_point_is_reported_as_a_failure(self) -> None:
-        """Every `ManagerType` now has a collector except `UCS_MANAGER`,
-        which deliberately has no entry point of its own. Pointing the
-        tool at it must fail loudly rather than look like a manager with
-        zero servers.
+        """`UCS_MANAGER` deliberately has no entry point; pointing the tool at it
+        must fail loudly rather than look like a manager with zero servers.
         """
         result = await _run_one_manager(
             _manager(type=ManagerType.UCS_MANAGER),
@@ -432,11 +393,6 @@ def _factory(provider: Any) -> Any:
 
 class TestDryRun:
     async def test_dry_run_reports_servers_without_ingesting(self, capsys: Any) -> None:
-        """The whole point of --dry-run is that it never reaches the
-        pipeline: no classification, no health evaluation, no audit
-        events, no upsert.
-        """
-
         class FakeProvider(ServerInventoryProvider):
             provider_type = "UCS_MANAGER"
 
@@ -456,18 +412,13 @@ class TestDryRun:
         )
         assert count == 2
         out = capsys.readouterr().out
-        # The site each name resolves to is shown, since that is derived
-        # at ingest and is otherwise invisible until after a real write.
+        # The site is derived at ingest, so the dry run has to show it.
         assert "ocp4-prod-tlv-infra-01" in out
         assert "tlv" in out
         assert "five" in out
         assert "Nothing was written" in out
 
     async def test_dry_run_falls_back_to_the_org_dn_for_the_site(self, capsys: Any) -> None:
-        """A UCS server whose name carries no site token still gets one
-        when its service profile lives under a site-named org.
-        """
-
         class FakeProvider(ServerInventoryProvider):
             provider_type = "UCS_CENTRAL"
 
@@ -546,10 +497,6 @@ class TestDryRun:
         assert "health=HEALTHY (OK)" in out
 
     async def test_dry_run_shows_drive_health_detail(self, capsys: Any) -> None:
-        """`health_detail` — the raw vendor state `health` was reduced
-        from — added 2026-09-07, alongside the same field for PSUs/GPUs.
-        """
-
         class FakeProvider(ServerInventoryProvider):
             provider_type = "UCS_CENTRAL"
 
@@ -585,12 +532,6 @@ class TestDryRun:
         assert "health=CRITICAL (self-test-failed)" in out
 
     async def test_dry_run_shows_psu_detail(self, capsys: Any) -> None:
-        """Added 2026-09-01 at the user's request — the domain model and
-        the health engine's `power.failed_psu_count` metric already
-        existed, but no provider had ever populated it, so the dry-run
-        print never had anything to show either.
-        """
-
         class FakeProvider(ServerInventoryProvider):
             provider_type = "INTERSIGHT"
 
@@ -630,21 +571,16 @@ class TestDryRun:
         )
         out = capsys.readouterr().out
         assert "psus        : 2" in out
-        # health_detail — the raw vendor state health was reduced from,
-        # added 2026-09-07 — prints in parens right after health=; a PSU
-        # without one dashes the same way every other unread field here
-        # does rather than disappearing silently.
+        # health_detail (the raw vendor state) prints in parens after health=;
+        # a PSU without one dashes like every other unread field here.
         assert "psu 1  PSU-750W  serial=PSU-1  750W  health=UP (operable)  power=—" in out
         assert "psu 2  PSU-750W  serial=PSU-2  750W  health=DOWN (—)  power=—" in out
 
     async def test_dry_run_shows_the_raw_ucs_power_field_alongside_oper_state(
         self, capsys: Any
     ) -> None:
-        """UCS Manager's `equipmentPsu` carries a second, separate `power`
-        state field beside `oper_state` — collected but not yet reduced
-        to one signal, so a live run can show which tracks a real PSU
-        failure more reliably (docs/cisco-collectors.md, "Power supplies
-        (PSUs)"). A provider without it (Intersight) always prints "—".
+        """`equipmentPsu.power` is collected beside `oper_state`, not reduced into
+        it (docs/cisco-collectors.md, "Power supplies (PSUs)"); Intersight prints "—".
         """
 
         class FakeProvider(ServerInventoryProvider):
@@ -681,13 +617,8 @@ class TestDryRun:
         assert "health=UP (—)  power=ok" in out
 
     async def test_dry_run_hides_fi_identity_on_a_vnic_attachment(self, capsys: Any) -> None:
-        """A vNIC structurally never carries a fabric relationship at all
-        (`docs/cisco-collectors.md`, "PHYSICAL versus VNIC") — printing
-        "fabric None / FI model/serial=—/—" on every one reads as missing
-        data rather than as a field its kind has no equivalent for. A
-        standalone server (no PHYSICAL attachment at all, since nothing
-        cables to a Fabric Interconnect it doesn't have) never shows an
-        FI-shaped line as a direct consequence of this.
+        """A vNIC never carries a fabric relationship (docs/cisco-collectors.md,
+        "PHYSICAL versus VNIC"), so an FI line on it would read as missing data.
         """
 
         class FakeProvider(ServerInventoryProvider):
@@ -738,10 +669,8 @@ class TestDryRun:
     async def test_dry_run_shows_the_fabric_cluster_name_on_a_physical_attachment(
         self, capsys: Any
     ) -> None:
-        """`fabric_name` — UCS Manager's `topSystem.name`, added
-        2026-09-07 — prints in parens right after `fabric {A|B}`. `A`/`B`
-        already tells the two sides of one domain apart; the name tells
-        one domain apart from another in a multi-domain fleet.
+        """`fabric_name` (`topSystem.name`, ADR-0009) prints after `fabric {A|B}`:
+        the letter tells a domain's two sides apart, the name tells domains apart.
         """
 
         class FakeProvider(ServerInventoryProvider):
@@ -788,11 +717,6 @@ class TestDryRun:
     async def test_dry_run_shows_nic_speed_in_gbps_and_dashes_when_unread(
         self, capsys: Any
     ) -> None:
-        """A 25 Gbps port reads as `25 Gbps`, not `25000mbps`; a NIC the
-        BMC reported no speed for dashes the same way every other unread
-        field here does, rather than silently disappearing.
-        """
-
         class FakeProvider(ServerInventoryProvider):
             provider_type = "REDFISH_STANDALONE"
 
@@ -856,13 +780,8 @@ class TestDryRun:
         assert "stopped at --limit 3" in capsys.readouterr().out
 
     async def test_dry_run_limit_does_not_pull_one_past_it(self, capsys: Any) -> None:
-        """A plain `async for` fetches its *next* item before the loop body
-        checks anything — so a limit check that runs *before* processing
-        the item it just received always requests one server past the
-        limit before discovering it should have stopped already. Checking
-        after processing the Nth item — so the (N+1)th is never asked
-        for at all — is what this asserts, via a provider that records
-        every item it was actually asked to produce.
+        """`async for` fetches the next item before the body runs, so the limit
+        must be checked after processing the Nth item or the (N+1)th is requested.
         """
         requested: list[int] = []
 
@@ -916,11 +835,6 @@ class TestDryRun:
         assert "stopped at --limit 0" in capsys.readouterr().out
 
     async def test_dry_run_limit_still_closes_the_inner_provider(self) -> None:
-        """Same shape as `TestNameFilter`'s equivalent, one layer up: the
-        limit stopping the loop early must not leave the provider's own
-        teardown to the asyncgen finalizer.
-        """
-
         class FakeProvider(ServerInventoryProvider):
             provider_type = "UCS_MANAGER"
 
@@ -951,12 +865,7 @@ class TestDryRun:
 
 class TestResolveNamePattern:
     """`resolve_name_pattern` — the one place the global, each collector's
-    override and `_UNFILTERED_TYPES` are reconciled.
-
-    It has to be one place: the authoritative `_NameFilteredProvider` and
-    the three collectors' own pruning gates would otherwise be free to
-    filter on different patterns, and a run would silently collect their
-    intersection.
+    override and `_UNFILTERED_TYPES` are reconciled (CLAUDE.md, name pattern).
     """
 
     def test_a_collector_with_no_override_inherits_the_global(self) -> None:
@@ -972,7 +881,6 @@ class TestResolveNamePattern:
     def test_an_override_wins_over_the_global(self) -> None:
         settings = _settings(collector_name_pattern="^ocp", oneview_name_pattern="^hpe")
         assert resolve_name_pattern(ManagerType.ONEVIEW, settings) == "^hpe"
-        # And only for that collector.
         assert resolve_name_pattern(ManagerType.INTERSIGHT, settings) == "^ocp"
 
     def test_an_explicitly_empty_override_opts_out_of_a_nonempty_global(self) -> None:
@@ -1000,12 +908,9 @@ class TestResolveNamePattern:
 
 
 class TestOverridesReachTheInnerPruningGates:
-    """Three collectors prune on the name pattern *before* the
-    authoritative `_NameFilteredProvider` ever sees a server — OME skips
-    BMCs, UCS Central skips domains, OneView skips the per-server
-    `/powerSupplies` and `/processors` calls. Each one reading `Settings`
-    itself is what would let a run filter on the override and prune on the
-    global, collecting the intersection with nothing logged.
+    """OME, UCS Central and OneView prune on the pattern before `_NameFilteredProvider`
+    sees a server; a factory reading `Settings` itself would prune on the global
+    and filter on the override, silently collecting the intersection.
     """
 
     def test_ucs_central_prunes_domains_on_the_override(self) -> None:
@@ -1063,11 +968,6 @@ class TestOverridesReachTheInnerPruningGates:
 
 
 class TestNameFilter:
-    """`INVENTORY_COLLECTOR_NAME_PATTERN` — a vendor manager holds the
-    whole datacenter, so this is what decides which of its servers are
-    this platform's at all.
-    """
-
     class _Fake(ServerInventoryProvider):
         provider_type = "UCS_MANAGER"
 
@@ -1076,10 +976,8 @@ class TestNameFilter:
             self._names = names
             self._error = error
             self.health_checked = 0
-            # Set in `_list_servers`'s own `finally`, so a test can tell a
-            # closed-and-drained provider apart from one abandoned
-            # mid-collection — the real providers' equivalent is a
-            # session logout / task cancellation.
+            # Set in `_list_servers`'s `finally`, so a test can tell a closed
+            # provider apart from one abandoned mid-collection.
             self.torn_down = False
 
         async def health_check(self) -> None:
@@ -1109,10 +1007,8 @@ class TestNameFilter:
         assert kept == ["ocp4-prod-tlv-infra-01", "ocp4-hypershift-five-01"]
 
     async def test_the_anchor_is_the_operators_to_write(self) -> None:
-        """`re.search`, not `re.match` — so `^ocp` means "starts with" and
-        an unanchored pattern stays a substring match, rather than the
-        code silently anchoring something the operator didn't ask for.
-        A name merely *containing* "ocp" is not an OCP server.
+        """`re.search`, not `re.match`: `^ocp` means "starts with" and an
+        unanchored pattern stays a substring match the operator asked for.
         """
         assert await self._names_through("^ocp", "legacy-ocp-gateway-01") == []
         assert await self._names_through("ocp", "legacy-ocp-gateway-01") == [
@@ -1128,20 +1024,13 @@ class TestNameFilter:
         assert _filtered(fake, "") is fake
 
     async def test_health_check_still_reaches_the_real_provider(self) -> None:
-        """The wrapper stands in for the provider everywhere, including
-        the login `IngestService.ingest()` performs first.
-        """
         fake = self._Fake()
         await _filtered(fake, "^ocp").health_check()
         assert fake.health_checked == 1
 
     async def test_stopping_early_still_closes_the_inner_provider(self) -> None:
-        """A consumer stopping early (`--limit`, a killed run) throws
-        `GeneratorExit` in at this wrapper's own `yield`, which used to
-        leave the inner provider's generator to the asyncgen finalizer
-        instead of closing it now — the inner provider's own teardown
-        (a session logout, cancelling its own tasks) only runs once that
-        finalizer eventually gets to it, which is not "now".
+        """`GeneratorExit` at the wrapper's own `yield` used to leave the inner
+        generator (and its session logout) to the asyncgen finalizer, not "now".
         """
         fake = self._Fake("ocp-1", "ocp-2", "ocp-3")
         async with contextlib.aclosing(_filtered(fake, "^ocp").collect()) as servers:
@@ -1171,12 +1060,9 @@ class TestNameFilter:
 
 
 class TestNameFilteredProviderCollectionErrors:
-    """`_NameFilteredProvider.collection_errors` must delegate to the
-    provider it wraps, never accumulate its own — the wrapper never calls
-    `_record_error`, so inheriting the base's bookkeeping unmodified would
-    always read back empty, making every filtered run (every real run,
-    since `^ocp` is always set) look complete even when the inner
-    provider missed part of the fleet.
+    """`_NameFilteredProvider.collection_errors` must delegate to the wrapped
+    provider: the wrapper never calls `_record_error`, so the inherited
+    bookkeeping would read back empty and every real run would look complete.
     """
 
     async def test_delegates_to_the_inner_providers_own_errors(self) -> None:
@@ -1198,22 +1084,14 @@ class TestNameFilteredProviderCollectionErrors:
 
 
 class TestEndpointlessAndUnfilteredTypes:
-    """`REDFISH_STANDALONE` is the one manager type with no configured
-    endpoint (`_ENDPOINTLESS_TYPES`) and the one exempt from
-    `INVENTORY_COLLECTOR_NAME_PATTERN` (`_UNFILTERED_TYPES`). Both lines
-    are read inside `_run` itself, ahead of `_build_provider`, and neither
-    had a test naming the type: flipping either one silently ingests zero
-    standalone BMCs (an empty inventory reads as a healthy, small run,
-    exit 0) or demands `INVENTORY_REDFISH_STANDALONE_IP`, a variable that
-    deliberately does not exist. See C4 / T3 in `docs/notes/
-    2026-09-audit.md`.
+    """`REDFISH_STANDALONE` is in both `_ENDPOINTLESS_TYPES` and `_UNFILTERED_TYPES`,
+    read inside `_run` ahead of `_build_provider`; flipping either silently ingests
+    zero BMCs or demands a variable that does not exist (docs/notes/2026-09-audit.md C4/T3).
     """
 
     class _RaisingResolver:
-        """Stands in for `EnvConnectionResolver` — `.resolve()` raises, so
-        a call proves `_ENDPOINTLESS_TYPES` was not honoured, rather than
-        silently succeeding against whatever the ambient environment
-        happens to configure.
+        """Stands in for `EnvConnectionResolver`: `.resolve()` raises, so a call
+        proves `_ENDPOINTLESS_TYPES` was not honoured.
         """
 
         def __init__(self, _settings: Any) -> None:
@@ -1233,9 +1111,7 @@ class TestEndpointlessAndUnfilteredTypes:
         code = await _run(manager_type=ManagerType.REDFISH_STANDALONE, dry_run=True)
 
         assert code == 0
-        # The `Manager` projection's endpoint is the inventory file path —
-        # not an `_IP` variable `EnvConnectionResolver.resolve` would have
-        # demanded (and, per `_RaisingResolver`, would have crashed on).
+        # The `Manager` projection's endpoint is the inventory file path.
         assert "inventory/standalone.yaml" in capsys.readouterr().out
 
     async def test_redfish_standalone_ignores_the_name_pattern(
@@ -1256,9 +1132,6 @@ class TestEndpointlessAndUnfilteredTypes:
 
         assert code == 0
         out = capsys.readouterr().out
-        # A standalone inventory file is already the filter, and a far more
-        # precise one — applying `^ocp` on top of it would discard every
-        # host the operator listed. Both names must survive.
         assert "ocp4-prod-tlv-infra-01" in out
         assert "vmhost-two-14" in out
 
@@ -1289,10 +1162,8 @@ class TestEndpointlessAndUnfilteredTypes:
 
 
 class FakeMongo:
-    """Stands in for `MongoClientHolder` so the exit-code decision can be
-    tested without a database. Only exercised by `TestRunExitCodes` below,
-    which never passes `dry_run=True` — `_run` no longer connects to Mongo
-    at all on the dry-run path (see `TestDryRunNeverTouchesMongo`).
+    """Stands in for `MongoClientHolder` so `TestRunExitCodes` runs without a
+    database; the dry-run path never connects (`TestDryRunNeverTouchesMongo`).
     """
 
     def __init__(self, _settings: Any) -> None:
@@ -1315,12 +1186,8 @@ def _outcome(*, fetched: int = 3, errors: int = 0, collection_errors: tuple[str,
 
 
 class TestRunExitCodes:
-    """0 complete, 1 total failure, 2 not configured, 3 partial.
-
-    3 is the one that matters: before it existed, a run that reached only
-    half the fleet exited 0 and was indistinguishable from a healthy run
-    against a smaller estate — which is how a bad credential on one domain
-    stays invisible for weeks.
+    """0 complete, 1 total failure, 2 not configured, 3 partial — without 3, a
+    run reaching half the fleet was indistinguishable from a healthy smaller one.
     """
 
     @pytest.fixture(autouse=True)
@@ -1359,8 +1226,7 @@ class TestRunExitCodes:
         assert code == 3
         out = capsys.readouterr().out
         assert "PARTIAL" in out
-        # The specific domain is printed, not just a count — otherwise the
-        # operator still has to go log-diving to learn which one broke.
+        # The specific domain is printed, not just a count.
         assert "10.0.0.2" in out
 
     async def test_a_plain_unreachable_host_alone_exits_zero(
@@ -1439,10 +1305,8 @@ class TestRunExitCodes:
         out = capsys.readouterr().out
         assert code == 1
         assert "FAILED" in out
-        # `_run_one_manager` swallows its own exception into `None`, so the
-        # timer wraps its *call site* in `_run` rather than living inside
-        # it — this is what proves a run that fails still reports how long
-        # it took before dying, not just a complete one.
+        # `_run_one_manager` swallows its exception into `None`, so the timer
+        # wraps its call site in `_run`: a failed run still reports how long it took.
         assert "took=" in out
 
     async def test_a_complete_run_logs_run_complete_with_a_raw_float_duration(
@@ -1485,13 +1349,8 @@ class TestRunExitCodes:
 
 
 class TestDryRunNeverTouchesMongo:
-    """`--dry-run` only talks to the vendor manager, never to MongoDB.
-
-    `_run` used to connect unconditionally before checking `dry_run`, so a
-    misconfigured or unreachable Mongo could fail a dry run that was never
-    going to touch it. `MongoClientHolder` is stubbed to raise on
-    `connect()` — if the fix regresses, this test fails loudly rather than
-    just running slower against a real database.
+    """`--dry-run` only talks to the vendor manager, never to MongoDB — `_run`
+    used to connect before checking `dry_run`, so an unreachable Mongo failed it.
     """
 
     async def test_dry_run_never_connects_to_mongo(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1513,11 +1372,8 @@ class TestDryRunNeverTouchesMongo:
 
 
 class TestDryRunExitCodes:
-    """`--dry-run` has its own exit-code branch, separate from
-    `TestRunExitCodes`'s 0/1/2/3 above: 0 on success, 1 on any exception.
-    Nothing previously drove `_run(dry_run=True)` all the way to its
-    returned code — only the printed output and count were asserted — so
-    the failure branch (`_run:1049-1052`) was uncovered.
+    """`--dry-run` has its own exit-code branch, separate from `TestRunExitCodes`:
+    0 on success, 1 on any exception.
     """
 
     async def test_a_successful_dry_run_exits_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1545,13 +1401,9 @@ class TestDryRunExitCodes:
 
 
 class TestManagerTypeInLogContext:
-    """`ingest.completed` (`app.application.services.ingest`) has no
-    `manager_type` field of its own to log, so it needs to reach the log
-    line some other way — asserted here on the actual structlog
-    contextvars rather than `capture_logs()`, which has a documented
-    `cache_logger_on_first_use` interaction that makes it order-dependent
-    across the full suite (see CLAUDE.md's dev-loop notes); reading the
-    contextvar state directly has no such dependency.
+    """`ingest.completed` has no `manager_type` field, so it reaches the log line
+    via structlog contextvars — asserted on those directly, not `capture_logs()`,
+    whose `cache_logger_on_first_use` interaction makes it order-dependent.
     """
 
     async def test_manager_type_is_bound_for_the_run_and_unbound_after(
@@ -1572,9 +1424,7 @@ class TestManagerTypeInLogContext:
         await _run(manager_type=ManagerType.UCS_CENTRAL, dry_run=True)
 
         assert seen.get("manager_type") == "UCS_CENTRAL"
-        # Unbound in `_run`'s own `finally`, not left to leak into whatever
-        # this process logs next (the CronJob pod's own exit, or — in the
-        # test process — the next test).
+        # Unbound in `_run`'s own `finally`, not left to leak into the next test.
         assert "manager_type" not in structlog.contextvars.get_contextvars()
 
 

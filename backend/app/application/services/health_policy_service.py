@@ -50,13 +50,8 @@ from app.errors import (
 )
 from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolicyRepository
 
-# Source -> which single scope field that source requires to be set (and,
-# for GLOBAL_CUSTOM, requires *not* to be set). Mirrors the classification
-# rule scope/source coherence rule described in the task brief; kept here
-# rather than in `app.domain.models.health_policy` because it's a
-# write-time business rule, not a structural invariant of the model
-# itself (the model's own validators only enforce priority-band and mode
-# validity — see that module's docstring).
+# Source -> the one scope field it requires; a write-time rule, not a model
+# invariant (docs/architecture.md, "Health policy engine").
 _SCOPE_REQUIREMENTS: dict[str, str] = {
     "SITE_CUSTOM": "site_id",
     "MANAGER_CUSTOM": "manager_types",
@@ -94,19 +89,8 @@ def validate_policy_write(policy: HealthPolicy, *, registry: MetricRegistry) -> 
     """
     Validate what `HealthPolicy`'s own model validators don't already enforce.
 
-    Checks condition safety against the metric registry, template safety
-    against the declared evidence keys, and source/scope coherence —
-    beyond the model's own priority-band and mode-validity checks (see
-    `HealthPolicy`'s docstring). Called by
-    `app.application.services.bootstrap` before seeding or re-syncing a
-    shipped system default.
-
-    `ConditionValidationError` messages are pattern-matched to decide
-    between the three health-policy error codes that already exist for
-    condition problems (`UNKNOWN_METRIC`, `METRIC_OPERATOR_MISMATCH`,
-    generic `CONDITION_INVALID`) — the domain layer raises one exception
-    type for all of these, so message content is the only signal
-    available here without changing that (fixed, read-only) contract.
+    Condition safety, template safety and source/scope coherence; see
+    docs/architecture.md, "Health policy engine", for the error-code mapping.
 
     Args:
         policy (HealthPolicy): The fully-merged policy that would be written.
@@ -164,12 +148,8 @@ class HealthPolicyService:
         """
         Load every stored policy fresh and evaluate against this server's facts.
 
-        The right choice for a single, standalone evaluation against
-        whatever is current right now (the
-        `POST /servers/{id}/health/recalculate` route). A caller
-        evaluating many servers in one run should call `load_policies`
-        once instead and `evaluate_with_policies` per server; see
-        `load_policies`'s docstring for why.
+        For one standalone evaluation (`POST .../health/recalculate`); a
+        loop over many servers uses `load_policies` + `evaluate_with_policies`.
 
         Args:
             server (Server): The server to evaluate.
@@ -183,13 +163,10 @@ class HealthPolicyService:
 
     async def load_policies(self) -> list[HealthPolicy]:
         """
-        Every stored policy, for a caller evaluating many servers in one run.
+        Every stored policy, loaded once per run.
 
-        Scope filtering happens inside `evaluate_health` itself, not here.
-        The ingestion pipeline calls this once and reuses the result,
-        rather than a fresh `evaluate_server` call per server — before
-        this existed, a 10,000-server run issued ~10,000 uncached
-        collection reads for an answer that cannot change during the run.
+        Scope filtering happens inside `evaluate_health` itself, not here;
+        see docs/architecture.md, "Ingestion", for the load-once shape.
 
         Returns:
             list[HealthPolicy]: The policies to pass into
@@ -201,10 +178,8 @@ class HealthPolicyService:
         """
         Evaluate against an already-loaded policy set (`load_policies`).
 
-        The ingest-loop counterpart to `evaluate_server`, which loads its
-        own policy set on every call. `Server.source_provider` is the
-        collector's `ManagerType` value and is what manager-scoped
-        policies match against.
+        `Server.source_provider` is the collector's `ManagerType` value and
+        is what manager-scoped policies match against (ADR-0030).
 
         Args:
             server (Server): The server to evaluate.

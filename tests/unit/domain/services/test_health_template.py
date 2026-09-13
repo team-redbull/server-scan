@@ -9,7 +9,7 @@ from app.domain.services.health.template import (
 
 class TestValidateTemplate:
     def test_accepts_declared_field(self) -> None:
-        validate_template("{down} of {total} paths down", {"down", "total"})  # should not raise
+        validate_template("{down} of {total} paths down", {"down", "total"})
 
     def test_rejects_undeclared_field(self) -> None:
         with pytest.raises(TemplateValidationError, match="not a declared"):
@@ -36,7 +36,7 @@ class TestValidateTemplate:
             validate_template("{down:>99999}", {"down"})
 
     def test_allows_decimal_format_spec(self) -> None:
-        validate_template("{down:.2f}", {"down"})  # should not raise
+        validate_template("{down:.2f}", {"down"})
 
     def test_rejects_too_many_fields(self) -> None:
         template = " ".join(f"{{f{i}}}" for i in range(11))
@@ -66,10 +66,8 @@ class TestRenderTemplate:
             def __format__(self, spec: str) -> str:
                 raise RuntimeError("should never be called")
 
-        # Even if a caller somehow put a non-scalar object in evidence,
-        # rendering must not blow up or invoke exotic __format__ hooks in
-        # a way that could be exploited — the renderer's `_coerce` only
-        # special-cases list/None and otherwise falls back to plain str().
+        # A non-scalar in evidence must not reach an exotic `__format__` hook:
+        # `_coerce` special-cases list/None and otherwise falls back to str().
         result = render_template("{x}", {"x": Evil()})
         assert isinstance(result, str)
 

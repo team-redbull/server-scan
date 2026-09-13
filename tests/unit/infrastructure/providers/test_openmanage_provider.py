@@ -171,8 +171,7 @@ def _collected(host: str, **overrides: Any) -> ProviderServer:
         "name": "ocp4-nyc-prod-worker-03",
         "model": "PowerEdge R650",
         "serial": "7XKD9P3",
-        # The real shape the Redfish mapping emits: scheme-rewritten origin
-        # plus the system's own path, not a bare `https://host`.
+        # The shape the Redfish mapping emits, not a bare `https://host`.
         "bmc_address_raw": f"redfish://{host}/redfish/v1/Systems/System.Embedded.1",
         "cpu_sockets": 2,
         "cpu_cores": 32,
@@ -239,9 +238,8 @@ class TestDiscovery:
 
     async def test_the_name_filter_runs_before_any_bmc_is_contacted(self) -> None:
         """The expensive pass is per-server here, so a non-matching profile
-        must never become a target. This is the difference from the
-        standalone Redfish collector, where the filter is deliberately off
-        because a BMC does not know the server's name.
+        must never become a target — unlike standalone Redfish, where a BMC
+        does not know the server's name (docs/dell-collectors.md).
         """
         provider, recorded = _provider(
             profiles=[
@@ -304,10 +302,9 @@ class TestTheJoin:
         assert server.profile_template_external_id == "412"
 
     async def test_the_bmc_address_keeps_its_metal3_shape(self) -> None:
-        """The Redfish pass reports `https://<host>`; a Dell server's stored
+        """The Redfish pass reports `https://<host>`, but a Dell server's
         address must stay the `idrac-virtualmedia://` form a Metal3
-        BareMetalHost round-trips. Collecting over Redfish must not
-        silently downgrade it.
+        BareMetalHost round-trips (docs/dell-collectors.md).
         """
         provider, _ = _provider(
             profiles=[_profile("ocp4-nyc-prod-worker-03", "10.0.0.1")],
@@ -429,12 +426,9 @@ class TestPartialRuns:
         assert provider.collection_errors == ("10.0.0.2: unreachable",)
 
     async def test_redfish_errors_survive_a_consumer_that_stops_early(self) -> None:
-        """The merge used to run only after the `async for` below exhausted
-        naturally. A consumer that stops early (`--limit`, a killed run)
-        throws `GeneratorExit` in at this provider's own `yield`, which
-        used to skip the merge entirely — every per-host Redfish failure
-        silently dropped, reporting a complete run over a fleet that was
-        only half collected.
+        """A consumer that stops early (`--limit`, a killed run) throws
+        `GeneratorExit` in at this provider's `yield`; the merge used to be
+        skipped then, silently dropping every per-host Redfish failure.
         """
         provider, recorded = _provider(
             profiles=[
@@ -448,10 +442,9 @@ class TestPartialRuns:
             servers=[_collected("10.0.0.1"), _collected("10.0.0.2")],
         )
 
-        # `aclosing`, not a bare `async for ... break`: a `break` alone
-        # never calls `.aclose()` on the generator (that's the very gap
-        # this fix closes production-side too), so it wouldn't actually
-        # exercise the `GeneratorExit` path this test is about.
+        # `aclosing`, not a bare `async for ... break`: `break` alone never
+        # calls `.aclose()`, so it would not exercise the `GeneratorExit`
+        # path this test is about.
         async with contextlib.aclosing(provider.collect()) as servers:
             async for _server in servers:
                 recorded["redfish"].collection_errors = ("10.0.0.3: unreachable",)

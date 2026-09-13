@@ -40,20 +40,13 @@ def test_validate_rejects_invalid_pattern_syntax() -> None:
 
 
 def test_validate_accepts_a_reasonable_pattern() -> None:
-    ENGINE.validate(
-        r"^ocp-dell-.*$", ignore_case=True, multiline=False, dotall=False
-    )  # should not raise
+    ENGINE.validate(r"^ocp-dell-.*$", ignore_case=True, multiline=False, dotall=False)
 
 
 def test_catastrophic_backtracking_pattern_times_out_on_search() -> None:
-    # The `regex` module's backtracking is measurably more resistant to
-    # this classic pathological shape than stdlib `re` — empirically, a
-    # short (~40-char) pathological subject completes in under a
-    # millisecond here, where it would hang stdlib `re` immediately.
-    # A few thousand characters still blows it up exponentially; this is
-    # exactly why `_CANARY_INPUTS` (in regex_engine.py) uses a 2000-char
-    # canary, not a 40-char one — a canary set tuned to stdlib `re`'s
-    # much lower blowup threshold would give this engine a false pass.
+    # A ~40-char subject that hangs stdlib `re` completes in under a millisecond
+    # on the `regex` module; ~2000 chars is what blows it up, which is why
+    # `_CANARY_INPUTS` is sized that way (docs/architecture.md, "Regex").
     tight_engine = RegexModuleEngine(max_pattern_length=2100, match_timeout_seconds=0.25)
     with pytest.raises(RegexTimeout):
         tight_engine.search(

@@ -1,14 +1,7 @@
-"""`app.domain.value_objects.site` — the site catalog, and the parser
-every server's site label depends on.
-
-Its false-positive behaviour matters more than its happy path: the codes
-are short, they appear inside hostnames, and a substring match would
-label servers with a site they are not in.
-
-Since sites became configuration rather than an enum
-(docs/adr/0018-sites-from-configuration.md), the second thing these tests
-guard is that a *reconfigured* catalog behaves — a deployment naming its
-own sites is the normal case, not an edge one.
+"""
+`app.domain.value_objects.site` — the site catalog and the parser every
+server's site label depends on (ADR-0018). Its false-positive behaviour
+matters more than its happy path: the codes are short and live inside hostnames.
 """
 
 from __future__ import annotations
@@ -44,7 +37,6 @@ def parse(name: str | None) -> str | None:
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        # The real production naming patterns.
         ("ocp4-prod-tlv-infra-01", "tlv"),
         ("ocp4-prep-five-compute-01", "five"),
         ("ocp4-hypershift-five-01", "five"),
@@ -53,13 +45,10 @@ def parse(name: str | None) -> str | None:
         ("ocp4-five-compute-01", "five"),
         ("ocp4-nyc-control-plane-02", "nyc"),
         ("ocp4-tlv-worker-03", "tlv"),
-        # A site code that is itself two tokens long.
         ("ocp4-bat-yam-infra-01", "bat-yam"),
         ("ocp-dell-r660-bat-yam-64c-512gb-FCH1234567", "bat-yam"),
-        # Vendor APIs are inconsistent about case.
         ("OCP4-PROD-TLV-INFRA-01", "tlv"),
         ("Ocp4-Prod-Nyc-Infra-01", "nyc"),
-        # Other separators seen in hostnames.
         ("ocp4_prod_tlv_infra_01", "tlv"),
         ("ocp4.prod.nyc.infra.01", "nyc"),
         ("  ocp4-prod-tlv-infra-01  ", "tlv"),
@@ -76,10 +65,8 @@ def test_parses_the_site_token(name: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        # Substring matching (2026-09-09, at the operator's explicit
-        # request, deliberately accepting the false-positive risk this
-        # trades away — see the module docstring): a code glued inside a
-        # larger token, with no separator of its own, now matches.
+        # Substring matching (2026-09-09, operator's request, see the module
+        # docstring): a code glued inside a larger token now matches.
         ("ocp4-tlvx-01", "tlv"),
         ("ocp4-prod-nycity-01", "nyc"),
         ("ocp4-fivestar-01", "five"),
@@ -92,10 +79,8 @@ def test_a_code_embedded_in_a_larger_word_now_matches(name: str, expected: str) 
 @pytest.mark.parametrize(
     "name",
     [
-        # A MULTI-token code still never substring-matches: splitting a
-        # hostname on separators already removed every "-" from each
-        # token, so "bat-yam" (which carries its own "-") can never be a
-        # substring of one already-split token.
+        # A multi-token code never substring-matches: splitting removed every
+        # "-" from each token, so "bat-yam" cannot be a substring of one.
         "ocp4-batyam-01",  # "bat-yam" without its separator
         "ocp4-bat-01",  # half of "bat-yam"
         "batman-host",  # no configured code/alias is a substring of "batman"
@@ -117,17 +102,9 @@ def test_ambiguous_name_with_two_sites_returns_none_rather_than_guessing() -> No
 
 
 def test_a_short_code_can_collide_with_infra_and_go_ambiguous() -> None:
-    """A real, discovered collision, not a hypothetical one: "infra" is
-    this platform's own common role token
-    (`ocp4-prod-tlv-infra-01`), and "fra" sits right inside it.
-    Configuring "fra" as a site alongside anything collected with
-    "-infra-" in its name makes every such server ambiguous — two
-    different sites both "matched" — rather than landing on the intended
-    one. This is the accepted cost of substring-matching every code and
-    alias (2026-09-09, at the operator's explicit request after seeing
-    this exact example), not a bug: avoiding common role words (`infra`,
-    `compute`, `worker`, `master`, `control-plane`, `prod`,
-    `hypershift`) when picking a code or alias is now the operator's job.
+    """A real collision: "fra" sits inside the role token "infra", so every
+    `-infra-` server goes ambiguous. Accepted cost of substring matching
+    (2026-09-09); avoiding role words is the operator's job (ADR-0018).
     """
     catalog = SiteCatalog.from_spec("lon:London,fra:Frankfurt")
     assert parse_site_code("ocp4-prod-lon-infra-01", catalog) is None
@@ -152,31 +129,19 @@ def test_every_configured_site_has_a_display_name() -> None:
         assert definition.name
 
 
-# --- the catalog itself, now that sites are configuration -------------
-
-
 def test_a_deployment_can_name_its_own_sites() -> None:
-    """The whole point: an operator changes one environment variable and
-    the platform speaks their estate's vocabulary, with no code change.
-    """
     catalog = SiteCatalog.from_spec("lon:London,fra:Frankfurt")
 
     assert catalog.codes == ("lon", "fra")
     assert catalog.name_for("lon") == "London"
-    # Not "-infra-" here on purpose: "fra" is a substring of "infra", and
-    # that specific, real collision has its own dedicated test above
-    # (`test_a_short_code_can_collide_with_infra_and_go_ambiguous`) — this
-    # test's own point is unrelated, so it uses a role word that does not
-    # collide with either configured code.
+    # Not "-infra-" here: "fra" collides with it, and that has its own test
+    # above (`test_a_short_code_can_collide_with_infra_and_go_ambiguous`).
     assert parse_site_code("ocp4-prod-lon-worker-01", catalog) == "lon"
     # And the sites it no longer has are no longer recognised.
     assert parse_site_code("ocp4-prod-tlv-worker-01", catalog) is None
 
 
 def test_the_display_half_is_optional() -> None:
-    """A deployment that does not care about pretty labels should not
-    have to invent them.
-    """
     catalog = SiteCatalog.from_spec("lon,bat-yam")
 
     assert catalog.name_for("lon") == "Lon"
@@ -184,15 +149,11 @@ def test_the_display_half_is_optional() -> None:
 
 
 def test_an_empty_spec_falls_back_to_the_shipped_default() -> None:
-    """So dev and CI need configure nothing."""
     assert SiteCatalog.from_spec("").codes == SITES.codes
     assert SiteCatalog.from_spec("   ").codes == SITES.codes
 
 
 def test_a_multi_token_configured_code_still_matches_consecutive_tokens() -> None:
-    """The `bat-yam` shape has to keep working for a site nobody
-    anticipated when the parser was written.
-    """
     catalog = SiteCatalog.from_spec("new-york-city:NYC")
 
     assert parse_site_code("ocp4-new-york-city-infra-01", catalog) == "new-york-city"
@@ -240,10 +201,8 @@ def test_a_spec_of_only_separators_is_rejected() -> None:
 
 
 def test_the_regex_alternation_covers_every_configured_site() -> None:
-    """No production caller depends on this any more (the seeded
-    classification rules that used to interpolate it were broadened into
-    plain catch-alls with no site token), but it must still cover every
-    code and alias correctly for whatever next needs it.
+    """No production caller uses this since the seeded rules became catch-alls,
+    but it must still cover every code and alias for whatever next needs it.
     """
     catalog = SiteCatalog.from_spec("lon:London,bat-yam:Bat Yam")
 
@@ -251,7 +210,6 @@ def test_the_regex_alternation_covers_every_configured_site() -> None:
 
 
 def test_membership_is_case_insensitive_but_codes_stay_canonical() -> None:
-    """A filter arriving from a URL should not miss on casing alone."""
     assert "TLV" in SITES
     assert "tlv" in SITES
     assert "nope" not in SITES
@@ -311,10 +269,6 @@ def test_an_alias_is_case_insensitive_like_a_code() -> None:
 
 
 def test_two_aliases_of_the_same_site_in_one_name_is_not_ambiguous() -> None:
-    """Both tokens resolve to the same canonical code, so this is the
-    same non-ambiguous case `test_the_same_site_repeated_is_not_ambiguous`
-    already covers for a bare repeated code.
-    """
     catalog = SiteCatalog.from_spec("znif|prep:Znif")
 
     assert parse_site_code("ocp4-znif-prep-infra-01", catalog) == "znif"
@@ -330,10 +284,6 @@ def test_a_real_site_code_wins_over_an_unrelated_sites_alias() -> None:
 
 
 def test_an_alias_still_resolves_when_no_real_code_is_present() -> None:
-    """The other half of the same fix: `prep` alone, with no `five`/
-    `znif`/... token anywhere in the name, still falls through to the
-    alias tier exactly as before.
-    """
     catalog = SiteCatalog.from_spec("znif|prep:Znif,five:Site Five")
 
     assert parse_site_code("ocp4-prep-compute-01", catalog) == "znif"
@@ -369,9 +319,6 @@ def test_the_operators_own_reported_case() -> None:
 
 
 def test_an_alias_reused_as_another_sites_code_is_rejected() -> None:
-    """Would make it ambiguous which site a hostname carrying the shared
-    token names.
-    """
     with pytest.raises(SiteConfigurationError, match="listed twice"):
         SiteCatalog.from_spec("znif|five:Znif,five:Site Five")
 

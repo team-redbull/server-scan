@@ -1,12 +1,8 @@
 import { apiFetch } from "@/api/client";
 import type { ServerDetail, ServerFacets, ServerListResponse } from "@/types/server";
 
-/**
- * Query params accepted by `GET /api/v1/servers`. All optional — omitted
- * keys are left out of the request entirely (see `buildSearchParams`)
- * rather than sent as empty strings, so the backend sees the same request
- * whether a filter was never touched or was cleared back to "all".
- */
+/** Query params for `GET /api/v1/servers`; an omitted key is left out of
+ * the request, never sent as an empty string. */
 export interface ServerListParams {
   search?: string;
   site_id?: string;
@@ -14,8 +10,7 @@ export interface ServerListParams {
   manager_id?: string;
   source_provider?: string;
   installation_type?: string;
-  /** `openshift.lifecycle_state` — whether a cluster is using the server,
-   * as distinct from what its name says it is. */
+  /** `openshift.lifecycle_state`. */
   openshift_state?: string;
   cluster_name?: string;
   health_overall?: string;
@@ -52,15 +47,8 @@ export function listServers(params: ServerListParams = {}): Promise<ServerListRe
   return apiFetch<ServerListResponse>(path);
 }
 
-/**
- * How many servers each filter option would match, under the filters
- * already applied.
- *
- * Takes the same params as `listServers`; the pagination and ordering ones
- * are dropped before the request because the counts describe the whole
- * filtered set rather than one page of it, and sending them would split
- * the cache by page for no reason.
- */
+/** Per-option match counts under the filters already applied. Pagination
+ * and ordering params are dropped: they would split the cache per page. */
 export function getServerFacets(params: ServerListParams = {}): Promise<ServerFacets> {
   const { cursor, page_size, sort, sort_desc, with_count, ...filters } = params;
   void cursor;
@@ -83,10 +71,7 @@ export interface MaintenanceEnableRequest {
   expected_end?: string;
 }
 
-// Both endpoints return the full `ServerDetail` (not a maintenance-only
-// body) — mirrors the backend's own choice (see `maintenance_schemas.py`'s
-// docstring): a caller toggling maintenance almost always wants the
-// resulting server state, not just the maintenance sub-document.
+// Both endpoints return the full `ServerDetail` (`maintenance_schemas.py`).
 export function enableMaintenance(
   id: string,
   body: MaintenanceEnableRequest,

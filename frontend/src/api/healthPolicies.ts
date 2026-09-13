@@ -7,10 +7,7 @@ export interface HealthPolicyListParams {
   enabled?: boolean;
 }
 
-/** List the health policies this deployment runs.
- *
- * Read-only for the same reason as the classification rules next door.
- */
+/** List the health policies. Read-only, as the classification rules are. */
 export function listHealthPolicies(
   params: HealthPolicyListParams = {},
 ): Promise<HealthPolicyListResponse> {

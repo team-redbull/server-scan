@@ -61,11 +61,8 @@ function site(
   };
 }
 
-/** Test-fixture-only: mirrors what the backend's own aggregation now
- * computes, so the mock response is internally consistent without hand
- * deriving every number. Not a reimplementation the page component uses
- * — SitesOverviewPage reads `fleet` straight off the response.
- */
+/** Fixture-only mirror of the backend aggregation, so the mock response is
+ * internally consistent; the page itself reads `fleet` as given. */
 function sumBreakdowns(records: Breakdown[]): Breakdown {
   const result = breakdown();
   for (const record of records) {
@@ -129,7 +126,6 @@ function renderPage() {
   );
 }
 
-/** The card whose heading is `name`, as a link. */
 function card(name: string): HTMLAnchorElement {
   const heading = screen.getByRole("heading", { name });
   const link = heading.closest("a");
@@ -139,7 +135,6 @@ function card(name: string): HTMLAnchorElement {
 
 const EMPTY_SLICES = { UPI: {}, HOSTED_CLUSTER: {} };
 
-/** Point `GET /api/v1/sites` at one response for the current test. */
 function stubSites(response: unknown): void {
   vi.stubGlobal(
     "fetch",
@@ -168,8 +163,7 @@ describe("SitesOverviewPage", () => {
     expect(within(card("Across all sites")).getByText("50")).toBeInTheDocument();
     expect(within(card("UPI")).getByText("35")).toBeInTheDocument();
     expect(within(card("Hosted cluster")).getByText("15")).toBeInTheDocument();
-    // MCE gets its own card even at zero — the fixture has no MCE-classified
-    // servers, and that must still render as "0", not omit the card.
+    // The fixture has no MCE servers; the card must still render at "0".
     expect(within(card("MCE")).getByText("0")).toBeInTheDocument();
   });
 
@@ -198,7 +192,6 @@ describe("SitesOverviewPage", () => {
   });
 
   it("orders the fleet-wide cards so the grid's two rows read as intended", async () => {
-    // Three per row, so this order is what makes the two rows read.
     renderPage();
 
     await waitFor(() => {
@@ -219,15 +212,12 @@ describe("SitesOverviewPage", () => {
       expect(screen.getByRole("heading", { name: "Available" })).toBeInTheDocument();
     });
 
-    // 7 in Tel Aviv + 2 in New York, summed backend-side.
+    // 7 in Tel Aviv + 2 in New York.
     expect(within(card("Available")).getByText("9")).toBeInTheDocument();
   });
 
   it("trusts the backend's fleet field rather than recomputing it from items", async () => {
-    // Deliberately inconsistent with SITE_ITEMS (which sum to 50): if this
-    // renders anyway, the page is reading `fleet` as given, not summing
-    // `items` itself — the whole point of moving this computation server
-    // side.
+    // Deliberately inconsistent with SITE_ITEMS (which sum to 50).
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -272,7 +262,6 @@ describe("SitesOverviewPage", () => {
       expect(screen.getByRole("heading", { name: "UPI" })).toBeInTheDocument();
     });
 
-    // Only TLV's UPI servers are critical; NYC's critical one is hosted.
     expect(within(card("UPI")).getByText("2")).toBeInTheDocument();
     expect(within(card("UPI")).getByText(/critical/)).toBeInTheDocument();
     expect(within(card("Hosted cluster")).getByText("1")).toBeInTheDocument();

@@ -75,9 +75,8 @@ async def coalesce[T](key: str, compute: Callable[[], Awaitable[T]]) -> T:
     """
     Run `compute()` for `key`, sharing the result with concurrent callers.
 
-    A caller that arrives after the computation has already finished (or
-    before anyone has started it) runs its own fresh call — this only
-    dedupes overlap, it is not a cache.
+    Dedupes overlap only — a caller arriving after the computation finished
+    runs its own; this is not a cache.
 
     Args:
         key (str): Identifies the computation to share.
@@ -91,17 +90,8 @@ async def coalesce[T](key: str, compute: Callable[[], Awaitable[T]]) -> T:
     if task is None:
         task = asyncio.get_running_loop().create_task(_run(compute))
         _inflight[key] = task
-        # Registered *after* insertion, not via `_run`'s own `finally`:
-        # under `asyncio.eager_task_factory` (3.12+, not enabled by this
-        # project today but a real risk if it ever is — Task execution
-        # starts synchronously inside `create_task()`), `compute()` can
-        # finish before `create_task()` even returns, so a `finally`
-        # inside `_run` would run *before* the `_inflight[key] = task`
-        # line above it, find nothing to clean up, and leave a completed
-        # Task cached under this key forever. A done-callback added after
-        # insertion is scheduled via `call_soon` even for an
-        # already-finished Task, so it still runs, just one tick later —
-        # verified against this project's own interpreter.
+        # After insertion, not in `_run`'s `finally` — an eager task factory
+        # can finish the task before `create_task()` returns (ADR-0007).
         task.add_done_callback(functools.partial(_cleanup, key))
     return await asyncio.shield(task)  # ty: ignore[invalid-return-type]
 
@@ -125,12 +115,7 @@ def _cleanup(key: str, task: asyncio.Task[object]) -> None:
         return
     exc = task.exception()
     if exc is not None:
-        # Every shielded waiter that would otherwise have surfaced this
-        # exception was itself cancelled before the task settled — the
-        # exception would otherwise only be logged by asyncio's own
-        # "exception was never retrieved" warning at GC time, with no
-        # context at all. Calling `.exception()` above already marks it
-        # retrieved either way, so this is purely additive.
+        # Every waiter was cancelled first; otherwise only asyncio's GC warning.
         logger.warning("singleflight.unretrieved_exception", key=key, error=str(exc))
 
 
@@ -138,15 +123,8 @@ async def drain() -> None:
     """
     Cancel and await every in-flight computation.
 
-    Call from the application lifespan's shutdown, *before* closing the
-    Mongo/Redis clients a still-running computation may be using —
-    `coalesce()` deliberately detaches a computation from every caller
-    that stops waiting on it, precisely so one disconnecting client can't
-    fail the others, which means a computation can outlive every request
-    that ever cared about it. Left to the ordinary event loop shutdown
-    (`asyncio.run()`'s own cancellation of remaining tasks happens *after*
-    the lifespan's `finally` has already run), such a computation would be
-    mid-query against a client that no longer exists.
+    Called from the lifespan's shutdown, before the Mongo/Redis clients
+    close — a detached computation can outlive every request (ADR-0007).
     """
     tasks = list(_inflight.values())
     for task in tasks:

@@ -1,17 +1,9 @@
 /**
- * Hand-written types mirroring the backend's `/api/v1/health-policies` and
- * `/api/v1/health-metrics` JSON shapes (see
- * `backend/app/api/v1/health_policy_schemas.py`, authoritative).
+ * Hand-written mirror of `/api/v1/health-policies` and `/api/v1/health-metrics`.
  *
- * `Condition` is intentionally a single flat interface with every field
- * optional/nullable rather than a discriminated union keyed on which field
- * is present: the backend's Pydantic model dumps *every* field on every
- * node (`all_of`, `any_of`, `not`, `metric`, `operator`, `value`, `equals`),
- * with the unused ones set to `null` rather than omitted (confirmed against
- * a live `GET /health-policies` response) — so "does the key exist" is not
- * a valid discriminator over wire data, only "is it non-null". The
- * `isLeaf`/`isAllOf`/`isAnyOf`/`isNot` guards below check nullness, not
- * key presence, for exactly that reason.
+ * `Condition` is one flat interface, not a discriminated union: the backend
+ * dumps every field on every node with the unused ones `null` (confirmed
+ * against a live response), so the guards below test nullness, not presence.
  */
 
 import type { ManagerType, RuleSource } from "@/types/classification";
@@ -51,10 +43,8 @@ export type Operator =
   | "COUNT_LT"
   | "COUNT_LTE";
 
-/** Mirrors `app.domain.services.health.metrics.OPERATOR_ALLOWED_TYPES`
- * exactly — there is no API to fetch this table, it's hardcoded there and
- * here. Used to filter the operator `<select>` to whatever is valid for
- * the currently-selected metric's type. */
+/** Mirrors `app.domain.services.health.metrics.OPERATOR_ALLOWED_TYPES`;
+ * there is no API for it. */
 export const OPERATOR_ALLOWED_TYPES: Record<Operator, MetricType[]> = {
   EQ: ["INT", "FLOAT", "STRING", "BOOL", "ENUM"],
   NE: ["INT", "FLOAT", "STRING", "BOOL", "ENUM"],
@@ -92,8 +82,7 @@ export const COUNT_OPERATORS = new Set<Operator>([
 export const SET_OPERATORS = new Set<Operator>(["IN", "NOT_IN"]);
 export const LIST_ELEMENT_OPERATORS = new Set<Operator>(["ANY", "ALL"]);
 
-/** A single condition tree node. See module docstring for why every field
- * is optional/nullable rather than a discriminated union. */
+/** A condition tree node; see the module docstring. */
 export interface Condition {
   all_of?: Condition[] | null;
   any_of?: Condition[] | null;
@@ -141,8 +130,7 @@ export interface PolicyStats {
 
 export type PolicyMode = "EVALUATE" | "SUPPRESS";
 
-/** Closed set per the domain model (see the task brief / domain services) —
- * there's no API to fetch this list either. */
+/** Closed set per the domain model; no API for it either. */
 export const POLICY_CATEGORIES = [
   "cpu",
   "memory",

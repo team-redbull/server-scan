@@ -455,10 +455,11 @@ is reachable.
   keeping the two apart (ADR-0024) — if only `random-server-*` entries
   were ever free, the Available card would be lying about the shape of a
   real fleet.
-* **GPU VRAM comes from the catalog, not from the fixture.** No vendor
-  API reports a GPU's memory (see
-  `docs/adr/0021-built-in-gpu-catalog-with-model-matching.md`), so no
-  fake server does either: every generated GPU carries
+* **GPU VRAM comes from the catalog, not from the fixture.** Only
+  Redfish-sourced collectors can read a GPU's memory; Cisco and HPE have
+  no field for it (see
+  `docs/adr/0021-built-in-gpu-catalog-with-model-matching.md`), and the
+  fake provider models the catalog path: every generated GPU carries
   `memory_bytes=None` and whatever the UI shows was filled in at ingest
   by `GpuCatalog`. Cisco-collected servers report a PID
   (`UCSC-GPU-L40S`), Dell/HPE ones the vendor's model string

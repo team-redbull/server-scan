@@ -22,15 +22,9 @@ from app.infrastructure.providers.ucs_common import (
     normalize_oper_state,
 )
 
-# Cisco reports `TotalMemory` and a disk's `Size` in "MB" and means
-# 2**20 bytes, matching what `..ucs_manager.mapping` already assumes for
-# the same hardware. `TotalMemory` carries no documented unit at all —
-# see ADR-0017's UNVERIFIED list, which is why a disk's byte-denominated
-# `NonCoercedSizeBytes` is preferred over its `Size` wherever present.
+# MiB, settled live 2026-09-01 — docs/cisco-collectors.md, "Units".
 _BYTES_PER_MB = 1024 * 1024
 
-# `ManagementMode` values a server can report. `UCSM` is the set the UCS
-# Central collector already owns; see ADR-0017, "Decision 3".
 MODE_UCSM = "UCSM"
 MODE_IMM = "Intersight"
 MODE_STANDALONE = "IntersightStandalone"
@@ -79,10 +73,8 @@ def moref(value: object) -> str | None:
     """
     The `Moid` a relationship field points at.
 
-    Intersight expresses every parent/child link as an embedded
-    `mo.MoRef` object rather than a bare id, and reports an unset
-    relationship as `null`. This is the join key the whole fleet-wide
-    request plan turns on — see ADR-0017, "The request plan".
+    Every parent/child link is an embedded `mo.MoRef` (`null` when
+    unset); this is the fleet-wide join key — ADR-0017, "The request plan".
 
     Args:
         value (object): A relationship field's value.
@@ -113,11 +105,8 @@ def profile_name_from_dn(dn: str | None) -> str | None:
     """
     The service profile's name, out of its distinguished name.
 
-    A UCSM-managed server has no `server.Profile` object in Intersight —
-    only the summary's `ServiceProfile` DN, whose last component is
-    `ls-<name>`. This is the same shape `ucs_manager.mapping` reads a
-    profile's name from, and without it a UCSM-mode server falls back to
-    `compute.PhysicalSummary.Name`, which is a chassis slot.
+    A UCSM-mode server has only the `ServiceProfile` DN, whose last component
+    is `ls-<name>` — docs/cisco-collectors.md, "The server's name".
 
     Args:
         dn (str | None): A service profile DN, e.g.
@@ -136,21 +125,8 @@ def server_name(summary: Mapping[str, Any], profile: Mapping[str, Any] | None) -
     """
     The name an operator would recognise this server by.
 
-    The trap ADR-0009 paid for on UCS Manager, in Intersight's own form.
-    `compute.PhysicalSummary.Name` is documented as never being an
-    operator hostname — it is the fabric-interconnect cluster name plus a
-    chassis/slot when UCSM-attached, the CIMC's own name in standalone
-    mode, and model plus chassis/server id under Intersight management.
-    Since the platform parses a server's *site* out of this name and
-    filters the fleet on it, sourcing it wrong collects nothing rather
-    than failing.
-
-    The `ServiceProfile` step is not dead code for a default run even
-    though `UCSM` is excluded by default: the mode set is operator-
-    editable (`INVENTORY_INTERSIGHT_MANAGEMENT_MODES`), and without this
-    step adding `UCSM` to it would silently name every such server after
-    its chassis slot — reproducing exactly the defect this docstring
-    describes.
+    `compute.PhysicalSummary.Name` is never an operator hostname — see
+    docs/cisco-collectors.md, "The server's name", and ADR-0017.
 
     Args:
         summary (Mapping[str, Any]): A `compute.PhysicalSummary`.
@@ -246,9 +222,8 @@ def _capacity_bytes(disk: Mapping[str, Any]) -> int | None:
     """
     A drive's capacity in bytes.
 
-    `NonCoercedSizeBytes` is preferred because it is denominated in bytes
-    by its own name, leaving nothing to assume; `Size` is a string
-    documented as MB and is the fallback.
+    `NonCoercedSizeBytes` (bytes by name) first, `Size` (MB, a string) as
+    fallback — docs/cisco-collectors.md, "Units".
 
     Args:
         disk (Mapping[str, Any]): A `storage.PhysicalDisk`.
@@ -267,18 +242,8 @@ def _drive_health(disk: Mapping[str, Any]) -> str:
     """
     A drive's health in the platform's vocabulary.
 
-    `Health` is the field Intersight surfaces in its own UI; `DriveState`
-    is the controller's view and is consulted only when `Health` is
-    absent, since a predicted failure there is still worth a warning.
-
-    Confirmed live 2026-09-07 (`tools.verify_intersight`'s disk health
-    vocabulary check, section 8): `Health` reports `"OK"` on 216 of 226
-    sampled drives — the same generic healthy-status string
-    `equipment.Psu.OperState` uses (`_OPER_STATE_MAP`'s `"ok"` entry,
-    added the same day), just on a different field with its own separate
-    vocabulary. `Health` is checked first and was truthy for all 216, so
-    `DriveState` — which already recognized `"Online"`/`"JBOD"` on the 10
-    drives it *was* consulted for — never got a chance to save them.
+    `Health` first, `DriveState` only when absent; the `"ok"` entry was a
+    live-found gap (ADR-0017, "The same "OK" gap, one field over", 2026-09-07).
 
     Args:
         disk (Mapping[str, Any]): A `storage.PhysicalDisk`.
@@ -302,22 +267,8 @@ def psu(unit: Mapping[str, Any]) -> dict[str, object]:
     """
     One `equipment.Psu` as the platform's PSU shape.
 
-    Added 2026-09-01: the domain model and the health engine's
-    `power.psu_count`/`power.failed_psu_count` metrics already existed,
-    but no provider had ever populated this field. `equipment.Psu`
-    carries `ComputeRackUnit` but, confirmed against Cisco's own
-    generated Go SDK, **no `ComputeBlade` and no `ComputeBoard`
-    relationship at all** — a blade's PSUs belong to its chassis
-    (`EquipmentChassis`), shared across every blade in it, not to one
-    blade. A blade server therefore reports no PSUs through this MO; only
-    rack/standalone servers do. See docs/cisco-collectors.md, "Power
-    supplies (PSUs)".
-
-    `health` uses `normalize_oper_state` (UP/DOWN/DISABLED/UNKNOWN),
-    the same vocabulary `gpu()` already uses for the identical
-    OperState-sourced pattern — not the literal `"OK"` the health
-    engine's facts extractor checked before this, which was never
-    exercised against real data and has been corrected alongside this.
+    Rack/standalone servers only, and `health` is UP/DOWN/DISABLED/UNKNOWN
+    — see docs/cisco-collectors.md, "Power supplies (PSUs)" (Intersight).
 
     Args:
         unit (Mapping[str, Any]): An `equipment.Psu`.
@@ -339,10 +290,8 @@ def gpu(card: Mapping[str, Any]) -> dict[str, object]:
     """
     One `graphics.Card` as the platform's GPU shape.
 
-    Every telemetry field is `None` by construction rather than by
-    failure: this API version carries no GPU memory, temperature, power
-    or ECC field at all. That is a capability ceiling recorded in
-    ADR-0017, "Decision 5", not a gap to fill in later.
+    Every telemetry field is `None` by construction — the API has none.
+    See docs/cisco-collectors.md, "GPUs — a capability ceiling, not a gap".
 
     Args:
         card (Mapping[str, Any]): A `graphics.Card`.
@@ -411,12 +360,8 @@ def _cpu_model(processors: Iterable[Mapping[str, Any]] | None) -> str | None:
     """
     The processor model string for the server.
 
-    Mirrors `ucs_manager.mapping._cpu_model`'s "first equipped socket"
-    rule, but without relying on `processor.Unit.Presence` — its exact
-    equipped-value string is unverified for Intersight (unlike
-    `ucsmsdk`'s confirmed `"equipped"` prefix; see ADR-0017's UNVERIFIED
-    list). An empty socket has no processor installed and so reports no
-    `Model` either, which is enough to skip it without needing the enum.
+    First socket reporting a `Model`, without filtering on `Presence` —
+    see docs/cisco-collectors.md, "CPU model" (Intersight).
 
     Args:
         processors (Iterable[Mapping[str, Any]] | None): `processor.Unit`
@@ -508,12 +453,8 @@ def to_provider_server(
     """
     Assemble one server from its summary and everything joined to it.
 
-    Every sub-resource argument distinguishes "not queried this run"
-    (`None`) from "queried, and this server has none" (`[]`), because
-    the two mean different things downstream: `IngestService` carries the
-    stored value forward for a `None` and overwrites for a real value.
-    Collapsing them is what once wrote zero drives over a real inventory
-    and reported a failed disk as recovered.
+    Every sub-resource argument distinguishes "not queried" (`None`) from
+    "queried, none found" (`[]`); `IngestService` carries a `None` forward.
 
     Args:
         summary (Mapping[str, Any]): The `compute.PhysicalSummary` anchor.
@@ -550,11 +491,8 @@ def to_provider_server(
     ext = list(ext_interfaces) if ext_interfaces is not None else None
     host = list(host_interfaces) if host_interfaces is not None else None
 
-    # vNIC MACs are what an OS reports; the physical ports' own MACs stand
-    # in only for a server that has no vNIC at all. `()` is claimed ONLY
-    # when both tables were read and both are empty — if either failed,
-    # "no MACs" is not something this run is entitled to assert, and
-    # asserting it would overwrite the stored MACs with nothing.
+    # vNIC MACs first. `()` is claimed only when both tables were read; a
+    # failed table is `None`, so stored MACs are never blanked.
     macs: tuple[str, ...] | None = None
     host_macs = _macs(host) if host is not None else ()
     ext_macs = _macs(ext) if ext is not None else ()
@@ -563,14 +501,12 @@ def to_provider_server(
     elif host is not None and ext is not None:
         macs = ()
 
-    # `nics` has no "not queried" state, unlike `macs` above — same
-    # vNIC-preferred rule, so the two counts always agree.
+    # Same vNIC-first rule, so `nics` and `macs` always agree in count.
     host_nics = _nics(host) if host is not None else ()
     ext_nics = _nics(ext) if ext is not None else ()
     nics = host_nics or ext_nics
 
-    # An uplink reporting no fabric is not cabled to one. Skipped rather
-    # than emitted with a null fabric, matching UCS Manager.
+    # No `SwitchId` means not cabled: skipped, as UCS Manager does.
     attachments: list[ProviderAttachment] = [
         attachment(interface, provider_type=provider_type, interface_kind="PHYSICAL")
         for interface in ext or ()
@@ -584,9 +520,7 @@ def to_provider_server(
     drives = [drive(disk) for disk in disks] if disks is not None else None
     storage_total: int | None = None
     if drives is not None:
-        # A drive whose capacity could not be read contributes nothing
-        # rather than zero — the total is still the best figure available,
-        # and `None` here would discard the drives that did report.
+        # An unreadable capacity adds nothing rather than zeroing the total.
         measured = [d["capacity_bytes"] for d in drives]
         storage_total = sum(c for c in measured if isinstance(c, int)) or None
 
@@ -622,9 +556,7 @@ def external_id(summary: Mapping[str, Any]) -> str:
     """
     A stable identity for one server.
 
-    `Moid` rather than `Dn`: it is unique across the whole tenant and is
-    already the join key every sub-resource references. Prefixed so it
-    reads unambiguously beside a UCS Central `compute/sys-1009/...` DN.
+    `Moid` rather than `Dn`, prefixed — ADR-0017, "Decision 4".
 
     Args:
         summary (Mapping[str, Any]): A `compute.PhysicalSummary`.

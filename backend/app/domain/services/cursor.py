@@ -32,16 +32,9 @@ from datetime import datetime
 from app.errors import CursorFilterMismatchError, CursorInvalidError
 from app.utils.digest import stable_hash
 
-# Sort fields in this schema are always either a normalized string or a
-# datetime (see `app.domain.services.search.SORT_FIELDS`); recording which
-# one a given cursor carries lets `decode_cursor` reconstruct a real
-# `datetime` for Mongo range comparisons instead of leaving it as a string
-# that would compare incorrectly against BSON dates.
+# A null is tagged, not encoded as "": the two sort differently (ADR-0026).
 _TYPE_STR = "str"
 _TYPE_DATETIME = "datetime"
-
-# A genuinely absent sort value, tagged rather than encoded as "" because
-# the two sort to different places (ADR-0026).
 _TYPE_NULL = "null"
 
 
@@ -119,13 +112,24 @@ def decode_cursor(
     page_size: int,
     secret: str,
 ) -> CursorPosition:
-    """Verify and decode a cursor produced by `encode_cursor`.
+    """
+    Verify and decode a cursor produced by `encode_cursor`.
 
-    Raises `CursorInvalidError` for anything structurally wrong (bad
-    base64, bad signature, missing/malformed fields) and
-    `CursorFilterMismatchError` specifically when the signature is valid
-    but the filter/sort/direction/page_size binding no longer matches the
-    current request.
+    Args:
+        cursor (str): The opaque cursor string from the request.
+        filters (dict[str, object]): The current request's whitelisted filters.
+        sort (str): The current sort field.
+        sort_desc (bool): The current sort direction.
+        page_size (int): The current page size.
+        secret (str): The HMAC key the cursor was signed with.
+
+    Returns:
+        CursorPosition: The position to resume from.
+
+    Raises:
+        CursorInvalidError: Bad base64, bad signature, or a malformed payload.
+        CursorFilterMismatchError: A valid signature whose filter/sort/
+            direction/page_size binding no longer matches this request.
     """
     try:
         payload_b64, signature_b64 = cursor.split(".", 1)

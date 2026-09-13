@@ -54,8 +54,7 @@ from app.utils.timeutil import utcnow
 logger = structlog.get_logger(__name__)
 
 
-# What an admin owns on a system rule/policy, and so what a re-sync must
-# carry over from the stored document rather than reset from code.
+# What a re-sync carries over from the stored document rather than resets.
 _ADMIN_OWNED_RULE_FIELDS = ("id", "enabled", "stats", "created_at", "created_by")
 _ADMIN_OWNED_POLICY_FIELDS = ("id", "enabled", "stats", "created_at", "created_by")
 
@@ -101,9 +100,8 @@ async def ensure_default_classification_rules(
     """
     Seed the system-default rules, re-syncing any whose definition has drifted.
 
-    Every rule that would be written is validated first
-    (`validate_rule_write`) — a malformed shipped default fails the
-    startup, not the first classification that hits it.
+    Each is validated first (`validate_rule_write`): a malformed shipped
+    default fails startup, not the first classification that hits it.
 
     Args:
         repo (MongoClassificationRuleRepository): The rules collection.
@@ -175,10 +173,8 @@ async def ensure_default_health_policies(
     """
     Seed the system-default health policies, re-syncing any whose definition has drifted.
 
-    The same policy as `ensure_default_classification_rules`, since there
-    is no editor UI left to notice or correct a drifted default by hand.
-    Every policy that would be written is validated first
-    (`validate_policy_write`).
+    Same policy as `ensure_default_classification_rules`; each is validated
+    first (`validate_policy_write`).
 
     Args:
         repo (MongoHealthPolicyRepository): The health policies collection.

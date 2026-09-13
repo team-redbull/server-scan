@@ -26,15 +26,7 @@ from typing import Any
 
 from app.domain.ports.provider import ProviderNic
 
-# Dell's FQDD for a network interface, as iDRAC reports it in
-# `EthernetInterface.Id`: a kind, then controller-port-partition.
-#
-#     NIC.Integrated.1-1-1   integrated controller 1, port 1, partition 1
-#     NIC.Slot.2-4-3         card in slot 2, port 4, partition 3
-#
-# The three numbers are what an operator reads as a NIC's location, and
-# the partition is what NPAR multiplies: a partitioned 4-port card reports
-# 16 interfaces, four per physical port, each with its own MAC.
+# Dell's NIC FQDD, `NIC.Slot.2-4-3` — docs/dell-collectors.md, "NICs".
 _FQDD_RE = re.compile(r"^NIC\.[A-Za-z]+\.(\d+)-(\d+)-(\d+)$")
 
 
@@ -81,12 +73,7 @@ def idrac_bmc_address(idrac_ip: str | None) -> str | None:
     """
     Render a server's iDRAC IP as the Dell BMC URI the platform expects.
 
-    Kept, and deliberately preferred over the `https://<host>` form the
-    Redfish collector reports for a standalone BMC: this is the exact shape
-    `app.domain.value_objects.bmc_address.parse_bmc_address` documents for
-    Dell, and what a Metal3 `BareMetalHost` round-trips into
-    `spec.bmc.address`. Collecting hardware over Redfish must not silently
-    downgrade a Dell server's stored BMC address.
+    See docs/dell-collectors.md, "BMC address".
 
     Args:
         idrac_ip (str | None): The iDRAC address, preferably the device's
@@ -105,33 +92,9 @@ def idrac_bmc_address(idrac_ip: str | None) -> str | None:
 
 def dell_port_nics(nics: tuple[ProviderNic, ...]) -> tuple[ProviderNic, ...]:
     """
-    Reduce iDRAC's partition-level NICs to one entry per physical port.
+    Reduce iDRAC's NPAR partition-level NICs to one entry per physical port.
 
-    NIC partitioning (NPAR) splits each physical port into up to four
-    logical functions, and iDRAC reports every one as its own
-    `EthernetInterface` with its own MAC. A 4-port partitioned card is
-    therefore 16 interfaces, which describes the server's *logical*
-    plumbing rather than what is cabled — an operator asking "how many
-    NICs does this box have" means four.
-
-    Keeping the **first** partition of each port, rather than merging them,
-    is deliberate: partition 1 is the one that exists on every Dell NIC
-    whether NPAR is enabled or not, so an unpartitioned server is
-    unaffected by this function, and the surviving entry is a real
-    interface with a real MAC rather than a synthesized summary.
-
-    An interface whose identifier is not a recognizable FQDD is kept
-    untouched, appended after every FQDD-named one. A BMC that names its
-    NICs some other way must not have them silently dropped — this filter
-    can only ever remove something it positively identified as a non-first
-    partition.
-
-    **Sorted by controller/port/partition, not by BMC report order**
-    (changed 2026-09-10, at the operator's request): iDRAC's own
-    `EthernetInterfaces` order is not documented as stable, so sorting on
-    the FQDD's own numbers is what actually makes repeated collections of
-    an unchanged server agree, and it is what an operator expects —
-    `NIC.Integrated.1-1-1` before `1-2-1` before `1-3-1`, never by MAC.
+    First partition kept, sorted by FQDD. See docs/dell-collectors.md, "NICs".
 
     Args:
         nics (tuple[ProviderNic, ...]): Every interface the BMC reported,
@@ -159,9 +122,6 @@ def dell_port_nics(nics: tuple[ProviderNic, ...]) -> tuple[ProviderNic, ...]:
                 (int(controller), int(port), int(partition)),
                 replace(
                     nic,
-                    # The FQDD, not iDRAC's "System Ethernet Interface",
-                    # which is the same string on every interface and so
-                    # names none of them.
                     name=nic.location or nic.name,
                     location=f"{controller}/{port}/{partition}",
                 ),
@@ -176,10 +136,7 @@ class OmeIdentity:
     """
     What OME alone knows about one Dell server.
 
-    Everything here is unavailable from the server's own BMC: a service
-    profile and its deployment template are OME constructs, and the name is
-    the operator's, not anything iDRAC reports. This is the half of a
-    collected Dell server that Redfish cannot supply.
+    The half Redfish cannot supply (ADR-0020).
 
     Attributes:
         name (str): The profile name, and the server's name. Site parsing

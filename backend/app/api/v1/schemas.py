@@ -57,10 +57,8 @@ class ConnectivitySummary(BaseModel):
 class ServerSummary(BaseModel):
     """List-response projection of a server.
 
-    Nested (`classification.installation_type`, `health.overall`,
-    `maintenance.enabled`, `connectivity.facts`) to match `ServerDetail`'s
-    shape rather than flattening these onto the top level — one nesting
-    convention across both endpoints, not two.
+    Nested to match `ServerDetail`'s shape — one nesting convention across
+    both endpoints, not two.
     """
 
     id: str
@@ -73,10 +71,7 @@ class ServerSummary(BaseModel):
     classification: Classification
     health: Health
     maintenance: Maintenance
-    # The whole sub-model rather than `lifecycle_state` alone: the
-    # inventory's Installation column shows the state, and a row's title
-    # attribute shows the cluster holding it, so trimming this to one
-    # field would need a second request to answer "which cluster".
+    # Whole sub-model: a row also shows the cluster holding it.
     openshift: OpenShiftLifecycle
     connectivity: ConnectivitySummary
     last_seen_at: datetime | None
@@ -132,8 +127,6 @@ class ServerListResponse(BaseModel):
     page: PageInfo
 
 
-# An empty catalog: the default when no mapping is configured, so the
-# hardware names render alone rather than as guesses.
 _NO_NIC_NAMES = NicNameCatalog(names_by_kind={})
 
 
@@ -165,12 +158,8 @@ class ServerDetail(BaseModel):
     search_tokens: list[str]
     source_provider: str | None
     unread_fields: list[str]
-    # A hardware interface name (`NIC.Slot.8-1-1`) against the name the
-    # host's OS gives it (`ens8f0np0`), for the interfaces a mapping is
-    # configured for. Derived from `INVENTORY_NIC_OS_NAMES` rather than
-    # collected — no management API reports an OS-level name — and sent
-    # alongside `network` rather than inside it so the stored document
-    # keeps only what a collector actually read.
+    # Derived from `INVENTORY_NIC_OS_NAMES`, not collected — hence beside
+    # `network`, not inside it.
     nic_os_names: dict[str, str] = Field(default_factory=dict)
     last_seen_at: datetime | None
     reachable: bool
@@ -199,9 +188,7 @@ class ServerDetail(BaseModel):
             if (os_name := nic_names.os_name_for(interface.name)) is not None
         }
         if server.identity.vendor == Vendor.CISCO:
-            # Positional, not configured — see `cisco_eno_names`'s
-            # docstring for why this one case is a computed rule rather
-            # than operator-stated knowledge like Dell's FQDD mapping.
+            # Positional, not configured — see `cisco_eno_names`.
             nic_os_names.update(
                 cisco_eno_names([interface.name for interface in server.network.interfaces])
             )
@@ -241,14 +228,8 @@ class ServerFacets(BaseModel):
     """
     How many servers each filter option would match, for one view.
 
-    Every count is *within the filters already applied*, so picking a site
-    and then reading the vendor counts describes that site rather than the
-    estate. That is the number an operator is actually asking for, and it
-    is why these are computed per request rather than cached fleet-wide.
-
-    A value with no matching server is absent rather than zero: the UI
-    renders what is there, and an option that would return an empty page
-    is worth being visibly unavailable rather than looking selectable.
+    Counts are within the filters already applied, and an option with no
+    match is absent, not zero — docs/architecture.md, "Search, pagination".
 
     Attributes:
         total (int): Servers matching the current filters.
@@ -299,9 +280,8 @@ class ServerFacets(BaseModel):
                 ("maintenance", "true" if row.maintenance else "false"),
                 ("openshift_state", row.openshift_state),
             ):
-                # A `None` is a server the field was never set on. It is
-                # counted in `total` but named by no option, because there
-                # is no filter value that would select it.
+                # `None` counts in `total` but under no option: no filter
+                # value would select it.
                 if value is not None:
                     totals[dimension][str(value)] += row.count
         return cls(

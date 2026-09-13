@@ -88,8 +88,6 @@ from app.utils.timeutil import utcnow
 
 router = APIRouter(prefix="/api/v1", tags=["servers"])
 
-# Query params handled explicitly by `list_servers`; everything else in
-# the query string is a candidate filter key (see module docstring).
 _NON_FILTER_PARAMS = frozenset({"search", "sort", "sort_desc", "cursor", "page_size", "with_count"})
 
 _TRUE_STRINGS = frozenset({"true", "1", "yes"})
@@ -269,10 +267,8 @@ async def list_servers(
     """
     List servers, keyset-paginated, with generic filters and search.
 
-    Every query parameter outside the fixed non-filter set (`search`,
-    `sort`, `sort_desc`, `cursor`, `page_size`, `with_count`) is treated as
-    a filter key and validated against the whitelist — see the module
-    docstring for why that is generic rather than individually typed.
+    Every query parameter outside the fixed non-filter set is a filter key
+    validated against the whitelist — see the module docstring.
 
     Args:
         request (Request): Carries the raw filter query parameters.
@@ -303,9 +299,7 @@ async def list_servers(
         )
 
     raw_filters = _extract_raw_filters(request)
-    # Validate eagerly (unknown filter / unknown sort) before touching the
-    # cache or Mongo — a request that can never succeed shouldn't cost a
-    # Redis round trip first.
+    # Validated before any I/O: a doomed request should not cost a Redis trip.
     mongo_filters = build_filter_query(raw_filters)
     resolve_sort_field(sort)  # fail fast on an unknown sort before any I/O
 
@@ -325,22 +319,12 @@ async def list_servers(
 
     cached = await cache.get_raw(cache_key)
     if cached is not None:
-        # The bytes in Redis are already the bytes on the wire — `set()`
-        # below caches `response.model_dump(mode="json")`, JSON-encoded,
-        # which is exactly what FastAPI would re-encode a validated
-        # `ServerListResponse` back into. Returning them directly skips a
-        # decode + re-validate + re-encode round trip that measured at
-        # 0.919 ms/request and changed nothing about the bytes on the wire
-        # (`docs/notes/2026-09-research-performance.md` §7.2, §6.1).
+        # Cached bytes are the wire bytes; skipping the decode/re-encode
+        # round trip measured 0.919 ms/request (architecture.md, "caching").
         return Response(content=cached, media_type="application/json")
 
-    # Coalesced, not just cached: concurrent identical requests that all
-    # arrive before the first one has written its result back (the same
-    # `cache_key`, within `LIST_PAGE_TTL_SECONDS`) share a single Mongo
-    # query instead of each re-running it — see
-    # `app.infrastructure.singleflight`'s docstring for the load-test
-    # finding (a low-selectivity search's p99 went from tens of ms to
-    # multi-second under concurrent load) that motivated this.
+    # Coalesced, not just cached: concurrent identical misses share one
+    # Mongo query (ADR-0007, `app.infrastructure.singleflight`).
     async def _compute() -> dict[str, object]:
         page = await repo.list_page(
             filters=mongo_filters,
@@ -369,9 +353,7 @@ async def list_servers(
     return ServerListResponse.model_validate(response_dict)
 
 
-# Declared BEFORE `/servers/{server_id}`: FastAPI matches routes in
-# declaration order, and the other way round "facets" is swallowed as a
-# server id and answers 404.
+# Before `/servers/{server_id}`: FastAPI matches in declaration order.
 @router.get("/servers/facets", response_model=ServerFacets)
 async def server_facets(
     request: Request,
@@ -382,10 +364,8 @@ async def server_facets(
     """
     How many servers each filter option would match, under the current filters.
 
-    Takes the same `?vendor=`/`?site_id=`/... parameters and the same
-    `?search=` as `GET /servers`, so a caller passes its current query
-    through unchanged and gets numbers describing exactly the page it is
-    showing.
+    Takes the same filter and `?search=` parameters as `GET /servers`, so a
+    caller passes its current query through unchanged.
 
     Args:
         request (Request): Carries the raw filter query parameters.
@@ -442,10 +422,6 @@ async def get_server(
     pointer_key = _revision_pointer_key(server_id)
     cached_revision = await cache.get(pointer_key)
     if isinstance(cached_revision, int):
-        # The pointer itself is a bare int, not a document — still decoded
-        # normally via `get`. Only the detail document behind it is large
-        # enough to skip the decode/re-validate/re-encode round trip for
-        # (see `list_servers`'s docstring for the measurement).
         cached_detail = await cache.get_raw(server_key(server_id, cached_revision))
         if cached_detail is not None:
             return Response(content=cached_detail, media_type="application/json")
@@ -466,11 +442,8 @@ async def get_server(
 async def _invalidate_detail_cache(server_id: str, cache: CacheClient) -> None:
     """Delete the revision-pointer cache entry so the next read sees the new revision.
 
-    `server_key` embeds `revision`, so bumping `revision` on write already
-    makes the previous cache entry unreachable — but the pointer entry
-    (`_revision_pointer_key`) still points at the old revision until it
-    expires on its own TTL, which would cost one extra (harmless, but
-    avoidable) Mongo round trip on the very next `GET`.
+    The detail entry is already unreachable (its key embeds `revision`);
+    only the pointer would otherwise linger until its TTL.
 
     Args:
         server_id (str): The server whose pointer entry to delete.
@@ -504,11 +477,8 @@ async def reclassify_server(
     """
     Re-run classification for one server against the current ruleset.
 
-    The same classification step ingestion runs automatically, exposed
-    here so editing a rule can be followed by "show me the effect on this
-    server" without waiting for the server's next ingest cycle. Persists
-    the result and records a `CLASSIFICATION_CHANGED` audit event when the
-    installation type changes.
+    The same step ingestion runs, on demand. Records a
+    `CLASSIFICATION_CHANGED` audit event when the installation type changes.
 
     Args:
         server_id (str): The server's ID.
@@ -579,10 +549,8 @@ async def recalculate_server_health(
     """
     Re-run health evaluation for one server against the current policy set.
 
-    Same rationale as `reclassify_server`: proves "I edited a threshold,
-    did this server's health change" without waiting for its next ingest.
-    Persists the result and records a `HEALTH_STATUS_CHANGED` audit event
-    when the overall severity changes.
+    Same rationale as `reclassify_server`. Records a `HEALTH_STATUS_CHANGED`
+    audit event when the overall severity changes.
 
     Args:
         server_id (str): The server's ID.

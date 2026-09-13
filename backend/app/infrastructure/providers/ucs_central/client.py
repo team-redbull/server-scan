@@ -23,10 +23,8 @@ class UcsCentralConnectionError(Exception):
     """
     Any failure talking to UCS Central.
 
-    Covers auth rejected, an XML API error response, a network-level
-    failure, or the timeout this module imposes because the SDK offers
-    none. See docs/cisco-collectors.md, "SDK behaviour, sessions and
-    timeouts".
+    Auth, XML API error, network, or the deadline this module imposes
+    because the SDK has none. See docs/cisco-collectors.md, "SDK behaviour".
     """
 
 
@@ -89,8 +87,6 @@ class UcsCentralClient:
         """
         self._handle = UcscHandle(_validate_endpoint(endpoint), username, password)
         self._timeout_seconds = timeout_seconds
-        # Set once a call's deadline fires while `ucscsdk`'s own thread may
-        # still be running against `self._handle` — see `_with_timeout`.
         self._poisoned_since: str | None = None
         if os.environ.get("INVENTORY_UCS_DUMP_XML") == "1":
             self._handle.set_dump_xml()
@@ -128,26 +124,15 @@ class UcsCentralClient:
                 return await run_abandonable(func, *args, name=f"ucs-central-{what}")
         except TimeoutError as exc:
             if deadline.expired():
-                # Our own deadline fired. `run_abandonable`'s thread keeps
-                # running `func` against `self._handle` regardless — there
-                # is nothing in `ucscsdk` to cancel it — so every further
-                # call on this instance is refused from here on. Whatever
-                # remote-side session `func` was mid-request for (most
-                # concerning for `login`) may now leak until UCS Central
-                # times it out on its own; there is no way to avoid that
-                # without a cancellable SDK.
+                # Poisoned: the thread keeps running against the handle —
+                # docs/cisco-collectors.md, "Timeouts, abandoned threads ...".
                 self._poisoned_since = what
                 raise UcsCentralConnectionError(
                     f"{what} timed out after {self._timeout_seconds}s "
                     "(ucscsdk has no timeout of its own; this deadline is imposed by "
                     "the collector, and its thread is abandoned, not stopped)."
                 ) from exc
-            # `ucscsdk` raises no such thing itself (confirmed: neither
-            # `UcscHandle` nor `UcscSession` accept a timeout anywhere), so
-            # this branch is unreached in practice — kept as a correctness
-            # boundary rather than folded into the branch above, so a
-            # future SDK change that *does* raise its own TimeoutError
-            # is not misreported as this collector's own deadline.
+            # Unreached for `ucscsdk` (no timeout of its own); kept as a boundary.
             raise UcsCentralConnectionError(f"{what} failed: {exc}") from exc
         except (UcscError, UcscWrapperException) as exc:
             raise UcsCentralConnectionError(f"{what} failed: {exc}") from exc
@@ -170,11 +155,8 @@ class UcsCentralClient:
         """
         Close the UCS Central session, best-effort.
 
-        Always safe to call from a `finally` block: a failed logout is
-        logged and swallowed so it can never mask the error the caller is
-        already handling, and a logout before a successful login is a no-op.
-
-        See docs/cisco-collectors.md, "SDK behaviour, sessions and timeouts".
+        Never raises, so it is safe in a `finally`; before a successful
+        login it is a no-op. See docs/cisco-collectors.md, "SDK behaviour".
         """
         try:
             await self._with_timeout(self._handle.logout, what="Logout")

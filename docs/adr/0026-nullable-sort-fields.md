@@ -102,3 +102,54 @@ and the migration happens on the next process start with no operator step.
   existing one. Narrowing a persisted enum (ADR-0024's correction) and
   renaming an index both shipped green because every test ran against a
   database the new code had just created.
+
+## Update (2026-09-13): index design notes
+
+Moved here from `app.infrastructure.mongodb.indexes`'s comments, since
+this ADR is where the index-reconciliation rule already lives. The
+module docstring keeps the two big ones (why every `servers` compound
+index ends in `_id`, and why `system_uuid` is not unique); these are the
+smaller facts that each cost a real finding.
+
+- **Partial-filter expressions have no `$ne`.** MongoDB allows only
+  `$eq`, `$exists`, `$gt`/`$gte`/`$lt`/`$lte`, `$type` and `$and` of
+  those in a `partialFilterExpression`. `uniq_vendor_serial` therefore
+  spells "non-empty string" as `{"$gt": ""}` — every non-empty string
+  sorts lexicographically after `""`. And `system_uuid` uses
+  `{"$type": "string"}` rather than `{"$exists": true}` because
+  `$exists` is true for a field that is *present and null*, which
+  `model_dump(mode="json")` always emits (ADR-0016 has the original
+  finding). That filter is now purely a size optimisation — it keeps
+  every UUID-less server out of the index — rather than what stops a
+  null-keyed collision, since the index stopped being unique on
+  2026-09-09, but it is still worth having.
+- **`last_seen_at` shipped as a single-field index with no `_id`
+  tiebreak**, unlike every other entry, so an unfiltered
+  `sort=last_seen_at` request fell back to a full `COLLSCAN` plus a
+  blocking in-memory sort at 10k+. Caught by `tools/verify_indexes.py`
+  running `.explain()` against a real 50k-document collection — fixture-
+  sized data never exposed it, because the planner happily picks a
+  `COLLSCAN` over a barely-selective index at low document counts anyway
+  (ADR-0007 §1). The rule it left behind: every `SORT_FIELDS` entry needs
+  a `(field, _id)` index for the unfiltered case, on top of the per-filter
+  compound indexes.
+- **The rule and policy compound indexes mirror the engines' in-memory
+  sort orders.** `enabled_policy_key_priority_order_id` is exactly the
+  family-resolution order `health.evaluate.resolve_families`/
+  `_family_sort_key` applies, and `enabled_priority_order_id` is
+  `classification._sort_key`'s order minus the specificity tiebreak an
+  index cannot express — so "load all enabled" is one ordered `IXSCAN`
+  end to end and the evaluator's own sort runs over an already-ordered
+  stream. The single-field `scope.*`/`policy_key`/`category` indexes back
+  admin filtering ("every rule scoped to this site"), not resolution.
+- **`audit_events` is unbounded and append-only** — it grows for the
+  deployment's lifetime and every read is "most recent N, optionally
+  filtered" — so all four of its indexes end in `(created_at DESC, _id
+  DESC)`, the keyset pagination's fixed sort (ADR-0006). Global feed, one
+  server's history, one event type and one actor's history are each an
+  `IXSCAN`, never an in-memory sort.
+- **`openshift_cluster_name_id` is also the membership jobs' working
+  set** (ADR-0024): each run reads every server naming its cluster to
+  free the ones the cluster stopped listing, from every cluster at once,
+  every 15 minutes. `source_provider_last_seen` is the fleet gauges'
+  staleness query (ADR-0029).

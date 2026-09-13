@@ -197,15 +197,20 @@ is a real mistake, not a style preference.
    - **a docstring summary longer than 3 lines** — everything before
      `Args:`/`Returns:`/`Raises:`/`Yields:`/`Attributes:`.
 
-   It covers `backend/app`, `tools`, `tests` and `frontend/src`. The 701
-   pre-existing violations are recorded in
-   `scripts/comment-density-baseline.txt` with a per-file allowance.
-   **That file may only ever shrink.** A file listed there may not get
-   worse; a file not listed there may not have a single violation. Do
-   **not** add a line to it to make a new violation pass — that is the
-   one thing it exists to prevent. When you clean a file up, run
-   `uv run python scripts/check_comment_density.py --regenerate` to bank
-   the improvement.
+   It covers `backend/app`, `tools`, `tests` and `frontend/src`.
+   **The baseline is empty since 2026-09-13** — a repo-wide sweep cleared
+   all 701 pre-existing violations (net −3,600 lines, every displaced
+   fact moved into the topical doc or ADR with its provenance), so
+   `scripts/comment-density-baseline.txt` lists no file and **every file
+   is held to zero**. Do **not** add a line to it to make a new violation
+   pass — that is the one thing it exists to prevent; a hook refuses hand
+   edits, and `--regenerate` can only ever write a smaller list.
+
+   The same sweep applied a second rule the gate cannot check: **a
+   comment that restates what the code plainly does is deleted, however
+   short.** What survives is a one-liner pinning genuinely non-obvious
+   behaviour, a hard-won fact with its pointer, or a `# ponytail:`
+   marker. Hold new code to that.
 
    The rule the gate is enforcing, in one line: **the code is for code.**
    If an explanation needs more than three lines, it belongs in `docs/` —
@@ -363,8 +368,10 @@ out of the generic UPI bucket into their own card, and all four system-
 default classification rules became broad, overlapping, order-dependent
 prefix/substring catch-alls rather than mutually exclusive by
 construction (`app.infrastructure.mongodb.classification_rule_repository.
-default_system_rules`) — read that module's own comment before touching
-it, the ordering is load-bearing now in a way it wasn't before. **UPI's
+default_system_rules`) — read `docs/architecture.md`'s classification
+section before touching it (the ordering history lives there since the
+2026-09-13 comment sweep), the ordering is load-bearing now in a way it
+wasn't before. **UPI's
 own pattern became unconditional (`.*`) 2026-09-10** — it used to require
 an `ocp4` prefix; now it matches every name that isn't already claimed by
 a hosted-cluster or MCE rule, so `InstallationType.UNCLASSIFIED` is
@@ -1337,7 +1344,24 @@ quarterly, or before any release you care about:
 
 ## Where to continue right now
 
-**Most recent, 2026-09-13, night — releases deploy themselves** (ADR-0031).
+**Most recent, 2026-09-13, late — the comment sweep.** Eight parallel
+agents cleared every one of the 701 comment-density violations and then
+deleted every short comment that merely restated the code: 193 files,
+−3,600 lines net, the baseline now empty (convention 8). Every displaced
+fact went to its topical doc — `docs/cisco-collectors.md`,
+`docs/dell-collectors.md` (new "NICs" section), `docs/hpe-collectors.md`,
+ADR-0016's dated update (Redfish implementation facts), ADR-0007/0012/0026
+updates, `docs/architecture.md` (the fake provider's shape, the provider
+contract, the default-policy table, how `run_collector.py` is put
+together, the `default_system_rules` ordering history), `deploy/README.md`
+and `.env.example`. Six stale statements were corrected on the way. Two
+things it surfaced, for later: `Manager.ALLOWED_PARENT_TYPES` and
+`Manager.bmc_credential_ref` have no readers anywhere; and keyset paging
+on `updated_at`/`last_seen_at` returned an empty second page (a real
+`datetime` in `$gt` against ISO strings — ADR-0006's trap), confirmed
+live and fixed in the commit after the sweep.
+
+**Before that, 2026-09-13, night — releases deploy themselves** (ADR-0031).
 CI gained a `deploy` job after `publish`: it checks out redbull-platform
 with `REDBULL_WRITE_TOKEN`, `rsync`s the chart's templates/files into
 `gitops/charts/server-scan`, `yq`s the two image tags and `appVersion`,

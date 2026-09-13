@@ -38,6 +38,122 @@ The fake data generator (slice 1) feeds this same pipeline through a
 documents directly, so the ingestion path is exercised end-to-end before
 any real collector exists.
 
+### The fake provider's shape
+
+`app.infrastructure.providers.fake.generator` is what every dev
+environment, demo and screenshot runs against (CLAUDE.md convention 10),
+so its choices are recorded here rather than in the code. The seeded
+figures and what to look at once seeded are in `README.md`'s "Fake data";
+the link-fault minority is `docs/adr/0027`'s "Seeded data".
+
+- **Managers are a small fixed set, independent of `seed`/`count`**
+  (`COLLECTOR_TYPES`, one `Manager` per collector that exists, with the
+  same `mgr_<type>` id `tools.run_collector.manager_for` writes on a real
+  run). Re-seeding with a different seed or count must not create
+  duplicate manager documents — there is a unique index on `name` — and a
+  seeded fleet and a really-collected one must resolve `Server.manager_id`
+  through the same document. Only the servers vary.
+- **Sites come from the configured `SiteCatalog`, never a fixed list**, so
+  a deployment that reconfigures `INVENTORY_SITES` gets fake data whose
+  hostnames carry *its* site tokens. A `Site` document's id is the bare
+  code, no prefix: a server's site is derived from its name and can only
+  ever yield the bare code, and a mismatch between the two strings is
+  exactly what once made filtering by site return nothing.
+- **Which collector owns a server is decided the way the real ones split
+  it** (`collector_for`): a Cisco B-series blade lives in a UCS domain and
+  is `UCS_CENTRAL`, a Cisco rack unit is `INTERSIGHT` (mirroring the
+  `ManagementMode` partition ADR-0017 enforces), HPE is `ONEVIEW`, Dell is
+  `OPENMANAGE`, and only `standalone` is left on its own BMC. Reading it
+  back (`provider_type_for`) goes by `external_id`, which is the one thing
+  a real collector stamps with its own identity — except Dell, where an
+  OME-collected server carries the same `redfish://` id a standalone BMC
+  would (ADR-0020), so the vendor separates them.
+- **Hostnames span the estate's real shapes**, drawn from a weighted
+  family list: `ocp4-hypershift[-data]-<site>-NN`,
+  `ocp-<vendor>-<model>-<site>-<cores>c-<gib>gb-[<hw>-]<serial>`,
+  `ocp4-mce-<site>-NN`, `ocp4[-<env>]-<site>-<role>-NN`, and a siteless
+  `random-server-NNNN`. UPI outweighs hosted-cluster rather than tying it
+  so the sites overview's fleet cards read as different numbers — several
+  landing on the same count looks like a page bug rather than a fleet
+  property — and MCE is a single-weight minority for the same reason. The
+  siteless family is still called `unclassified` in the code but has not
+  produced `UNCLASSIFIED` since UPI's default rule became `.*` on
+  2026-09-10; what it exercises now is the "Unassigned site" state. Every
+  other shape embeds the site code as a whole `-`-delimited token, since
+  the name is what `parse_site_code` and the classification rules read.
+  The `mce` name also matches the UPI catch-all on purpose; the rules'
+  ordering is what keeps it out of UPI.
+- **The vendor steps by site cycle, not by index.** There are as many
+  vendors as default sites, so a plain `index % len(vendors)` locks each
+  site to exactly one vendor and leaves every per-site vendor breakdown a
+  single bar; a 15% random re-draw keeps it from being perfectly periodic.
+- **A Dell hostname's hardware token names a PCIe slot**
+  (`nic_slot_for`: `h100` -> slot 8, `h200` -> 33, `10tb-`/`5tb-` -> 2).
+  No management API reports an OS-level interface name; systemd derives
+  `ens<slot>f<function>np<port>` from PCI topology, so the slot is what
+  one is derived from, and the token is the only thing that says which.
+  Dell's PowerEdge onboard NIC is a two-port LOM, so a server with no
+  add-in card has exactly two `NIC.Integrated.1-*` interfaces (which boot
+  as `eno...`) and one with a card has four, onboard first — the order a
+  BMC enumerates them, which is what makes "the third and fourth MACs"
+  name the card's ports. Only the FQDD-shaped collectors (`OPENMANAGE`,
+  `REDFISH_STANDALONE`) take the token, since only an FQDD-shaped
+  interface can agree with it; UCS/Intersight servers get `eth<N>` with
+  no location, no speed and `UNKNOWN` link state (ADR-0009's 99.75%
+  figure), and OneView servers `Physical Port <N>` at `1:<N>`.
+- **Component health speaks each collector's real vocabulary.** Drives
+  and GPUs carry `HealthSeverity` (`HEALTHY`/`WARNING`/`CRITICAL`, the
+  value every provider boundary normalizes to — the seeded storage policy
+  counts CRITICAL drives), PSUs carry `UP`/`DOWN`/`DISABLED`/`UNKNOWN`
+  with ~6% of servers given one DOWN bay so `power.failed_psu_count` has
+  something to read locally, and `health_detail` is a cosmetic stand-in
+  never read by anything.
+- **GPU identifiers come in the spelling each management plane really
+  uses**: Cisco a PID (`UCSC-GPU-L40S`), a BMC the vendor's model string
+  plus memory type (`NVIDIA A100-PCIE-40GB`, `HBM2e`). `GpuCatalog`
+  matches both, normalized, so the fleet carries both or the local view
+  only proves half the catalog. A fifth of GPU-bearing servers draw a
+  card the built-in catalog deliberately cannot answer for — a PID it was
+  never taught (`UCSC-GPU-A100-40`), a bare `NVIDIA A100` it refuses as
+  ambiguous, an absent `RTX A6000` — so "VRAM unknown" is visible in dev
+  rather than discovered in production. `memory_bytes` is always `None`,
+  as it is from every collector but Redfish.
+- **Profile templates are illustrative, not vendor facts**: a template's
+  name is an operator's own choice, so `_TEMPLATE_NAMES` carries a
+  plausible set per collector that has the concept (UCS Central,
+  Intersight, OneView, OpenManage — a leftover comment claiming the OME
+  and OneView collectors "do not exist" was wrong and is gone) and ~10%
+  of those servers get none, a profile applied ad hoc. `REDFISH_STANDALONE`
+  is deliberately absent: a bare BMC has no template concept, and
+  `OverviewTab`'s `PROFILE_TEMPLATE_LABELS` omits its row for exactly that
+  reason. Only `UCS_CENTRAL` reports a `profile_dn` (`org-root/org-<site>/
+  ls-<name>`), which `parse_site_code` falls back to for a siteless name;
+  an Intersight `server.Profile` has no `Dn` at all, so a siteless name
+  there really does resolve to no site — a real gap shown, not papered over.
+- **Attachments only from the two fabric-interconnect collectors**, the
+  set the seeded `connectivity.fabric_paths_down` policies are scoped to
+  (ADR-0030), reporting both the physical `adaptorExtEthIf` uplinks and
+  the two `adaptorHostEthIf` vNICs carved out of each, distinguished by
+  `interface_kind`, so dev sees the two kinds together.
+- **Two partial-record shapes exist.** ~3% of Dell servers are
+  `reachable=False` with every hardware field `None`, the one shape
+  `OpenManageProvider._unreachable_server` produces. A ProLiant Gen9
+  carries an iLO 4, against which every OneView subresource call fails,
+  so its drives, GPUs, PSUs and `nic_macs` are `None` — unread — while its
+  identity is intact. Never `()` or `0`: an empty drive list reads as "no
+  drives installed" and takes a healthy server to CRITICAL, the exact bug
+  the `None`-means-unread contract exists to prevent. `nics` is the one
+  exception, `()` rather than `None`, because it has no unread state — it
+  is the richer view of the interfaces `nic_macs` lists, and a server
+  whose MACs went unread cannot coherently report per-port detail.
+- **Determinism**: every random choice goes through one
+  `random.Random(seed)` in a fixed order (`model` and `memory_gib` before
+  `name`, because one hostname shape embeds both), so `(seed, count)`
+  yields byte-identical output on every machine — asserted in
+  `tests/unit/infrastructure/providers/test_generator.py`. Adding or
+  removing an `rng` call anywhere in that path shifts every later draw
+  and makes README's quoted figures stale.
+
 ## Request lifecycle
 
 1. `RequestContextMiddleware` assigns/reuses a request id, binds it into
@@ -80,6 +196,20 @@ any real collector exists.
   deliberately unversioned — they're consumed by the container
   orchestrator, not API clients, and must not move if `/api/v1` ever
   becomes `/api/v2`.
+- **The HTTP metrics' `path` label is the matched route template, never
+  the raw URL.** `request.scope["route"]` is `None` on a 404, and the
+  first version of the middleware fell back to the caller-supplied path —
+  which let any unauthenticated caller mint unbounded label series
+  (`GET /a1`, `/a2`, ...) on both the Counter and the Histogram. The
+  unmatched case now gets the fixed sentinel `<unmatched>`, bounding
+  cardinality to the routes this app declares, plus one.
+- **Log scrubbing is recursive.** `logging.config._scrub` drops
+  `_SENSITIVE_KEYS` (`password`, `token`, `authorization`, `secret`,
+  `api_key`, `credential`) at any nesting depth, lists included. A
+  top-level-only check catches `logger.info("x", password=...)` but not
+  an exception's own `args`, a vendor API's error body, or a collector's
+  per-host error list — exactly the shapes a credential arrives nested
+  inside.
 
 ## Search, pagination, and caching (slice 1)
 
@@ -124,6 +254,26 @@ any real collector exists.
   `openshift_state`, `cluster_name` and `mce_name`; each needs an entry in
   `SORT_FIELDS`, a matching `SORT_ACCESSORS` reader, and a compound index
   ending in `_id`.
+
+  `FILTER_FIELDS` and `SORT_FIELDS` (`app.domain.services.search`) are
+  explicit query-param-name → Mongo-path maps, deliberately not derived
+  from the `Server` model's field names, so a domain rename cannot
+  silently change or break the public query contract. Every sort target
+  is a field that is always present with a safe default on every
+  document (`name_normalized`/`serial_normalized`/`model_normalized` are
+  `""`, never null — `app.domain.services.normalize`'s functions are
+  total for that reason) — that is what keeps keyset pagination gap- and
+  duplicate-free. `SORT_ACCESSORS` is how the repository reads the same
+  value back off the last row of a page to build the next cursor, so the
+  two must stay in lockstep; `last_seen_at` falls back to the Unix epoch
+  when unset, because a cursor position must be a concrete, comparable
+  value even though the model allows `None` there. The cursor payload
+  tags each sort value as `str`, `datetime` or `null` so it round-trips
+  with its type; a genuinely absent value is tagged rather than encoded
+  as `""`, because the two sort to different places (ADR-0026).
+  `openshift_state` sorts `AVAILABLE` / `INSTALLED` /
+  `INSTALLED_TO_INVENTORY`, which is alphabetical and happens to read
+  free-to-busy.
 - **List responses are a lean projection** (`ServerSummary`), not the
   persistence model: no `hardware` subdocument, since at the platform's
   5k-today, 10k-ceiling estate (verified at 50k), shipping full hardware detail on
@@ -148,6 +298,61 @@ any real collector exists.
   correctness — verified with an integration test that points at an
   unreachable Redis and confirms `GET /servers` still serves correctly
   from MongoDB.
+- **TTLs are per resource shape**, not one `cache_default_ttl_seconds`:
+  a server detail document is 60s (low churn, per document), a list page
+  15s (any write to any server in the result set stales it, and it is
+  cheap to recompute), and facet counts 60s — an aggregation over every
+  server matching a filter, read once per filter change rather than per
+  scroll. The site overview's `si:4:sites:stats` is 30s for the same
+  reason: `site_breakdown` is a full collection scan with no index to
+  help a grouping without a match stage, and five collectors change its
+  numbers continuously, so there is no clean event to invalidate on.
+  Thirty seconds keeps the landing page off the aggregation on every
+  refresh while a maintenance toggle still shows on the next look. The
+  `:4:` in that key is a schema version: a deploy that kept the old key
+  would validate up to 30s of cached payloads against the new response
+  model, and a new *required* field (`fleet` was one) fails validation
+  outright rather than rendering as a zero — bump it on every shape
+  change.
+- **A cache hit is served as the stored bytes**, not decoded, validated
+  and re-encoded. `CacheClient.get_raw` returns what `set()` stored,
+  which is `response.model_dump(mode="json")` JSON-encoded — exactly the
+  bytes FastAPI would produce again from a validated model. The skipped
+  round trip measured 0.919 ms per cached list-page request and changed
+  nothing on the wire (`docs/notes/2026-09-research-performance.md`
+  §7.2, §6.1). `get_raw` is only for a body handed straight back; a value
+  the caller inspects still goes through `get`. The detail endpoint's
+  revision pointer is a bare int and is decoded normally — only the
+  document behind it is worth the raw path.
+- **`GET /servers/facets` counts within the filters already applied**, so
+  reading the vendor counts after picking a site describes that site, not
+  the estate — the number an operator is actually asking for, and why the
+  counts are per request rather than a fleet-wide cache. An option with
+  no match is absent rather than zero, so the UI can show it as
+  unavailable instead of selectable-but-empty. The repository answers it
+  with one `$group` over a composite key rather than a `$facet` per
+  dimension: the key's cardinality is bounded by the enums, not the
+  estate (4 vendors x 5 collectors x 4 installation types x 6 severities
+  x 2 maintenance states x 3 OpenShift states, ~5,700 rows at absolute
+  worst and a tiny fraction in practice), and each dimension's counts are
+  the marginals summed out of it. `site_id` is deliberately not in the
+  key — it is usually already a filter by the time these numbers are
+  wanted, and the site overview answers the per-site question. The route
+  is declared before `/servers/{server_id}` because FastAPI matches in
+  declaration order; the other way round `facets` is swallowed as a
+  server id.
+- **`GET /sites` pivots one `$group` into a card per configured site**,
+  seeding every site from `INVENTORY_SITES` first so the response shape
+  never depends on what the database happens to hold — the UI renders a
+  card per site without null-checking, and this endpoint is the *only*
+  place the frontend learns which sites exist, so reconfiguring the
+  catalog reaches the UI with no frontend change. The fleet-wide
+  `FleetSummary` is folded from the same rows in the same pass, not
+  summed from `items` client-side, so a second consumer gets the
+  identical number. An enum value the API does not know lands in a
+  catch-all bucket (`UNKNOWN` health, no vendor column, the `AVAILABLE`
+  OpenShift slice) rather than being dropped, so slice totals always add
+  up to the fleet.
 
 ## Classification engine (slice 2)
 
@@ -163,7 +368,23 @@ any real collector exists.
   so a more-specific scope strictly outranks a less-specific one
   regardless of how many dimensions are set — a site-scoped rule always
   beats a global rule at equal priority, never a coincidence of how many
-  scope fields happen to be filled in.
+  scope fields happen to be filled in. `id` is the final, always-available
+  tiebreak: a uuid-based id gives a total order even when two rules are
+  otherwise fully tied.
+- **A rule matches one of five fields, and its priority lives in its
+  source's band.** `CLASSIFIABLE_FIELDS` is the closed set `name`,
+  `hostname`, `serial`, `model`, `site_id` — deliberately not an arbitrary
+  dotted path into the document, which is what keeps a rule author from
+  regexing over raw provider payloads or internal-only fields and keeps
+  the UI's field picker finite. `classify` therefore takes a
+  `ClassifiableServer` — a small struct of exactly those fields — rather
+  than a `Server`, so the resolution algorithm's tests never construct a
+  full document. `PRIORITY_BANDS` per `source` (`SITE_CUSTOM` 500-599,
+  `MANAGER_CUSTOM` 400-499, `VENDOR_CUSTOM` 300-399, `GLOBAL_CUSTOM`
+  200-299, `SYSTEM_DEFAULT` 100-199) are enforced at write time by the
+  classification service, not by the model: the service layer owns
+  cross-field business rules, so the check is not duplicated in every
+  code path that constructs one.
 - **Conflicts are recorded, never silently resolved by luck.** If two
   rules tied on precedence disagree about the outcome, the winner is still
   deterministic (lowest `id`), but the disagreement is persisted on the
@@ -184,6 +405,28 @@ any real collector exists.
   candidates by the parts of `scope` Mongo *can* index (vendor, site_id),
   then evaluates the pattern in Python against the capped candidate set —
   same engine, same safety guarantee as the real classifier.
+- **The four system defaults are broad, overlapping, order-dependent
+  catch-alls** (`classification_rule_repository.default_system_rules`),
+  not mutually exclusive by construction. They used to be four narrower,
+  mutually exclusive, site-anchored shapes; on 2026-09-08, at the
+  operator's request, they became plain prefix/substring matches with no
+  site validation (`^ocp4-hypershift` and `^ocp-` for `HOSTED_CLUSTER`,
+  an `mce` substring for `MCE`), and on 2026-09-10, also at the
+  operator's request, UPI's pattern went from `^ocp4` to an unconditional
+  `.*`. From that day classification is genuinely *order*-dependent, not
+  just pattern-dependent: all four share a priority, so `order` (0/1/2/3)
+  — the tie-break `classify()`'s `_sort_key` applies after priority and
+  specificity — is the only thing keeping a hosted-cluster or MCE name
+  from being swallowed by UPI, whose own pattern would claim it too.
+  Reordering them is a behaviour change. All four are `system=True`
+  (enabled-only edits) because they encode a fleet-wide naming
+  convention, not a per-vendor preference; a vendor-scoped rule is what
+  an operator adds on top at a higher priority band (`PRIORITY_BANDS`).
+  `default_system_rules` mints fresh ids on every call and the collection
+  has a unique `name` index, so it is seeded exactly once —
+  `bootstrap.ensure_default_classification_rules` seeds by name, and a
+  second raw insert fails loudly with `DuplicateKeyError` rather than
+  double-inserting.
 
 ## Health policy engine (slice 3)
 
@@ -244,6 +487,120 @@ any real collector exists.
   `network.interface_count` keeps its literal meaning and rides along as
   evidence. The engine itself stays two-valued — the ADR says what would
   make three-valued evaluation worth it.
+- **`MAJOR` sits between `WARNING` and `CRITICAL`** (added 2026-09-06):
+  redundancy is gone but the server is still serving, so the *next*
+  failure takes it down — worth waking someone for in a way a degraded
+  data disk is not, and not the same as being down already. Exactly two
+  things are MAJOR: one network link up, and one bad OS disk.
+  `HEALTH_SEVERITY_RANK` keeps the ranks explicit even though
+  declaration order already agrees, because `HealthSeverity` is a
+  `StrEnum` and a future alphabetical reorder would silently swap
+  CRITICAL and MAJOR everywhere a worst-of is aggregated.
+- **The facts vocabulary** (`app.domain.services.health.facts.
+  extract_facts`) is the one place that reaches into the nested `Server`
+  shape; everything downstream works on its flat dict. What each fact
+  counts, and the live-data bug behind each choice:
+  - `storage.failed_drive_count` counts `CRITICAL`, not `"FAILED"`: every
+    collector normalizes a dead drive onto `HealthSeverity` at the
+    provider boundary, so a policy counting `"FAILED"` counted nothing
+    outside fake data. `storage.warning_drive_count` counts `WARNING`
+    separately — predictive-failure lands there, which is why it is its
+    own fact rather than a widening of the failed one.
+  - `power.failed_psu_count` counts `DOWN`, not `"OK"`-negated: no
+    collector populated `psus` before 2026-09-01, so the original
+    `health != "OK"` comparison had never met real data. `Psu.health` is
+    `normalize_oper_state`'s `UP`/`DOWN`/`DISABLED`/`UNKNOWN`; `"OK"` is
+    never emitted, so the old check would have counted every healthy PSU
+    as failed the moment a real run arrived.
+  - `gpu.failed_count` counts **both** `CRITICAL` and `DOWN`
+    (`facts._FAILED`), because GPU health arrives in two vocabularies:
+    Redfish maps `Status.Health` onto `HealthSeverity`, while UCS
+    Manager, UCS Central and Intersight all map `OperState` onto
+    `UP`/`DOWN`. Normalizing the providers to agree would be cleaner but
+    rewrites what is already stored on every collected server — and this
+    file has twice been where a vocabulary mismatch became a check that
+    counted nothing. `gpu.uncorrectable_error_count` is summed across
+    the server's GPUs (one policy on the total is what an operator wants;
+    per-card detail stays on the document), and only *uncorrectable* ECC
+    counts — a correctable error is the mechanism working as designed.
+  - **OS disks are the smallest capacity present** (`facts.
+    _os_disk_capacities`): a boot mirror beside larger data drives. A
+    server whose drives are all one size gets **no** OS disks rather than
+    all of them — calling twenty-four identical NVMe drives "OS disks"
+    would make one degraded data drive MAJOR on every storage node — and
+    is covered by the data-disk checks instead. Drives reporting no
+    capacity are never sorted. "Bad" (`facts._NOT_GOOD`) is degraded
+    *or* failed, counted together, because on a two-disk mirror the
+    distinction does not change what an operator does; `memory.
+    degraded_dimm_count` uses the same set for the same reason.
+  - **A storage build is read from the server's name**
+    (`server.name_has_10tb`, `server.name_has_5tb`, case-insensitive): no
+    field on the document says "this is a 10TB box", the same reason a
+    site is parsed from the name. Each token is its own boolean fact
+    because the condition grammar has no regex operator — "the name says
+    10TB" has to already be a boolean by the time a policy sees it.
+  - Network counts links **up**, not links down: a server with unused
+    NICs has DOWN links and is perfectly healthy, so "any link down" is a
+    useless signal; "nothing is up" is the one that means something, and
+    it needs `links_known_count` beside it (ADR-0027).
+- **The system-default policies** (`app.domain.services.health.
+  health_policy_defaults`, fifteen as of 2026-09-13) are built, never
+  persisted, by that module; `bootstrap` seeds and re-syncs them.
+  Everything except the two fabric policies is vendor-neutral by
+  construction — each reads a fact off the normalized `Server`, never a
+  vendor payload. What each one is, and why it is the severity it is:
+
+  | `policy_key` | Fires when | Severity |
+  |---|---|---|
+  | `connectivity.fabric_paths_down_warning` / `_critical` | exactly 1 / 2+ fabric paths down | WARNING / CRITICAL |
+  | `power.failed_psu` | a PSU reports `DOWN` | CRITICAL |
+  | `storage.os_disk_bad_major` / `_critical` | exactly 1 / 2+ OS disks bad | MAJOR / CRITICAL |
+  | `storage.data_disk_bad_large_warning` / `_critical` | 10TB-named node, exactly 1 / 2+ data disks bad | WARNING / CRITICAL |
+  | `storage.data_disk_bad_warning` | any other node, 1+ data disks bad | WARNING |
+  | `storage.large_storage_undersized` | 10TB-named node, total storage < 8 TB | CRITICAL |
+  | `storage.name_5tb_oversized` | 5TB-named node, total storage > 6 TB | CRITICAL |
+  | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
+  | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
+  | `network.single_link_up` | readable links ≥ 2, exactly one up | MAJOR |
+  | `gpu.failed` | a GPU reports CRITICAL or DOWN | CRITICAL |
+  | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
+
+  - The two fabric policies use **different** `policy_key`s with mutually
+    exclusive conditions (`EQ 1` / `GTE 2`): a shared key would make them
+    compete for one winner (ADR-0005), and they are meant to coexist.
+    They are scoped to `[UCS_CENTRAL, INTERSIGHT]` (ADR-0030) — only a
+    fabric interconnect has fabric paths.
+  - **There is deliberately no blanket "any failed drive is CRITICAL"
+    default** — removed 2026-09-06 (`feat!`) when the OS/data split
+    landed. Keeping both would make a failed OS disk fire MAJOR *and*
+    CRITICAL at once; the worst-of rollup takes CRITICAL and the MAJOR
+    tier would be unreachable for the exact case it was added for.
+    `storage.failed_drive_count`/`warning_drive_count` stay registered so
+    an operator can rebuild the old rule. Seeding never deletes, so a
+    database seeded before that date keeps its "Failed drive present"
+    policy until someone disables it.
+  - One bad OS disk is MAJOR (the mirror is running unprotected; the next
+    failure takes the server down), two is CRITICAL (on the usual
+    two-disk mirror nothing is left). Data disks split by what the server
+    is *for*, which only its name records: on a large-storage node a bad
+    data disk escalates at two; elsewhere the local disks are incidental
+    and one bad disk is a warning.
+  - The 8 TB and 6 TB bounds are **decimal**, matching how the collectors
+    measure and the dry run renders capacity, and both leave headroom for
+    how a "10TB"/"5TB" build is actually assembled and measured. Both are
+    CRITICAL for the same reason: capacity that does not match the name a
+    workload is placed by — a workload placed by name will not fit.
+  - A degraded DIMM is WARNING, not MAJOR: a scheduled swap, not lost
+    redundancy — the server keeps running on the memory it has, and ECC
+    is doing its job until it cannot. Only providers that read per-DIMM
+    health populate the count (Redfish-sourced ones, as of 2026-09-06);
+    the rest leave it at zero and the policy never fires.
+  - `network.single_link_up` is `EQ 1`, not `LTE 1`: zero links up is
+    `all_links_down`'s case, and a server must not report both.
+  - GPU ECC is WARNING at the *first* uncorrectable error, not a
+    threshold: memory the card could not repair is a documented
+    predictor of a failing accelerator, not routine noise. Only Redfish
+    reports the counts.
 - **Message templates are rendered by explicit substitution**, never
   `str.format(**evidence)` — `str.format`'s field syntax reaches attribute
   and index access (`{obj.__class__}`, `{obj[0]}`) even on a template that
@@ -257,6 +614,21 @@ any real collector exists.
   real resolution per candidate. Documented as materially more expensive
   than the classification preview (no Mongo-native condition compilation
   exists yet), bounded by the same scope-filtered, capped candidate scan.
+- **Source/scope coherence is a write-time rule, not a model invariant.**
+  `HealthPolicyService._SCOPE_REQUIREMENTS` maps each custom source to
+  the one scope field it must set (`SITE_CUSTOM` -> `site_id`,
+  `MANAGER_CUSTOM` -> `manager_types`, `VENDOR_CUSTOM` -> `vendor`;
+  `GLOBAL_CUSTOM` must set none), mirroring the classification rules'
+  own coherence check. It lives in the service rather than
+  `domain.models.health_policy` because the model's validators enforce
+  only structural invariants (priority band, mode validity).
+  `validate_policy_write` runs it alongside condition and template
+  validation, and `bootstrap` runs all of it on every shipped default
+  before seeding. One wrinkle: the domain raises a single
+  `ConditionValidationError` for every condition problem, so the service
+  pattern-matches its message to pick between `UNKNOWN_METRIC`,
+  `METRIC_OPERATOR_MISMATCH` and the generic `CONDITION_INVALID` — the
+  only signal available without changing that fixed contract.
 
 ## Fleet gauges: the answer to "did the collector stop"
 
@@ -293,11 +665,10 @@ and an unconditional `.*` catch-all for `UPI` (2026-09-10 — used to be
 one-path-down/two-paths-down fabric policies)
 idempotently at startup — "seed only if missing, by name" specifically so
 an admin's edit to a system default's `enabled` flag survives every
-restart rather than being silently re-armed. See
-`app.infrastructure.mongodb.classification_rule_repository.
-default_system_rules` for why the patterns are broad, overlapping
-catch-alls rather than mutually exclusive by construction, and why that
-makes `order` load-bearing.
+restart rather than being silently re-armed. See "Classification
+engine" above for why the patterns are broad, overlapping catch-alls
+rather than mutually exclusive by construction, and why that makes
+`order` load-bearing.
 
 Verified against a live 1,000-server seeded dataset (regenerated
 2026-09-08 against the current four-rule set, superseding an earlier
@@ -347,6 +718,57 @@ health` never reads it, only `health` itself. Wired into every provider
 that populates `health` today; `MemoryModule.health_detail` exists for
 when a collector eventually reports per-DIMM detail — none does yet,
 `Memory.modules` is hardcoded empty in `IngestService`.
+
+Smaller ingest facts, moved here from `ingest.py`'s comments 2026-09-13:
+
+- **The ruleset and policy set are loaded once per run**, not per server
+  (`ClassificationService.load_ruleset`, `HealthPolicyService.
+  load_policies`, then `classify_with_ruleset`/`evaluate_with_policies`
+  per server). Both are answers that cannot change mid-run, and
+  re-reading them was ~2 uncached collection reads per server — ~20,000
+  on a 10,000-server run — for nothing (P1 of
+  `docs/notes/2026-09-audit.md`). `ClassificationService.load_ruleset`
+  is also the one place `enabled_only=True` lives, so the filter cannot
+  be forgotten at a call site.
+- **There is no fallback vendor.** Every server arrives through a
+  vendor-specific collector, so an unrecognized `ProviderServer.vendor`
+  is a provider bug to surface — not something to file under "unknown"
+  and pollute every per-vendor count with. `ingest()`'s per-server
+  handler logs the string, counts it in `IngestSummary.errors` and moves
+  on.
+- **A `DuplicateKeyError` on upsert is recovered, not fatal.** It can
+  only come from `uniq_vendor_serial` — `system_uuid` has been
+  non-unique since 2026-09-09 (ADR-0026) — so it means a concurrent
+  ingest of the same server; the real owner is looked up again and
+  updated in place.
+- **Only two transitions are audited**: a server seen for the first time,
+  and an engine verdict that actually changed — the same selectivity
+  `POST /servers/{id}/reclassify` and `.../health/recalculate` apply.
+  Every run touches `last_seen_at` on every server, so a generic
+  "updated" event would be pure noise. Automated emissions use
+  `SYSTEM_INGEST_ACTOR`, a fixed `actor.id` of `ingestion` rather than
+  one minted per call, so "everything the pipeline has ever done" is a
+  single `actor.id`-filtered query.
+- **`last_seen_at` means "the server's own endpoint answered."** A
+  `reachable=False` run keeps the stored value rather than bumping it,
+  or a dead server would look freshly seen; `unreachable_since` is set
+  on the first miss and held across repeated ones.
+- **The carry-forward set is explicit**: `maintenance` and `openshift`
+  are carried verbatim (this module never writes either);
+  `classification` and `health` are carried and then overwritten only
+  when the matching engine service was supplied; a first-seen server
+  takes each model's zero value. **Tracked debt (`# ponytail:` in
+  `_build_server`)**: `network.interfaces` and `connectivity.attachments`
+  are the two collected sub-resources *not* in that set, and cannot be
+  while `ProviderServer.nics`/`.attachments` are `tuple[...] = ()` —
+  with no `None` state, "could not read" is indistinguishable from
+  "read, none present", so carrying them forward would pin a genuinely
+  emptied list forever. Every other sub-resource is three-state and goes
+  through `_carry_forward`. Dormant only because every collector that
+  populates them repopulates them on each run; the day a second provider
+  ingests the same `(vendor, serial_normalized)` without them, it blanks
+  both. Upgrade path: `nics: tuple[ProviderNic, ...] | None = None`, the
+  same for `attachments`, then `_carry_forward` for each.
 
 ## What's implemented vs. planned
 
@@ -407,7 +829,19 @@ and exposed via reclassify/recalculate endpoints.
   `CLASSIFICATION_CHANGED`/`HEALTH_STATUS_CHANGED` only on a real
   transition — never a generic "updated" event, since ingestion touches
   `last_seen_at` on every server on every run and a naive audit-on-every-
-  write would be pure noise with no signal.
+  write would be pure noise with no signal. `OPENSHIFT_STATE_CHANGED`
+  follows the same rule: the membership jobs run every 15 minutes over
+  the whole fleet, so an event per observation would be noise measured
+  in millions, and the only interesting moment is the transition.
+  `EventType` is a closed, append-only registry — values are added at
+  the end and never renumbered or removed, since stored events reference
+  them by string and old events must stay readable (`HEALTH_POLICY_DELETED`
+  survives for that reason even though policy CRUD is gone; it was added
+  for symmetry with `CLASSIFICATION_RULE_DELETED`, a deletion being a
+  distinct, irreversible event from a disable). `AuditEvent.server_id` is
+  nullable because rule/policy events are about no one server; the
+  affected id lives in `data` instead, so the field is never overloaded
+  to mean two things depending on `event_type`.
 - `GET /api/v1/events` and `GET /api/v1/servers/{id}/events` use a
   simpler, unsigned keyset cursor than `servers`' HMAC-signed one — the
   sort order here never varies (`created_at DESC, _id DESC`), and a
@@ -621,6 +1055,189 @@ integration that isn't `FakeProvider`. See
   than claiming a missing feature. Intersight reuses the same three
   settings with different meanings: it signs requests with an API key, so
   `username` is the API Key ID and `password` the secret key.
+- **How `tools/run_collector.py` is put together** (the module carries
+  one-line pointers here rather than the reasoning):
+  - `PROVIDER_FACTORIES` is the single source of truth for which
+    collectors exist — one factory per `ManagerType`, each taking the
+    same keyword set (`manager`, `credentials`, `timeout_seconds`,
+    `settings`, `name_pattern`). It is public and read across the
+    language boundary by `tests/unit/test_frontend_manager_types.py`,
+    because the alternative — each consumer restating the list by hand —
+    is what let the Dell and HPE collectors ship unfilterable in the UI
+    while the guard written to catch exactly that drifted along with them
+    and stayed green. `UCS_MANAGER` is deliberately absent (above); the
+    `UcsManagerProvider` engine still runs once per domain under
+    `UCS_CENTRAL`, so `_build_provider` raises a usage error naming that
+    rather than "not implemented".
+  - `_ENDPOINTLESS_TYPES` (`REDFISH_STANDALONE`) is the set resolved as a
+    login only, with no `_IP` variable: its addresses come from the
+    inventory file, and the `Manager` projection carries that file's path
+    as its `endpoint` — the most informative answer to "where did these
+    servers come from". `EnvConnectionResolver.resolve` would otherwise
+    exit 2 naming a variable that cannot be set.
+  - `_UNFILTERED_TYPES` (`REDFISH_STANDALONE`) is the set the *global*
+    `INVENTORY_COLLECTOR_NAME_PATTERN` skips; a per-type override still
+    applies. `_NAME_PATTERN_FIELD` maps each type to its own `Settings`
+    override field, explicit rather than derived from the enum member
+    name for the same reason `..credentials.env`'s maps are.
+    `resolve_name_pattern` is the one place global, override and
+    exemption are reconciled: override (even an empty one) wins, then
+    the exemption, then the global. Every reader goes through it and the
+    result is threaded into each factory, because three collectors prune
+    on the pattern *before* the wrapper sees anything — OME skips BMCs,
+    UCS Central skips domains, OneView skips its per-server
+    `/powerSupplies` and `/processors` calls — and a factory reading
+    `Settings` for itself could prune on the global while the wrapper
+    filtered on the override, silently collecting the intersection.
+  - `_NameFilteredProvider` is the authoritative filter, applied as a
+    wrapper around every collector rather than as a guard inside
+    `IngestService`: *which servers to collect* is a collection concern,
+    not the pipeline's — `tools/seed_inventory.py` shares the pipeline
+    and its fake servers have no manager to be filtered out of — and
+    `--dry-run` bypasses `IngestService` on purpose, so a filter there
+    would print servers a real run would never write. Two details are
+    load-bearing: `collection_errors` delegates to the wrapped provider
+    (the wrapper never records errors itself, so the inherited list would
+    always read back empty), and the inner `collect()` is held in
+    `contextlib.aclosing` so a consumer stopping early (`--dry-run
+    --limit`) tears the inner provider down — cancels its host/domain
+    tasks, logs out of its sessions — now rather than at asyncgen
+    finalization. It logs `collector.name_filter_applied` even when both
+    counts are zero: "0 kept, 0 skipped" is the signature of a wrong
+    endpoint, "0 kept, 900 skipped" of a wrong pattern, and an otherwise
+    successful empty run looks identical without it.
+  - The `Manager` document is a projection of configuration
+    (`manager_for`), never its source: a deterministic id
+    (`mgr_<type>`) so re-runs update one document and every server keeps
+    a stable `manager_id`. It is written by passing `managers=[manager]`
+    to `IngestService.ingest` — omitting that argument is the bug
+    ADR-0016 recorded, where every collected server pointed at a document
+    that was never created. No explicit `provider.health_check()` is made
+    before `ingest()`, which already calls it as its first step: a UCS
+    login is ~4 sequential round trips (auth plus the SDK's
+    is-this-UCSM/version/domain-name probes), and a second call would
+    double that per manager and burn a second session against UCS
+    Manager's per-user session cap for nothing.
+  - **Exit codes** are the CronJob's only signal: `0` complete, `1` the
+    manager failed outright (logged, `FAILED (see logs)`), `2` not
+    configured (`ManagerNotConfiguredError`, printed with the variable
+    names to set), `3` PARTIAL — some servers written, but not the whole
+    fleet. Configuration is pre-flighted before any connection so a
+    half-configured deployment gets exit 2 with the variable names rather
+    than a per-BMC 401 that reads like a fleet of bad passwords; that
+    includes `UCS_CENTRAL`'s second login (`INVENTORY_UCS_MANAGER_*`),
+    checked beside the endpoint resolution because the factory raises
+    the same error later, by which point the dry-run/ingest paths have
+    turned it into a generic exit 1. PARTIAL is decided by
+    `_is_benign_collection_error`: a plain unreachable host or a rejected
+    login (`UNREACHABLE_MARKER`/`AUTH_REJECTED_MARKER`, since 2026-09-10)
+    is printed but exits 0; TLS failures, a per-host budget exceeded and
+    any unrecognized error still exit 3 — ADR-0016's dated updates have
+    the reasoning. `--dry-run` never opens a MongoDB connection: it talks
+    only to the vendor manager, and connecting unconditionally used to
+    let an unreachable Mongo fail a dry run that was never going to touch
+    it. The run is timed around `_run_one_manager` rather than inside it
+    (that function swallows a failed run into `None`), with the duration
+    computed in `finally` so a run that dies partway still reports how
+    long it took; `collector.run_complete` carries `seconds` as a raw
+    float for dashboards and `took` formatted for eyes. `manager_type`
+    is bound as a structlog contextvar for the whole run so lines deep
+    inside `IngestService` — `ingest.completed` has no field of its own
+    for it — still say which collector produced them.
+
+### The provider contract (`app.domain.ports.provider`)
+
+`ServerInventoryProvider` (an ABC — ADR-0023 says why, and why
+`_list_servers` must be a plain `def` returning an `AsyncGenerator`) and
+`ProviderServer` are the seam every collector implements and produces;
+`IngestService` is the one caller. `ProviderServer` is deliberately
+flatter than `Server`: the raw-ish shape a collector naturally produces,
+already vendor-normalized (MACs, BMC addresses) but not yet correlated,
+classified or health-evaluated — nothing downstream re-parses a vendor
+format. The field-level rules a new collector has to honour:
+
+- **`None` means "could not read this run"; an empty tuple or zero means
+  "read, and there are none".** `IngestService` carries the stored value
+  forward for a `None` and overwrites for a real value, and records the
+  path in `Server.unread_fields`. Without the distinction a provider
+  whose sub-resource query failed (a Redfish `Storage` collection
+  returning 404) reported zeros that overwrote good data — which
+  silently cleared the seeded failed-drive policy, because zero drives
+  means zero failed drives (ADR-0016). This applies to every optional
+  field: `nic_macs`, the CPU/memory/storage scalars, `storage_drives`,
+  `gpus`, `psus`, `memory_modules`.
+- **`reachable=False`** means the provider knows this server's identity
+  but could not reach it at all this run; every optional field is `None`
+  on such a record, so nothing is blanked (`Server.reachable`,
+  `unreachable_since`).
+- **There is no `site_id`.** A provider does not get to declare a
+  server's site; it is derived from the name at ingest
+  (`parse_site_code`), because a misconfigured manager would otherwise
+  mislabel every server it collects with nothing downstream able to
+  tell.
+- **`nic_macs` is the minimum; `nics` is the richer view.** The flat MAC
+  tuple is what identity correlation keys on and every provider must
+  supply; `nics` (one `ProviderNic` per interface: name, MAC, speed,
+  link state, location) populates `NetworkInfo.interfaces` when a
+  provider has it and is empty when it reports only MACs. A
+  `ProviderNic` is a NIC on the server as an OS sees it; a
+  `ProviderAttachment` is a link to a fabric the server hangs off. Both
+  keep `link_state`/`oper_state` as plain strings in `LinkState`'s
+  closed set — the provider boundary stays free of domain enums, and
+  ingest maps them. `ProviderNic.location` is the BMC's own placement
+  identifier (an iDRAC FQDD, `NIC.Integrated.1-1-1`), which a
+  vendor-specific collector may rewrite into readable form (Dell renders
+  `controller/port/partition`, `1/1/1`); `None` when the BMC reports
+  nothing to place the NIC by.
+- **`ProviderAttachment.interface_kind`** is `"PHYSICAL"` for a cabled
+  uplink (Cisco's `adaptorExtEthIf`) or `"VNIC"` for an OS-facing virtual
+  NIC carved out of one (`adaptorHostEthIf`). Both report the same
+  `fabric`, so only the physical ones are fabric *paths*
+  (`compute_connectivity_facts`); counting both would report a 2-up
+  server as having six fabric paths and, when a port drops, six down,
+  which the fabric-path policies would read as a far worse outage than
+  happened. It defaults to `"PHYSICAL"` so a provider that does not
+  distinguish (the fake generator) needs no change.
+- **`profile_dn`** is the service/deployment profile's own identity —
+  UCS Manager's DN, which doubles as its org path
+  (`org-root/org-five/ls-worker-01`) and is the site fallback. Distinct
+  from `profile_template_name`/`_external_id`, which name the reusable
+  template the profile was created from (UCS Manager's Service Profile
+  Template via `srcTemplName`, Intersight's `server.ProfileTemplate` via
+  `SrcTemplate`, OneView's via `serverProfileTemplateUri`, an OME
+  Deployment Template via `TemplateId`). `external_id` is kept opaque —
+  a template name, a MoID, a URI — the same "store what the vendor gave
+  us" rule as `Identity.external_ids`; which platform it came from is
+  already recoverable through `Server.manager_id`. `profile_dn` is not
+  persisted past the dry-run print (`docs/cisco-collectors.md`).
+- **`gpus`, `psus`, `memory_modules`** are tuples of dicts whose keys
+  mirror `hardware.Gpu`/`Psu`/`MemoryModule`. GPU `memory_bytes` is
+  already in bytes — Redfish reports GPU memory in MiB while system
+  memory is GiB, and the port boundary is where vendor units are
+  normalized. `psus` was added 2026-09-01 and `memory_modules` 2026-09-06
+  for the same reason: the domain model and the health metrics had
+  existed since the first slice but `IngestService` hardcoded
+  `Power(psus=[])`/`Memory(modules=[])`, so a dead PSU or a degraded
+  DIMM was unrepresentable whatever a BMC reported.
+- **`collect()` is the template method.** It resets `collection_errors`
+  for the run and wraps `_list_servers()` in `contextlib.aclosing`, so a
+  caller that stops early (an exception, `--limit`, a cancelled task)
+  still closes the generator and whatever session it opened. A subclass
+  calls `_record_error()` for a failure that means part of the fleet was
+  not collected — `tools.run_collector` turns a non-empty list into exit
+  code 3 (PARTIAL); the message should name the endpoint/domain/host and
+  the numbers, since that is what an operator reads to tell a lost
+  connection from a paging ceiling. Subclasses with their own `__init__`
+  must call `super().__init__()`.
+
+`ConnectivityFacts` (`fabric_paths_total/up/down`, `fabrics_present`)
+are derived from the attachments once at ingest and stored, so health
+policies read scalars rather than re-aggregating on every evaluation;
+`total != up + down` is possible and deliberate, since an `UNKNOWN` or
+`DEGRADED` attachment counts toward neither. The connectivity model is
+not Cisco-specific despite UCS being the motivating case: `attachments`
+is an unbounded list, since OneView, Intersight and non-FI topologies may
+report one, four or zero.
 
 ### Standalone Redfish collector (`REDFISH_STANDALONE`)
 
@@ -669,14 +1286,15 @@ slow hosts forever, and servers stream out as each host finishes rather
 than being gathered, so a killed run has already persisted what completed.
 
 *Failure is routine.* Some of several hundred independent BMCs are always
-down, so per-host failures accumulate in `collection_errors` (exit 3,
-PARTIAL) and the run continues. Only a systemic authentication failure
-stops it: a rejected login is never retried, a credential is disabled
-after enough *distinct* hosts reject it, and a run-wide failure budget
-covers the estate where every BMC has its own account — there the
-per-credential counter never trips while accounts lock one at a time.
-Both bound damage rather than preventing lockout, and ADR-0016 says so
-explicitly rather than over-claiming.
+down, so per-host failures accumulate in `collection_errors` and the run
+continues. A plain unreachable host or a rejected login is logged at
+ERROR and printed but no longer makes the run PARTIAL (exit 0, since
+2026-09-10); TLS failures, a per-host budget exceeded and unrecognized
+errors still do (exit 3). Nothing stops the run any more: the credential
+circuit breaker that once disabled a credential after enough distinct
+hosts rejected it was removed 2026-09-12 at the operator's request, so
+every listed host is attempted every run and the lockout risk is the
+operator's — ADR-0016's dated updates record both changes.
 
 Two guards exist because the collector parses JSON from a device it does
 not fully trust: an `@odata.id` that is not a relative path under

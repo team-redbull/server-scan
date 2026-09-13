@@ -10,13 +10,8 @@ import {
 import type { ServerListParams } from "@/api/servers";
 import type { ServerListResponse } from "@/types/server";
 
-/**
- * Server list query. `placeholderData: keepPreviousData` keeps the current
- * page's rows on screen (instead of flashing to a loading state) while the
- * next page/filter set is in flight — important for cursor pagination,
- * where a jarring blank state on every "Next" click would be worse than a
- * brief stale-data display.
- */
+/** Server list query. `keepPreviousData` keeps the current rows on screen
+ * while the next page is in flight. */
 export function useServersQuery(params: ServerListParams) {
   return useQuery({
     queryKey: queryKeys.servers.list(params),
@@ -25,13 +20,7 @@ export function useServersQuery(params: ServerListParams) {
   });
 }
 
-/**
- * Per-option counts for the current filter set.
- *
- * `keepPreviousData` for the same reason the list uses it: the numbers
- * sitting beside each filter should not blank out while the next set is in
- * flight, which would make every filter change flicker twice.
- */
+/** Per-option counts for the current filter set. */
 export function useServerFacetsQuery(params: ServerListParams) {
   return useQuery({
     queryKey: queryKeys.servers.facets(params),
@@ -41,15 +30,9 @@ export function useServerFacetsQuery(params: ServerListParams) {
 }
 
 /**
- * Toggle one server's maintenance mode from the inventory list.
- *
- * Row-agnostic — the server's id is a mutation *variable*, not a closure
- * over a hook argument, because a hook cannot be called per row. This is
- * the app's ONLY maintenance write path — the detail page is read-only.
- * `ticket` and `expected_end` are API-only today.
- *
- * Args:
- *   None.
+ * Toggle one server's maintenance mode — the app's only maintenance write
+ * path. Row-agnostic: the id is a mutation variable, since a hook cannot
+ * be called per row.
  *
  * Returns:
  *   The mutation, taking `{ id, enable, reason? }` where `enable` is the
@@ -62,9 +45,8 @@ export function useToggleMaintenanceMutation() {
       enable ? enableMaintenance(id, reason ? { reason } : {}) : disableMaintenance(id),
     onSuccess: (server) => {
       queryClient.setQueryData(queryKeys.servers.detail(server.id), server);
-      // Patch for the same frame, then refetch — under `?maintenance=true`
-      // the row must LEAVE the list, which no patch can do. Safe only
-      // because the server clears its own list cache first (ADR-0028).
+      // Patch, then refetch: under `?maintenance=true` the row must leave
+      // the list. Safe because the server clears its list cache (ADR-0028).
       queryClient.setQueriesData<ServerListResponse>(
         { queryKey: queryKeys.servers.lists() },
         (page) =>

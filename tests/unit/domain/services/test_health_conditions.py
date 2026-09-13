@@ -82,10 +82,8 @@ class TestExistence:
         assert evaluate_condition(cond, {"down": 0}, REGISTRY) is True
 
     def test_not_exists_true_when_absent(self) -> None:
-        # "down"'s resolver defaults to 0 when absent (0 still "exists" as
-        # a value), so NOT_EXISTS needs a metric whose resolver can
-        # actually return None for "never reported" — power_state is that
-        # metric here.
+        # "down" defaults to 0 when absent (0 still "exists"), so NOT_EXISTS
+        # needs a metric whose resolver returns None — power_state does.
         cond = Condition(metric="power_state", operator="NOT_EXISTS")
         assert evaluate_condition(cond, {}, REGISTRY) is True
 
@@ -174,7 +172,6 @@ class TestWriteTimeValidation:
             validate_condition(cond, REGISTRY)
 
     def test_operator_type_mismatch_rejected(self) -> None:
-        # GT is not valid against a LIST_STRING metric.
         cond = Condition(metric="drive_healths", operator="GT", value=1)
         with pytest.raises(ConditionValidationError, match="not valid for metric type"):
             validate_condition(cond, REGISTRY)
@@ -186,7 +183,7 @@ class TestWriteTimeValidation:
 
     def test_valid_condition_passes(self) -> None:
         cond = Condition(metric="down", operator="GTE", value=2)
-        validate_condition(cond, REGISTRY)  # should not raise
+        validate_condition(cond, REGISTRY)
 
     def test_depth_limit_enforced(self) -> None:
         cond = Condition(metric="down", operator="GTE", value=1)

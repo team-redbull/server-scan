@@ -68,15 +68,8 @@ class QueryCheck:
     expect_collscan: bool = False
 
 
-# Every shape `MongoServerRepository.list_page` can actually issue for
-# `GET /api/v1/servers`: no filter, each single `FILTER_FIELDS` entry
-# alone, and search alone — each paired with every `SORT_FIELDS` value,
-# since the repository always appends `(sort_field, dir), ("_id", dir)`
-# to whatever filter it built. `maintenance` is deliberately included even
-# though `app.infrastructure.mongodb.indexes.SERVER_INDEXES` has no
-# compound index starting with `maintenance.enabled` — this script is what
-# proves whether that's a real gap or a non-issue (see the report at the
-# bottom of `main`).
+# `maintenance` is included on purpose — this script is what found its
+# missing compound index (ADR-0007, finding 2).
 _SERVER_FILTER_SHAPES: dict[str, dict[str, object]] = {
     "none": {},
     "site_id": {"site_id": "site_dc1"},
@@ -114,13 +107,10 @@ def _build_server_checks() -> list[QueryCheck]:
                     collection="servers",
                     filter=filter_query,
                     sort=[(sort_field, 1), ("_id", 1)],
-                    limit=51,  # page_size + 1, matching list_page's over-fetch
+                    limit=51,  # list_page's page_size + 1 over-fetch
                 )
             )
-    # Search alone, and search + a filter — the one combination
-    # `build_search_query`'s multikey `search_tokens` regex has to share a
-    # plan with a compound filter/sort index, which is the case most
-    # likely to force an in-memory sort or a wide unindexed scan.
+    # Search + filter: the multikey regex sharing a plan with a compound index.
     search_filter: dict[str, object] = {"search_tokens": {"$regex": "^ocp-dell"}}
     checks.append(
         QueryCheck(
@@ -140,11 +130,7 @@ def _build_server_checks() -> list[QueryCheck]:
             limit=51,
         )
     )
-    # count_documents({}) — issued by list_page when `with_count=True`.
-    # Never index-covered for an unfiltered count (Mongo must tally every
-    # matching document); reported, not a failure — the frontend never
-    # sets `with_count`, so this shape is never on the request-serving hot
-    # path, only a documented cost if a future caller opts into it.
+    # Never index-covered; the frontend never sets `with_count`.
     checks.append(
         QueryCheck(
             description="servers: count_documents({}) [with_count=True path]",
@@ -153,10 +139,6 @@ def _build_server_checks() -> list[QueryCheck]:
             expect_collscan=True,
         )
     )
-    # Preview's own unfiltered/bounded scans (classification_service.py,
-    # health_policy_service.py) — a COLLSCAN here is correct and expected:
-    # there's no filter to index against, and `limit`/`page_size` bounds
-    # how much of the collection is actually touched regardless of scale.
     checks.append(
         QueryCheck(
             description="servers: preview candidate scan, no scope, limit=5000",
@@ -310,10 +292,7 @@ async def _run_check(db: Any, check: QueryCheck) -> tuple[bool, str]:
     if check.limit:
         cursor = cursor.limit(check.limit)
 
-    # PyMongo's native async `AsyncCursor.explain()` takes no verbosity
-    # argument — it always runs at `allPlansExecution` (which includes
-    # `executionStats`), unlike the old sync-driver `explain(verbosity)`
-    # signature. See `AsyncCursor.explain`'s docstring.
+    # Async `explain()` takes no verbosity; it always includes `executionStats`.
     explain = await cursor.explain()
     winning = explain["queryPlanner"]["winningPlan"]
     stats = explain["executionStats"]

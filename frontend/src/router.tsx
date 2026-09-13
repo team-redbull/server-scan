@@ -11,14 +11,9 @@ import { StatusPage } from "@/routes/StatusPage";
 export const router = createBrowserRouter([
   {
     element: <AppLayout />,
-    // A render throw anywhere below here used to blank the entire app —
-    // no nav, no way back — rather than just the one broken page.
     errorElement: <RouteErrorBoundary />,
     children: [
       {
-        // The site overview is the landing page: at fleet scale a flat
-        // list can't answer "is anything wrong?" without sorting and
-        // scanning, and five cards can.
         path: "/",
         element: <SitesOverviewPage />,
       },
@@ -31,18 +26,11 @@ export const router = createBrowserRouter([
         element: <ServerDetailPage />,
       },
       {
-        // One page, read-only, replacing the two list pages and their four
-        // editor routes. Classification and health are read together far
-        // more often than either is read alone — a server's installation
-        // type decides which policies even apply to it — and neither is
-        // editable here on purpose: they ship with the platform so that
-        // two installations classify and score identically.
+        // Read-only on purpose (docs/architecture.md, "Slice 5").
         path: "/rules",
         element: <RulesPage />,
       },
       {
-        // Slice 0's backend-readiness placeholder, kept as a debug page now
-        // that "/" is the real inventory table.
         path: "/status",
         element: <StatusPage />,
       },

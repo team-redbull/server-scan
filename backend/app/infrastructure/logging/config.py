@@ -37,12 +37,8 @@ def _scrub(value: Any) -> Any:
     """
     Recursively drop `_SENSITIVE_KEYS` from a value, at any nesting depth.
 
-    A bare top-level check catches `logger.info("x", password=...)` but
-    not a nested payload — an exception's own `args`, a vendor API's
-    error body, a dict passed through as one field's value — so a
-    credential inside any of those reached the log line unredacted. Lists
-    are walked too, since a collector's per-host error list is exactly
-    the shape a credential would arrive nested inside.
+    Lists are walked too — docs/architecture.md, "Observability", for the
+    shapes a top-level-only check missed.
 
     Args:
         value (Any): The value to scrub — a dict, a list, or anything
@@ -110,7 +106,6 @@ def configure_logging(*, level: str, service_name: str, environment: str) -> Non
     )
 
     formatter = structlog.stdlib.ProcessorFormatter(
-        # Constant fields stamped onto every record, ours and stdlib's alike.
         foreign_pre_chain=[
             *shared_processors,
             lambda _l, _m, ed: {**ed, "service": service_name, "environment": environment},
@@ -128,6 +123,5 @@ def configure_logging(*, level: str, service_name: str, environment: str) -> Non
     root_logger.handlers = [handler]
     root_logger.setLevel(level)
 
-    # Access-log noise is redundant with our own request-timing middleware,
-    # which logs one structured line per request with request_id/duration_ms.
+    # Redundant with `RequestContextMiddleware`'s one line per request.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

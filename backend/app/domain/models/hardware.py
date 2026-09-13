@@ -75,22 +75,12 @@ class Gpu(BaseModel):
     pci_address: str | None = None
     firmware_version: str | None = None
 
-    # HBM/GDDR generation (e.g. "HBM3", "HBM3e") — Redfish
-    # `Processor.ProcessorMemory[].MemoryType`, distinguishing e.g. an H100
-    # from an H200 by memory generation rather than model string alone.
+    # Redfish-sourced telemetry; the field-by-field mapping and the
+    # core+other error-count sum are in docs/adr/0016's GPU update.
     memory_type: str | None = None
-    # `Processor.MemorySummary.ECCModeEnabled`.
     ecc_mode_enabled: bool | None = None
-    # `ProcessorMetrics.Correctable/UncorrectableCoreErrorCount` +
-    # `.../OtherErrorCount`, summed. DMTF scopes these to "core" and
-    # "other" components without specifying which bucket a GPU's own HBM
-    # reports under — see docs/adr/0016's update for why both are summed
-    # rather than guessed apart.
     correctable_error_count: int | None = None
     uncorrectable_error_count: int | None = None
-    # From a `Processor`'s linked `EnvironmentMetrics` resource, not
-    # `ProcessorMetrics` — the equivalent fields there are deprecated
-    # since Redfish 1.2.
     temperature_celsius: float | None = None
     power_watts: float | None = None
 

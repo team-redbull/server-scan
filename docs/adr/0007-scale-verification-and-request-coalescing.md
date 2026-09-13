@@ -189,3 +189,34 @@ absorbed into "performance pass: done."
     operational complaint, with production search-term distribution to
     reason about the hint trade-off against. Nothing here changes the
     coalescing decision this ADR is actually about.
+
+## Update (2026-09-13): three `singleflight` details, moved out of the code
+
+Recorded from `app.infrastructure.singleflight`'s inline comments; the
+module docstring keeps the two cancellation failure modes the 2026-09-06
+update above already points at.
+
+- **The done-callback is registered *after* `_inflight[key] = task`, not
+  in `_run`'s own `finally`.** Under `asyncio.eager_task_factory` (3.12+;
+  not enabled by this project today, but a real risk if it ever is),
+  task execution starts synchronously inside `create_task()`, so
+  `compute()` can finish before `create_task()` returns. A `finally`
+  inside `_run` would then run *before* the insertion line, find nothing
+  to clean up, and leave a completed Task cached under that key forever.
+  A done-callback added after insertion is scheduled via `call_soon`
+  even for an already-finished Task, so it still runs, one tick later —
+  verified against this project's own interpreter.
+- **`_cleanup` logs an exception nobody was left to observe.** If every
+  shielded waiter was cancelled before the task settled, the exception
+  would otherwise surface only as asyncio's "exception was never
+  retrieved" warning at GC time, with no context at all. Calling
+  `task.exception()` already marks it retrieved, so the
+  `singleflight.unretrieved_exception` warning is purely additive.
+- **`drain()` runs before the Mongo/Redis clients close, not after.**
+  `coalesce()` deliberately detaches a computation from every caller
+  that stops waiting on it — so one disconnecting client cannot fail the
+  others — which means a computation can outlive every request that
+  ever cared about it. `asyncio.run()`'s own cancellation of remaining
+  tasks happens *after* the lifespan's `finally` has run, so left to
+  that, such a computation would be mid-query against a client that no
+  longer exists. Hence the explicit cancel-and-gather in `lifespan`.

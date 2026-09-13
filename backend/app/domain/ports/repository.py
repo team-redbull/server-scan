@@ -18,12 +18,10 @@ from app.domain.models.server import Server
 
 @dataclass(frozen=True, slots=True)
 class SiteBreakdownRow:
-    """One `$group` bucket from `ServerRepository.site_breakdown`.
+    """
+    One `$group` bucket from `ServerRepository.site_breakdown`.
 
-    Values are the raw stored strings, not enums: this is a count of what
-    is actually in the database, including any value a previous schema
-    wrote. The API layer decides how to present a value it doesn't
-    recognize rather than this failing to decode it.
+    Raw stored strings, not enums, so a value a previous schema wrote still counts.
     """
 
     site_id: str | None
@@ -37,11 +35,10 @@ class SiteBreakdownRow:
 
 @dataclass(frozen=True, slots=True)
 class Page:
-    """One page of a keyset-paginated `Server` listing.
+    """
+    One page of a keyset-paginated `Server` listing.
 
-    `next_cursor` is an opaque, HMAC-signed string (see
-    `app.domain.services.cursor`) — callers never construct or parse it,
-    only pass it back verbatim to request the next page.
+    `next_cursor` is opaque and HMAC-signed; callers pass it back verbatim.
     """
 
     items: list[Server]
@@ -118,9 +115,8 @@ class ServerRepository(Protocol):
         """
         Insert or update a server document by `_id`.
 
-        Ingestion-owned fields overwrite; the caller is responsible for
-        not clobbering user-owned fields (tags/notes) — see the
-        field-ownership note in `app.application.services.ingest`.
+        Overwrites; the caller keeps user-owned fields (tags/notes) intact — see
+        `app.application.services.ingest`.
 
         Args:
             server (Server): The document to write.
@@ -134,10 +130,8 @@ class ServerRepository(Protocol):
         """
         Replace an existing server document, only if its stored revision still matches.
 
-        Optimistic concurrency for a read-modify-write cycle (reclassify,
-        health recalculate, maintenance enable/disable) against a server
-        another request may have concurrently written. Never inserts:
-        unlike `upsert`, a missing document is a conflict, not a create.
+        Optimistic concurrency for read-modify-write cycles. Never inserts:
+        a missing document is a conflict, not a create.
 
         Args:
             server (Server): The document to write, with its new field values.
@@ -179,9 +173,7 @@ class ServerRepository(Protocol):
         """
         Fetch one keyset-paginated page of servers.
 
-        `filters` is already validated/whitelisted by the caller
-        (`app.domain.services.search`) — this method trusts its keys are
-        safe Mongo field paths, never raw user input.
+        `filters` is already whitelisted by `app.domain.services.search`, never raw input.
 
         Args:
             filters (dict[str, object]): Whitelisted Mongo field/value filters.

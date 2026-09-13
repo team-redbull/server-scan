@@ -173,15 +173,9 @@ class MongoAuditEventRepository:
         docs = docs[:page_size]
         items = [AuditEvent.model_validate(doc) for doc in docs]
 
-        # Built from the *raw* stored string (`docs[-1]["created_at"]`),
-        # not `items[-1].created_at.isoformat()`: Python's `datetime.
-        # isoformat()` renders a UTC offset as "+00:00", while Pydantic's
-        # own JSON-mode serialization (used by `record()` to persist this
-        # same field) renders it as "Z" — a different string that would
-        # silently stop matching the stored value in the next page's
-        # query. Round-tripping through the raw document sidesteps that
-        # format mismatch entirely rather than trying to keep two
-        # serializers byte-for-byte in sync.
+        # From the raw stored string, never `created_at.isoformat()`:
+        # "+00:00" versus Pydantic's "Z" silently breaks the next page
+        # (ADR-0006).
         next_cursor = (
             _encode_cursor(docs[-1]["created_at"], docs[-1]["_id"]) if has_more and docs else None
         )

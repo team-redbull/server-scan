@@ -1,16 +1,6 @@
-"""`app.domain.value_objects.gpu_catalog` — the PID/model-string lookup
-that fills in the GPU VRAM no management plane this platform collects
-from reports on its own.
-
-Four things matter more than the happy path. A malformed
-`INVENTORY_GPU_MODELS` entry must fail loudly at startup (the same
-"config, not code" contract `INVENTORY_SITES` has — see
-docs/adr/0018-sites-from-configuration.md). `enrich()` must never
-override a value a collector actually reported, only fill in what it
-left `None`. A configured entry must beat the built-in row it collides
-with, since that is the whole reason the operator half survived
-ADR-0021. And matching must stay exact-on-a-normalized-key: `A10` and
-`A100` differ by one character and by 3x the VRAM.
+"""
+`app.domain.value_objects.gpu_catalog` — the PID/model-string lookup that
+fills in GPU VRAM where the vendor API reports none (ADR-0021).
 """
 
 from __future__ import annotations
@@ -147,10 +137,8 @@ class TestFromSpec:
             GpuCatalog.from_spec("P1001-200:NVIDIA A100 40GB:40,P1001-200:NVIDIA A100 40GB:40")
 
     def test_duplicate_pid_check_is_case_and_separator_insensitive(self) -> None:
-        """The same PID typed differently is still the same PID —
-        `enrich()` matches on the normalized key, so the catalog must
-        reject what would otherwise be an ambiguous duplicate at lookup
-        time.
+        """`enrich()` matches on the normalized key, so the same PID typed
+        differently is an ambiguous duplicate and must be rejected.
         """
         with pytest.raises(GpuCatalogConfigurationError, match="listed twice"):
             GpuCatalog.from_spec("p1001-200:A:40,P1001 200:B:40")
@@ -247,12 +235,9 @@ class TestEnrich:
         )
 
     def test_a_form_factor_word_before_the_capacity_still_matches(self) -> None:
-        """`_FORM_FACTOR_WORDS` was only ever stripped as a *trailing*
-        word (HPE's `"H100 80GB PCIe"` shape). Intersight's
-        `graphics.Card.Model` puts the bus word between the model and the
-        capacity instead — `"NVIDIA T4 PCIe 16GB"`, confirmed live against
-        a real tenant 2026-09-07 — which used to match nothing at all and
-        silently left VRAM `None` on every Intersight-collected T4.
+        """Intersight puts the bus word between model and capacity (`"NVIDIA T4
+        PCIe 16GB"`, live 2026-09-07), which the trailing-only strip missed —
+        see ADR-0017's second field pass.
         """
         catalog = GpuCatalog.from_spec("")
 
@@ -262,10 +247,8 @@ class TestEnrich:
         assert enriched["memory_bytes"] == 16 * 1024**3
 
     def test_a_trailing_wattage_figure_is_stripped_like_marketing_noise(self) -> None:
-        """The Intersight UI's own "Model" column, confirmed live
-        2026-09-07: `"NVIDIA T4 PCIe 16GB 70W"`, NVIDIA's real product
-        name for the T4 with its TDP baked in — a *second* trailing word
-        on top of the mid-string form-factor word covered above.
+        """Intersight's own "Model" column, live 2026-09-07: `"NVIDIA T4 PCIe
+        16GB 70W"` — a TDP suffix on top of the mid-string form-factor word (ADR-0017).
         """
         catalog = GpuCatalog.from_spec("")
 
@@ -288,9 +271,6 @@ class TestEnrich:
             }
 
     def test_a_configured_entry_beats_the_built_in_row_it_collides_with(self) -> None:
-        """The operator-knowledge half of the original design, kept:
-        a deployment that knows better than this repo always wins.
-        """
         catalog = GpuCatalog.from_spec("UCSC-GPU-A100:Reworked A100:48")
 
         enriched = catalog.enrich({"model": "UCSC-GPU-A100", "memory_bytes": None})
@@ -319,10 +299,8 @@ class TestEnrich:
         assert enriched is not gpu  # still a copy, not the same object
 
     def test_a_real_reported_memory_value_is_never_overridden(self) -> None:
-        """A provider's `None` means unread, not zero — the same contract
-        `ProviderServer` uses everywhere else. A GPU whose memory an API
-        actually reports must win over this catalog, never the other way
-        around.
+        """A provider's `None` means unread, not zero; a memory value an API
+        actually reports must win over this catalog, never the other way around.
         """
         catalog = GpuCatalog.from_spec(_SPEC)
         gpu = {"model": "NVIDIA A100-PCIE-40GB", "memory_bytes": 12345}
@@ -348,10 +326,8 @@ class TestEnrich:
 
 
 class TestRebrandedSkuStrings:
-    """HPE OneView reports a GPU as HPE's own *product name*, not the
-    chip's model string, and reports no memory field anywhere — so the
-    catalog is the only source of VRAM for every HPE card. See
-    docs/hpe-collectors.md, "GPUs".
+    """OneView reports HPE's own product name and no memory field, so the
+    catalog is the only source of VRAM for every HPE card (docs/hpe-collectors.md, "GPUs").
     """
 
     @pytest.mark.parametrize(
@@ -383,13 +359,9 @@ class TestRebrandedSkuStrings:
         assert enriched["memory_bytes"] == expected_gb * 1024**3
 
     def test_a_capacity_that_disagrees_with_the_table_matches_nothing(self) -> None:
-        """The safety property of the `<model> <N>GB` fallback: it is
-        accepted only when N GB is that row's own VRAM.
-
-        HPE sells the A16 as a 64GB card; this table models it as the
-        four 16GB GPUs it carries. Matching on the model alone would
-        report 16GB for a string that says 64, so it matches nothing and
-        an operator adds the row they want with INVENTORY_GPU_MODELS.
+        """The `<model> <N>GB` fallback is accepted only when N GB is that row's
+        own VRAM: HPE's 64GB A16 is modelled here as four 16GB GPUs, so it
+        matches nothing (docs/hpe-collectors.md, "GPUs").
         """
         catalog = GpuCatalog.from_spec("")
 
@@ -407,15 +379,9 @@ class TestRebrandedSkuStrings:
         assert catalog.enrich(adapter) == adapter
 
     def test_a_string_of_nothing_but_vendor_and_noise_words_matches_nothing(self) -> None:
-        """`_normalize` drops leading vendor words and trailing marketing
-        nouns, so a string made only of those normalizes to `""`.
-
-        That empty key must never find a row. Two things keep it from
-        doing so, and both are load-bearing: `_for_identifier` returns
-        early when the word list is empty, and `_definition` drops empty
-        keys so no row can be keyed on `""` in the first place. Without
-        either, every unrecognizable device name would enrich to whatever
-        row normalized to nothing.
+        """A string of only vendor and noise words normalizes to `""`, which must
+        never find a row: `_for_identifier` returns early on an empty word list
+        and `_definition` drops empty keys. Both are load-bearing.
         """
         catalog = GpuCatalog.from_spec("")
 

@@ -1,7 +1,4 @@
-"""Integration tests for `MongoAuditEventRepository` against the live dev
-Mongo stack. Skips cleanly if Mongo isn't reachable (see
-`tests/integration/conftest.py`).
-"""
+"""Integration tests for `MongoAuditEventRepository` against the live dev Mongo."""
 
 from __future__ import annotations
 
@@ -44,10 +41,8 @@ async def test_record_and_read_back(mongo_holder: MongoClientHolder) -> None:
 
 
 async def test_events_are_never_updatable_or_deletable_via_this_repository() -> None:
-    """Structural assertion, not a behavioral one: `MongoAuditEventRepository`
-    exposes no `update`/`delete` method at all — this test documents that
-    invariant so a future edit that adds one fails a code review, not just
-    a runtime check.
+    """Structural, not behavioral: `MongoAuditEventRepository` exposes no
+    `update`/`delete` at all, so adding one fails here before code review.
     """
     public_methods = {name for name in dir(MongoAuditEventRepository) if not name.startswith("_")}
     assert public_methods == {"record", "list_page"}

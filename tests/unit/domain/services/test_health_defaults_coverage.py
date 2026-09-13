@@ -1,13 +1,7 @@
-"""The seeded checks, and which servers they can actually fire for.
-
-Two things are pinned here. Every default policy's condition must
-reference a registered metric — a policy referencing an unknown metric is
-rejected at save time, so a seeded one that did would fail at startup
-rather than at write.
-
-And the vendor-neutrality claim: a check that only ever fires for one
-vendor is not fleet coverage. `extract_facts` is fed servers built the way
-each provider builds them, and the assertion is on what the facts say.
+"""
+The seeded checks, and which servers they can actually fire for: every
+condition names a registered metric, and a check that only fires for one
+vendor's vocabulary is not fleet coverage.
 """
 
 from __future__ import annotations
@@ -73,8 +67,6 @@ def _server(**hardware: object) -> Server:
 
 
 class TestSeededPolicies:
-    """What ships in `default_system_policies()`."""
-
     def test_every_condition_references_a_registered_metric(self) -> None:
         """A policy naming an unknown metric is rejected on save, so a
         seeded one that did would break startup seeding rather than fail
@@ -95,10 +87,8 @@ class TestSeededPolicies:
                 assert field.metric in registry
 
     def test_policy_keys_are_unique(self) -> None:
-        """Same `policy_key` means "these compete for one winner"
-        (ADR-0005). Two defaults sharing one would silently shadow each
-        other, which is exactly what the two fabric policies avoid by
-        using different keys.
+        """Same `policy_key` means "these compete for one winner" (ADR-0005),
+        so two defaults sharing one would silently shadow each other.
         """
         keys = [p.policy_key for p in default_system_policies()]
         assert len(keys) == len(set(keys))
@@ -125,7 +115,6 @@ class TestCoverageAcrossVendors:
         assert extract_facts(cisco_style)["gpu.failed_count"] == 1
 
     def test_a_healthy_gpu_counts_in_neither(self) -> None:
-        """The mirror of the above: UP and HEALTHY must both stay clear."""
         for healthy in ("UP", HealthSeverity.HEALTHY.value):
             assert extract_facts(_server(gpus=[Gpu(health=healthy)]))["gpu.failed_count"] == 0
 
@@ -147,8 +136,6 @@ class TestCoverageAcrossVendors:
 
 
 class TestNoFalseAlarms:
-    """The conditions most likely to alert on healthy hardware."""
-
     def test_unused_nics_do_not_trip_the_link_check(self) -> None:
         """A server with one uplink and three unused ports is healthy. This
         is why the fact counts links UP rather than links down.
@@ -245,7 +232,6 @@ class TestUnknownIsNotAVerdict:
         assert self._network_severity(LinkState.UP, LinkState.UNKNOWN) != HealthSeverity.MAJOR
 
     def test_links_that_really_are_all_down_are_still_critical(self) -> None:
-        """The check must still fire on a reading, or the fix broke it."""
         assert self._network_severity(LinkState.DOWN, LinkState.DOWN) == HealthSeverity.CRITICAL
 
     def test_one_up_of_two_real_readings_is_still_major(self) -> None:

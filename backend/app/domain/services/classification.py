@@ -40,13 +40,10 @@ def _extract_field(
 
 @dataclass(frozen=True, slots=True)
 class ClassifiableServer:
-    """The minimal, decoupled view of a `Server` the classifier needs.
+    """
+    The minimal view of a `Server` the classifier needs.
 
-    A dedicated small struct rather than taking `app.domain.models.server.
-    Server` directly: it keeps this module's public surface obvious (only
-    the five fields a rule can ever match against — see
-    `CLASSIFIABLE_FIELDS` — are even reachable), and it means unit tests
-    for the resolution algorithm don't need to construct a full `Server`.
+    Only the `CLASSIFIABLE_FIELDS` plus scope dimensions, so tests need no full `Server`.
     """
 
     name: str
@@ -94,9 +91,7 @@ class ClassificationResult:
 
 
 def _sort_key(rule: ClassificationRule) -> tuple[int, int, int, str]:
-    # priority DESC, specificity DESC, order ASC, id ASC (id is the final,
-    # always-available tiebreak: a ULID/uuid-based id gives a total order
-    # even when two rules are otherwise fully tied).
+    # priority DESC, specificity DESC, order ASC, id ASC
     return (-rule.priority, -rule.scope.specificity(), rule.order, rule.id)
 
 
@@ -108,12 +103,8 @@ def classify(
     """
     Resolve one server's `InstallationType` against a set of classification rules.
 
-    Scope-matching, enabled, non-quarantined rules are tried in
-    priority-DESC, specificity-DESC, order-ASC, id-ASC order; the first
-    whose pattern matches its target field wins. Scanning continues past
-    the winner only while precedence is tied, purely to record a
-    disagreement as a `ClassificationConflict` — the winner never changes
-    once found.
+    First match in priority-DESC, specificity-DESC, order-ASC, id-ASC order wins;
+    tied rules are still scanned, only to record a `ClassificationConflict`.
 
     Args:
         server (ClassifiableServer): The server to classify.
@@ -142,7 +133,7 @@ def classify(
 
     for rule in candidates:
         if rule.field not in CLASSIFIABLE_FIELDS:
-            continue  # defensive: should be rejected at write time already
+            continue
         value = _extract_field(
             server.name, server.hostname, server.serial, server.model, server.site_id, rule.field
         )
@@ -168,10 +159,8 @@ def classify(
             winner_value = value
             continue
 
-        # Already have a winner — keep scanning only while precedence is
-        # tied, purely to detect (and record) a disagreement. The winner
-        # never changes once set: ties are broken by `order` then `id`,
-        # which are already baked into the sort order above.
+        # Past the winner, scan only while precedence is tied, to record
+        # a disagreement; `order`/`id` already broke the tie in the sort.
         tied = (rule.priority, rule.scope.specificity()) == (
             winner.priority,
             winner.scope.specificity(),

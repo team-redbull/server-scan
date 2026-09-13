@@ -122,22 +122,13 @@ async def _run(show_names: int) -> int:
         blades = await client.query_classid("computeBlade")
         racks = await client.query_classid("computeRackUnit")
         ls_servers = await client.query_classid("lsServer")
-        # The decisive query. `lsSPMeta` hangs off `lsServer` and carries
-        # `ownership_state`, whose value set is
-        # ['delete-pending', 'disassoc-pending', 'global-controlled',
-        #  'localized'] — "localized" meaning a profile owned by its own
-        # domain rather than by Central.
+        # The decisive query: `ownership_state`, vocabulary in ADR-0014.
         sp_meta = await client.query_classid("lsSPMeta")
-        # Central's own per-domain inventory sync state.
         inventory_eps = await client.query_classid("inventoryDomainEp")
-        # Vocabulary checks, section 4/5 below — same classes
-        # `ucs_manager.provider` queries per domain, confirmed reachable
-        # centrally the same way computeBlade/computeRackUnit already are
-        # above.
         disk_units = await client.query_classid("storageLocalDisk")
         ext_eth_ifs = await client.query_classid("adaptorExtEthIf")
         host_eth_ifs = await client.query_classid("adaptorHostEthIf")
-        top_systems = await client.query_classid("topSystem")  # Section 6 below.
+        top_systems = await client.query_classid("topSystem")
     finally:
         await client.logout()
 
@@ -401,8 +392,6 @@ def main(argv: list[str] | None = None) -> None:
         SystemExit: With `_run`'s exit code.
     """
     args = _parse_args(argv)
-    # Shares the collector's XML dump switch, for when a result needs
-    # explaining rather than just reporting.
     if os.environ.get("INVENTORY_UCS_DUMP_XML") == "1":
         _p("(INVENTORY_UCS_DUMP_XML=1 — raw XML will be dumped)")
     raise SystemExit(asyncio.run(_run(args.show_names)))

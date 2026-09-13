@@ -1,9 +1,7 @@
-"""Integration tests for `MongoServerRepository` against the live dev
-MongoDB (see `tests/integration/conftest.py` for the skip-if-unreachable
-fixture). Covers insert/get round-trip, unique-index enforcement, keyset
-pagination correctness, filters, search, sort direction, and — the actual
-point of the `search_tokens` index design — that the search query is an
-IXSCAN, not a COLLSCAN.
+"""
+Integration tests for `MongoServerRepository` against the live dev Mongo:
+round-trip, unique indexes, keyset pagination, filters, search, sort, and
+that the search query is an IXSCAN.
 """
 
 from __future__ import annotations
@@ -93,20 +91,9 @@ async def test_get_by_id_missing_returns_none(mongo_holder: MongoClientHolder) -
 
 
 async def test_duplicate_system_uuid_no_longer_raises(mongo_holder: MongoClientHolder) -> None:
-    """Reversed 2026-09-09: `system_uuid` used to be a second unique index,
-    on the same reasoning as vendor+serial. A live Cisco UCS domain proved
-    that reasoning wrong — `computeBlade`/`computeRackUnit.uuid` reflects
-    the *associated service profile's* UUID, drawn from an admin-managed
-    UUID Suffix Pool, not an immutable hardware id, so two cloned profiles
-    (or two domains with overlapping pool ranges) can legitimately hand
-    two different real servers the same UUID. Enforcing uniqueness on it
-    turned that vendor-side misconfiguration into a platform outage: the
-    second server permanently failed every ingest run. `system_uuid` is
-    still collected, stored and indexed (for exactly the "find every
-    document sharing this UUID" query that diagnosing this required) —
-    just no longer rejected on collision, since correlation was never
-    based on it in the first place (`vendor`+`serial_normalized` is what
-    `IngestService._find_by_vendor_serial` actually looks servers up by).
+    """Reversed 2026-09-09: a UCS `uuid` is the service profile's, from an
+    admin-managed pool, so two real servers can share one. Still indexed, no
+    longer unique — see `app.infrastructure.mongodb.indexes`'s module docstring.
     """
     repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
     first = _make_server(1, system_uuid="uuid-shared")
@@ -163,7 +150,7 @@ async def test_pagination_covers_every_document_exactly_once(
         assert cursor is not None
 
     assert len(seen) == total
-    assert len(set(seen)) == total  # no duplicates
+    assert len(set(seen)) == total
 
 
 async def test_filters_narrow_results(mongo_holder: MongoClientHolder) -> None:
@@ -470,10 +457,8 @@ async def test_upsert_with_revision_check_succeeds_when_revision_matches(
 async def test_upsert_with_revision_check_rejects_a_concurrent_writer(
     mongo_holder: MongoClientHolder,
 ) -> None:
-    """The compare-and-set race this exists for: two callers both read the
-    same server at revision 1, both mutate their own in-memory copy, and
-    the second to write must lose — never silently clobber the first
-    writer's change.
+    """The compare-and-set race: two callers read revision 1, both mutate,
+    and the second to write must lose rather than clobber the first.
     """
     repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
     server = _make_server(601)

@@ -55,16 +55,14 @@ class TestVocabulary:
         assert psu["health"] == "DOWN"
 
     def test_a_warning_supply_is_not_counted_as_failed(self) -> None:
-        """Degraded but still delivering power. Counting it DOWN would
-        raise a CRITICAL finding on a server that has not lost redundancy;
-        the raw pair is kept in `redfish_status` so a live run can settle
-        whether this is the right call.
+        """Degraded but still delivering power: counting it DOWN would raise
+        CRITICAL on a server that has not lost redundancy. The raw pair is
+        kept in `redfish_status` so a live run can settle it.
         """
         [psu] = psus_from_supplies([_supply("Warning", "Enabled")]) or []
         assert psu["health"] == "UNKNOWN"
         assert psu["redfish_status"] == "Warning/Enabled"
-        # health_detail (added 2026-09-07) is the persisted counterpart
-        # of redfish_status above — same value, same "Health/State" form.
+        # health_detail is the persisted counterpart of redfish_status.
         assert psu["health_detail"] == "Warning/Enabled"
 
     def test_an_offline_supply_is_down(self) -> None:
@@ -82,10 +80,9 @@ class TestAbsentBays:
     """An empty bay is not a failed PSU."""
 
     def test_an_absent_supply_is_dropped_entirely(self) -> None:
-        """A 4-bay chassis with 2 supplies fitted is a 2-PSU server, not a
-        server with 2 failed PSUs. Reporting the empty bays would
-        permanently misreport every partially-populated chassis — the same
-        rule the Cisco collectors apply to an unequipped bay.
+        """A 4-bay chassis with 2 supplies fitted is a 2-PSU server, not one
+        with 2 failed PSUs — the same rule the Cisco collectors apply to an
+        unequipped bay.
         """
         supplies = [
             _supply("OK", "Enabled"),

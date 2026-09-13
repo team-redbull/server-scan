@@ -20,13 +20,8 @@ function buildSearchParams<T extends object>(params: T): URLSearchParams {
   return searchParams;
 }
 
-/** `GET /api/v1/events`. No server-side filter on `data.rule_id` /
- * `data.policy_id` exists — only `server_id`/`event_type`/`actor_id` — so
- * "history for this rule/policy" is built by fetching per `event_type` and
- * filtering client-side on `item.data.rule_id`/`policy_id`. See the
- * feature history panels for that filtering. A documented, deliberate
- * scope choice at current audit-log volumes (hundreds to low thousands of
- * events), not something to add backend support for in this slice. */
+/** `GET /api/v1/events`. Filters by `server_id`/`event_type`/`actor_id`
+ * only — per-rule/policy history is filtered client-side (`HistoryPanel`). */
 export function listEvents(params: EventListParams = {}): Promise<AuditEventListResponse> {
   const query = buildSearchParams(params).toString();
   return apiFetch<AuditEventListResponse>(query ? `/api/v1/events?${query}` : "/api/v1/events");

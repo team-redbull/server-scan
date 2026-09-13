@@ -37,7 +37,7 @@ class MetricDef:
 
     name: str
     type: MetricType
-    category: str  # cpu | memory | storage | network | connectivity | power | gpu
+    category: str
     description: str
     resolver: Callable[[dict[str, Any]], Any]
     enum_values: tuple[str, ...] | None = None
@@ -48,10 +48,8 @@ class MetricRegistry:
     """
     The known health metrics, keyed by name.
 
-    Not a global singleton — constructed once at app startup
-    (`build_default_registry()`) and passed explicitly to the evaluator,
-    so tests can build a smaller registry without monkeypatching module
-    state.
+    Not a singleton: built once at startup and passed explicitly, so a
+    test can build a smaller one without monkeypatching.
     """
 
     def __init__(self) -> None:
@@ -98,12 +96,8 @@ class MetricRegistry:
         return sorted(self._metrics.values(), key=lambda m: m.name)
 
 
-# --- Fact resolvers ---
-# Each resolver takes the flat `facts` dict built by
-# `app.domain.services.health.facts.extract_facts` and returns the metric's
-# value. Resolvers never raise for "value not present" — they return a
-# type-appropriate empty/zero value, since "no drives" and "unknown drive
-# count" are different claims a resolver has no business collapsing.
+# Fact resolvers read `extract_facts`' flat dict and never raise for a
+# missing key — they return a type-appropriate empty/zero value.
 
 
 def _get(facts: dict[str, Any], key: str, default: Any) -> Any:
@@ -366,9 +360,7 @@ def build_default_registry() -> MetricRegistry:
     return registry
 
 
-# Operator -> the metric types it's valid to use it against. Enforced at
-# policy write time (see `app.domain.services.health.conditions.
-# validate_condition`), not at evaluation time.
+# Enforced at policy write time (`validate_condition`), not at evaluation.
 OPERATOR_ALLOWED_TYPES: dict[str, frozenset[MetricType]] = {
     "EQ": frozenset(
         {MetricType.INT, MetricType.FLOAT, MetricType.STRING, MetricType.BOOL, MetricType.ENUM}

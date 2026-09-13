@@ -41,11 +41,9 @@ def _ref(moid: str) -> dict[str, str]:
     return {"ClassId": "mo.MoRef", "Moid": moid}
 
 
-# One rack server with one adapter carrying one uplink and one vNIC, one
-# storage controller with one disk, one GPU, one CPU socket, two PSUs and
-# one BMC interface — the smallest estate that exercises every join,
-# including the two-hop ones (interfaces reach the server through their
-# adapter unit, disks through their controller).
+# One rack server with one adapter (one uplink, one vNIC), one controller
+# with one disk, one GPU, one CPU, two PSUs and one BMC interface — the
+# smallest estate exercising every join, the two-hop ones included.
 _TABLES: dict[str, list[dict[str, Any]]] = {
     "compute/PhysicalSummaries": [
         {
@@ -233,9 +231,6 @@ async def _collect(provider: IntersightProvider) -> list[Any]:
     return [server async for server in provider.collect()]
 
 
-# --- the fleet-wide join ----------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_every_subresource_is_read_once_for_the_whole_fleet() -> None:
     """The property that makes this collector reach 10,000 servers: cost
@@ -277,14 +272,9 @@ async def test_a_two_hop_join_attaches_disks_through_their_controller() -> None:
 
 @pytest.mark.asyncio
 async def test_a_controller_that_only_names_its_computeboard_still_joins() -> None:
-    """Confirmed live 2026-09-01: on some hardware generations, 0 of 37
-    `storage.Controller` rows on a real tenant set `ComputeBlade`/
-    `ComputeRackUnit` at all — all 37 set only `ComputeBoard`. Without
-    this fallback the collector silently reports every drive on that
-    hardware as unread, which is exactly what happened before this fix.
-    Exercises `storage.Controller`, `graphics.Card` and `processor.Unit`
-    together since all three carry `ComputeBoard` and share the fallback;
-    `adapter.Unit`/`management.Controller` do not and are unaffected.
+    """Confirmed live 2026-09-01: 0 of 37 `storage.Controller` rows set
+    `ComputeBlade`/`ComputeRackUnit`, only `ComputeBoard`. `graphics.Card`
+    and `processor.Unit` share the fallback (ADR-0017); `adapter.Unit` does not.
     """
     tables = dict(_TABLES)
     tables["compute/Boards"] = [{"Moid": "board1", "ComputeRackUnit": _ref("server1")}]
@@ -346,13 +336,9 @@ async def test_cpu_model_joins_through_the_processor_unit() -> None:
 
 @pytest.mark.asyncio
 async def test_psus_join_through_computerackunit() -> None:
-    """`equipment.Psu` was added 2026-09-01, at the user's request — the
-    domain model and the health engine's `power.failed_psu_count` metric
-    already existed, but no provider had ever populated it. Unlike
-    `storage.Controller`/`graphics.Card`/`processor.Unit`, this MO
-    carries no `ComputeBoard` relationship at all (confirmed against
-    Cisco's own generated Go SDK) — a blade's PSUs belong to its chassis,
-    not the blade, so this join is direct `ComputeRackUnit` only.
+    """`equipment.Psu` carries no `ComputeBoard` relationship at all
+    (confirmed against Cisco's generated Go SDK) — a blade's PSUs belong to
+    its chassis — so this join is `ComputeRackUnit` only. See ADR-0017.
     """
     servers = await _collect(_provider(_FakeClient()))
     first = next(s for s in servers if s.serial == "WZP1")
@@ -370,9 +356,6 @@ async def test_the_bmc_interface_joins_through_its_controller() -> None:
 
     assert first.bmc_mac == "00:BB:CC:DD:EE:FF"
     assert first.bmc_address_raw == "ipmi://10.0.0.1:623"
-
-
-# --- overlap with the UCS Central collector ---------------------------
 
 
 @pytest.mark.asyncio
@@ -405,15 +388,11 @@ async def test_an_operator_can_opt_into_ucsm_mode() -> None:
     assert [s.serial for s in servers] == ["B"]
 
 
-# --- partial failure --------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_a_failed_subresource_query_reports_none_not_empty() -> None:
     """`IngestService` carries a stored value forward for `None` and
-    overwrites for a real value, so degrading to `[]` here would clear
-    every server's drives — and take a CRITICAL server to HEALTHY by
-    reporting that it has no disks to have failed.
+    overwrites for a real value, so `[]` here would clear every server's
+    drives and take a CRITICAL server to HEALTHY.
     """
     client = _FakeClient(failing=frozenset({"storage/PhysicalDisks"}))
     provider = _provider(client)
@@ -422,7 +401,6 @@ async def test_a_failed_subresource_query_reports_none_not_empty() -> None:
     first = next(s for s in servers if s.serial == "WZP1")
     assert first.storage_drives is None
     assert first.storage_total_bytes is None
-    # The rest of the run is unaffected.
     assert first.attachments != ()
 
 
@@ -456,9 +434,6 @@ async def test_a_failing_server_list_aborts_the_run() -> None:
     provider = _provider(_FakeClient(failing=frozenset({"compute/PhysicalSummaries"})))
     with pytest.raises(IntersightError):
         await _collect(provider)
-
-
-# --- budgets and lifecycle --------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -553,8 +528,7 @@ async def test_the_run_budget_also_bounds_the_join_phase() -> None:
 
     assert servers == []
     assert any("run budget" in m for m in provider.collection_errors)
-    # No sub-resource was read: it gave up before spending the time,
-    # rather than reading the whole estate and only then noticing.
+    # Gave up before reading any sub-resource, not after reading the estate.
     assert [r for r in client.requested if r != "compute/PhysicalSummaries"] == []
 
 

@@ -27,10 +27,8 @@ class OmeConnectionError(Exception):
     """
     Any failure talking to an OME appliance.
 
-    Covers rejected credentials, a non-2xx REST response, and a
-    network-level failure reaching the appliance at all — the same single
-    error surface the Cisco clients present, so `provider.py` and the
-    collector runner handle one exception type per vendor.
+    Rejected credentials, a non-2xx response, or an unreachable appliance
+    — one exception type per vendor.
     """
 
 
@@ -38,13 +36,7 @@ class OmeClient:
     """
     One authenticated OME session, held for a single collector run.
 
-    Not pooled or reused across runs. Use as an async context manager so
-    the session is deleted on the appliance when the run ends:
-
-        async with OmeClient(...) as client:
-            profiles = await client.get_all("/ProfileService/Profiles")
-
-    See docs/dell-collectors.md, "Session lifecycle".
+    Use as an async context manager. See docs/dell-collectors.md, "Session lifecycle".
     """
 
     def __init__(
@@ -80,8 +72,6 @@ class OmeClient:
         self._username = username
         self._password = password
         self._session_id: str | None = None
-        # verify=False is deliberate for self-signed appliances — see the
-        # `verify_tls` argument docstring.
         self._http = httpx.AsyncClient(
             base_url=f"https://{host}/api",
             timeout=timeout_seconds,
@@ -107,11 +97,9 @@ class OmeClient:
 
     async def login(self) -> None:
         """
-        Authenticate and capture the session token.
+        Authenticate and capture the `X-Auth-Token` header and session `Id`.
 
-        OME issues a token in the `X-Auth-Token` response header, not the
-        body, and every subsequent request must carry it; the body's `Id`
-        is the session handle used to delete the session on logout.
+        See docs/dell-collectors.md, "OME REST surface".
 
         Raises:
             OmeConnectionError: If the appliance is unreachable, rejects the
@@ -146,10 +134,8 @@ class OmeClient:
         """
         Delete the OME session and close the connection pool, best-effort.
 
-        Always safe to call from a `finally`/`__aexit__`: a failed logout
-        is logged and swallowed so it can never mask the error the caller
-        is already handling, and a logout before a successful login only
-        closes the pool.
+        A failed logout is logged, never raised, so it cannot mask the
+        caller's own error.
         """
         try:
             if self._session_id is not None:
@@ -162,13 +148,9 @@ class OmeClient:
 
     async def get_all(self, path: str) -> list[dict[str, Any]]:
         """
-        Fetch every item of a paged OME collection.
+        Fetch every item of a paged OME collection by following `@odata.nextLink`.
 
-        OME collections are OData-paged: each response carries a `value`
-        array and, when more remain, an `@odata.nextLink` to the next page.
-        Following that link is preferred over manual `$skip`/`$top` because
-        the appliance decides the page size and stays authoritative if it
-        changes.
+        See docs/dell-collectors.md, "OME REST surface".
 
         Args:
             path (str): Collection path relative to `/api`, e.g.
@@ -187,8 +169,6 @@ class OmeClient:
             page = body.get("value")
             if isinstance(page, list):
                 items.extend(item for item in page if isinstance(item, dict))
-            # `@odata.nextLink` is an absolute `/api/...` path; strip the
-            # `/api` prefix the client already carries as its base_url.
             link = body.get("@odata.nextLink")
             next_path = _relative_path(link) if isinstance(link, str) and link else None
         return items

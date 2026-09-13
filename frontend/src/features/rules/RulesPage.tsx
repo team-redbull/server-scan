@@ -12,10 +12,8 @@ import { isAllOf, isAnyOf, isLeaf, isNot } from "@/types/health";
 import type { HealthPolicyResponse } from "@/types/health";
 import type { HealthSeverity } from "@/types/server";
 
-/** The scope a rule is narrowed to, as one readable string.
- *
- * `(unscoped)` rather than an empty cell: a rule that applies to the whole
- * fleet is a deliberate choice, and a blank reads as missing data. */
+/** A rule's scope as one string; `(unscoped)` rather than a blank that
+ * reads as missing data. */
 function scopeSummary(scope: RuleScope): string {
   const parts: string[] = [];
   if (scope.vendor) parts.push(`vendor=${scope.vendor}`);
@@ -24,8 +22,7 @@ function scopeSummary(scope: RuleScope): string {
   return parts.length > 0 ? parts.join(", ") : "(unscoped)";
 }
 
-/** A policy scope as a section heading: "Cisco — UCS Central, Intersight",
- * "Site tlv", or "General" for the fleet-wide set. */
+/** A policy scope as a section heading. */
 function policyScopeLabel(scope: PolicyScope): string {
   const parts: string[] = [];
   if (scope.vendor) parts.push(vendorLabel(scope.vendor));
@@ -80,13 +77,7 @@ function severityRank(severity: HealthSeverity): number {
   return index === -1 ? SEVERITY_ORDER.length : index;
 }
 
-/** A health policy's condition as one line of readable text.
- *
- * Recursive because the model is: a node is a metric leaf, or `all_of` /
- * `any_of` / `not` over more nodes. Rendered rather than dropped because
- * a policy without its condition is a name and a severity with nothing
- * connecting them — the same way a rule without its pattern says nothing
- * about why a server was classified. */
+/** A health policy's condition as one line of readable text. */
 function conditionSummary(condition: Condition): string {
   if (isAllOf(condition)) {
     return condition.all_of.map(conditionSummary).join(" AND ");
@@ -100,8 +91,7 @@ function conditionSummary(condition: Condition): string {
   if (isLeaf(condition)) {
     const parts = [condition.metric, condition.operator];
     if (condition.value != null) parts.push(JSON.stringify(condition.value));
-    // COUNT_* operators count elements equal to this; without it they
-    // count the list's own length, so its absence is meaningful.
+    // COUNT_* without `equals` counts the list's own length.
     if (condition.equals != null) parts.push(`of ${JSON.stringify(condition.equals)}`);
     return parts.join(" ");
   }
@@ -115,11 +105,6 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 export function RulesPage() {
-  // Enabled only. A disabled rule is not part of what this deployment
-  // does, so listing it and then labelling it "disabled" asks the reader
-  // to filter in their head — and makes the status column the widest
-  // uninformative thing on the page, since every visible row says the
-  // same word.
   const rulesQuery = useClassificationRulesQuery({ enabled: true });
   const policiesQuery = useHealthPoliciesQuery({ enabled: true });
 
@@ -129,12 +114,6 @@ export function RulesPage() {
   return (
     <main className="mx-auto max-w-7xl p-8">
       <h1 className="text-2xl font-semibold">Rules &amp; Policies</h1>
-      {/* Says the constraint plainly rather than leaving someone to
-       * discover it by looking for an edit button that is not there. The
-       * point is not that editing is unimplemented — it is that every
-       * deployment of this platform classifies and scores identically,
-       * which stops being true the moment one site's operator adds a rule
-       * the others do not have. */}
       <p className="mt-1 max-w-3xl text-sm text-gray-500">
         The rules and policies this deployment runs, and every deployment
         gets the same set. They are defined in code and seeded at startup,
@@ -182,9 +161,6 @@ export function RulesPage() {
                       <Badge>{rule.installation_type}</Badge>
                     </td>
                     <td className="px-3 py-2">
-                      {/* The regex and the field it runs against. Without
-                       * these the page cannot answer the only question it
-                       * is opened to answer: why is this server UPI? */}
                       <code className="font-mono text-xs">
                         {rule.field} ~ {rule.pattern}
                       </code>

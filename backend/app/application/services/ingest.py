@@ -93,9 +93,8 @@ class SiteRepositoryPort(Protocol):
     """
     The one method `IngestService` needs from a site repository.
 
-    Defined here (application layer) rather than in `app.domain.ports`
-    because it's this service's own dependency, not a cross-cutting
-    domain contract — `MongoSiteRepository` satisfies it structurally.
+    Defined here rather than in `app.domain.ports` because it is this
+    service's own dependency; `MongoSiteRepository` satisfies it structurally.
     """
 
     async def upsert(self, site: Site) -> Site:
@@ -189,17 +188,8 @@ def _carry_forward[T](
     """
     Resolve one optionally-reported field against what is already stored.
 
-    A provider reports `None` for a field it could not read on this run
-    (see `app.domain.ports.provider.ProviderServer`). Overwriting a stored
-    value with the zero value in that case silently destroys good data —
-    and, for storage, silently clears the seeded `storage.failed_drive`
-    health policy. See docs/adr/0016-redfish-standalone-collector.md.
-
-    The resolved value alone cannot say which of the two it is: a carried
-    `[]` and a genuinely-empty `[]` are the same list. So every `None`
-    also appends `name` to `unread` — the single choke point every
-    optional field already routes through, which is why the recording
-    lives here rather than at each call site.
+    `None` means "could not read this run" (ADR-0016): the stored value is
+    kept and `name` is appended to `unread`, here, at the one choke point.
 
     Args:
         reported (T | None): What the provider reported, or `None` if it
@@ -314,8 +304,6 @@ def _drive_from_dict(data: dict[str, object]) -> StorageDrive:
     )
 
 
-# The built-in table with nothing configured over it — the same catalog a
-# deployment that never sets `INVENTORY_GPU_MODELS` gets.
 _DEFAULT_GPU_CATALOG = GpuCatalog.from_spec("")
 
 
@@ -377,14 +365,8 @@ class IngestService:
         """
         Run one full ingest: upsert sites/managers, then every collected server.
 
-        The ruleset and health-policy set are each loaded once for the
-        whole run rather than per server (see `ClassificationService.
-        load_ruleset` and `HealthPolicyService.load_policies`). A field a
-        provider could not read this run (`None` on `ProviderServer`) is
-        carried forward from the stored document rather than overwritten
-        with a zero value, and recorded on `Server.unread_fields`; a
-        server-level failure is logged and counted in
-        `IngestSummary.errors` rather than aborting the run.
+        A server-level failure is logged and counted in `IngestSummary.errors`
+        rather than aborting the run. See docs/architecture.md, "Ingestion".
 
         Args:
             provider (ServerInventoryProvider): The vendor provider to collect from.
@@ -396,8 +378,6 @@ class IngestService:
         """
         summary = IngestSummary()
 
-        # Idempotent — safe to upsert the same fixed site/manager set on
-        # every ingest run.
         for site in sites:
             await self._site_repo.upsert(site)
         for manager in managers:
@@ -405,13 +385,7 @@ class IngestService:
 
         await provider.health_check()
 
-        # Loaded once for the whole run, not once per server: both are an
-        # answer that cannot change while this run is in progress, and
-        # re-reading them per server was ~2 uncached collection reads per
-        # server — ~20,000 on a 10,000-server run — for nothing (P1,
-        # `docs/notes/2026-09-audit.md`). See `ClassificationService`'s and
-        # `HealthPolicyService`'s own docstrings for the load-once/
-        # classify-or-evaluate-many split this calls into.
+        # Once per run, not per server — docs/architecture.md, "Ingestion".
         ruleset = (
             await self._classification_service.load_ruleset()
             if self._classification_service is not None
@@ -493,13 +467,7 @@ class IngestService:
             bool: True if a new server document was created, False if an
                 existing one was updated.
         """
-        # No fallback vendor. Every server arrives through a
-        # vendor-specific collector, so an unrecognized value means that
-        # provider is emitting something it shouldn't — a bug to surface,
-        # not to paper over with an "unknown" that then pollutes every
-        # per-vendor count in the UI. `ingest()`'s per-server handler
-        # catches this, logs the offending string, counts it in
-        # `IngestSummary.errors`, and moves to the next server.
+        # No fallback vendor: an unrecognized value is a provider bug to surface.
         try:
             vendor = Vendor(ps.vendor)
         except ValueError as exc:
@@ -528,11 +496,8 @@ class IngestService:
         try:
             await self._server_repo.upsert(server)
         except DuplicateKeyError:
-            # A concurrent/duplicate insert collided on the one secondary
-            # unique index, (vendor, serial_normalized) — system_uuid is
-            # indexed but not unique (2026-09-09), so it cannot raise
-            # this. Not fancy: look the real owner up and update it in
-            # place instead of failing the whole run.
+            # A concurrent insert collided on `uniq_vendor_serial`, the only
+            # unique index left (ADR-0026): update the real owner in place.
             refetched = (
                 await self._find_by_vendor_serial(vendor, serial_normalized)
                 if serial_normalized
@@ -561,13 +526,8 @@ class IngestService:
         """
         Audit only the ingestion transitions worth an entry.
 
-        Ingestion runs continuously and touches `last_seen_at` on every
-        server on every run, so a generic SERVER_UPDATED event would be
-        pure noise. The only transitions worth an audit entry are "this
-        server is new" and "the engines' verdict about this server
-        actually changed" — the same selectivity
-        `POST /servers/{id}/reclassify` and `.../health/recalculate`
-        already apply for an explicit, operator-triggered re-evaluation.
+        A new server, or an engine verdict that changed — never a generic
+        update, which every run would emit for every server.
 
         Args:
             existing (Server | None): The server as it was before this
@@ -644,8 +604,7 @@ class IngestService:
 
         existing_hardware = existing.hardware if existing is not None else None
 
-        # Recomputed from scratch on every run, never merged with the
-        # stored list — see `Server.unread_fields`.
+        # Recomputed every run, never merged — see `Server.unread_fields`.
         unread: list[str] = []
 
         bmc_parsed = parse_bmc_address(ps.bmc_address_raw)
@@ -696,11 +655,6 @@ class IngestService:
                 path=bmc_parsed.path if bmc_parsed else None,
                 mac=bmc_mac,
             ),
-            # `nic_macs` is the flat MAC set correlation keys on; `nics` is
-            # the richer per-interface view a provider fills in when it has
-            # one (e.g. OpenManage's `serverNetworkInterfaces`). A provider
-            # that reports only MACs leaves `nics` empty and `interfaces`
-            # stays empty, exactly as before.
             interfaces=[
                 NetworkInterface(
                     name=nic.name,
@@ -824,18 +778,13 @@ class IngestService:
             ),
         )
 
-        # The name is the authority on site, not the collector's config —
-        # see `app.domain.value_objects.site`. A UCS server whose name
-        # carries no site token falls back to the org path of its service
-        # profile (`org-root/org_tlv/...`); `None` (neither says) is a
-        # real, surfaced state, never defaulted to a site.
+        # The name is the authority; the org path only when it says nothing.
         site_id = parse_site_code(ps.name, self._sites) or parse_site_code(
             ps.profile_dn, self._sites
         )
 
-        # `last_seen_at` means "last time this server's own endpoint
-        # answered" — an unreachable run must not bump it, or a dead
-        # server would look freshly seen. See `Server.reachable`.
+        # An unreachable run must not bump `last_seen_at`, or a dead server
+        # would look freshly seen.
         if ps.reachable:
             last_seen_at = now
             unreachable_since = None
@@ -869,26 +818,9 @@ class IngestService:
             revision=revision,
             created_at=created_at,
             updated_at=now,
-            # The carry-forward set, spelled out. `maintenance`/`openshift`
-            # are carried verbatim — this module never touches either.
-            # `classification`/`health` are carried too and only overwritten
-            # below when the corresponding engine service was supplied; see
-            # the module docstring. A server seen for the first time takes
-            # each model's own zero value.
-            #
-            # ponytail: `network.interfaces` and `connectivity.attachments`
-            # are the two collected sub-resources NOT in this set, and cannot
-            # be added while `ProviderServer.nics`/`.attachments` are
-            # `tuple[...] = ()` — with no `None` state, "could not read" is
-            # indistinguishable from "read, none present", so carrying them
-            # forward would also pin a genuinely-emptied list forever. Every
-            # other sub-resource (`nic_macs`, cpu, memory, storage, gpus) is
-            # three-state and goes through `_carry_forward`. Dormant only
-            # because each collector that populates them repopulates them on
-            # every run; the day a second provider ingests the same
-            # `(vendor, serial_normalized)` without them, it blanks both.
-            # Upgrade path: `nics: tuple[ProviderNic, ...] | None = None` and
-            # the same for `attachments`, then `_carry_forward` here.
+            # The carry-forward set — see the module docstring.
+            # ponytail: `nics`/`attachments` are two-state (`()`) and cannot
+            # join it; docs/architecture.md "Ingestion" has the upgrade path.
             classification=existing.classification if existing is not None else Classification(),
             health=existing.health if existing is not None else Health(),
             maintenance=existing.maintenance if existing is not None else Maintenance(),

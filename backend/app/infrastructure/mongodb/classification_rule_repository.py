@@ -131,16 +131,9 @@ class MongoClassificationRuleRepository:
         return result.deleted_count > 0
 
 
-# All four are broad prefix/substring catch-alls, none site-validated
-# (2026-09-08, at the operator's request — this used to be four narrower,
-# mutually-exclusive, site-anchored shapes; see git history for those).
-# UPI's pattern matches every name, unconditionally (2026-09-10, also at
-# the operator's request — it used to be `^ocp4`) — so classification is
-# now genuinely ORDER-DEPENDENT, not just pattern-dependent: `order`
-# below (0/1/2/3) is the *only* thing keeping a HOSTED_CLUSTER/MCE name
-# from being swallowed by UPI, since UPI's own pattern would otherwise
-# claim it too. See `classify()`'s `_sort_key` for how `order` breaks a
-# same-priority tie.
+# ORDER-DEPENDENT: UPI's `.*` would claim every name, so `order` (0/1/2/3)
+# is the only thing keeping HOSTED_CLUSTER/MCE out of it. Why the four are
+# overlapping catch-alls: docs/architecture.md, "Classification engine".
 _HOSTED_CLUSTER_HYPERSHIFT_PATTERN = r"^ocp4-hypershift"
 _HOSTED_CLUSTER_HARDWARE_PATTERN = r"^ocp-"
 _MCE_PATTERN = "mce"
@@ -151,25 +144,8 @@ def default_system_rules(sites: SiteCatalog) -> list[ClassificationRule]:
     """
     The four unscoped SYSTEM_DEFAULT rules, as ready-to-persist rules.
 
-    Covers this estate's real hostname conventions: two prefix shapes of
-    hosted cluster, one substring match for an MCE hub's own nodes, and
-    UPI as the unconditional catch-all for everything else. Order matters
-    here — see the comment above `_UPI_PATTERN`.
-
-    All four are `system=True` (locked to enabled-only edits after
-    creation) because they encode a naming convention that holds fleet-
-    wide, not a per-vendor preference. Vendor-scoped rules are exactly the
-    kind of thing an operator adds on top through the UI, at a higher
-    priority band — see `PRIORITY_BANDS`.
-
-    Deliberately NOT wired into app startup or the seed script here —
-    that's a separate integration step (see this module's caller). A
-    caller seeds these by calling `MongoClassificationRuleRepository.
-    upsert()` once per returned rule; re-running this function generates
-    fresh ids each time; two calls to it plus the collection's unique
-    `name` index means a second seed attempt fails loudly
-    (`DuplicateKeyError`) rather than silently double-inserting, which is
-    the intended "call this exactly once" contract.
+    Order is load-bearing — see the comment above the patterns. Fresh ids
+    on every call; `bootstrap` seeds by name, so it is called once.
 
     Args:
         sites (SiteCatalog): The configured sites. Kept for signature

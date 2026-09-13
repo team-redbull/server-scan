@@ -1,16 +1,8 @@
-"""API tests for `/api/v1/classification-rules`, against a real running
-app (lifespan included) and the live dev Mongo stack.
-
-**Read-only endpoints only, and that is the contract under test.** Rules
-ship with the platform and are seeded at startup; the create, update,
-delete and preview endpoints were removed, because a rule added in one
-estate and not another makes two installations classify the same server
-differently. The last test here is the guard that they stay removed.
-
-Test data is inserted directly via the Mongo repositories — never through
-the fake generator — to keep these focused on the HTTP contract rather
-than ingestion. Same `httpx.AsyncClient` + `ASGITransport` + lifespan
-pattern as `tests/api/test_servers.py`.
+"""
+API tests for `/api/v1/classification-rules` against a real app and the live
+dev Mongo. Read-only endpoints only, and that is the contract under test:
+rules ship with the platform, and the last test guards that the write verbs
+stay removed.
 """
 
 from __future__ import annotations
@@ -113,13 +105,9 @@ async def app_context() -> AsyncIterator[
             await mongo.db[name].delete_many({})
 
 
-# --- Reads ---
-
-
 async def test_list_returns_every_rule(
     app_context: tuple[AsyncClient, MongoClassificationRuleRepository, MongoServerRepository],
 ) -> None:
-    """The Rules page's only query."""
     client, rule_repo, _ = app_context
     await rule_repo.upsert(_make_rule("alpha"))
     await rule_repo.upsert(_make_rule("beta", enabled=False))
@@ -181,19 +169,12 @@ async def test_get_404_for_missing(
     assert (await client.get("/api/v1/classification-rules/nope")).status_code == 404
 
 
-# --- The write surface is gone, and stays gone ---
-
-
 async def test_no_endpoint_can_change_a_rule(
     app_context: tuple[AsyncClient, MongoClassificationRuleRepository, MongoServerRepository],
 ) -> None:
-    """The point of removing them. Leaving these reachable would mean the
-    UI's read-only Rules page was a convention rather than a guarantee —
-    one `curl` and two deployments classify differently again.
-
-    405, not 404: the paths still exist for `GET`, so FastAPI reports the
-    method as unsupported. That distinction is worth asserting, because a
-    404 here would instead mean the read endpoints had gone too.
+    """Rules ship with the platform, so no write verb may be reachable.
+    405, not 404: the paths still exist for `GET`; a 404 would mean the
+    read endpoints had gone too.
     """
     client, rule_repo, _ = app_context
     rule = await rule_repo.upsert(_make_rule("alpha"))
@@ -211,7 +192,6 @@ async def test_no_endpoint_can_change_a_rule(
     for action, resp in responses.items():
         assert resp.status_code == 405, f"{action} answered {resp.status_code}, not 405"
 
-    # And nothing was changed by trying.
     unchanged = await rule_repo.get_by_id(rule.id)
     assert unchanged is not None
     assert unchanged.enabled is True

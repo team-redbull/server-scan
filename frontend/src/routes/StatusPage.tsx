@@ -2,11 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getReadiness } from "@/api/platform";
 
-/**
- * Placeholder landing page for the project skeleton. Proves the frontend
- * is actually wired to the backend (via TanStack Query + the API client)
- * end to end; replaced by the real inventory table in the next slice.
- */
+/** Slice 0's backend-readiness page, kept as a debug page. */
 export function StatusPage() {
   const { data, isPending, isError, error } = useQuery({
     queryKey: ["platform", "readiness"],

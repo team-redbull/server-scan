@@ -7,22 +7,10 @@ import { SEVERITY_GLYPH } from "@/components/severity";
 import { useSitesQuery } from "@/features/sites/hooks";
 import type { HealthSeverity } from "@/types/server";
 
-/**
- * The landing page: a fleet-wide row (everything, UPI, hosted cluster)
- * above one card per site, each summarising what is in it.
- *
- * This is the entry point rather than the server list because at ~10,000
- * servers a flat list has no answer to "is anything wrong?" — you would
- * have to sort and scan. Cards answer it in one glance, and each one is a
- * link that pre-filters the list, so drilling in is one click and never
- * requires touching a filter control.
- */
+/** The landing page: a fleet-wide row of cards above one card per site,
+ * each a link that pre-filters the inventory list. */
 
-/** What one card renders: a name, the counts behind it, and where it
- * drills into. Every card on this page is the same component — the only
- * thing that differs between "the whole fleet", "the UPI fleet" and "Tel
- * Aviv" is which slice of the response was summed and which filter the
- * link carries. */
+/** What one card renders; every card on the page is the same component. */
 interface CardSpec {
   key: string;
   name: string;
@@ -32,15 +20,8 @@ interface CardSpec {
 }
 
 /**
- * The fleet-wide cards: everything, each installation type, then what
- * OpenShift reports actually holding the fleet.
- *
- * `unassigned` is included in all of them — those servers are in the
- * fleet whatever their hostname says. The numbers come straight off the
- * backend's own `fleet` summary (`app.api.v1.sites._pivot`, folded from
- * the same aggregation rows the per-site cards are), not summed here —
- * so this page can never disagree with a second consumer of the same
- * endpoint.
+ * The fleet-wide cards, read straight off the backend's `fleet` summary
+ * (`app.api.v1.sites._pivot`) rather than summed from `items` here.
  *
  * Args:
  *   fleet: the fleet-wide summary as returned by `GET /api/v1/sites`.
@@ -78,7 +59,6 @@ function fleetCards(fleet: FleetSummary): CardSpec[] {
       to: "/servers?installation_type=MCE",
       stats: fleet.by_installation_type.MCE,
     },
-    // What a cluster reports holding, not what a name claims — ADR-0024.
     {
       key: "AVAILABLE",
       name: "Available",
@@ -106,9 +86,7 @@ function fleetCards(fleet: FleetSummary): CardSpec[] {
  *   CardSpec[]: the per-site row.
  */
 function siteCards(items: SiteStats[]): CardSpec[] {
-  // Unassigned is dropped when empty, unlike a configured site, which
-  // still renders at zero: "no hostname failed to parse" is the expected
-  // state, and a permanent empty card for it is noise.
+  // Unassigned is dropped when empty; a configured site still renders at zero.
   return items
     .filter((site) => site.site_id !== UNASSIGNED_SITE_ID || site.total > 0)
     .map((site) => ({
@@ -121,9 +99,7 @@ function siteCards(items: SiteStats[]): CardSpec[] {
     }));
 }
 
-/** Bar widths are proportional to the card's own total, not to the
- * largest card — each one answers "what is the mix HERE", and
- * normalising across cards would make a small site's mix unreadable. */
+/** Bar widths are proportional to the card's own total, not the largest card. */
 function VendorBar({ stats }: { stats: Breakdown }) {
   if (stats.total === 0) {
     return null;
@@ -156,17 +132,13 @@ function VendorBar({ stats }: { stats: Breakdown }) {
   );
 }
 
-/** A card's link filters to the site/installation-type alone; this adds
- * `health_overall` on top, so "3 critical" goes straight to those 3
- * servers instead of to all of them. */
+/** The card's link plus `health_overall`, so "3 critical" goes to those 3. */
 function withHealthFilter(to: string, severity: HealthSeverity): string {
   return `${to}${to.includes("?") ? "&" : "?"}health_overall=${severity}`;
 }
 
-/** A count that drills into a filtered list, nested inside the card's own
- * `<Link>` — real anchors cannot nest, so this is a `role="link"` span
- * that navigates itself and stops the click from also firing the card's
- * outer link. */
+/** A drill-in count nested inside the card's `<Link>` — anchors cannot
+ * nest, so this is a `role="link"` span that navigates itself. */
 function CountLink({ to, className, children }: { to: string; className: string; children: ReactNode }) {
   const navigate = useNavigate();
   function go(e: MouseEvent | KeyboardEvent) {
@@ -189,8 +161,7 @@ function CountLink({ to, className, children }: { to: string; className: string;
   );
 }
 
-/** `emphasis` marks the fleet-wide row. It is a different kind of thing
- * from a site — a stronger border says so without a second card design. */
+/** `emphasis` marks the fleet-wide row with a stronger border. */
 function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
   const { stats } = card;
   const critical = stats.by_health.CRITICAL;
@@ -219,8 +190,7 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
 
       <p className="mt-0.5 text-xs text-[var(--text-muted)]">{card.subtitle}</p>
 
-      {/* Only surface counts that mean "look at this". A row of zeroes
-       * across five cards is noise that trains people to skip the card. */}
+      {/* Only nonzero counts: a row of zeroes trains people to skip the card. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {critical > 0 && (
           <CountLink
@@ -268,10 +238,8 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
             <span className="tabular">{info}</span> info
           </span>
         )}
-        {/* Only a site every server in which was actually evaluated
-         * HEALTHY earns this — never a byproduct of critical/warning
-         * both being zero, which is also true of a site nothing has
-         * evaluated yet. */}
+        {/* Every server evaluated HEALTHY — not merely zero critical/warning,
+         * which is also true of a site nothing has evaluated yet. */}
         {stats.total > 0 && stats.by_health.HEALTHY === stats.total && (
           <span className="inline-flex items-center gap-1.5 text-[var(--text-on-healthy)]">
             <span aria-hidden="true">{SEVERITY_GLYPH.HEALTHY}</span> all healthy
@@ -348,9 +316,7 @@ export function SitesOverviewPage() {
         <SectionHeading>Fleet</SectionHeading>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {isPending
-            ? // Fixed-height placeholders matching the real card, so the
-              // grid does not reflow when data lands.
-              [0, 1, 2].map((i) => <SkeletonCard key={i} />)
+            ? [0, 1, 2].map((i) => <SkeletonCard key={i} />)
             : fleet.map((card) => (
                 <SiteCard key={card.key} card={card} emphasis />
               ))}

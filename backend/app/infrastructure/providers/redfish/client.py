@@ -29,9 +29,7 @@ _ODATA_ROOT = "/redfish/v1"
 _SERVICE_ROOT = "/redfish/v1/"
 _MAX_ATTEMPTS = 3
 _RETRY_STATUSES = frozenset({429, 503})
-# Redfish payloads are small and this runs on a LAN, so nothing is lost by
-# capping the body — and an unbounded `.json()` on a wedged or hostile BMC
-# takes the whole run's pod with it.
+# See ADR-0016's 2026-09-13 update for the cap's reasoning.
 _MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 _TLS_VERSIONS = {
@@ -47,10 +45,7 @@ class RedfishError(Exception):
 
 
 class RedfishUnreachableError(RedfishError):
-    """DNS, refused, timed out, or a transport-level protocol failure.
-
-    Retryable, and never counts toward a credential's failure budget.
-    """
+    """DNS, refused, timed out, or a transport-level protocol failure. Retryable."""
 
 
 class RedfishTlsError(RedfishError):
@@ -64,27 +59,22 @@ class RedfishTlsError(RedfishError):
 class RedfishAuthError(RedfishError):
     """The BMC rejected the credential (401, or 403 on session creation).
 
-    Never retried, and the only failure that counts toward the credential
-    breaker and the run's authentication budget.
+    Never retried; counted in the run summary's `auth_failures`.
     """
 
 
 class RedfishProtocolError(RedfishError):
     """Reachable and authenticated, but the response is unusable.
 
-    Also raised for a service that is not conformant Redfish at all,
-    which is what keeps a pre-Redfish BMC from producing a half-populated
-    record fifteen requests later.
+    Also raised for a service that is not conformant Redfish at all.
     """
 
 
 class RedfishForbiddenError(RedfishError):
     """A resource returned 403 after a successful login.
 
-    Deliberately *not* a `RedfishAuthError`: a ReadOnly BMC account —
-    which this collector asks operators to use — legitimately gets 403 on
-    some vendors' resources. Feeding those to the credential breaker
-    would abort every run on a correctly-configured estate.
+    Not a `RedfishAuthError`: a ReadOnly account legitimately gets 403 on
+    some vendors' resources (ADR-0016, 2026-09-13 update).
     """
 
 
@@ -102,11 +92,7 @@ def build_ssl_context(target: RedfishTarget, *, min_version: str) -> ssl.SSLCont
             whose operator explicitly opted out of verification.
     """
     if not target.verify_tls:
-        # The single opt-out in the codebase: per host, reason-gated at
-        # load time, logged every run. Note ruff's S501 does NOT flag this
-        # — it only matches a literal `verify=False` keyword argument, so
-        # the moment the escape hatch exists the linter stops helping.
-        # `test_verification_is_on_unless_a_host_opts_out` is the control.
+        # The one TLS opt-out; ruff S501 cannot see it — ADR-0016, 2026-09-13 update.
         return False
     context = ssl.create_default_context(cafile=target.ca_bundle or None)
     context.minimum_version = _TLS_VERSIONS.get(min_version, ssl.TLSVersion.TLSv1_2)
@@ -117,10 +103,8 @@ def validate_odata_id(odata_id: object) -> str:
     """
     Check that a link the BMC handed us points back into its own tree.
 
-    `@odata.id` is a relative URI by specification. An absolute one, or
-    one climbing out with `..`, would retarget the next request — and
-    since `X-Auth-Token` rides on every request, that hands a live session
-    token to a host of the BMC's choosing.
+    An absolute or traversing `@odata.id` would retarget the next request,
+    session token included (ADR-0016).
 
     Args:
         odata_id (object): The `@odata.id` value as received.
@@ -148,12 +132,8 @@ class RedfishClient:
     """
     One authenticated Redfish session against one BMC.
 
-    Used as an async context manager so the session is always deleted:
-    `__aenter__` probes the service root and logs in, `__aexit__` logs
-    out. A client that exists is therefore authenticated, and no call site
-    can forget to clean up.
-
-    See docs/adr/0016-redfish-standalone-collector.md.
+    An async context manager: `__aenter__` probes the service root and logs
+    in, `__aexit__` logs out. See docs/adr/0016-redfish-standalone-collector.md.
     """
 
     def __init__(
@@ -186,20 +166,14 @@ class RedfishClient:
             timeout=httpx.Timeout(
                 connect=connect_timeout, read=read_timeout, write=read_timeout, pool=connect_timeout
             ),
-            # `Connection: close` is sent for the BMC's benefit — sushy's
-            # field studies found BMCs that choke on persistent
-            # connections — and the zero keepalive pool is what makes our
-            # side actually honour it rather than merely ask.
+            # The zero-keepalive pool is what makes `Connection: close` real.
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
             headers={
                 "OData-Version": "4.0",
                 "Accept": "application/json",
                 "Connection": "close",
             },
-            # A 3xx is treated as an error, never followed: it is the
-            # other way an untrusted device retargets our next request,
-            # and httpx cannot know a custom `X-Auth-Token` is sensitive
-            # the way it knows `Authorization` is.
+            # A 3xx would retarget the next request, token included — ADR-0016.
             follow_redirects=False,
         )
 
@@ -232,30 +206,19 @@ class RedfishClient:
         tb: TracebackType | None,
     ) -> None:
         """
-        Delete the session and close the transport.
+        Delete the session, shielded from cancellation, and close the transport.
 
-        Shielded from cancellation: without that, a cancelled task's
-        `await` on the logout raises immediately, the DELETE is never
-        sent, and the leaked session counts against a BMC session cap that
-        is often as low as 16.
+        See ADR-0016's 2026-09-13 update for why.
 
         Raises:
             asyncio.CancelledError: Re-raised after logging and closing the
-                transport, never swallowed. This method runs inside every
-                caller's own task — including, since Phase 2, one about to
-                be cancelled and drained by `redfish/provider.py`'s
-                `finally: task.cancel(); await asyncio.gather(...)` when a
-                run stops early. Catching this here without re-raising
-                would consume that cancellation, leaving the task appearing
-                to finish normally instead of actually stopping — exactly
-                the failure class that drain exists to prevent.
+                transport, never swallowed — `provider.py` cancels and
+                drains this task on an early stop, and swallowing it here
+                would make the task appear to finish normally.
         """
         try:
             if self._session_uri is not None:
                 await asyncio.shield(asyncio.wait_for(self._logout(), timeout=10.0))
-        # Logout failing must never mask the error that caused teardown, so
-        # it's only ever logged here, not re-raised — `asyncio.CancelledError`
-        # is the one exception that's the opposite: it must always propagate.
         except Exception as exc_info:
             logger.warning("redfish.logout_failed", host=self._target.host, error=str(exc_info))
         except asyncio.CancelledError:
@@ -266,11 +229,9 @@ class RedfishClient:
 
     def _assert_conformant(self, root: dict[str, Any]) -> None:
         """
-        Reject a service that is not conformant Redfish, before any credential is sent.
+        Reject a pre-Redfish service by shape, before any credential is sent.
 
-        Pre-Redfish services (notably HPE iLO 4) answer `/redfish/v1` with a
-        dotted `@odata.type` and different property spellings; checked by
-        shape, not by vendor, so any equally divergent BMC fails the same way.
+        HPE iLO 4 and any equally divergent BMC (ADR-0016, "What is still unproven").
 
         Args:
             root (dict[str, Any]): The service root payload.
@@ -289,10 +250,7 @@ class RedfishClient:
 
     def _sessions_uri(self) -> str:
         """
-        Where to POST to create a session.
-
-        Never hardcoded: DSP0266 §13.3.4.1 says find it at
-        `SessionService.Sessions` or `ServiceRoot.Links.Sessions`.
+        Where to POST to create a session, per DSP0266 §13.3.4.1 — never hardcoded.
 
         Returns:
             str: The sessions collection path.
@@ -319,13 +277,7 @@ class RedfishClient:
             RedfishAuthError: If the credential is rejected.
             RedfishProtocolError: If the response carries no token.
         """
-        # Posted exactly as advertised — DSP0266 places no requirement on
-        # a trailing slash either way, and appending one unconditionally
-        # broke real hardware: confirmed against a live BMC that answers
-        # its Sessions collection at an exact path and 404s the same URI
-        # with a trailing slash appended. The CI fixture never caught this
-        # because its own routing matches by prefix (`str.startswith`),
-        # tolerating exactly the mistake real hardware does not.
+        # No trailing slash appended — ADR-0016's first 2026-08-23 update.
         response = await self._send(
             "POST",
             self._sessions_uri(),
@@ -341,9 +293,6 @@ class RedfishClient:
                 f"{self._target.credential.name!r} ({response.status_code})"
             )
         if response.status_code >= 400:
-            # Logged with the status rather than assumed: some BMCs are
-            # reported to answer a bad password with 400, and only real
-            # hardware settles that.
             raise RedfishProtocolError(
                 f"{self._target.host} refused session creation with HTTP {response.status_code}"
             )
@@ -381,17 +330,9 @@ class RedfishClient:
 
     async def get_collection(self, path: str) -> list[dict[str, Any]]:
         """
-        Fetch every member of a collection, following pagination.
+        Fetch every member of a collection by following `Members@odata.nextLink`.
 
-        `Members@odata.count` is deliberately ignored: DSP0266 defines it
-        as the total across *all* pages, so comparing it to this page's
-        length is meaningless, and trusting it in place of following
-        `Members@odata.nextLink` silently truncates the fleet.
-
-        A member that arrives already expanded is used as-is; one that is
-        a bare link is fetched. That single branch makes `$expand` on and
-        off the same code path, and also handles a legally link-only
-        member inside an expanded collection.
+        `Members@odata.count` is ignored (ADR-0016, 2026-09-13 update).
 
         Args:
             path (str): The collection's `@odata.id`.
@@ -465,9 +406,7 @@ class RedfishClient:
         """
         Send one request, retrying only transport-level failures.
 
-        Never retries a 4xx — a rejected credential retried across an
-        estate is what locks accounts — and never retries an `SSLError`,
-        which is a configuration problem rather than a transient one.
+        Never a 4xx, never an `SSLError` (ADR-0016).
 
         Args:
             method (str): HTTP method.
@@ -512,12 +451,7 @@ class RedfishClient:
         """
         Refuse a response too large to hold in memory.
 
-        Bounds a merely-buggy BMC as much as a hostile one: an
-        unbounded body on one host loses the whole run's pod, not just
-        that server. Checked after reading because httpx has already
-        decompressed by then, which is what makes the cap meaningful
-        rather than advisory — a `Content-Length` check alone is
-        defeated by compression.
+        Checked after httpx has decompressed it (ADR-0016, 2026-09-13 update).
 
         Args:
             response (httpx.Response): The response to check.
@@ -549,11 +483,8 @@ class RedfishClient:
         """
         Emit one debug line per request.
 
-        Method, path and status only — never a header, never a body. The
-        session exchange is excluded outright rather than redacted,
-        because that one request carries the password and its response
-        carries the token, and a redactor that must be perfect is a worse
-        design than never formatting the value at all.
+        Method, path and status only, and never for the session exchange
+        (ADR-0016, 2026-09-13 update).
 
         Args:
             method (str): HTTP method.

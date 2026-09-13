@@ -34,16 +34,11 @@ logger = structlog.get_logger(__name__)
 
 _PROVIDER_TYPE = ManagerType.INTERSIGHT.value
 
-# `$select` per query, so the join tables hold only mapped fields. This
-# is the setting that decides how much memory a 10,000-server run needs,
-# not a micro-optimisation.
 _SUMMARY_FIELDS = (
     "Moid,Dn,Name,UserLabel,Model,Serial,Uuid,Vendor,TotalMemory,NumCpus,NumCpuCores,"
     "NumThreads,MgmtIpAddress,ManagementMode,ServiceProfile"
 )
-# No `Dn`: a `server.Profile` has none, and selecting a field the
-# schema does not define risks failing the whole query — which
-# would cost every server its name.
+# No `Dn`: `server.Profile` has none, and an unknown field fails the query.
 _PROFILE_FIELDS = "Moid,Name,AssignedServer,AssociatedServer,SrcTemplate"
 _TEMPLATE_FIELDS = "Moid,Name"
 _ADAPTER_UNIT_FIELDS = "Moid,ComputeBlade,ComputeRackUnit"
@@ -51,15 +46,7 @@ _EXT_IF_FIELDS = (
     "Moid,AdapterUnit,SwitchId,MacAddress,ExtEthInterfaceId,AdminState,OperState,PeerDn,PeerPortId"
 )
 _HOST_IF_FIELDS = "Moid,AdapterUnit,Name,HostEthInterfaceId,MacAddress,AdminState,OperState,PeerDn"
-# `ComputeBoard` added 2026-09-01: on some hardware generations
-# `storage.Controller`/`graphics.Card`/`processor.Unit` populate ONLY
-# `ComputeBoard`, never `ComputeBlade`/`ComputeRackUnit` directly — a
-# live tenant showed 0 of 37 storage controllers joining the old way,
-# all 37 joining only through their board. `adapter.Unit` and
-# `management.Controller` carry no `ComputeBoard` relationship at all
-# (confirmed against Cisco's own generated Go SDK) and must not get it
-# added to their `$select` — an unsupported field risks failing the
-# whole query. See docs/adr/0017-intersight-collector.md.
+# Which classes may select `ComputeBoard`: docs/cisco-collectors.md, "The join topology".
 _BOARD_FIELDS = "Moid,ComputeBlade,ComputeRackUnit"
 _STORAGE_CONTROLLER_FIELDS = "Moid,ComputeBlade,ComputeRackUnit,ComputeBoard"
 _DISK_FIELDS = (
@@ -70,15 +57,7 @@ _CARD_FIELDS = "Moid,Model,Pid,Vendor,Serial,OperState,ComputeBlade,ComputeRackU
 _PROCESSOR_FIELDS = "Moid,Model,ComputeBlade,ComputeRackUnit,ComputeBoard"
 _MGMT_CONTROLLER_FIELDS = "Moid,ComputeBlade,ComputeRackUnit"
 _MGMT_INTERFACE_FIELDS = "Moid,MacAddress,IpAddress,Ipv4Address,ManagementController"
-# `equipment.Psu` carries `ComputeRackUnit` but, confirmed against
-# Cisco's own generated Go SDK, NO `ComputeBlade` and NO `ComputeBoard`
-# relationship at all — a blade's PSUs belong to its chassis
-# (`EquipmentChassis`), shared across every blade in it, not to one
-# blade. Selecting `ComputeBlade`/`ComputeBoard` here would risk failing
-# the whole query for a field that doesn't exist on this class; a blade
-# server simply reports no PSUs through this MO, which is a real
-# capability gap, not a join bug to fix. See
-# docs/cisco-collectors.md, "Power supplies (PSUs)".
+# `ComputeRackUnit` only — `equipment.Psu` has no blade/board relationship.
 _PSU_FIELDS = "Moid,PsuId,Model,Pid,Serial,OperState,PsuWattage,ComputeRackUnit"
 
 
@@ -119,12 +98,8 @@ def _profile_server(profile: Mapping[str, Any]) -> str | None:
     """
     The server a profile names.
 
-    `AssociatedServer` is preferred over `AssignedServer`: a profile can
-    be assigned to a server it has not been deployed to yet, and the
-    associated one is the machine actually running this configuration.
-    Their exact precedence is unverified against a live tenant — see
-    ADR-0017's UNVERIFIED list — so both are consulted rather than one
-    being trusted.
+    `AssociatedServer` (actually running the configuration) before
+    `AssignedServer` — docs/cisco-collectors.md, "The server's name".
 
     Args:
         profile (Mapping[str, Any]): A `server.Profile`.
@@ -163,10 +138,8 @@ class _Joins:
     """
     Every sub-resource table one run collected, keyed by server `Moid`.
 
-    A table is `None` when its query failed, which is carried all the way
-    to `ProviderServer` so `IngestService` preserves the stored value
-    instead of overwriting it with an empty one. That distinction is the
-    whole reason this is a class and not a dict of lists.
+    A table is `None` when its query failed — carried to `ProviderServer`
+    so `IngestService` preserves the stored value.
     """
 
     def __init__(self) -> None:
@@ -304,10 +277,8 @@ class IntersightProvider(ServerInventoryProvider):
         """
         The `$filter` restricting the run to the modes we collect.
 
-        Pushed server-side because it shrinks the anchor result set
-        itself. Unlike a name filter it is also *correct* to push: the
-        mode is a field on the summary, whereas a server's real name is
-        not (see `mapping.server_name`).
+        Pushed server-side: unlike a name, the mode is a field on the
+        summary itself (ADR-0017, "Decision 3").
 
         Returns:
             str | None: An OData expression, or None to collect all modes.
@@ -360,12 +331,8 @@ class IntersightProvider(ServerInventoryProvider):
         """
         Read every sub-resource once and index it by owning server.
 
-        The budget is checked between tables, not only while streaming
-        servers: this phase is where a throttled tenant actually costs
-        its time, and a budget that only bounded the streaming phase
-        would let the CronJob be killed here with nothing reported.
-        A table skipped for budget is `None` — unread, not empty — so it
-        degrades exactly as a failed one does.
+        The run budget is checked between tables — this is where a
+        throttled tenant costs its time — and a skipped table is `None`.
 
         Args:
             client (Any): The Intersight client.
@@ -434,12 +401,7 @@ class IntersightProvider(ServerInventoryProvider):
             self._note_budget_exhausted(phase="after reading adapter interfaces")
             return joins
 
-        # `compute.Board` -> owning server, for the three classes below
-        # that populate ONLY `ComputeBoard` on some hardware generations
-        # (confirmed live 2026-09-01; see `_owning_server`'s docstring).
-        # A failed or budget-skipped query degrades to an empty map, not
-        # a lost run — the three joins below still work for any object
-        # that sets `ComputeBlade`/`ComputeRackUnit` directly.
+        # Board -> server; a failed query leaves the direct joins working.
         board_owner: dict[str, str] = {}
         boards = await self._collect_table(client, "compute/Boards", select=_BOARD_FIELDS)
         if boards is not None:
@@ -485,11 +447,6 @@ class IntersightProvider(ServerInventoryProvider):
                 processors, lambda p: _owning_server(p, board_owner=board_owner)
             )
 
-        # No `board_owner` fallback: `equipment.Psu` has no `ComputeBoard`
-        # relationship at all (see `_PSU_FIELDS`), so a blade server's
-        # PSUs — owned by its chassis, not the blade — never resolve
-        # here regardless. That is a real capability gap, not something
-        # this join could fix.
         psus = await self._collect_table(client, "equipment/Psus", select=_PSU_FIELDS)
         if psus is not None:
             joins.psus = _group_by(psus, _owning_server)
@@ -523,10 +480,8 @@ class IntersightProvider(ServerInventoryProvider):
         """
         Record that the run ran out of time, and where.
 
-        Reported as a collection error rather than raised: `run_collector`
-        turns a non-empty `collection_errors` into exit 3 (PARTIAL), which
-        is the honest description of a run that wrote some servers but did
-        not see the whole fleet.
+        A collection error, not an exception: `run_collector` turns it into
+        exit 3 (PARTIAL), which is what a run that saw part of the fleet is.
 
         Args:
             phase (str): What the run had reached when the budget went.
@@ -539,9 +494,8 @@ class IntersightProvider(ServerInventoryProvider):
         """
         Every server this endpoint reports, in the modes configured.
 
-        The sub-resource tables are read first and held for the length of
-        the run; the servers themselves are streamed, so the collector
-        never materialises the fleet.
+        Sub-resource tables are read first and held; the servers themselves
+        are streamed, never materialised as a fleet.
 
         Yields:
             ProviderServer: One server, fully joined.

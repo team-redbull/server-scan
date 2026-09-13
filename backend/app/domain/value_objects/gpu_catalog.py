@@ -42,12 +42,8 @@ _SEPARATORS = re.compile(r"[^A-Za-z0-9]+")
 
 _VENDOR_PREFIXES = frozenset({"HPE", "HP", "NVIDIA", "AMD", "INTEL", "TESLA", "QUADRO"})
 
-# Marketing nouns that trail a rebranded SKU string and carry no
-# identity. HPE reports a GPU as its own product name — the shape
-# "HPE NVIDIA A100 40GB PCIe Accelerator" — where Cisco reports a bare
-# PID and a BMC reports the chip's own model. Dropped from the end only,
-# and the result is still compared for equality, so this can never widen
-# a match beyond a spelling of the same card.
+# Marketing nouns trailing a rebranded SKU ("HPE NVIDIA A100 40GB PCIe
+# Accelerator"); dropped from the end only — ADR-0022, "GPU matching".
 _TRAILING_NOISE = frozenset(
     {
         "ACCELERATOR",
@@ -63,14 +59,8 @@ _TRAILING_NOISE = frozenset(
     }
 )
 
-# A trailing TDP figure, e.g. NVIDIA's own product name for the T4:
-# "NVIDIA T4 16GB 70W" — confirmed live in Intersight's `graphics.Card.
-# Model`, 2026-09-07 (Cisco echoes NVIDIA's marketing string verbatim,
-# the same way HPE's `_TRAILING_NOISE` words do). Unlike a form-factor
-# word, no known card needs its wattage to stay part of the match key —
-# there is no case in this table of the same model+capacity shipping at
-# two different TDPs — so this is stripped unconditionally, not only as
-# a lookup fallback.
+# A trailing TDP ("NVIDIA T4 16GB 70W", live Intersight 2026-09-07),
+# stripped unconditionally — ADR-0017's second field pass says why.
 _TRAILING_WATTAGE = re.compile(r"\d+W")
 
 
@@ -78,13 +68,8 @@ def _normalize(identifier: str) -> str:
     """
     Reduce a PID or model string to the key both sides of a match share.
 
-    Uppercases, drops leading vendor and brand words and trailing
-    marketing nouns, and removes every separator, so the spellings
-    vendors actually use for one card (`A100-PCIE-40GB`,
-    `A100 PCIe 40GB`, `NVIDIA A100 PCIe 40GB`,
-    `HPE NVIDIA A100 40GB PCIe Accelerator`) collapse to a single key.
-    Deliberately nothing more: the result is compared for equality, never
-    as a substring, so `A10` can never match `A100`.
+    Compared for equality only, never as a substring — `A10` can never
+    match `A100` (ADR-0021, decision 2).
 
     Args:
         identifier (str): A Cisco PID or a vendor-reported model string.
@@ -100,12 +85,8 @@ def _words(identifier: str) -> list[str]:
     """
     Split an identifier into its meaningful words.
 
-    Uppercases, splits on every separator, then drops leading vendor and
-    brand words and trailing marketing nouns — a noise word (`ACCELERATOR`)
-    or a trailing TDP figure (`70W`) alike. Kept separate from
-    `_normalize` because `GpuCatalog._for_identifier` needs the words
-    themselves: `"T4 16GB"` and `"T416GB"` join to the same string, and
-    only the word list can tell `T4` + `16GB` from `T` + `416GB`.
+    Separate from `_normalize` because `_for_identifier` needs the words:
+    only the list can tell `T4` + `16GB` from `T` + `416GB`.
 
     Args:
         identifier (str): A Cisco PID or a vendor-reported model string.
@@ -121,29 +102,20 @@ def _words(identifier: str) -> list[str]:
     return words
 
 
-# Bus/form-factor words in a rebranded SKU string, wherever they fall —
-# trailing on HPE's `"H100 80GB PCIe"`, but ahead of the capacity on
-# Intersight's `"NVIDIA T4 PCIe 16GB"`. Dropped only as a *lookup*
-# fallback, never from a table key: `"H100 PCIe"` is a real table key and
-# must keep matching that exact spelling before the stripped form is ever
-# tried, while HPE's and Intersight's shapes above have to fall back to
-# the table's `"H100 80GB"`/`"T4 16GB"`.
+# Dropped positionally, and only as a lookup fallback — never from a
+# table key, since `"H100 PCIe"` is one (ADR-0017, second field pass).
 _FORM_FACTOR_WORDS = frozenset({"PCIE", "SXM", "SXM2", "SXM4", "SXM5", "OAM"})
 
-# A trailing capacity word, e.g. the `48GB` of `L40S 48GB PCIe`. HPE
-# names a card by its model *and* its capacity where the table is keyed
-# on the model alone; matching the two is only safe when the capacity
-# agrees, which `_for_identifier` checks against the row's own VRAM
-# rather than assuming.
+# The `48GB` of `L40S 48GB PCIe`; matched against a bare-model row only
+# when the capacity agrees with the row's own VRAM (ADR-0022).
 _CAPACITY_WORD = re.compile(r"(\d+)GB")
 
 
 class GpuCatalogConfigurationError(ValueError):
-    """`INVENTORY_GPU_MODELS` could not be read.
+    """
+    `INVENTORY_GPU_MODELS` could not be read.
 
-    Raised at startup, never during a request: a typo here silently
-    disables enrichment for the PID it was meant to cover, which is far
-    harder to notice than a startup failure.
+    Raised at startup, never during a request, so a typo fails loudly.
     """
 
 
@@ -216,9 +188,7 @@ class GpuCatalog:
     """
     The GPUs this deployment can enrich.
 
-    The shipped default table with `INVENTORY_GPU_MODELS` merged over it.
-    Immutable once built, same reasoning as `SiteCatalog`: it can be
-    shared freely and cannot drift mid-run.
+    The built-in table with `INVENTORY_GPU_MODELS` merged over it; immutable, like `SiteCatalog`.
     """
 
     definitions: tuple[GpuModelDefinition, ...]
@@ -226,20 +196,10 @@ class GpuCatalog:
     @classmethod
     def from_spec(cls, spec: str) -> GpuCatalog:
         """
-        Parse `INVENTORY_GPU_MODELS` and merge it over the built-in table.
+        Parse `INVENTORY_GPU_MODELS` (`PID:Friendly Name:VRAM_GB`, comma-separated).
 
-        The format is `PID:Friendly Name:VRAM_GB`, comma-separated:
-
-            P1001-200:NVIDIA A100 40GB:40,P1010-200:NVIDIA H100 80GB:80
-
-        The first field is a Cisco PID or a vendor model string — both
-        match, normalized the same way (`_normalize`).
-
-        **Configured entries override, they do not replace.** An entry
-        whose identifier normalizes onto a built-in row's key wins for
-        that key; every other built-in row survives. An empty spec is not
-        an empty catalog — it is the built-in table alone, which is the
-        point of shipping one.
+        Configured entries override the built-in table per key; they never
+        replace it (ADR-0021, decision 1).
 
         Args:
             spec (str): The raw configured value. Empty means the
@@ -340,17 +300,8 @@ class GpuCatalog:
         """
         Look up one PID or model string.
 
-        Tried in order: the normalized string itself; the same string
-        with every bus/form-factor word removed, wherever in the string
-        it falls; and finally a `<model><N>GB` spelling against a row
-        keyed on the bare model, which is accepted only when N GB equals
-        that row's known VRAM. The three exist because a vendor's own
-        product name is not the chip's model string — HPE reports
-        `"HPE NVIDIA L40S 48GB PCIe Accelerator"` where a BMC reports
-        `"NVIDIA L40S"`, and Intersight reports `"NVIDIA T4 PCIe 16GB"`
-        where the bus word sits *before* the capacity rather than after
-        it (confirmed live 2026-09-07) — so the form-factor word is
-        stripped positionally, not just off the end.
+        Tried in order: exact; minus form-factor words; then `<model><N>GB`
+        against a bare-model row, only when N matches its VRAM (ADR-0022).
 
         Args:
             identifier (str): The PID or model as a provider reported it.
@@ -372,13 +323,8 @@ class GpuCatalog:
                 if candidate in definition.keys:
                     return definition
 
-        # Last resort, and the only inexact one: a `<model> <N>GB`
-        # spelling against a row keyed on the bare model. Accepted only
-        # when N GB is that row's own VRAM, so a mismatched capacity
-        # (HPE's 64GB A16 card, which this table models as four 16GB
-        # GPUs) correctly finds nothing instead of reporting a wrong
-        # number. Uses the form-factor-stripped words too, so a bus word
-        # ahead of the capacity doesn't end up baked into `base`.
+        # The only inexact match, self-validating on capacity: HPE's 64GB
+        # A16 (four 16GB GPUs here) finds nothing rather than a wrong number.
         capacity = _CAPACITY_WORD.fullmatch(stripped[-1]) if stripped else None
         if capacity is None:
             return None
@@ -395,16 +341,8 @@ class GpuCatalog:
         """
         Fill in a GPU's memory from this catalog, when the API left it unknown.
 
-        Real data always wins: a GPU whose `memory_bytes` a collector
-        already populated is returned unchanged — this catalog only fills
-        a gap, it never overrides a vendor's own answer, matching the
-        platform-wide "a provider's `None` means unread, not zero"
-        contract (`app.domain.ports.provider.ProviderServer`).
-
-        `model` carries a Cisco PID on the Cisco collectors and a vendor
-        model string on the Redfish-sourced ones; both are matched, and
-        both after normalization, so case, whitespace, separators and a
-        leading vendor word do not have to agree.
+        A `memory_bytes` a collector read is never overridden; `model` may
+        be a Cisco PID or a vendor model string.
 
         Args:
             gpu (Mapping[str, Any]): One entry from `ProviderServer.gpus`
@@ -434,9 +372,7 @@ def gpu_catalog(spec: str) -> GpuCatalog:
     """
     A cached catalog for one configured spec.
 
-    Cached for the same reason `site_catalog` is: built once per unique
-    spec rather than re-parsed on every server. Keyed on the spec itself,
-    not on `Settings`, so a test can pass a literal.
+    Keyed on the spec, not `Settings`, so a test can pass a literal.
 
     Args:
         spec (str): The `INVENTORY_GPU_MODELS` value.

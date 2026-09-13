@@ -2,30 +2,14 @@ import { SEVERITY_GLYPH } from "@/components/severity";
 import type { HealthSeverity, MaintenanceState } from "@/types/server";
 
 /**
- * The one column an operator actually scans for: health severity, plus a
- * maintenance marker when the server is under active work.
- *
- * Maintenance is shown ALONGSIDE severity rather than replacing it. An
- * earlier version let maintenance win and hid the severity behind a
- * tooltip, on the theory that a critical alert on a box someone is
- * already working on trains people to ignore red. That reasoning is real,
- * but hiding the severity is the wrong fix for it: "critical, and someone
- * is on it" and "in maintenance, otherwise fine" are different situations
- * and the table should not render them identically. The maintenance chip
- * uses a hue outside the severity set, so the two vocabularies never
- * collide — the row reads as "Critical + Maint", not as a fourth severity.
- *
- * Colorblind safety: every severity carries a DISTINCT glyph and its own
- * word, so colour is a third, redundant signal. The glyphs must stay
- * mutually distinct — an earlier version gave HEALTHY and INFO the same
- * filled circle, which silently made them identical to anyone who cannot
- * separate green from blue, i.e. exactly the readers the glyph exists for.
+ * Health severity plus a maintenance chip, shown alongside rather than
+ * replacing it: "critical, and someone is on it" and "in maintenance,
+ * otherwise fine" must not render the same. The chip's hue is outside the
+ * severity set so it never reads as a fourth severity.
  */
 
 interface SeverityStyle {
   label: string;
-  /** Distinct per severity — see the note above. Geometric shapes, so the
-   * distinction survives greyscale as well as colour blindness. */
   glyph: string;
   className: string;
 }

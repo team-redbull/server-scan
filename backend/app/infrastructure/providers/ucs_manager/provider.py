@@ -34,11 +34,8 @@ class UcsManagerProvider(ServerInventoryProvider):
     """
     Collects one UCS Manager domain's inventory.
 
-    One instance is scoped to one domain. The UCS Central collector builds
-    one per registered domain and runs each independently, so a slow or
-    unreachable domain never blocks the others.
-
-    See docs/cisco-collectors.md, "Shared object model and DN joins".
+    One instance per domain; the UCS Central collector builds one per
+    registered domain. See docs/cisco-collectors.md, "Shared object model".
     """
 
     provider_type = ManagerType.UCS_MANAGER.value
@@ -99,10 +96,8 @@ class UcsManagerProvider(ServerInventoryProvider):
         """
         Yield every physically-present server in the domain.
 
-        `collect()` (the base class) wraps this in `contextlib.aclosing`,
-        so an abandoned run still tears the session down rather than
-        deferring it to GC time — UCS Manager enforces a per-user session
-        cap.
+        `collect()` wraps this in `contextlib.aclosing`, so an abandoned run
+        still logs out — see docs/cisco-collectors.md, "Sessions".
 
         Yields:
             ProviderServer: One equipped compute unit, already normalized.
@@ -129,20 +124,11 @@ class UcsManagerProvider(ServerInventoryProvider):
             cpu_units_all = await client.query_classid("processorUnit")
             disk_units_all = await client.query_classid("storageLocalDisk")
             psu_units_all = await client.query_classid("equipmentPsu")
-            # `graphicsCard`, not `coprocessorCard` — confirmed via Cisco's
-            # own UI documentation ("Inventory > GPUs") and the
-            # NVIDIA-GRID-specific compute/graphics mode enum. See
-            # docs/cisco-collectors.md, "GPUs (coprocessor cards vs.
-            # graphics cards)".
             card_units_all = await client.query_classid("graphicsCard")
-            # Exactly two per domain in practice (the redundant FI pair),
-            # so this is cheap regardless of fleet size.
             network_elements = await client.query_classid("networkElement")
             switches_by_id = {
                 str(getattr(mo, "id", "")): mo for mo in network_elements if getattr(mo, "id", "")
             }
-            # A domain singleton — one more query on the same session,
-            # not one per server. See `mapping._attachments`'s docstring.
             top_system = await client.query_classid("topSystem")
             cluster_name = (
                 str(getattr(top_system[0], "name", "") or "") or None if top_system else None
@@ -162,20 +148,7 @@ class UcsManagerProvider(ServerInventoryProvider):
             )
             cpu_units_by_server = _group_by_owning_server_dn(cpu_units_all, server_dns=server_dns)
             disk_units_by_server = _group_by_owning_server_dn(disk_units_all, server_dns=server_dns)
-            # A rack unit owns its own PSU(s) directly (`sys/rack-unit-3/
-            # psu-1`), but a blade's PSUs live under its chassis
-            # (`sys/chassis-1/psu-1`), a *sibling* of the blade
-            # (`sys/chassis-1/blade-1`) rather than an ancestor of it —
-            # `equipmentPsu` carries no relationship to an individual
-            # blade at all. This same DN-ancestor-walk join therefore
-            # silently drops chassis-owned PSUs rather than misattributing
-            # them; a blade server reports none. See
-            # docs/cisco-collectors.md, "Power supplies (PSUs)".
             psu_units_by_server = _group_by_owning_server_dn(psu_units_all, server_dns=server_dns)
-            # `graphicsCard`'s parent is `computeBoard`, a DN path segment
-            # directly under the server (`.../blade-3/board/graphics-
-            # card-1`), the same pattern `processorUnit` already uses —
-            # unlike PSUs, this joins for blades and rack units alike.
             card_units_by_server = _group_by_owning_server_dn(card_units_all, server_dns=server_dns)
 
             for server_mo in servers:
