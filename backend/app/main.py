@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import RequestResponseEndpoint
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response
 
 from app.api.health import router as health_router
@@ -132,6 +133,9 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(RequestContextMiddleware)
+    # Level 6, not the default 9: 15.8x for 0.86ms vs 16.1x for 1.57ms
+    # on a 200-row page (docs/architecture.md, "Search, pagination, and caching").
+    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins,

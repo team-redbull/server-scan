@@ -518,3 +518,35 @@ async def test_stale_filter_pages_with_a_stable_cursor(
     )
     assert second.status_code == 200
     assert len(second.json()["items"]) == 1
+
+
+async def test_list_is_gzipped_when_the_client_accepts_it(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """Gzipped on a cache miss and on the raw-bytes cache hit alike."""
+    client, repo = app_context
+    for i in range(20):
+        await repo.upsert(_make_server(i))
+
+    plain = await client.get("/api/v1/servers", headers={"Accept-Encoding": "identity"})
+    assert plain.status_code == 200
+    assert "content-encoding" not in plain.headers
+
+    for _ in range(2):
+        resp = await client.get("/api/v1/servers", headers={"Accept-Encoding": "gzip"})
+        assert resp.status_code == 200
+        assert resp.headers["content-encoding"] == "gzip"
+        assert "Accept-Encoding" in resp.headers["vary"]
+        assert resp.json() == plain.json()
+        assert int(resp.headers["content-length"]) < len(plain.content) / 4
+
+
+async def test_small_body_is_not_gzipped(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, _ = app_context
+
+    resp = await client.get("/api/v1/servers", headers={"Accept-Encoding": "gzip"})
+
+    assert resp.status_code == 200
+    assert "content-encoding" not in resp.headers

@@ -324,6 +324,15 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   the caller inspects still goes through `get`. The detail endpoint's
   revision pointer is a bare int and is decoded normally — only the
   document behind it is worth the raw path.
+- **Responses over 1 KB are gzipped when the client sends
+  `Accept-Encoding: gzip`** (Starlette's `GZipMiddleware`, level 6). JSON
+  with the same ~40 keys repeated per row compresses hard: a 200-row page
+  measured 254 KB → 16 KB (15.8×) in 0.86 ms; a `ServerDetail` 9.1 KB →
+  2.0 KB. Level 6 rather than the default 9 because 9 costs 1.57 ms for
+  0.3 KB more; bodies ≥128 KiB are compressed in a worker thread, so the
+  event loop is not held. It composes with the raw-bytes cache above —
+  the cache stores plain JSON, the middleware compresses on the way out.
+  Measured 2026-09-14 against 2,504 seeded servers.
 - **`GET /servers/facets` counts within the filters already applied**, so
   reading the vendor counts after picking a site describes that site, not
   the estate — the number an operator is actually asking for, and why the
