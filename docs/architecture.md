@@ -126,7 +126,7 @@ any real collector exists.
   ending in `_id`.
 - **List responses are a lean projection** (`ServerSummary`), not the
   persistence model: no `hardware` subdocument, since at the platform's
-  ~10k-servers-with-headroom target scale, shipping full hardware detail on
+  5k-today, 10k-ceiling estate (verified at 50k), shipping full hardware detail on
   every row of a list response is pure waste. Full detail
   (`ServerDetail`) is fetched per-server on demand. Both are dedicated API
   schemas (`app/api/v1/schemas.py`), not `Server` returned as-is — this

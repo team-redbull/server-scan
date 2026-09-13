@@ -40,7 +40,7 @@ alertable.
 | Priority | Goal | Why it dominates |
 |---|---|---|
 | 1 | **Correctness of reported state** | An inventory that is confidently wrong is worse than one that admits it does not know. This drives the `None`-means-unread contract, `parse_site_code` returning `None` rather than guessing, and recording classification conflicts instead of resolving them by luck. |
-| 2 | **Scale to ~10,000 servers, headroom to 50,000+** | A real requirement, verified against genuine 50k datasets (ADR-0007), not a stretch goal. It decides pagination, projections, caching and collector design. |
+| 2 | **Scale to the real estate: ~5,000 servers today, up to 10,000 planned** | The operator's figure (2026-09-13). Verified far beyond it, against genuine 50k datasets (ADR-0007), so the headroom is measured rather than assumed. It decides pagination, projections, caching and collector design. |
 | 3 | **Operability in an air-gapped site** | No internet at runtime *or* build time. Decides dependency choices, image bases, and how configuration reaches a deployment. |
 
 ### Stakeholders
@@ -62,7 +62,7 @@ sense against them.
 | Constraint | Consequence |
 |---|---|
 | **Air-gapped deployment.** No internet at runtime, and dependencies come from a local mirror. | `requirements.txt`/`pylock.toml` are generated exports (`docs/air-gap.md`); dependency versions are pinned to *what the mirror carries*, not to the newest release (`ucsmsdk==0.9.18`, `ucscsdk==0.9.0.8`). A 57.6 MB SDK is a real cost, which is why the Intersight collector does not use one (ADR-0017). |
-| **~10,000 servers, headroom to 50,000+.** | Keyset pagination only, lean list projections, cache-aside Redis, and collector designs judged on requests-per-fleet rather than per-server. |
+| **~5,000 servers today, up to 10,000 planned; verified at 50,000.** | Keyset pagination only, lean list projections, cache-aside Redis, and collector designs judged on requests-per-fleet rather than per-server. |
 | **OpenShift/Kubernetes as the runtime.** | Helm chart; UBI9 base images; `Route` rather than `Ingress`; collectors are `CronJob`s. |
 | **Python ≥3.12** (ADR-0015). | The compatibility floor for the target platform's available interpreter. |
 | **Everything configurable must be configurable without a rebuild.** | Reinforced by ADR-0018: pushing a new image through an air-gapped mirror to rename a site is not acceptable, so the site list is configuration. |
@@ -486,7 +486,7 @@ of it.
 Correctness ── never report a value that was not read
             ── deterministic classification and health resolution
             ── a partial collection run is distinguishable from a complete one
-Scalability ── 10k servers, headroom to 50k
+Scalability ── 5k servers today, 10k planned; verified at 50k
 Operability ── air-gapped install; actionable failure messages
 Security    ── no user input reaches a regex/query engine unescaped; no secret ever logged
 Modifiability ─ a new vendor is a new module; a site rename is a config change

@@ -13,10 +13,12 @@ technical deep-dives both of those point into rather than duplicate.
 A production-grade, air-gapped bare-metal server inventory platform:
 MongoDB source of truth, FastAPI backend, React admin UI, Redis
 cache-aside, a regex classification engine, and a declarative health-
-policy engine. Target scale is **~10,000 physical servers with headroom
-to 50,000+** — this is a real, primary requirement, verified at scale
-(`docs/adr/0007-scale-verification-and-request-coalescing.md`), not a
-stretch goal to hand-wave about.
+policy engine. The real estate is **~5,000 physical servers today,
+growing to up to 10,000** (the operator's own figure, 2026-09-13); the
+platform was verified well past that, at 50,000
+(`docs/adr/0007-scale-verification-and-request-coalescing.md`), so scale
+is a measured property with headroom, not a stretch goal to hand-wave
+about.
 
 The original 75-section spec that kicked this project off was given as
 chat text early in the first session and was never saved as a repo file
@@ -38,7 +40,7 @@ is a real mistake, not a style preference.
    vendor docs, confirmed library behavior), not precedent. The user
    explicitly does not want technology reused just because it appeared
    in their own past projects (e.g. `dhcp_scope_manager`) — research
-   fresh for this project's actual constraints (air-gapped, ~10k scale)
+   fresh for this project's actual constraints (air-gapped, 5k–10k scale)
    every time.
 2. **Git: commit and push after each completed unit of work**, with
    clear, understandable commit messages. **The user must be the only
@@ -448,8 +450,8 @@ whose absence is deliberate rather than pending** — it is reached through
 is nothing to point a CronJob at. The tool says exactly that rather than
 reporting an unimplemented feature.
 
-**`INTERSIGHT` is the first collector that actually reaches the 10,000
-target**, and the first with three properties nothing else here has —
+**`INTERSIGHT` is the first collector that actually reaches the 10,000-server
+ceiling**, and the first with three properties nothing else here has —
 read `docs/adr/0017-intersight-collector.md` before touching it:
 
 1. **It is not a login.** Intersight has no username/password path for
@@ -698,20 +700,23 @@ for the full write-up and the two open questions it could not settle
    lot by vendor and was the deciding factor for going UCS-first — two
    of the four vendors turned out to have no test target at all, which
    is why this item exists.
-2. **Remaining deployment/CD gaps**, explicitly deferred by the user in
-   favor of collectors: CI now builds and publishes both images to GHCR
-   on every push to main (`.github/workflows/ci.yml`'s `publish` job,
-   `docs/adr/0010-image-publishing-and-versioning.md`), versioned
-   automatically from Conventional Commits — but nothing *deploys* those
-   images anywhere yet (no GitOps/ArgoCD wiring, no automatic manifest
-   update). No Kubernetes manifests exist for the frontend
-   (only the backend API has a Deployment/Route, despite the frontend
-   having a solid Containerfile since slice 1 — see `deploy/README.md`);
-   no rate-limiting middleware anywhere; Mongo HA/backup and Redis
-   persistence are explicitly
-   documented as "the platform's problem" but nobody has actually stood
-   either up; no alerting rules or dashboards on top of the Prometheus
-   metrics that already exist.
+2. **Remaining deployment/CD gaps.** Corrected 2026-09-13 — this item
+   used to say the frontend had no manifests and there were no alert
+   rules; both exist now. What is true today: CI publishes both images to
+   GHCR on every push to main (`.github/workflows/ci.yml`'s `publish`
+   job, `docs/adr/0010-image-publishing-and-versioning.md`), and the
+   platform is deployed by Argo CD from `team-redbull/redbull-platform`
+   (`gitops/charts/server-scan`, a copy of this chart with that cluster's
+   overrides on top). **The image tag there is a hand-edited pin** (`1.0.0`
+   as of 2026-09-13), not bumped by CI — the org's `ghcr-build-push.yml`
+   Helm-bump flow, which other services already use, is the obvious
+   wiring. Still missing: rate limiting (`RateLimitedError` and the 429
+   mapping exist, nothing raises them); a MongoDB backup — it is a single
+   Bitnami pod with a 20Gi PVC holding the whole source of truth, and a
+   `mongodump` CronJob is the minimum; and a dashboard over the 20 gauges
+   and 18 recording rules that are already scraped and alerted on. Redis
+   being single and non-persistent is by design (cache-aside, degrades to
+   Mongo), not a gap.
 3. **Real authentication** — the release gate, explicitly last. There is
    no permissive `AuthProvider` to swap out (convention 6 above says why
    an earlier version of this file was wrong about that): what exists is
@@ -1309,7 +1314,23 @@ quarterly, or before any release you care about:
 
 ## Where to continue right now
 
-**Most recent, 2026-09-13** — the Claude Code setup itself: `/gate`,
+**Most recent, 2026-09-13, later** — **the repository is
+`team-redbull/server-scan`**, renamed from `server_scan`. Every `v*` tag
+and GitHub Release up to v17.4.3 was deleted at the operator's direction
+and versioning restarted: the first release under the new name is
+**v1.0.0**, and the images are `ghcr.io/team-redbull/server-scan-api` /
+`-frontend` (the old `server_scan-*` packages are deleted from GHCR).
+ADR-0010's dated update records it. Two things came out of the same
+afternoon: the publish job is now re-runnable after a failed step — a
+GitHub API outage left a tag with no release and no images, and the
+"version moves forward" guard then refused the re-run until the tag was
+deleted by hand — and redbull-platform was pinned to `1.0.0` and
+deployed (Synced/Healthy). The operator also stated the real estate:
+**~5,000 servers today, up to 10,000** — the scale statements in this
+file, `README.md`, `docs/architecture.md` and `docs/arc42.md` now say
+that, with the 50k verification kept as the measured headroom.
+
+**Before that, 2026-09-13** — the Claude Code setup itself: `/gate`,
 `/docs-sweep`, three enforcing hooks and two review agents, all under
 `.claude/` (tracked, per convention 4); MCP servers stay user-level. See convention 7 for what each does. Nothing in the
 platform changed.

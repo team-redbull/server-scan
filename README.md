@@ -218,7 +218,7 @@ Five collectors exist today: `UCS_CENTRAL`, `INTERSIGHT`, `OPENMANAGE`,
 `ONEVIEW` and `REDFISH_STANDALONE`.
 
 **`INTERSIGHT` is the only one that reaches this platform's 10,000-server
-target without qualification.** Every child object in Intersight's model
+ceiling without qualification.** Every child object in Intersight's model
 carries a reference back to its owner, so each sub-resource is listed
 once for the whole estate and joined in memory — one run costs on the
 order of a hundred requests whether the tenant holds fifty servers or ten
