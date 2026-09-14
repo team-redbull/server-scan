@@ -7,14 +7,16 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: server-scan
 data:
+  # `required` on the int/bool/enum values only — deploy/README.md,
+  # "Configuration notes" has the incident and why the rest stay plain.
   INVENTORY_SITES: {{ .Values.config.sites | quote }}
   INVENTORY_GPU_MODELS: {{ .Values.config.gpuModels | quote }}
   INVENTORY_NIC_OS_NAMES: {{ .Values.config.nicOsNames | quote }}
-  INVENTORY_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
-  INVENTORY_METRICS_ENABLED: {{ .Values.config.metricsEnabled | quote }}
-  INVENTORY_STALE_AFTER_SECONDS: {{ .Values.config.staleAfterSeconds | quote }}
-  INVENTORY_DEFAULT_PAGE_SIZE: {{ .Values.config.defaultPageSize | quote }}
-  INVENTORY_MAX_PAGE_SIZE: {{ .Values.config.maxPageSize | quote }}
+  INVENTORY_LOG_LEVEL: {{ required "config.logLevel must be set" .Values.config.logLevel | quote }}
+  INVENTORY_METRICS_ENABLED: {{ required "config.metricsEnabled must be set" .Values.config.metricsEnabled | quote }}
+  INVENTORY_STALE_AFTER_SECONDS: {{ required "config.staleAfterSeconds must be set" .Values.config.staleAfterSeconds | quote }}
+  INVENTORY_DEFAULT_PAGE_SIZE: {{ required "config.defaultPageSize must be set" .Values.config.defaultPageSize | quote }}
+  INVENTORY_MAX_PAGE_SIZE: {{ required "config.maxPageSize must be set" .Values.config.maxPageSize | quote }}
   INVENTORY_CORS_ALLOWED_ORIGINS: {{ .Values.config.corsAllowedOrigins | quote }}
-  INVENTORY_MAX_AVAILABLE_COUNT: {{ .Values.config.maxAvailableCount | quote }}
+  INVENTORY_MAX_AVAILABLE_COUNT: {{ required "config.maxAvailableCount must be set" .Values.config.maxAvailableCount | quote }}
   INVENTORY_CAPACITY_ALIASES: {{ .Values.config.capacityAliases | quote }}

@@ -568,3 +568,29 @@ the settings module's comments) because each cost a session:
   `secretKeyRef` to an empty key still counts as "set" to
   pydantic-settings, unlike leaving the variable out, so it is a separate
   mistake with the same fix.
+- **A `backend-configmap.yaml` key missing from a downstream
+  `values.yaml` renders as a bare `KEY:` (YAML null); a ConfigMap cannot
+  hold a null value, so Kubernetes silently drops the key from the
+  applied object.** Argo CD then diffs forever between "desired: key
+  present" and "live: key absent" — `server-scan` in `redbull-platform`
+  showed `server-scan-api-config` permanently `OutOfSync` (10 auto-syncs
+  in under two hours, each `Succeeded` and immediately drifting again)
+  after `maxAvailableCount`/`capacityAliases` were added to this chart's
+  `values.yaml` and to the ConfigMap template, 2026-09-13, but not to
+  the gitops mirror's hand-maintained copy (only `templates/`/`files/`
+  sync there, by design — see the top of this file). CI's own "Render
+  the chart the way Argo will" step exists to catch exactly this, but a
+  plain `| quote` never fails on a missing value; it just renders empty.
+
+  Fixed 2026-09-14 for the six values this app parses as an int, a bool
+  or an enum (`logLevel`, `metricsEnabled`, `staleAfterSeconds`,
+  `defaultPageSize`, `maxPageSize`, `maxAvailableCount`): each is now
+  `required`, so a missing one fails `helm template` loudly instead of
+  shipping a silently-dropped key. **The other five stay unguarded on
+  purpose** (`sites`, `gpuModels`, `nicOsNames`, `corsAllowedOrigins`,
+  `capacityAliases`): `""` is a real, supported "not configured" value
+  for each, and `required` rejects an empty string exactly like nil — it
+  cannot tell "deliberately blank" from "forgotten", and forcing it
+  would break this chart's own out-of-the-box install. A future key with
+  a legitimate blank default carries this same residual risk and needs
+  its downstream `values.yaml` checked by hand when first introduced.
