@@ -104,7 +104,7 @@
       "from": "ome",
       "to": "cronjob",
       "y": 204,
-      "label": "X-Auth-Token",
+      "label": "auth token header",
       "variant": "return"
     },
     {

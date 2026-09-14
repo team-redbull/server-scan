@@ -120,7 +120,7 @@
       "from": "cronjob",
       "to": "bmc",
       "y": 350,
-      "label": "POST SessionService/Sessions \u2192 X-Auth-Token",
+      "label": "POST SessionService/Sessions \u2192 auth token header",
       "variant": "security"
     },
     {
