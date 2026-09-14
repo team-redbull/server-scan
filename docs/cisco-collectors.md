@@ -434,6 +434,28 @@ attachment, not which product owns the fabric: a UCS Central run reports
 `UCS_CENTRAL` for hardware still fronted by a domain's own fabric
 interconnects.
 
+### `operability` — a second vNIC signal ADR-0009 did not check (open, 2026-09-14)
+
+ADR-0009 found `AdaptorHostEthIf.oper_state` (vNICs) UNKNOWN on 99.75% of
+a live fleet and concluded "no evidence a better per-vNIC connectivity
+signal exists in this MO at all." Operator report plus a re-check of the
+installed `ucsmsdk`'s `AdaptorHostEthIf.py` shows that conclusion missed
+one thing: the MO also declares `operability`, a **separate** property
+from `oper_state` carrying the identical operable/inoperable/... enum —
+present since UCS Manager 1.0(1e), so not a newer-firmware artifact — and
+it is `operability`, not `oper_state`, that UCS Manager's own GUI labels
+"Operability" under Equipment > NICs, which the operator sees reading
+`Operable` there while this collector's `link_state` reads `UNKNOWN` for
+the same vNIC. **Not yet confirmed live whether `operability` is
+populated where `oper_state` is not, fleet-wide** —
+`tools/verify_ucs_central.py` section 8 (added 2026-09-14) previews the
+two side by side, the same "settle it live" pattern as the `oper_power`
+subsection above. If it is, `_nics`/`_extract_nics`'s vNIC `link_state`
+is the candidate to switch to it (or fold both in, per `oper_power`'s
+unreduced-signal precedent) — pending a decision on whether `operability`
+means the same thing as a physical port's `oper_state` for health-policy
+purposes.
+
 ## CPU, memory and storage
 
 ADR-0009's 2026-08-16 update covers the class hierarchy (`computeBlade`
@@ -571,6 +593,27 @@ live run shows the two agreeing or disagreeing on a real failure, fold
 the answer into `_psu()` and delete this section's uncertainty — the
 same "settle it live" pattern already used for `TotalMemory`'s unit
 (ADR-0017) and the `ComputeBoard` join gap.
+
+### `capacity_watts` reading 0W live is `psu_wattage` being unpopulated, not a mapping bug (open, 2026-09-14)
+
+Operator report: the UI shows `0W` for rack-mount PSUs whose own model
+string names a wattage (e.g. `UCSC-PSU1-770W`), while UCS Manager's GUI
+shows a real number under Equipment > Rack-Mount Server > PSUs > PSU N >
+Statistics > "Rack Unit Power State" > Input Power (W). Checking the
+installed `ucsmsdk`'s `mometa/equipment/` explains why: that GUI value is
+`EquipmentRackUnitPsuStats.input_power` (a `float`, child DN
+`.../psu-N/rackunit-power-stats`, fed by the stats poller), a completely
+separate MO from `equipmentPsu` and its `psu_wattage` (a `uint`, only
+present since UCS Manager 3.2(2c)) that `capacity_watts` already reads
+correctly per its own contract. **Not yet confirmed live which of the two
+this fleet's firmware actually populates** — `tools/verify_ucs_central.py`
+section 7 (added 2026-09-14) previews both side by side before anything
+is wired in. If `psu_wattage` reads `0`/unset while `input_power` is
+populated, the fix is a new `Psu.input_power_watts` (or equivalent)
+real-time field, not a change to what `capacity_watts` means — the two
+answer different questions (rated capacity vs. current draw) and neither
+should silently stand in for the other in `power.failed_psu_count` or any
+other health fact.
 
 ## GPUs (coprocessor cards vs. graphics cards)
 

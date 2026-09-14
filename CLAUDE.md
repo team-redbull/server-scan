@@ -583,35 +583,38 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-14 — the inventory page moved into the browser (ADR-0033), and
-the delivery path got its compression.** The operator corrected the
-scale to **2,500 today, 5,000 at most in one to two years** (10k/50k are
-test headroom), and asked for a first-principles answer to "why not
-filter in the UI?". The research and measurements are in the ADR; the
-short version: the fleet as flat rows is 187 KB gzipped, every browser
-operation is under a frame, and the API's own list path would cost 618 ms
-per fleet-sized request because it validates `Server` per document — so
-a new `GET /servers/rows` reads a Mongo projection into a flat
-`ServerRow`, is cached as wire bytes under ADR-0028's invalidation, and
-carries a weak ETag (body byte-stable: `generated_at` is the newest
-`updated_at`, not the build time — the first version got that wrong and
-the idle benchmark window caught it). The frontend polls it every 30 s
-and does filter/search/sort/facets/paging in `features/inventory/rows.ts`;
-`cursor` became `page`; search is substring; sort is natural. Before/after
-was measured with a Playwright harness on the same seeded fleet (medians
-in the ADR): filter clicks 66–102 ms → 15–30 ms event-to-DOM, 11 API
-requests per session → 2, wall-display idle now refreshes on 304s.
-Shipped alongside: the API gzips responses over 1 KB (level 6, measured),
-nginx gzips the bundle (494 → 143 KB) and serves `index.html` as
-`no-cache`. The same harness at 10k and 50k is in the ADR (fine at 10k,
-wrong at 50k — 2.4 s first load; the operator's ceiling is 5k). A
-pre-commit verification pass (API hammer + UI walk, both in the ADR)
-caught a search-parity gap and a reflowing filter row, both fixed. Then
-at the operator's request: `GET /servers/facets` deleted (nothing called
-it; `feat!:`), every dropdown option counts — `(0)` included, sites too —
-the State column sorts by severity, and a pre-existing bug where two
-filter changes under ~100 ms apart lost the first was fixed by building
-the next URL from the live location.
-**Open:** nothing from this unit; OpenShift-side options (Route HTTP/2
-needs a custom cert on the edge Route; router compression is now
-redundant) are noted in the ADR and deliberately not done.
+**2026-09-14 — two UI reports from the operator's own UCS Central fleet
+turned into two previewed-not-wired findings, plus a chart timeout gap
+closed.** The operator reported PSU wattage showing `0W` in the UI
+despite the PSU's own model naming a wattage (e.g. `UCSC-PSU1-770W`), and
+vNIC state showing `UNKNOWN` almost everywhere despite UCS Manager's GUI
+showing "Operability: Operable" per vNIC. Neither was fixed blind.
+Re-checking the installed `ucsmsdk` source (not assuming last time's
+research still holds, per convention 1) found: `Psu.capacity_watts`
+already reads `equipmentPsu.psu_wattage` correctly — the GUI's real
+number lives on a wholly separate child MO,
+`equipmentRackUnitPsuStats.input_power`, fed by the stats poller; and
+`AdaptorHostEthIf` (vNICs) has a **second** property, `operability`,
+distinct from the `oper_state` ADR-0009 already found mostly-UNKNOWN and
+concluded (wrongly, it now looks like) had "no better signal" — same
+enum, present since UCS Manager 1.0(1e), and it is `operability` the GUI
+actually labels "Operability". Following the exact precedent ADR-0009
+set for `fabric_name` ("preview it live before wiring anything in"),
+`tools/verify_ucs_central.py` gained sections 7 and 8 to print both
+fields against the operator's real domains before any domain-model or
+mapping change — both are documented in `docs/cisco-collectors.md` as
+open, unconfirmed-live findings, not yet fixes. **Separately fixed:**
+`collectors.ucsCentral` had no connect-timeout override in the Helm
+chart even though `INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS` already
+governs its UCS Manager logins per-domain (Intersight already exposed
+its own); added `collectors.ucsCentral.timeoutSeconds` (240s).
+**Open, next session:** the operator needs to run
+`uv run python -m tools.verify_ucs_central` against their real UCS
+Central (or re-point at UCSPE) and share sections 7/8's output. Only
+then: if `input_power` is populated, add it as a new `Psu` field
+(real-time draw, not a fix to `capacity_watts`'s existing rated-capacity
+meaning); if `operability` carries signal `oper_state` lacks, decide
+whether it becomes `_nics`' `link_state` source or a second unreduced
+signal like `oper_power` already is, then update
+`docs/cisco-collectors.md`'s two new subsections from "open" to settled,
+same as ADR-0009's `fabric_name` update did.

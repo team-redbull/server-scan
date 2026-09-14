@@ -8,6 +8,38 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**Before that, 2026-09-14 — the inventory page moved into the browser (ADR-0033), and
+the delivery path got its compression.** The operator corrected the
+scale to **2,500 today, 5,000 at most in one to two years** (10k/50k are
+test headroom), and asked for a first-principles answer to "why not
+filter in the UI?". The research and measurements are in the ADR; the
+short version: the fleet as flat rows is 187 KB gzipped, every browser
+operation is under a frame, and the API's own list path would cost 618 ms
+per fleet-sized request because it validates `Server` per document — so
+a new `GET /servers/rows` reads a Mongo projection into a flat
+`ServerRow`, is cached as wire bytes under ADR-0028's invalidation, and
+carries a weak ETag (body byte-stable: `generated_at` is the newest
+`updated_at`, not the build time — the first version got that wrong and
+the idle benchmark window caught it). The frontend polls it every 30 s
+and does filter/search/sort/facets/paging in `features/inventory/rows.ts`;
+`cursor` became `page`; search is substring; sort is natural. Before/after
+was measured with a Playwright harness on the same seeded fleet (medians
+in the ADR): filter clicks 66–102 ms → 15–30 ms event-to-DOM, 11 API
+requests per session → 2, wall-display idle now refreshes on 304s.
+Shipped alongside: the API gzips responses over 1 KB (level 6, measured),
+nginx gzips the bundle (494 → 143 KB) and serves `index.html` as
+`no-cache`. The same harness at 10k and 50k is in the ADR (fine at 10k,
+wrong at 50k — 2.4 s first load; the operator's ceiling is 5k). A
+pre-commit verification pass (API hammer + UI walk, both in the ADR)
+caught a search-parity gap and a reflowing filter row, both fixed. Then
+at the operator's request: `GET /servers/facets` deleted (nothing called
+it; `feat!:`), every dropdown option counts — `(0)` included, sites too —
+the State column sorts by severity, and a pre-existing bug where two
+filter changes under ~100 ms apart lost the first was fixed by building
+the next URL from the live location.
+
+---
+
 **Before that, 2026-09-13, evening — the stale filter, `INFO` retired, and a layering fix.**
 The inventory gained `?stale=true` (a `$$NOW`-based `$expr` so the cursor
 binding stays constant — `.claude/rules/mongodb.md`), a `stale` flag on

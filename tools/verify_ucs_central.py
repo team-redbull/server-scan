@@ -129,6 +129,8 @@ async def _run(show_names: int) -> int:
         ext_eth_ifs = await client.query_classid("adaptorExtEthIf")
         host_eth_ifs = await client.query_classid("adaptorHostEthIf")
         top_systems = await client.query_classid("topSystem")
+        psu_units = await client.query_classid("equipmentPsu")
+        psu_stats = await client.query_classid("equipmentRackUnitPsuStats")
     finally:
         await client.logout()
 
@@ -215,6 +217,8 @@ async def _run(show_names: int) -> int:
     _report_disk_health_vocabulary(disk_units)
     _report_operstate_vocabulary(ext_eth_ifs, host_eth_ifs)
     _report_fabric_name(top_systems, domain_name_by_id)
+    _report_psu_wattage(psu_units, psu_stats)
+    _report_vnic_operability(host_eth_ifs)
 
     _header("VERDICT")
     localized = ownership.get("localized", 0)
@@ -379,6 +383,115 @@ def _report_fabric_name(top_systems: list[Any], domain_name_by_id: dict[str, str
         address = str(getattr(mo, "address", "") or "—")
         central_name = domain_name_by_id.get(did, "—")
         _p(f"{did:<10}{name:<28}{address:<18}{central_name:<26}")
+
+
+def _report_psu_wattage(psu_units: list[Any], psu_stats: list[Any]) -> None:
+    """
+    Compare rated PSU wattage against real-time input power draw.
+
+    See docs/cisco-collectors.md, "`capacity_watts` reading 0W live is
+    `psu_wattage` being unpopulated, not a mapping bug".
+
+    Args:
+        psu_units (list[Any]): Every `equipmentPsu` MO returned by the
+            domain-wide query.
+        psu_stats (list[Any]): Every `equipmentRackUnitPsuStats` MO
+            returned by the domain-wide query — each a child of one
+            `equipmentPsu`.
+    """
+    _header("7. PSU WATTAGE — rated (psu_wattage) vs real-time (rackunit-power-stats)")
+
+    equipped = [mo for mo in psu_units if is_equipped(mo)]
+    _p(f"equipmentPsu MOs: {len(psu_units)} total, {len(equipped)} equipped.")
+    _p(f"equipmentRackUnitPsuStats MOs: {len(psu_stats)} (blade-chassis PSUs have none — ")
+    _p("only a rack unit's own PSU is this MO's parent).")
+
+    wattage_counts: Counter[str] = Counter(
+        str(getattr(mo, "psu_wattage", "") or "") for mo in equipped
+    )
+    if wattage_counts:
+        _p()
+        _p("raw psu_wattage, equipped PSUs:")
+        for raw, n in wattage_counts.most_common():
+            flag = "  <- looks unpopulated" if raw in ("", "0") else ""
+            _p(f"  {raw or '(empty)'!r:<12} x{n:<6}{flag}")
+
+    stats_by_psu_dn = {
+        str(getattr(mo, "dn", "")).rsplit("/", 1)[0]: mo
+        for mo in psu_stats
+        if str(getattr(mo, "dn", "")).endswith("/rackunit-power-stats")
+    }
+    populated_input_power = sum(
+        1 for mo in psu_stats if str(getattr(mo, "input_power", "") or "") not in ("", "0", "0.0")
+    )
+    _p()
+    _p(
+        f"input_power populated (non-empty, non-zero) on "
+        f"{populated_input_power} / {len(psu_stats)} stats MOs."
+    )
+
+    sample = [mo for mo in equipped if mo.dn in stats_by_psu_dn][:10]
+    if sample:
+        _p()
+        _p(f"{'PSU dn':<28}{'model':<22}{'psu_wattage':>12}{'input_power (W)':>18}")
+        for mo in sample:
+            stat = stats_by_psu_dn[mo.dn]
+            _p(
+                f"{mo.dn:<28}"
+                f"{getattr(mo, 'model', '') or '—'!s:<22}"
+                f"{getattr(mo, 'psu_wattage', '') or '—'!s:>12}"
+                f"{getattr(stat, 'input_power', '') or '—'!s:>18}"
+            )
+    _p()
+    if populated_input_power and wattage_counts.get("0", 0) == len(equipped):
+        _p("psu_wattage reads 0 on every equipped PSU while input_power is populated — the UI's")
+        _p("0W is this collector reporting a real field faithfully, not a mapping bug. Add")
+        _p("input_power as a new Psu field (real-time draw) rather than fixing capacity_watts.")
+    elif not psu_stats:
+        _p("No equipmentRackUnitPsuStats returned — check UCS Manager's stats collection policy")
+        _p("is enabled for these rack units before assuming the field doesn't exist.")
+
+
+def _report_vnic_operability(host_eth_ifs: list[Any]) -> None:
+    """
+    Cross-check `adaptorHostEthIf.operability` against the already-known-weak `oper_state`.
+
+    See docs/cisco-collectors.md, "`operability` — a second vNIC signal
+    ADR-0009 did not check".
+
+    Args:
+        host_eth_ifs (list[Any]): Every `adaptorHostEthIf` MO (vNICs)
+            returned by the domain-wide query.
+    """
+    _header("8. vNIC OPERABILITY — a second signal ADR-0009 did not check")
+
+    if not host_eth_ifs:
+        _p("no adaptorHostEthIf MOs returned — cannot preview operability.")
+        return
+
+    counts: Counter[str] = Counter(str(getattr(mo, "operability", "") or "") for mo in host_eth_ifs)
+    _p("raw operability, all vNICs:")
+    for raw, n in counts.most_common():
+        mapped = normalize_oper_state(raw)
+        _p(f"  {raw or '(empty)'!r:<20} x{n:<6} -> {mapped}")
+
+    oper_state_unknown_but_operability_known = sum(
+        1
+        for mo in host_eth_ifs
+        if normalize_oper_state(str(getattr(mo, "oper_state", "") or "")) == "UNKNOWN"
+        and normalize_oper_state(str(getattr(mo, "operability", "") or "")) != "UNKNOWN"
+    )
+    _p()
+    _p(
+        f"{oper_state_unknown_but_operability_known} / {len(host_eth_ifs)} vNICs read oper_state="
+        "UNKNOWN but operability maps to something else."
+    )
+    if oper_state_unknown_but_operability_known:
+        _p("operability carries a real signal oper_state does not — a candidate replacement for")
+        _p("this collector's vNIC link_state/health, pending a decision on whether it means the")
+        _p("same thing as a physical port's oper_state for health-policy purposes.")
+    else:
+        _p("operability tracks oper_state exactly on this fleet — no additional signal found here.")
 
 
 def main(argv: list[str] | None = None) -> None:
