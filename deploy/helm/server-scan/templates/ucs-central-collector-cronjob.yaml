@@ -42,6 +42,8 @@ spec:
                 {{- end }}
                 - name: INVENTORY_UCS_CENTRAL_DOMAIN_CONCURRENCY
                   value: {{ .Values.collectors.ucsCentral.domainConcurrency | quote }}
+                - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+                  value: {{ .Values.collectors.ucsCentral.timeoutSeconds | quote }}
                 {{- include "serverScan.dbEnv" . | nindent 16 }}
               envFrom:
                 - configMapRef:

@@ -451,6 +451,9 @@ collectors:
     # are independent, so this bounds wall-clock time without bounding
     # what gets collected.
     domainConcurrency: 4
+    # Overrides the shared INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+    # default (15s, backend/app/config/settings.py) for this CronJob only.
+    timeoutSeconds: 240
     # Every 6 hours, matching every other collector here — a shared,
     # uniform cadence across the whole fleet, at the operator's request
     # (2026-09-10). Nothing here needs sub-6h freshness on its own; this
