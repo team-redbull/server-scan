@@ -549,7 +549,12 @@ common, not an edge case).** It is Cisco's own name for "cannot be
 determined" — the literal definition of this platform's UNKNOWN — so
 leaving it unmapped is the *correct* answer, not a spelling gap. Mapping
 it to UP or DOWN would be guessing at a state Cisco itself says it
-cannot determine.
+cannot determine. **Checked 2026-09-14, after `AdaptorHostEthIf` turned
+out to have a second, better-populated property (`operability`) this
+same ADR had missed**: `AdaptorExtEthIf`'s own `mometa` declares no
+`operability` property at all — `oper_state` is its only operational-
+state field. There is no second signal to find here; `indeterminate`
+really is the only thing UCS Manager exposes for these ports.
 
 **Not a gap, and a genuinely different finding: `AdaptorHostEthIf`'s
 `oper_state` (vNICs) is not a link-state field at all.** 12551 of 12583
