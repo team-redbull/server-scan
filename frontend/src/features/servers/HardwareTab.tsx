@@ -15,6 +15,18 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(exponent === 0 ? 0 : 1)} ${unit}`;
 }
 
+/** A PSU's rated/real-time wattage, joined so a missing one never leaves a stray separator. */
+function psuWattageSummary(psu: { capacity_watts: number | null; power_watts: number | null }) {
+  const parts: string[] = [];
+  if (psu.capacity_watts != null) {
+    parts.push(`${psu.capacity_watts}W rated`);
+  }
+  if (psu.power_watts != null) {
+    parts.push(`${psu.power_watts.toFixed(0)}W now`);
+  }
+  return parts.length > 0 ? ` — ${parts.join(", ")}` : "";
+}
+
 export function HardwareTab({
   hardware,
   unreadFields = [],
@@ -187,8 +199,7 @@ export function HardwareTab({
               {power.psus.map((psu, index) => (
                 <li key={psu.id || `psu-${index}`}>
                   {psu.model ?? psu.id ?? "—"}
-                  {psu.capacity_watts != null ? ` — ${psu.capacity_watts}W rated` : ""}
-                  {psu.power_watts != null ? `, ${psu.power_watts.toFixed(0)}W now` : ""}{" "}
+                  {psuWattageSummary(psu)}{" "}
                   <Health value={psu.health} detail={psu.health_detail} />
                 </li>
               ))}

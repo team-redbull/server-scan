@@ -951,6 +951,29 @@ class TestPsus:
         assert result.psus is not None
         assert result.psus[0]["capacity_watts"] is None
 
+    def test_wattage_of_literal_zero_is_also_none(self) -> None:
+        """A PSU is never rated for no power at all.
+
+        See docs/cisco-collectors.md, "`capacity_watts` reading 0 is
+        `psu_wattage` being unpopulated".
+        """
+        result = compute_unit_to_provider_server(
+            _blade(),
+            manager_id="mgr_1",
+            profile_by_dn={},
+            template_dn_by_name={},
+            mgmt_if=None,
+            mgmt_ip_by_parent_dn={},
+            switches_by_id={},
+            ext_eth_ifs=[],
+            host_eth_ifs=[],
+            cpu_units=[],
+            disk_units=[],
+            psu_units=[_psu_mo(psu_wattage="0")],
+        )
+        assert result.psus is not None
+        assert result.psus[0]["capacity_watts"] is None
+
 
 class TestGpus:
     """`graphicsCard`, not `coprocessorCard` — see `mapping._gpu` and

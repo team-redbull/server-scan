@@ -148,6 +148,18 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
           capacity_watts: null,
           power_watts: null,
         },
+        {
+          // Confirmed live 2026-09-14: `capacity_watts` reads `null`
+          // (psu_wattage unpopulated on this model) while `power_watts`
+          // is a real reading. Must not print a stray leading ", ".
+          id: "PSU3",
+          model: "UCSC-PSU1-770W",
+          serial: "PSU789",
+          health: "UP",
+          health_detail: null,
+          capacity_watts: null,
+          power_watts: 248,
+        },
       ],
     };
 
@@ -155,6 +167,7 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
 
     expect(screen.getByText(/800W Platinum — 800W rated, 245W now/)).toBeInTheDocument();
     expect(screen.getByText(/PSU2/)).toBeInTheDocument();
+    expect(screen.getByText(/UCSC-PSU1-770W — 248W now/)).toBeInTheDocument();
     expect(screen.queryByText("unknown")).not.toBeInTheDocument();
   });
 

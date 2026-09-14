@@ -570,7 +570,7 @@ individual blade at all.**
 | `model` | `model` | Identity |
 | `serial` | `serial` | Identity |
 | `health` | `oper_state`, via the shared `normalize_oper_state` helper (UP/DOWN/DISABLED/UNKNOWN) | Same field and vocabulary Intersight's `psu()` already uses for the identical purpose — keeping `Psu.health` mean the same thing regardless of vendor is what lets one health-policy rule work correctly no matter which collector produced the data. |
-| `capacity_watts` | `psu_wattage` | Already a real `uint` (`prop_meta` range `0-20000`), no string-parsing or unit ambiguity. |
+| `capacity_watts` | `psu_wattage` | A real `uint` (`prop_meta` range `0-20000`), no unit ambiguity — but a literal `0` is folded to `None` too, confirmed live to mean "unpopulated on this model", not "rated for no power" (see below). |
 
 **Only equipped slots are reported at all**, via the existing
 `ucs_common.is_equipped()` helper (checking `presence`, the same field
@@ -653,6 +653,20 @@ Intersight, OneView and Redfish all set it explicitly to `None` with a
 one-line pointer, matching `Gpu.power_watts`'s own per-vendor-capability
 precedent — none of the three has been researched for an equivalent real-
 time PSU draw property yet.
+
+### `capacity_watts` reading 0 is `psu_wattage` being unpopulated on this model, not a real rating (2026-09-14)
+
+Shipping `power_watts` surfaced the display this was masking: a PSU
+whose `power_watts` now reads a real number (e.g. `248`) still showed
+`0W rated` beside it, because `_psu_wattage` returned the literal `0`
+`psu_wattage` reports on this fleet's majority of PSU models as if it
+were a genuine reading. It cannot be — no equipped PSU is rated for zero
+watts, and the model string itself always names a real wattage (e.g.
+`UCSC-PSU1-770W`) `psu_wattage` simply never repeats. `_psu_wattage` now
+folds a parsed `0` into `None` the same way an absent or unparseable
+value already was, so the UI and `--dry-run` both stop showing a PSU
+line's rated capacity at all when it isn't real data, rather than
+showing a `0W` that reads as a hardware fact.
 
 ## GPUs (coprocessor cards vs. graphics cards)
 

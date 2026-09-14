@@ -544,21 +544,25 @@ def _psu_wattage(mo: Any) -> int | None:
     """
     A PSU's rated capacity in watts.
 
+    See docs/cisco-collectors.md, "`capacity_watts` reading 0 is
+    `psu_wattage` being unpopulated on this model, not a real rating".
+
     Args:
         mo (Any): An `equipmentPsu` MO.
 
     Returns:
-        int | None: The parsed wattage, or `None` when absent or
-            unparseable — not zero, which would read as a PSU rated for
-            no power at all.
+        int | None: The parsed wattage, or `None` when absent,
+            unparseable, or `0` — no equipped PSU is rated for no power
+            at all, so `0` never carries real information.
     """
     raw = getattr(mo, "psu_wattage", None)
     if raw is None:
         return None
     try:
-        return int(str(raw))
+        parsed = int(str(raw))
     except ValueError:
         return None
+    return parsed or None
 
 
 def _psu_input_power(stat: Any | None) -> float | None:
