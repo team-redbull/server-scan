@@ -575,12 +575,15 @@ async def _dry_run_one_manager(
                     )
                 for psu in ps.psus or ():
                     capacity = psu.get("capacity_watts")
+                    draw = psu.get("power_watts")
+                    rated = f"{capacity}W rated" if isinstance(capacity, int) else "rated unknown"
+                    now = f"{draw:.0f}W now" if isinstance(draw, (int, float)) else "draw unknown"
                     redfish_status = psu.get("redfish_status")
                     status = f"  status={redfish_status}" if redfish_status else ""
                     print(
                         f"        psu {psu.get('id')}  {psu.get('model') or '—'}"
                         f"  serial={psu.get('serial') or '—'}"
-                        f"  {f'{capacity}W' if isinstance(capacity, int) else 'wattage unknown'}"
+                        f"  {rated}  {now}"
                         f"  health={psu.get('health')} ({psu.get('health_detail') or '—'})"
                         # UCS Manager only — docs/cisco-collectors.md, "Power supplies (PSUs)".
                         f"  power={psu.get('oper_power') or '—'}"

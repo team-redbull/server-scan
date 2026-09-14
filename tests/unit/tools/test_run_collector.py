@@ -567,6 +567,7 @@ class TestDryRun:
                             "health": "UP",
                             "health_detail": "operable",
                             "capacity_watts": 750,
+                            "power_watts": 245.0,
                         },
                         {
                             "id": "2",
@@ -589,8 +590,14 @@ class TestDryRun:
         assert "psus        : 2" in out
         # health_detail (the raw vendor state) prints in parens after health=;
         # a PSU without one dashes like every other unread field here.
-        assert "psu 1  PSU-750W  serial=PSU-1  750W  health=UP (operable)  power=—" in out
-        assert "psu 2  PSU-750W  serial=PSU-2  750W  health=DOWN (—)  power=—" in out
+        assert (
+            "psu 1  PSU-750W  serial=PSU-1  750W rated  245W now  health=UP (operable)  power=—"
+            in out
+        )
+        assert (
+            "psu 2  PSU-750W  serial=PSU-2  750W rated  draw unknown  health=DOWN (—)  power=—"
+            in out
+        )
 
     async def test_dry_run_shows_the_raw_ucs_power_field_alongside_oper_state(
         self, capsys: Any
