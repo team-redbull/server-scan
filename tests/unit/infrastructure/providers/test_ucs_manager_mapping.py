@@ -414,6 +414,37 @@ class TestComputeUnitToProviderServer:
         [attachment] = result.attachments
         assert attachment.oper_state == "UNKNOWN"
 
+    def test_vnic_reads_operability_even_when_oper_state_is_unknown(self) -> None:
+        """Both `nics` and the `VNIC` attachment must reflect `operability`.
+
+        See docs/cisco-collectors.md, "`operability` — a second vNIC
+        signal ADR-0009 did not check".
+        """
+        result = compute_unit_to_provider_server(
+            _blade(),
+            manager_id="mgr_1",
+            profile_by_dn={},
+            template_dn_by_name={},
+            mgmt_if=None,
+            mgmt_ip_by_parent_dn={},
+            switches_by_id={},
+            ext_eth_ifs=[],
+            host_eth_ifs=[
+                _adapter_if(
+                    mac="00:25:B5:00:00:01",
+                    switch_id="A",
+                    oper_state="unknown",
+                    operability="operable",
+                )
+            ],
+            cpu_units=[],
+            disk_units=[],
+        )
+        [nic] = result.nics
+        assert nic.link_state == "UP"
+        [attachment] = result.attachments
+        assert attachment.oper_state == "UP"
+
     def test_fabric_model_and_serial_come_from_the_matching_network_element(self) -> None:
         switch_a = SimpleNamespace(id="A", model="UCS-FI-6454", serial="FCH2222A")
         result = compute_unit_to_provider_server(
@@ -491,8 +522,10 @@ class TestComputeUnitToProviderServer:
         assert result.nic_macs == ("6C:B2:AE:00:00:01",)
 
     def test_nics_carry_name_mac_and_link_state_matching_nic_macs(self) -> None:
-        """`nics` is the richer view behind `nic_macs` — same vNIC-first
-        preference, one entry per counted MAC, named and stated too.
+        """`nics` is the richer view behind `nic_macs` — vNIC-first, named and stated too.
+
+        `oper_state` is set to a different recognized value than
+        `operability` to prove `operability` wins (docs/cisco-collectors.md).
         """
         result = compute_unit_to_provider_server(
             _blade(),
@@ -505,7 +538,11 @@ class TestComputeUnitToProviderServer:
             ext_eth_ifs=[_adapter_if(mac="6C:B2:AE:00:00:01", switch_id="A")],
             host_eth_ifs=[
                 _adapter_if(
-                    name="eth0", mac="00:25:B5:00:00:01", switch_id="A", oper_state="link-down"
+                    name="eth0",
+                    mac="00:25:B5:00:00:01",
+                    switch_id="A",
+                    oper_state="operable",
+                    operability="inoperable",
                 )
             ],
             cpu_units=[],

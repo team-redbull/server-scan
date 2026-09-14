@@ -583,60 +583,54 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-14 — two UI reports from the operator's own UCS Central fleet
-turned into two previewed-not-wired findings, plus a chart timeout gap
-closed.** The operator reported PSU wattage showing `0W` in the UI
-despite the PSU's own model naming a wattage (e.g. `UCSC-PSU1-770W`), and
-vNIC state showing `UNKNOWN` almost everywhere despite UCS Manager's GUI
-showing "Operability: Operable" per vNIC. Neither was fixed blind.
-Re-checking the installed `ucsmsdk` source (not assuming last time's
-research still holds, per convention 1) found: `Psu.capacity_watts`
-already reads `equipmentPsu.psu_wattage` correctly — the GUI's real
-number lives on a wholly separate child MO,
-`equipmentRackUnitPsuStats.input_power`, fed by the stats poller; and
-`AdaptorHostEthIf` (vNICs) has a **second** property, `operability`,
-distinct from the `oper_state` ADR-0009 already found mostly-UNKNOWN and
-concluded (wrongly, it now looks like) had "no better signal" — same
-enum, present since UCS Manager 1.0(1e), and it is `operability` the GUI
-actually labels "Operability". Following the exact precedent ADR-0009
-set for `fabric_name` ("preview it live before wiring anything in"),
-`tools/verify_ucs_central.py` gained sections 7 and 8 to print both
-fields against the operator's real domains before any domain-model or
-mapping change — both are documented in `docs/cisco-collectors.md` as
-open, unconfirmed-live findings, not yet fixes. **Separately fixed:**
-`collectors.ucsCentral` had no connect-timeout override in the Helm
-chart even though `INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS` already
-governs its UCS Manager logins per-domain (Intersight already exposed
-its own); added `collectors.ucsCentral.timeoutSeconds` (240s).
-**The operator ran sections 7-8 live** (5586 PSUs / 12583 vNICs, real
-fleet): `psu_wattage` reads `0` on 4770 of 5582 equipped PSUs (real,
-non-zero on the rest — the field is not universally broken) while
-`equipmentRackUnitPsuStats` returned **zero** MOs through Central for any
-of them; `operability` reads `operable` on **100%** of vNICs against
-`oper_state`'s 99.75% UNKNOWN (12551/12583), confirming it is a real,
-populated signal. **A materially bigger finding surfaced checking what
-consumes it**: `health_policy_defaults.py`'s `network.all_links_down`
-(CRITICAL) and `network.single_link_up` (MAJOR) both gate on
-`links_known_count`, and `_nics` returns vNICs whenever a server has
-any (host-preferred over physical, `docs/cisco-collectors.md` "Which MAC
-the OS actually sees") — so for essentially every *associated* UCS
-server, `links_known_count` is silently ~0 today and **neither policy
-has ever been able to fire for the UCS fleet**, not a display-only bug.
-Added **section 9** (queries one domain's own UCS Manager directly,
-bypassing Central) to settle whether Central itself is what blocks
-`input_power` — not yet run. Checked `_OPER_STATE_MAP`: an unrecognized
-`operability` value falls to UNKNOWN, never a false DOWN, so switching
-`_nics`' vNIC `link_state` to it cannot manufacture a false CRITICAL from
-an exotic transient state (`config`/`discovery`/...) — the one thing
-still genuinely unconfirmed is whether UCS Manager ever actually reports
-a non-`operable` value for a vNIC with a real problem, since this fleet
-has zero negative examples so far.
-**Open, next session:** run section 9 live for the PSU answer. For
-vNIC `operability`: given the bounded-risk analysis above, this looks
-safe to wire into `_nics`' vNIC `link_state` (fixing the UI and
-reactivating both network policies fleet-wide), but **that is a
-health-alerting behavior change on a live production fleet and needs
-the operator's explicit go-ahead before it ships**, not just a code
-review — ask before implementing. Once either lands, update
-`docs/cisco-collectors.md`'s two subsections from "open" to settled,
-same as ADR-0009's `fabric_name` update did.
+**2026-09-14, later — both UCS Central findings shipped, plus a live
+data-quality bug found and fixed along the way.** Continuing the same
+day's PSU/vNIC investigation (moved to `docs/notes/session-log.md`): the
+operator ran `verify_ucs_central.py` live and confirmed both open
+questions. Section 9 (query one domain's own UCS Manager directly,
+bypassing Central) got 42 `equipmentPsu` / 2 `equipmentRackUnitPsuStats`
+back — settling that Central's own API never proxies statistics classes
+at all, independent of any domain policy. **Shipped:** `Psu.power_watts`
+(real-time input power, alongside — never replacing — the existing
+rated `capacity_watts`), read through `UcsManagerProvider`'s new
+14th domain-wide query and DN-joined onto its owning PSU in `_psus`;
+Intersight/OneView/Redfish set it `None` with a one-line pointer,
+matching `Gpu.power_watts`'s existing per-vendor pattern; the fake
+provider populates it ~5% of the time for UCS_CENTRAL only, echoing the
+confirmed 2-of-42 live ratio. **Also shipped:** vNIC `link_state` (both
+`_nics` and a `VNIC`-kind `_attachments` call) now reads `operability`
+instead of `oper_state` via a new `_vnic_link_state` — this reopens the
+exact false-CRITICAL case ADR-0027 fixed on 2026-09-12, but safely: that
+fix's `network.links_known_count` gate stays, so a mostly-`operable`
+fleet just now has a real non-zero denominator instead of a permanent
+zero one. ADR-0027 and `docs/architecture.md` both got dated updates
+rather than silent rewrites.
+
+**Caught mid-session, before it shipped:** the fake generator's first
+`power_watts` draft used `rng.random()` conditionally on
+`collector is UCS_CENTRAL` inside `_build_psus` — exactly the landmine
+ADR-0027's own "Seeded data" section already named for `_link_states`
+(a vendor-conditional draw on the one shared `rng` stream shifts every
+later server's fields for the same seed, corrupting the whole fleet mix).
+Caught by actually re-seeding and measuring rather than trusting the
+diff — fixed by keying the decision off `index` via `zlib.crc32`
+instead, matching `_link_states`'s own pattern; re-verified the site
+distribution (211/224/224/220/121) came back byte-identical after the
+fix. **The user also asked to make disk `na`/`unknown`, physical
+`indeterminate`, and disk `offline`/`self-test-failed` all "known"** —
+declined for the first three (ADR-0009/0027's deliberately-unmapped
+no-verdict states, pinned by tests; forcing a severity would be exactly
+the fabrication `None`-means-unread exists to prevent) and explained why;
+the fourth turned out to already be correctly mapped to CRITICAL in
+production — only `verify_ucs_central.py`'s own separate hand-copied
+`_DISK_HEALTH_MAP` mirror had drifted and was reporting false gaps, fixed
+by importing the real `_disk_health` directly so it cannot drift again
+(ADR-0009 updated).
+
+**README re-measured live**, not estimated: same seed/count, network
+policy counts moved from 22 CRITICAL/17 MAJOR to 25/20 (+3/+3, all from
+UCS Central; Intersight still 0/0, unchanged and still exempt — no
+equivalent field researched for it). Full gate (backend, frontend, helm
+lint, 1337 tests with the dev stack up) clean throughout.
+**Open:** Intersight has no researched real-time PSU draw or better
+vNIC signal — untouched on purpose, not a gap in this unit of work.

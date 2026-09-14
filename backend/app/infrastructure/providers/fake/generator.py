@@ -614,7 +614,9 @@ def _gpu_identity(rng: random.Random, collector: ManagerType) -> tuple[str, str,
     return rng.choice(_UNCATALOGED_BMC_GPU_MODELS if uncataloged else _BMC_GPU_MODELS)
 
 
-def _build_psus(rng: random.Random) -> tuple[dict[str, object], ...]:
+def _build_psus(
+    rng: random.Random, collector: ManagerType, *, index: int
+) -> tuple[dict[str, object], ...]:
     """
     A server's fitted power supplies, keyed as every real collector emits them.
 
@@ -623,14 +625,29 @@ def _build_psus(rng: random.Random) -> tuple[dict[str, object], ...]:
 
     Args:
         rng (random.Random): The seeded generator.
+        collector (ManagerType): The collector that owns the server —
+            decides whether `power_watts` is ever populated.
+        index (int): This server's position in `generate_servers`, used
+            in place of `rng` for `power_watts` — see `_link_states` for
+            why a vendor-conditional `rng` draw here would shift every
+            later server's fields for a given seed (ADR-0027).
 
     Returns:
         tuple[dict[str, object], ...]: Two supplies, occasionally one of
             them DOWN so `power.failed_psu_count` has something to read
-            locally.
+            locally. `power_watts` is populated on both of a UCS_CENTRAL
+            server's PSUs ~5% of the time, echoing the 2-of-42 ratio a
+            live domain's `equipmentRackUnitPsuStats` confirmed
+            2026-09-14 (docs/cisco-collectors.md, "`power_watts` — real-
+            time input power") — never for a collector with no confirmed
+            source for it.
     """
     capacity = rng.choice((800, 1200, 1600, 2400))
     failed_bay = rng.choice((1, 2)) if rng.random() < 0.06 else None
+    stats_available = (
+        collector is ManagerType.UCS_CENTRAL and zlib.crc32(f"psu-stats-{index}".encode()) % 100 < 5
+    )
+    draw_fraction = (zlib.crc32(f"psu-power-{index}".encode()) % 41 + 20) / 100
     psus: list[dict[str, object]] = []
     for bay in (1, 2):
         health = "DOWN" if bay == failed_bay else "UP"
@@ -642,6 +659,7 @@ def _build_psus(rng: random.Random) -> tuple[dict[str, object], ...]:
                 "health": health,
                 "health_detail": _PSU_HEALTH_DETAIL_SAMPLES[health],
                 "capacity_watts": capacity,
+                "power_watts": round(capacity * draw_fraction, 1) if stats_available else None,
             }
         )
     return tuple(psus)
@@ -871,13 +889,22 @@ def _nics_for(
     Returns:
         tuple[ProviderNic, ...]: One entry per physical port.
     """
-    if collector in (ManagerType.UCS_CENTRAL, ManagerType.INTERSIGHT):
-        # No FQDD, no speed, UNKNOWN link state — ADR-0009's 99.75% figure.
+    if collector is ManagerType.INTERSIGHT:
+        # No FQDD, no speed, UNKNOWN link state — ADR-0009's 99.75%
+        # figure; unlike UCS_CENTRAL below, no better field is known yet.
         return tuple(
             ProviderNic(name=f"eth{i}", mac=mac, speed_mbps=None, link_state="UNKNOWN")
             for i, mac in enumerate(macs)
         )
     states = _link_states(macs)
+    if collector is ManagerType.UCS_CENTRAL:
+        # No FQDD, no speed, but a real link state via `operability` —
+        # docs/cisco-collectors.md, "`operability` — a second vNIC signal
+        # ADR-0009 did not check".
+        return tuple(
+            ProviderNic(name=f"eth{i}", mac=mac, speed_mbps=None, link_state=state)
+            for i, (mac, state) in enumerate(zip(macs, states, strict=True))
+        )
     if collector is ManagerType.ONEVIEW:
         # HPE names a port by its adapter and port number, not an FQDD.
         return tuple(
@@ -970,7 +997,7 @@ def generate_servers(
         drive_count = rng.randint(2, 8)
         storage_drives, storage_total_bytes = _build_storage_drives(rng, drive_count)
         gpus = _build_gpus(rng, collector)
-        psus = _build_psus(rng)
+        psus = _build_psus(rng, collector, index=index)
 
         # The shape `OpenManageProvider._unreachable_server` produces.
         reachable = not (collector is ManagerType.OPENMANAGE and rng.random() < 0.03)

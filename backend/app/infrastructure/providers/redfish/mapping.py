@@ -598,7 +598,9 @@ def psus_from_supplies(
             unreduced for the dry-run print the way the Cisco mapping
             carries `oper_power`. Not persisted. None propagates "unread",
             which `_carry_forward` needs to keep stored PSUs on a run that
-            could not reach the chassis.
+            could not reach the chassis. `power_watts` is `None` by
+            construction — not yet researched whether this schema
+            generation's `PowerSupply` exposes a real-time draw property.
     """
     if supplies is None:
         return None
@@ -620,6 +622,7 @@ def psus_from_supplies(
                 "capacity_watts": _as_int(
                     supply.get("PowerCapacityWatts") or supply.get("CapacityWatts")
                 ),
+                "power_watts": None,
                 "redfish_status": raw_status,
             }
         )

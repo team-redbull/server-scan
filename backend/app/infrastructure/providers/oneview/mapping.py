@@ -475,6 +475,8 @@ def psus_from(rows: list[dict[str, Any]] | None) -> tuple[dict[str, object], ...
     Returns:
         tuple[dict[str, object], ...] | None: Keys mirroring
             `app.domain.models.hardware.Psu`, or `None` for unread.
+            `power_watts` is `None` by construction — not yet researched
+            whether OneView exposes a real-time draw equivalent.
     """
     if rows is None:
         return None
@@ -494,6 +496,7 @@ def psus_from(rows: list[dict[str, Any]] | None) -> tuple[dict[str, object], ...
                 "health": _PSU_STATE_HEALTH.get(str(state), psu_health(row)),
                 "health_detail": _opt_str(state) or _redfish_status_pair(row.get("Status")),
                 "capacity_watts": _opt_int(row.get("PowerCapacityWatts")),
+                "power_watts": None,
             }
         )
     return tuple(psus)

@@ -516,7 +516,11 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   `network.links_known_count` as the denominator;
   `network.interface_count` keeps its literal meaning and rides along as
   evidence. The engine itself stays two-valued — the ADR says what would
-  make three-valued evaluation worth it.
+  make three-valued evaluation worth it. UCS reading `UNKNOWN` there was
+  the ceiling at the time, not a permanent one: since 2026-09-14 a UCS
+  vNIC's link state comes from `operability` instead, a real signal
+  `oper_state` never carried (ADR-0027's update, docs/cisco-collectors.md)
+  — Intersight's vNICs still read `UNKNOWN`, unchanged.
 - **`MAJOR` sits between `WARNING` and `CRITICAL`** (added 2026-09-06):
   redundancy is gone but the server is still serving, so the *next*
   failure takes it down — worth waking someone for in a way a degraded

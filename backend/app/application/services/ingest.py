@@ -284,6 +284,7 @@ def _psu_from_dict(data: dict[str, object]) -> Psu:
         health=_opt_str(data.get("health")),
         health_detail=_opt_str(data.get("health_detail")),
         capacity_watts=_opt_int(data.get("capacity_watts")),
+        power_watts=_opt_float(data.get("power_watts")),
     )
 
 

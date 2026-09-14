@@ -94,6 +94,7 @@ class Psu(BaseModel):
     health: str | None = None
     health_detail: str | None = None
     capacity_watts: int | None = None
+    power_watts: float | None = None
 
 
 class Power(BaseModel):

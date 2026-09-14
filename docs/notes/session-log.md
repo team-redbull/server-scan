@@ -8,6 +8,57 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-14 — two UI reports from the operator's own UCS Central fleet
+turned into two previewed-not-wired findings, plus a chart timeout gap
+closed.** The operator reported PSU wattage showing `0W` in the UI
+despite the PSU's own model naming a wattage (e.g. `UCSC-PSU1-770W`), and
+vNIC state showing `UNKNOWN` almost everywhere despite UCS Manager's GUI
+showing "Operability: Operable" per vNIC. Neither was fixed blind.
+Re-checking the installed `ucsmsdk` source (not assuming last time's
+research still holds, per convention 1) found: `Psu.capacity_watts`
+already reads `equipmentPsu.psu_wattage` correctly — the GUI's real
+number lives on a wholly separate child MO,
+`equipmentRackUnitPsuStats.input_power`, fed by the stats poller; and
+`AdaptorHostEthIf` (vNICs) has a **second** property, `operability`,
+distinct from the `oper_state` ADR-0009 already found mostly-UNKNOWN and
+concluded (wrongly, it now looks like) had "no better signal" — same
+enum, present since UCS Manager 1.0(1e), and it is `operability` the GUI
+actually labels "Operability". Following the exact precedent ADR-0009
+set for `fabric_name` ("preview it live before wiring anything in"),
+`tools/verify_ucs_central.py` gained sections 7 and 8 to print both
+fields against the operator's real domains before any domain-model or
+mapping change — both are documented in `docs/cisco-collectors.md` as
+open, unconfirmed-live findings, not yet fixes. **Separately fixed:**
+`collectors.ucsCentral` had no connect-timeout override in the Helm
+chart even though `INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS` already
+governs its UCS Manager logins per-domain (Intersight already exposed
+its own); added `collectors.ucsCentral.timeoutSeconds` (240s).
+**The operator ran sections 7-8 live** (5586 PSUs / 12583 vNICs, real
+fleet): `psu_wattage` reads `0` on 4770 of 5582 equipped PSUs (real,
+non-zero on the rest — the field is not universally broken) while
+`equipmentRackUnitPsuStats` returned **zero** MOs through Central for any
+of them; `operability` reads `operable` on **100%** of vNICs against
+`oper_state`'s 99.75% UNKNOWN (12551/12583), confirming it is a real,
+populated signal. **A materially bigger finding surfaced checking what
+consumes it**: `health_policy_defaults.py`'s `network.all_links_down`
+(CRITICAL) and `network.single_link_up` (MAJOR) both gate on
+`links_known_count`, and `_nics` returns vNICs whenever a server has
+any (host-preferred over physical, `docs/cisco-collectors.md` "Which MAC
+the OS actually sees") — so for essentially every *associated* UCS
+server, `links_known_count` is silently ~0 today and **neither policy
+has ever been able to fire for the UCS fleet**, not a display-only bug.
+Added **section 9** (queries one domain's own UCS Manager directly,
+bypassing Central) to settle whether Central itself is what blocks
+`input_power` — not yet run. Checked `_OPER_STATE_MAP`: an unrecognized
+`operability` value falls to UNKNOWN, never a false DOWN, so switching
+`_nics`' vNIC `link_state` to it cannot manufacture a false CRITICAL from
+an exotic transient state (`config`/`discovery`/...) — the one thing
+still genuinely unconfirmed is whether UCS Manager ever actually reports
+a non-`operable` value for a vNIC with a real problem, since this fleet
+has zero negative examples so far.
+
+---
+
 **Before that, 2026-09-14 — the inventory page moved into the browser (ADR-0033), and
 the delivery path got its compression.** The operator corrected the
 scale to **2,500 today, 5,000 at most in one to two years** (10k/50k are

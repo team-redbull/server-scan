@@ -150,6 +150,7 @@ class UcsManagerProvider(ServerInventoryProvider):
                 cpu_units=by_class.get("processorUnit", []),
                 disk_units=by_class.get("storageLocalDisk", []),
                 psu_units=by_class.get("equipmentPsu", []),
+                psu_stats=by_class.get("equipmentRackUnitPsuStats", []),
                 card_units=by_class.get("graphicsCard", []),
                 switches_by_id=switches_by_id,
                 cluster_name=cluster_name,
@@ -189,6 +190,7 @@ class UcsManagerProvider(ServerInventoryProvider):
             cpu_units_all = await client.query_classid("processorUnit")
             disk_units_all = await client.query_classid("storageLocalDisk")
             psu_units_all = await client.query_classid("equipmentPsu")
+            psu_stats_all = await client.query_classid("equipmentRackUnitPsuStats")
             card_units_all = await client.query_classid("graphicsCard")
             network_elements = await client.query_classid("networkElement")
             switches_by_id = {
@@ -214,6 +216,7 @@ class UcsManagerProvider(ServerInventoryProvider):
             cpu_units_by_server = _group_by_owning_server_dn(cpu_units_all, server_dns=server_dns)
             disk_units_by_server = _group_by_owning_server_dn(disk_units_all, server_dns=server_dns)
             psu_units_by_server = _group_by_owning_server_dn(psu_units_all, server_dns=server_dns)
+            psu_stats_by_server = _group_by_owning_server_dn(psu_stats_all, server_dns=server_dns)
             card_units_by_server = _group_by_owning_server_dn(card_units_all, server_dns=server_dns)
 
             for server_mo in servers:
@@ -230,6 +233,7 @@ class UcsManagerProvider(ServerInventoryProvider):
                     cpu_units=cpu_units_by_server[server_mo.dn],
                     disk_units=disk_units_by_server[server_mo.dn],
                     psu_units=psu_units_by_server[server_mo.dn],
+                    psu_stats=psu_stats_by_server[server_mo.dn],
                     card_units=card_units_by_server[server_mo.dn],
                     switches_by_id=switches_by_id,
                     cluster_name=cluster_name,

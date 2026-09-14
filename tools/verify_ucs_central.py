@@ -26,6 +26,7 @@ import asyncio
 import os
 import re
 from collections import Counter
+from types import SimpleNamespace
 from typing import Any
 
 from app.config import Settings, get_settings
@@ -44,6 +45,14 @@ from app.infrastructure.providers.ucs_manager.client import (
     UcsManagerClient,
     UcsManagerConnectionError,
 )
+
+# Imported despite the leading underscore for zero drift from the real
+# map — see `_report_disk_health_vocabulary`.
+from app.infrastructure.providers.ucs_manager.mapping import _disk_health
+
+# ADR-0009's deliberately-unmapped `DISK_STATE_*` values — see
+# `_report_disk_health_vocabulary`.
+_KNOWN_UNMAPPED_DISK_STATES = frozenset({"na", "unknown"})
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -254,46 +263,12 @@ async def _run(show_names: int) -> int:
     return 1
 
 
-def _mapped_disk_health(disk_state: str) -> str:
-    """
-    A local mirror of `ucs_manager.mapping._disk_health`'s `_DISK_HEALTH_MAP`, for reporting only.
-
-    Args:
-        disk_state (str): The raw `disk_state` value, already lower-cased.
-
-    Returns:
-        str: HEALTHY, WARNING, CRITICAL, or UNKNOWN.
-    """
-    healthy = {
-        "good",
-        "online",
-        "unconfigured-good",
-        "global-hot-spare",
-        "dedicated-hot-spare",
-        "jbod",
-    }
-    warning = {
-        "predictive-failure",
-        "rebuilding",
-        "copyback",
-        "foreign-configuration",
-        "locked-foreign-configuration",
-    }
-    critical = {"bad", "failed", "unconfigured-bad", "disabled-for-removal"}
-    if disk_state in healthy:
-        return "HEALTHY"
-    if disk_state in warning:
-        return "WARNING"
-    if disk_state in critical:
-        return "CRITICAL"
-    return "UNKNOWN"
-
-
 def _report_disk_health_vocabulary(disk_units: list[Any]) -> None:
     """
-    Cross-check every raw `disk_state` value this domain set reports against `_DISK_HEALTH_MAP`.
+    Cross-check every raw `disk_state` value this domain set reports against `_disk_health`.
 
-    See ADR-0009's "Update (2026-09-07): the health/oper vocabulary gaps...".
+    See ADR-0009's "Update (2026-09-14): `verify_ucs_central.py`'s
+    disk-health report had drifted from the real map".
 
     Args:
         disk_units (list[Any]): Every `storageLocalDisk` MO returned by
@@ -309,20 +284,28 @@ def _report_disk_health_vocabulary(disk_units: list[Any]) -> None:
         return
 
     unknown_total = 0
+    real_gap_total = 0
     _p(f"{'disk_state':<26}{'count':>7}  mapped")
     for state, n in counts.most_common():
-        mapped = _mapped_disk_health(state)
-        flag = "  <- not recognized" if mapped == "UNKNOWN" else ""
+        mapped = _disk_health(SimpleNamespace(disk_state=state))
+        is_deliberate = state in _KNOWN_UNMAPPED_DISK_STATES
+        flag = "  <- not recognized" if mapped == "UNKNOWN" and not is_deliberate else ""
+        flag = flag or ("  <- deliberately unmapped, see ADR-0009" if is_deliberate else "")
         _p(f"{state or '(empty)':<26}{n:>7}  -> {mapped}{flag}")
         if mapped == "UNKNOWN":
             unknown_total += n
+            if not is_deliberate:
+                real_gap_total += n
 
     _p(f"\n{unknown_total} of {sum(counts.values())} disk(s) read health=UNKNOWN.")
-    if unknown_total:
-        _p("A non-empty state above that still maps to UNKNOWN is a real spelling gap —")
-        _p("add it to `_DISK_HEALTH_MAP` in `ucs_manager/mapping.py` (`ucs_central` reuses")
-        _p("the same UcsManagerProvider per domain, so one fix covers both). An empty state")
-        _p("usually means an unequipped slot with no disk in it.")
+    if real_gap_total:
+        _p(f"{real_gap_total} of those are NOT `na`/`unknown` (ADR-0009's deliberate")
+        _p("no-verdict states) — a real spelling gap. Add the flagged state(s) above to")
+        _p("`_DISK_HEALTH_MAP` in `ucs_manager/mapping.py` (`ucs_central` reuses the same")
+        _p("UcsManagerProvider per domain, so one fix covers both).")
+    elif unknown_total:
+        _p("Every UNKNOWN above is `na`/`unknown` — ADR-0009's deliberate no-verdict states,")
+        _p("not a gap. Nothing to fix.")
 
 
 def _report_operstate_vocabulary(ext_eth_ifs: list[Any], host_eth_ifs: list[Any]) -> None:

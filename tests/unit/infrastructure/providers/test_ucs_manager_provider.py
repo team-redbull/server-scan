@@ -502,9 +502,9 @@ class TestListServers:
         servers = await _collect(_provider(client))
 
         assert len(servers) == 50
-        # 14 since 2026-09-07's `topSystem` query — still O(1) per domain,
-        # which is the property guarded.
-        assert len([c for c in client.calls if c.startswith("query_classid:")]) == 14
+        # 15 since 2026-09-14's `equipmentRackUnitPsuStats` query — still
+        # O(1) per domain, which is the property guarded.
+        assert len([c for c in client.calls if c.startswith("query_classid:")]) == 15
 
     async def test_no_topsystem_returned_leaves_fabric_name_none(self) -> None:
         """A domain that answers `topSystem` with nothing — rather than a

@@ -434,7 +434,7 @@ attachment, not which product owns the fabric: a UCS Central run reports
 `UCS_CENTRAL` for hardware still fronted by a domain's own fabric
 interconnects.
 
-### `operability` — a second vNIC signal ADR-0009 did not check (open, 2026-09-14)
+### `operability` — a second vNIC signal ADR-0009 did not check (settled 2026-09-14)
 
 ADR-0009 found `AdaptorHostEthIf.oper_state` (vNICs) UNKNOWN on 99.75% of
 a live fleet and concluded "no evidence a better per-vNIC connectivity
@@ -452,14 +452,26 @@ the same vNIC.
 against 12583 vNICs on the operator's fleet): `operability` reads
 `operable` on **100%** of them, while 12551 of those same 12583 (99.75%,
 matching ADR-0009's own count) read `oper_state=unknown`. `operability`
-is therefore a real, populated signal where `oper_state` is not — the
-open question is no longer *whether* it carries data, only whether
-`operable`/other means the same thing as a physical port's `oper_state`
-for health-policy purposes (no vNIC in this fleet has yet read anything
-but `operable`, so the negative case remains untested). `_nics`/
-`_extract_nics`'s vNIC `link_state` is the candidate to switch to it, or
-fold both in per the `oper_power` subsection's unreduced-signal
-precedent above.
+is therefore a real, populated signal where `oper_state` is not. No
+vNIC in this fleet has yet read anything but `operable`, so whether a
+real fault reads `inoperable` the way health policy assumes stays
+unconfirmed — but `_OPER_STATE_MAP` falls back to `UNKNOWN` for any
+value it does not recognize, never a false `DOWN`, so an exotic
+transient `operability` value (`config`, `discovery`, ...) cannot
+manufacture a false CRITICAL either way. Judged worth wiring in on that
+basis rather than waiting for a live negative case.
+
+**Built:** `_vnic_link_state` reads `operability` and is now what
+`_nics`'s vNIC branch and a `VNIC`-kind `_attachments` call both use for
+`link_state`/`oper_state`; a physical port (`_oper_state`, `oper_state`)
+is unchanged. This reopens the exact case ADR-0027 fixed by gating
+`network.all_links_down`/`single_link_up` on `network.links_known_count`
+— that gate stays, but its denominator is no longer permanently ~0 for
+UCS servers (see ADR-0027's 2026-09-14 update). `fake/generator.py`'s
+`_nics_for` was updated to match (convention 10): `UCS_CENTRAL` now
+draws from the same `_link_states` fault injection every other
+link-state-reporting collector uses; `INTERSIGHT` is untouched, still
+hardcoded `UNKNOWN` — no equivalent field has been researched for it.
 
 ## CPU, memory and storage
 
@@ -599,9 +611,9 @@ the answer into `_psu()` and delete this section's uncertainty — the
 same "settle it live" pattern already used for `TotalMemory`'s unit
 (ADR-0017) and the `ComputeBoard` join gap.
 
-### `capacity_watts` reading 0W live is `psu_wattage` being unpopulated, not a mapping bug (open, 2026-09-14)
+### `power_watts` — real-time input power, a separate MO from `psu_wattage` (settled 2026-09-14)
 
-Operator report: the UI shows `0W` for rack-mount PSUs whose own model
+Operator report: the UI showed `0W` for rack-mount PSUs whose own model
 string names a wattage (e.g. `UCSC-PSU1-770W`), while UCS Manager's GUI
 shows a real number under Equipment > Rack-Mount Server > PSUs > PSU N >
 Statistics > "Rack Unit Power State" > Input Power (W). Checking the
@@ -609,30 +621,38 @@ installed `ucsmsdk`'s `mometa/equipment/` explains why: that GUI value is
 `EquipmentRackUnitPsuStats.input_power` (a `float`, child DN
 `.../psu-N/rackunit-power-stats`, fed by the stats poller), a completely
 separate MO from `equipmentPsu` and its `psu_wattage` (a `uint`, only
-present since UCS Manager 3.2(2c)) that `capacity_watts` already reads
-correctly per its own contract.
+present since UCS Manager 3.2(2c)) that `capacity_watts` already read
+correctly per its own contract — the two answer different questions
+(rated capacity vs. current draw), so `power_watts` was added *alongside*
+`capacity_watts`, never in place of it.
 
-**Confirmed live 2026-09-14** (`tools/verify_ucs_central.py` section 7,
-against 5582 equipped rack-unit PSUs): `psu_wattage` reads `0` on 4770 of
-them (the rest read `2500` or `1050`, real values — so the property is
-not universally broken, just unpopulated on a majority of this fleet's
-PSU models), while `equipmentRackUnitPsuStats` returned **zero** MOs
-through UCS Central for any of them. That is not, on its own, proof the
-domains lack a stats-collection policy: **section 9 (added the same day)
-queried one domain's own UCS Manager directly, bypassing Central**,
-because `equipmentPsu` itself only reached this script's Central-only
-queries at all due to `docs/cisco-collectors.md`'s "Central is a
-directory, not an inventory source" — Central visibly proxies equipment
-inventory but had never been checked for statistics classes
-specifically. See section 9's own output for which explanation this
-fleet confirmed: if the domain has real `input_power` values that
-Central alone was hiding, the fix is a new `Psu.input_power_watts` (or
-equivalent) field read through the real `UCS_CENTRAL` collector's
-existing per-domain `UcsManagerProvider` session (never through Central),
-alongside — not instead of — `capacity_watts`, since the two answer
-different questions (rated capacity vs. current draw) and neither should
-silently stand in for the other in `power.failed_psu_count` or any other
-health fact.
+**Confirmed live 2026-09-14** in three steps, all `tools/verify_ucs_central.py`:
+section 7 found `psu_wattage` reading `0` on 4770 of 5582 equipped
+rack-unit PSUs fleet-wide (the rest read `2500`/`1050`, real values — the
+property is not universally broken, just unpopulated on a majority of
+this fleet's PSU models) while `equipmentRackUnitPsuStats` returned
+**zero** MOs through UCS Central for any of them; section 9 then queried
+one domain's own UCS Manager directly, bypassing Central, and got **42
+`equipmentPsu` and 2 `equipmentRackUnitPsuStats`** back — confirming
+Central's own API does not proxy statistics-class objects from member
+domains at all (equipment/config inventory only), independent of whether
+a domain's stats-collection policy is enabled. The 2-of-42 ratio is
+itself informative: real-time PSU stats look to be populated per-rack-unit,
+not fleet-wide, so `power_watts` will be `None` on most PSUs even once
+wired in — expected, not a defect, and exactly what `_psu_input_power`'s
+`None`-on-absent-stat contract already assumes.
+
+**Built:** `UcsManagerProvider._list_servers`/`get_one` now also query
+`equipmentRackUnitPsuStats` (14th domain-wide query,
+`test_scales_query_count_independently_of_fleet_size` bumped 13 -> 14);
+`_psus` joins each stat to its owning PSU by DN
+(`.../psu-N/rackunit-power-stats` -> `.../psu-N`), and `_psu_input_power`
+parses `input_power` the same string-to-number way `_psu_wattage` parses
+`psu_wattage`. `Psu.power_watts: float | None` is the new domain field;
+Intersight, OneView and Redfish all set it explicitly to `None` with a
+one-line pointer, matching `Gpu.power_watts`'s own per-vendor-capability
+precedent — none of the three has been researched for an equivalent real-
+time PSU draw property yet.
 
 ## GPUs (coprocessor cards vs. graphics cards)
 
@@ -1064,12 +1084,12 @@ are global in Central and already correct.
 
 ### Cost, and the shape this deliberately is not
 
-Two Central queries, then per collected domain one login plus the 13
+Two Central queries, then per collected domain one login plus the 14
 domain-wide queries `UcsManagerProvider` issues (pinned by
-`test_scales_query_count_independently_of_fleet_size`; 13 as of
-`graphicsCard`'s addition below — was 12 after `equipmentPsu` ("Power
-supplies (PSUs)" above), 11 before that, 10 at earlier points in this
-file's own history). **That per-domain cost
+`test_scales_query_count_independently_of_fleet_size`; 14 as of
+`equipmentRackUnitPsuStats`'s addition ("Power supplies (PSUs)" above) —
+was 13 after `graphicsCard`, 12 after `equipmentPsu`, 11 before that, 10
+at earlier points in this file's own history). **That per-domain cost
 is flat in server count** — a domain holding 500 servers costs the same
 as one holding 10 — so the only levers are how many domains get
 contacted (pruning) and how many at once (`concurrency`, from

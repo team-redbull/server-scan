@@ -187,7 +187,8 @@ export function HardwareTab({
               {power.psus.map((psu, index) => (
                 <li key={psu.id || `psu-${index}`}>
                   {psu.model ?? psu.id ?? "—"}
-                  {psu.capacity_watts != null ? ` — ${psu.capacity_watts}W` : ""}{" "}
+                  {psu.capacity_watts != null ? ` — ${psu.capacity_watts}W rated` : ""}
+                  {psu.power_watts != null ? `, ${psu.power_watts.toFixed(0)}W now` : ""}{" "}
                   <Health value={psu.health} detail={psu.health_detail} />
                 </li>
               ))}

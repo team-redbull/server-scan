@@ -137,6 +137,7 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
           health: "UP",
           health_detail: null,
           capacity_watts: 800,
+          power_watts: 245,
         },
         {
           id: "PSU2",
@@ -145,13 +146,14 @@ describe("a drive, PSU or GPU the collector reported partially", () => {
           health: null,
           health_detail: null,
           capacity_watts: null,
+          power_watts: null,
         },
       ],
     };
 
     render(<HardwareTab hardware={hardware} unreadFields={[]} />);
 
-    expect(screen.getByText(/800W Platinum — 800W/)).toBeInTheDocument();
+    expect(screen.getByText(/800W Platinum — 800W rated, 245W now/)).toBeInTheDocument();
     expect(screen.getByText(/PSU2/)).toBeInTheDocument();
     expect(screen.queryByText("unknown")).not.toBeInTheDocument();
   });
@@ -269,6 +271,7 @@ describe("a component's health reason, alongside its severity", () => {
           health: "DOWN",
           health_detail: "inoperable",
           capacity_watts: 800,
+          power_watts: null,
         },
       ],
     };

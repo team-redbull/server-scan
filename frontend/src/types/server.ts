@@ -160,6 +160,7 @@ export interface PsuInfo {
   health: ComponentHealth;
   health_detail: string | null;
   capacity_watts: number | null;
+  power_watts: number | null;
 }
 
 export interface PowerInfo {

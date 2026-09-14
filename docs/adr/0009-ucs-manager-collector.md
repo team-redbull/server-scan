@@ -608,3 +608,16 @@ Intersight has no comparable per-domain cluster concept at all
 (`ManagementMode: IntersightStandalone`/`Intersight` servers are not
 grouped under anything analogous to a UCS domain), so there is nothing
 there to name.
+
+## Update (2026-09-14): `verify_ucs_central.py`'s disk-health report had drifted from the real map
+
+Its section 4 hand-duplicated `_DISK_HEALTH_MAP` into a second, separate
+set of Python literals for reporting only. That copy missed `zeroing`
+(added as `WARNING`) and `offline`/`self-test-failed` (added as
+`CRITICAL`) — all three already correctly mapped in
+`ucs_manager/mapping.py` — so a live run flagged them as unrecognized
+spelling gaps when production code already handled them correctly. Fixed
+by importing `_disk_health` directly instead of maintaining a second
+copy, so the report can never drift from the map again; `na`/`unknown`
+are still reported separately as this update's own deliberately-unmapped
+states, not lumped in with a genuine gap.

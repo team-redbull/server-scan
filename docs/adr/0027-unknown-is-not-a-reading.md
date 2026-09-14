@@ -149,3 +149,19 @@ Two constraints shaped it:
   mix moves for a given seed and README's quoted figures go stale. `crc32`
   rather than `hash()`, because `hash()` on a `str` is salted per process
   and reproduces nothing.
+
+## Update (2026-09-14): UCS Central gets a real link-state fault too
+
+**"UCS ... stays all-UNKNOWN" above no longer holds — Intersight still
+does, UCS Central does not.** `ucs_manager.mapping` now reads a vNIC's
+`operability` property instead of `oper_state` for `link_state`
+(docs/cisco-collectors.md, "`operability` — a second vNIC signal
+ADR-0009 did not check") — a real, populated signal this ADR did not
+know existed when it decided UCS could never carry the fault honestly.
+`fake.generator._nics_for` was updated the same way: `UCS_CENTRAL` now
+draws from `_link_states` like every other collector that reads a real
+link state; `INTERSIGHT` is unchanged, still hardcoded `UNKNOWN`, since
+no equivalent field has been researched for it. This does not reopen the
+false-CRITICAL bug this ADR fixed — `network.links_known_count` still
+gates both policies, and a mostly-`operable` fleet simply now has a
+non-zero denominator instead of an always-zero one.

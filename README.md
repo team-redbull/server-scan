@@ -472,12 +472,16 @@ is reachable.
   220 five, and 121 with no site token in the name. That last one is why
   the Unassigned card is worth having — and why it is hidden when it
   would read zero, since on a real estate it usually does.
-* **Both network link policies fire, and Cisco is deliberately exempt.**
-  22 servers report every readable link down (CRITICAL) and 17 report one
-  up (MAJOR), while the 324 UCS/Intersight servers report `UNKNOWN` for
-  every vNIC and are scored on nothing —
-  `docs/adr/0027-unknown-is-not-a-reading.md`. Before that ADR those 324
-  were all CRITICAL, which is what made the two real cases invisible.
+* **Both network link policies fire, and only Intersight is exempt.**
+  25 servers report every readable link down (CRITICAL) and 20 report one
+  up (MAJOR) — `docs/adr/0027-unknown-is-not-a-reading.md`. Before that
+  ADR every UCS/Intersight server was all-`UNKNOWN` and read CRITICAL
+  regardless, which is what made the real cases invisible; since
+  2026-09-14 a UCS Central vNIC's state comes from `operability`, a real
+  signal, so 3 of the 25 CRITICAL and 3 of the 20 MAJOR are genuinely
+  UCS Central servers now (docs/cisco-collectors.md). Only the 160
+  Intersight servers still report `UNKNOWN` for every vNIC and are
+  scored on nothing — no equivalent field is known for it yet.
 * **Availability is not derived from the name.** A seeded server named
   `ocp4-prod-tlv-compute-01` can come back `AVAILABLE`, because a freed
   server keeps the name it was installed under. That disagreement between

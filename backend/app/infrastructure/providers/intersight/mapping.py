@@ -275,6 +275,10 @@ def psu(unit: Mapping[str, Any]) -> dict[str, object]:
 
     Returns:
         dict[str, object]: Keys mirroring `app.domain.models.hardware.Psu`.
+            `power_watts` is `None` by construction — `equipment.Psu`
+            itself has no real-time draw field, and whether Intersight
+            exposes one elsewhere is not yet researched
+            (docs/cisco-collectors.md, "Power supplies (PSUs)").
     """
     return {
         "id": _text(unit.get("PsuId")) or _text(unit.get("Moid")),
@@ -283,6 +287,7 @@ def psu(unit: Mapping[str, Any]) -> dict[str, object]:
         "health": normalize_oper_state(unit.get("OperState")),
         "health_detail": _text(unit.get("OperState")),
         "capacity_watts": _as_int(unit.get("PsuWattage")),
+        "power_watts": None,
     }
 
 

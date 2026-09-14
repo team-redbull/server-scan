@@ -9,7 +9,7 @@ assumptions this module rests on.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from app.domain.ports.provider import ProviderAttachment, ProviderNic, ProviderServer
@@ -163,12 +163,17 @@ def _nic_macs(*, host_eth_ifs: list[Any], ext_eth_ifs: list[Any]) -> tuple[str, 
     return host_macs if host_macs else _extract_macs(ext_eth_ifs)
 
 
-def _extract_nics(adapter_ifs: list[Any]) -> tuple[ProviderNic, ...]:
+def _extract_nics(
+    adapter_ifs: list[Any], *, link_state_of: Callable[[Any], str]
+) -> tuple[ProviderNic, ...]:
     """
     Build one `ProviderNic` per real MAC off a list of adapter interfaces.
 
     Args:
         adapter_ifs (list[Any]): `adaptorHostEthIf` or `adaptorExtEthIf` MOs.
+        link_state_of (Callable[[Any], str]): `_oper_state` for physical
+            ports, `_vnic_link_state` for vNICs — never both in the same
+            call, matching `adapter_ifs`'s own contract.
 
     Returns:
         tuple[ProviderNic, ...]: Same filtering as `_extract_macs`, in the
@@ -185,7 +190,7 @@ def _extract_nics(adapter_ifs: list[Any]) -> tuple[ProviderNic, ...]:
                 name=getattr(mo, "name", None) or getattr(mo, "id", None) or "",
                 mac=mac,
                 speed_mbps=None,
-                link_state=_oper_state(mo),
+                link_state=link_state_of(mo),
             )
         )
     return tuple(nics)
@@ -202,9 +207,11 @@ def _nics(*, host_eth_ifs: list[Any], ext_eth_ifs: list[Any]) -> tuple[ProviderN
     Returns:
         tuple[ProviderNic, ...]: One entry per MAC `_nic_macs` would have
             counted, in the same order, so interface and MAC counts agree.
+            A vNIC's `link_state` comes from `_vnic_link_state`
+            (`operability`), a physical port's from `_oper_state`.
     """
-    host_nics = _extract_nics(host_eth_ifs)
-    return host_nics if host_nics else _extract_nics(ext_eth_ifs)
+    host_nics = _extract_nics(host_eth_ifs, link_state_of=_vnic_link_state)
+    return host_nics if host_nics else _extract_nics(ext_eth_ifs, link_state_of=_oper_state)
 
 
 def _oper_state(mo: Any) -> str:
@@ -218,6 +225,22 @@ def _oper_state(mo: Any) -> str:
         str: UP, DOWN, DISABLED, or UNKNOWN for an unrecognized value.
     """
     return normalize_oper_state(getattr(mo, "oper_state", None))
+
+
+def _vnic_link_state(mo: Any) -> str:
+    """
+    A vNIC's link state from `operability`, not `oper_state`.
+
+    See docs/cisco-collectors.md, "`operability` — a second vNIC signal
+    ADR-0009 did not check".
+
+    Args:
+        mo (Any): An `adaptorHostEthIf` MO.
+
+    Returns:
+        str: UP, DOWN, DISABLED, or UNKNOWN for an unrecognized value.
+    """
+    return normalize_oper_state(getattr(mo, "operability", None))
 
 
 def _admin_state(mo: Any) -> str:
@@ -270,8 +293,11 @@ def _attachments(
             real `switch_id`; interfaces reporting none are skipped.
 
     See docs/cisco-collectors.md, "Adapter interfaces, MACs and fabric
-    attachments".
+    attachments", and "`operability` — a second vNIC signal ADR-0009 did
+    not check" for why a `VNIC` attachment's `oper_state` comes from
+    `_vnic_link_state` rather than `_oper_state`.
     """
+    link_state_of = _vnic_link_state if interface_kind == "VNIC" else _oper_state
     attachments: list[ProviderAttachment] = []
     for mo in adapter_ifs:
         switch_id = getattr(mo, "switch_id", None)
@@ -291,7 +317,7 @@ def _attachments(
                 server_port=None,
                 fabric_port=getattr(mo, "peer_dn", None) or None,
                 admin_state=_admin_state(mo),
-                oper_state=_oper_state(mo),
+                oper_state=link_state_of(mo),
                 speed_mbps=None,
                 interface_kind=interface_kind,
             )
@@ -535,12 +561,40 @@ def _psu_wattage(mo: Any) -> int | None:
         return None
 
 
-def _psu(mo: Any) -> dict[str, object]:
+def _psu_input_power(stat: Any | None) -> float | None:
+    """
+    A PSU's real-time input power draw in watts, from its stats child MO.
+
+    See docs/cisco-collectors.md, "`capacity_watts` reading 0W live is
+    `psu_wattage` being unpopulated, not a mapping bug".
+
+    Args:
+        stat (Any | None): The `equipmentRackUnitPsuStats` MO owned by
+            this PSU, or `None` when it has none (blade chassis PSUs, or
+            a rack unit with stats collection not enabled for this MO).
+
+    Returns:
+        float | None: The parsed wattage, or `None` when `stat` is
+            `None`, absent, or unparseable.
+    """
+    if stat is None:
+        return None
+    raw = getattr(stat, "input_power", None)
+    if raw is None:
+        return None
+    try:
+        return float(str(raw))
+    except ValueError:
+        return None
+
+
+def _psu(mo: Any, stat: Any | None = None) -> dict[str, object]:
     """
     One `equipmentPsu` as the platform's PSU shape.
 
     Args:
         mo (Any): An `equipmentPsu` MO.
+        stat (Any | None): Its `equipmentRackUnitPsuStats` child, if any.
 
     Returns:
         dict[str, object]: Keys mirroring `app.domain.models.hardware.Psu`,
@@ -560,16 +614,22 @@ def _psu(mo: Any) -> dict[str, object]:
         "health": _oper_state(mo),
         "health_detail": getattr(mo, "oper_state", None) or None,
         "capacity_watts": _psu_wattage(mo),
+        "power_watts": _psu_input_power(stat),
         "oper_power": getattr(mo, "power", None) or None,
     }
 
 
-def _psus(psu_units: Iterable[Any]) -> tuple[dict[str, object], ...]:
+def _psus(psu_units: Iterable[Any], psu_stats: Iterable[Any] = ()) -> tuple[dict[str, object], ...]:
     """
     Summarize one server's PSUs.
 
     Args:
         psu_units (Iterable[Any]): `equipmentPsu` MOs owned by one server.
+        psu_stats (Iterable[Any]): `equipmentRackUnitPsuStats` MOs owned
+            by the same server — each a child of one `equipmentPsu`,
+            joined here by DN. Defaults to `()` for the same
+            backward-compatibility reason `psu_units` itself does on
+            `compute_unit_to_provider_server`.
 
     Returns:
         tuple[dict[str, object], ...]: One entry per equipped PSU slot.
@@ -580,7 +640,16 @@ def _psus(psu_units: Iterable[Any]) -> tuple[dict[str, object], ...]:
             fewer PSUs than bays. See docs/cisco-collectors.md, "Power
             supplies (PSUs)".
     """
-    return tuple(_psu(mo) for mo in psu_units if is_equipped(mo))
+    stats_by_psu_dn = {
+        str(getattr(stat, "dn", "")).rsplit("/", 1)[0]: stat
+        for stat in psu_stats
+        if str(getattr(stat, "dn", "")).endswith("/rackunit-power-stats")
+    }
+    return tuple(
+        _psu(mo, stats_by_psu_dn.get(getattr(mo, "dn", None)))
+        for mo in psu_units
+        if is_equipped(mo)
+    )
 
 
 def compute_unit_to_provider_server(
@@ -597,6 +666,7 @@ def compute_unit_to_provider_server(
     disk_units: list[Any],
     switches_by_id: dict[str, Any],
     psu_units: Iterable[Any] = (),
+    psu_stats: Iterable[Any] = (),
     card_units: Iterable[Any] = (),
     provider_type: str = "UCS_MANAGER",
     cluster_name: str | None = None,
@@ -631,6 +701,10 @@ def compute_unit_to_provider_server(
             rather than being required, unlike every other sub-resource
             argument here, so the many existing call sites that predate
             this field did not all need updating for it.
+        psu_stats (Iterable[Any]): Its `equipmentRackUnitPsuStats` MOs —
+            each a child of one `equipmentPsu` in `psu_units`, joined by
+            DN in `_psus`. Defaults to `()` for the same reason
+            `psu_units` does.
         card_units (Iterable[Any]): Its `graphicsCard` MOs (GPUs).
             Defaults to `()` for the same reason `psu_units` does.
         provider_type (str): Which collector observed this server.
@@ -676,7 +750,7 @@ def compute_unit_to_provider_server(
         memory_total_bytes=total_memory_mb * _BYTES_PER_MB,
         storage_total_bytes=storage_total_bytes,
         storage_drives=storage_drives,
-        psus=_psus(psu_units),
+        psus=_psus(psu_units, psu_stats),
         gpus=_gpus(card_units),
         attachments=(
             _attachments(
