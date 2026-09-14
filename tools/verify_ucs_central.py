@@ -28,16 +28,21 @@ import re
 from collections import Counter
 from typing import Any
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.domain.enums import ManagerType
 from app.domain.ports.credentials import ManagerNotConfiguredError
 from app.infrastructure.credentials import EnvConnectionResolver
+from app.infrastructure.credentials.env import resolve_login
 from app.infrastructure.providers.ucs_central.client import UcsCentralClient
 from app.infrastructure.providers.ucs_central.provider import domain_id_from_dn
 from app.infrastructure.providers.ucs_common import (
     TEMPLATE_TYPES,
     is_equipped,
     normalize_oper_state,
+)
+from app.infrastructure.providers.ucs_manager.client import (
+    UcsManagerClient,
+    UcsManagerConnectionError,
 )
 
 
@@ -219,6 +224,7 @@ async def _run(show_names: int) -> int:
     _report_fabric_name(top_systems, domain_name_by_id)
     _report_psu_wattage(psu_units, psu_stats)
     _report_vnic_operability(host_eth_ifs)
+    await _report_domain_stats_reachability(domains, settings)
 
     _header("VERDICT")
     localized = ownership.get("localized", 0)
@@ -448,8 +454,8 @@ def _report_psu_wattage(psu_units: list[Any], psu_stats: list[Any]) -> None:
         _p("0W is this collector reporting a real field faithfully, not a mapping bug. Add")
         _p("input_power as a new Psu field (real-time draw) rather than fixing capacity_watts.")
     elif not psu_stats:
-        _p("No equipmentRackUnitPsuStats returned — check UCS Manager's stats collection policy")
-        _p("is enabled for these rack units before assuming the field doesn't exist.")
+        _p("No equipmentRackUnitPsuStats returned through Central — see section 9, which checks")
+        _p("directly against one domain's own UCS Manager before assuming the field is absent.")
 
 
 def _report_vnic_operability(host_eth_ifs: list[Any]) -> None:
@@ -492,6 +498,67 @@ def _report_vnic_operability(host_eth_ifs: list[Any]) -> None:
         _p("same thing as a physical port's oper_state for health-policy purposes.")
     else:
         _p("operability tracks oper_state exactly on this fleet — no additional signal found here.")
+
+
+async def _report_domain_stats_reachability(domains: list[Any], settings: Settings) -> None:
+    """
+    Query one domain's own UCS Manager directly for a class Central's own API returned empty.
+
+    See docs/cisco-collectors.md, "`capacity_watts` reading 0W live is
+    `psu_wattage` being unpopulated, not a mapping bug".
+
+    Args:
+        domains (list[Any]): Every `computeSystem` MO from Central (section 1).
+        settings (Settings): For `INVENTORY_UCS_MANAGER_USERNAME`/`_PASSWORD`,
+            the same domain-wide login the real UCS_CENTRAL collector uses.
+    """
+    _header("9. DOES CENTRAL PROXY STATS CLASSES AT ALL? — one domain, queried directly")
+
+    target = next((d for d in domains if str(getattr(d, "address", "") or "").strip()), None)
+    if target is None:
+        _p("no domain with a reachable address found — cannot cross-check.")
+        return
+
+    try:
+        username, password = resolve_login(settings, ManagerType.UCS_MANAGER)
+    except ManagerNotConfiguredError as exc:
+        _p(f"skipped: {exc}")
+        return
+
+    endpoint = str(getattr(target, "address", ""))
+    domain_name = str(getattr(target, "name", "") or "?")
+    domain_client = UcsManagerClient(
+        endpoint=endpoint,
+        username=username,
+        password=password,
+        timeout_seconds=max(settings.collector_connect_timeout_seconds, 60.0),
+    )
+    _p(f"logging into domain {domain_name!r} at {endpoint} directly (bypassing Central) ...")
+    try:
+        await domain_client.login()
+        try:
+            direct_psus = await domain_client.query_classid("equipmentPsu")
+            direct_stats = await domain_client.query_classid("equipmentRackUnitPsuStats")
+        finally:
+            await domain_client.logout()
+    except UcsManagerConnectionError as exc:
+        _p(f"could not reach this domain directly: {exc}")
+        return
+
+    _p(
+        f"direct-to-domain: {len(direct_psus)} equipmentPsu, "
+        f"{len(direct_stats)} equipmentRackUnitPsuStats."
+    )
+    _p()
+    if direct_stats:
+        _p("Section 7's empty result was Central not proxying stats classes at all, not this")
+        _p("domain lacking a stats-collection policy. Reading input_power through the real")
+        _p("UCS_CENTRAL collector's own per-domain UcsManagerProvider session (not Central) will")
+        _p("see real values — no policy change needed on the domain side.")
+    else:
+        _p("Still empty talking to this domain directly — its own UCS Manager has no rack-unit")
+        _p("PSU stats either. Check its stats collection policy (Admin > Stats Mgmt) on this")
+        _p("domain before assuming the field is populated anywhere in this fleet.")
 
 
 def main(argv: list[str] | None = None) -> None:

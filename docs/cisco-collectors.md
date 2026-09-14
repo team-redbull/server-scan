@@ -446,15 +446,20 @@ present since UCS Manager 1.0(1e), so not a newer-firmware artifact — and
 it is `operability`, not `oper_state`, that UCS Manager's own GUI labels
 "Operability" under Equipment > NICs, which the operator sees reading
 `Operable` there while this collector's `link_state` reads `UNKNOWN` for
-the same vNIC. **Not yet confirmed live whether `operability` is
-populated where `oper_state` is not, fleet-wide** —
-`tools/verify_ucs_central.py` section 8 (added 2026-09-14) previews the
-two side by side, the same "settle it live" pattern as the `oper_power`
-subsection above. If it is, `_nics`/`_extract_nics`'s vNIC `link_state`
-is the candidate to switch to it (or fold both in, per `oper_power`'s
-unreduced-signal precedent) — pending a decision on whether `operability`
-means the same thing as a physical port's `oper_state` for health-policy
-purposes.
+the same vNIC.
+
+**Confirmed live 2026-09-14** (`tools/verify_ucs_central.py` section 8,
+against 12583 vNICs on the operator's fleet): `operability` reads
+`operable` on **100%** of them, while 12551 of those same 12583 (99.75%,
+matching ADR-0009's own count) read `oper_state=unknown`. `operability`
+is therefore a real, populated signal where `oper_state` is not — the
+open question is no longer *whether* it carries data, only whether
+`operable`/other means the same thing as a physical port's `oper_state`
+for health-policy purposes (no vNIC in this fleet has yet read anything
+but `operable`, so the negative case remains untested). `_nics`/
+`_extract_nics`'s vNIC `link_state` is the candidate to switch to it, or
+fold both in per the `oper_power` subsection's unreduced-signal
+precedent above.
 
 ## CPU, memory and storage
 
@@ -605,15 +610,29 @@ installed `ucsmsdk`'s `mometa/equipment/` explains why: that GUI value is
 `.../psu-N/rackunit-power-stats`, fed by the stats poller), a completely
 separate MO from `equipmentPsu` and its `psu_wattage` (a `uint`, only
 present since UCS Manager 3.2(2c)) that `capacity_watts` already reads
-correctly per its own contract. **Not yet confirmed live which of the two
-this fleet's firmware actually populates** — `tools/verify_ucs_central.py`
-section 7 (added 2026-09-14) previews both side by side before anything
-is wired in. If `psu_wattage` reads `0`/unset while `input_power` is
-populated, the fix is a new `Psu.input_power_watts` (or equivalent)
-real-time field, not a change to what `capacity_watts` means — the two
-answer different questions (rated capacity vs. current draw) and neither
-should silently stand in for the other in `power.failed_psu_count` or any
-other health fact.
+correctly per its own contract.
+
+**Confirmed live 2026-09-14** (`tools/verify_ucs_central.py` section 7,
+against 5582 equipped rack-unit PSUs): `psu_wattage` reads `0` on 4770 of
+them (the rest read `2500` or `1050`, real values — so the property is
+not universally broken, just unpopulated on a majority of this fleet's
+PSU models), while `equipmentRackUnitPsuStats` returned **zero** MOs
+through UCS Central for any of them. That is not, on its own, proof the
+domains lack a stats-collection policy: **section 9 (added the same day)
+queried one domain's own UCS Manager directly, bypassing Central**,
+because `equipmentPsu` itself only reached this script's Central-only
+queries at all due to `docs/cisco-collectors.md`'s "Central is a
+directory, not an inventory source" — Central visibly proxies equipment
+inventory but had never been checked for statistics classes
+specifically. See section 9's own output for which explanation this
+fleet confirmed: if the domain has real `input_power` values that
+Central alone was hiding, the fix is a new `Psu.input_power_watts` (or
+equivalent) field read through the real `UCS_CENTRAL` collector's
+existing per-domain `UcsManagerProvider` session (never through Central),
+alongside — not instead of — `capacity_watts`, since the two answer
+different questions (rated capacity vs. current draw) and neither should
+silently stand in for the other in `power.failed_psu_count` or any other
+health fact.
 
 ## GPUs (coprocessor cards vs. graphics cards)
 
