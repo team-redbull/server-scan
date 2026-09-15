@@ -533,6 +533,15 @@ collectors:
     hostBudgetSeconds: 180
     runBudgetSeconds: 3600
 
+    # Opt-in fallback for a BMC that reports GPUs only as PCIeDevice
+    # entries, never as Processors (confirmed live 2026-09-15,
+    # docs/adr/0016). A BMC with hundreds of PCIeDevices can take
+    # minutes to scan even with $expand — raise hostBudgetSeconds above
+    # before turning this on.
+    pcieGpuDetection: false
+    pcieGpuMaxDevices: 50
+    pcieGpuMaxGpus: 16
+
     tls:
       # ConfigMap with a `ca-bundle.crt` key. Empty means the image's
       # system trust store, which correctly rejects a factory self-signed

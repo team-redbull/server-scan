@@ -67,6 +67,12 @@ spec:
                   value: {{ $rf.hostBudgetSeconds | quote }}
                 - name: INVENTORY_REDFISH_RUN_BUDGET_SECONDS
                   value: {{ $rf.runBudgetSeconds | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_DETECTION
+                  value: {{ $rf.pcieGpuDetection | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MAX_DEVICES
+                  value: {{ $rf.pcieGpuMaxDevices | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MAX_GPUS
+                  value: {{ $rf.pcieGpuMaxGpus | quote }}
                 {{- include "serverScan.dbEnv" . | nindent 16 }}
               envFrom:
                 - configMapRef:

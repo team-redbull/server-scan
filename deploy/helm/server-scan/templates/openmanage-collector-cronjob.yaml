@@ -46,6 +46,14 @@ spec:
                   value: {{ .Values.collectors.ome.bmcVerifyTls | quote }}
                 - name: INVENTORY_OME_BMC_PORT
                   value: {{ .Values.collectors.ome.bmcPort | quote }}
+                # Shared with redfishStandalone, like caBundle above — the
+                # same iDRAC-facing Redfish pass, not a second set of knobs.
+                - name: INVENTORY_REDFISH_PCIE_GPU_DETECTION
+                  value: {{ .Values.collectors.redfishStandalone.pcieGpuDetection | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MAX_DEVICES
+                  value: {{ .Values.collectors.redfishStandalone.pcieGpuMaxDevices | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MAX_GPUS
+                  value: {{ .Values.collectors.redfishStandalone.pcieGpuMaxGpus | quote }}
                 {{- include "serverScan.dbEnv" . | nindent 16 }}
               envFrom:
                 - configMapRef:
