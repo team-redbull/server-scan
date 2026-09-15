@@ -417,6 +417,10 @@ class TestPcieDeviceGpuFallback:
     """
 
     async def test_finds_a_gpu_when_processors_reports_none(self) -> None:
+        """`_pcie_gpu`'s device ID (`20B2`) is the one confirmed live —
+        it resolves to a `GpuCatalog`-matchable model, not the raw
+        `Description`. See ADR-0016's 2026-09-15 GPU-model update.
+        """
         devices = {
             "/redfish/v1/Chassis/Self/PCIeDevices/0": _pcie_gpu(
                 "/redfish/v1/Chassis/Self/PCIeDevices/0"
@@ -430,9 +434,22 @@ class TestPcieDeviceGpuFallback:
         gpus = server.gpus or ()
         assert len(gpus) == 1
         assert gpus[0]["vendor"] == "NVIDIA"
-        assert gpus[0]["model"] == "10DE VGA"
+        assert gpus[0]["model"] == "A100-SXM4-80GB"
         assert gpus[0]["pci_address"] == "0"
-        assert gpus[0]["memory_bytes"] is None  # PCIeDevice carries no telemetry
+        assert gpus[0]["memory_bytes"] is None  # enriched downstream by GpuCatalog, not here
+
+    async def test_an_unresolved_device_id_falls_back_to_the_raw_description(self) -> None:
+        gpu_path = "/redfish/v1/Chassis/Self/PCIeDevices/0"
+        device = _pcie_gpu(gpu_path)
+        device["Manufacturer"] = "10DEFFFF"  # not in _NVIDIA_PCI_DEVICE_MODELS
+        resources = _with_pcie_devices(minimal_service(), devices={gpu_path: device})
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        gpus = servers[0].gpus or ()
+        assert len(gpus) == 1
+        assert gpus[0]["vendor"] == "NVIDIA"
+        assert gpus[0]["model"] == "10DE VGA"
 
     async def test_off_by_default(self) -> None:
         devices = {
@@ -557,6 +574,69 @@ class TestPcieDeviceGpuFallback:
             p for _, p in fixture.requests if p.startswith(gpu_path.rsplit("/", 1)[0])
         ]
         assert len(requests_to_collection) >= 2
+
+
+class TestPsuTelemetry:
+    """`power_watts` reads a PSU's own linked `PowerSupplyMetrics`.
+
+    See ADR-0016's 2026-09-15 PSU telemetry update.
+    """
+
+    async def test_input_power_is_read_from_the_linked_metrics_resource(self) -> None:
+        resources = dict(minimal_service())
+        system = dict(resources["/redfish/v1/Systems/1"])
+        system["Links"] = {
+            **system["Links"],
+            "Chassis": [{"@odata.id": "/redfish/v1/Chassis/Self"}],
+        }
+        resources["/redfish/v1/Systems/1"] = system
+        resources["/redfish/v1/Chassis/Self"] = {
+            "@odata.id": "/redfish/v1/Chassis/Self",
+            "@odata.type": "#Chassis.v1_22_0.Chassis",
+            "Id": "Self",
+            "Name": "Chassis",
+            "PowerSubsystem": {"@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem"},
+        }
+        resources["/redfish/v1/Chassis/Self/PowerSubsystem"] = {
+            "@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem",
+            "@odata.type": "#PowerSubsystem.v1_1_1.PowerSubsystem",
+            "Id": "PowerSubsystem",
+            "Name": "Power Subsystem",
+            "PowerSupplies": {"@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies"},
+        }
+        resources["/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies"] = {
+            "@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies",
+            "Members": [
+                {"@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies/PSU1"}
+            ],
+        }
+        resources["/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies/PSU1"] = {
+            "@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies/PSU1",
+            "@odata.type": "#PowerSupply.v1_5_1.PowerSupply",
+            "Id": "PSU1",
+            "Name": "PSU1",
+            "Model": "PS-2112-9L",
+            "PowerCapacityWatts": 1100,
+            "Status": {"State": "Enabled", "Health": "OK"},
+            "Metrics": {
+                "@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies/PSU1/Metrics"
+            },
+        }
+        resources["/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies/PSU1/Metrics"] = {
+            "@odata.id": "/redfish/v1/Chassis/Self/PowerSubsystem/PowerSupplies/PSU1/Metrics",
+            "@odata.type": "#PowerSupplyMetrics.v1_1_2.PowerSupplyMetrics",
+            "Id": "Metrics",
+            "Name": "PSU1 Metrics",
+            "InputPowerWatts": {"Reading": 245.0},
+        }
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        psus = servers[0].psus or ()
+        assert len(psus) == 1
+        psu = psus[0]
+        assert psu["capacity_watts"] == 1100
+        assert psu["power_watts"] == 245.0
 
 
 class TestFailureModes:

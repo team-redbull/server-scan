@@ -146,7 +146,16 @@ the global and filter on the override, silently.
   `ComputerSystem.PCIeDevices` (a direct link array — confirmed live on
   a DGX H100, where named-property `$expand` on it silently returned
   zero of 133 real entries). Never trust an empty `$expand` result
-  without checking `Members@odata.count` first.
+  without checking `Members@odata.count` first. **A PCIeDevice's
+  `Manufacturer` can pack a raw PCI vendor+device ID** (`"10DE20B2"`,
+  not a real name) — `_NVIDIA_PCI_DEVICE_MODELS` resolves the ones
+  cross-checked against the PCI ID Repository (pci-ids.ucw.cz — not a
+  Cisco list; PCI-SIG assigns vendor IDs, this repo aggregates every
+  vendor's own device IDs) to a `GpuCatalog`-matchable string so VRAM
+  enriches automatically. **PSU `power_watts` reads a separate linked
+  `PowerSupplyMetrics.InputPowerWatts`**, never a property on
+  `PowerSupply` itself — the same "telemetry lives one link away"
+  pattern GPUs already use.
 - **`ONEVIEW`** (ADR-0022, `docs/hpe-collectors.md`): **one collection
   standard for all HP hardware, whatever its iLO generation** — no Redfish
   pass, no BMC credentials, `mpModel` reported but never branched on. An

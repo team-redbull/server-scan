@@ -583,67 +583,53 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-15 — two real Redfish standalone defects from the operator's
-air-gapped estate, both shipped.** Moved to `docs/notes/session-log.md`:
-2026-09-14's UCS Central PSU/vNIC work. The operator pasted a live
-finding write-up (from a separate session against real hardware) for
-review and re-implementation here, not a verbatim diff to trust —
-research caught one real bug in it before it shipped.
+**2026-09-15, later — PSU draw and PCIeDevice GPU model both went from
+"unknown" to real data, plus the Helm gap from earlier the same day
+closed.** Moved to `docs/notes/session-log.md`: the day's earlier
+GPU-baseboard-tray and PCIeDevice-fallback work (ADR-0016's 2026-09-15
+updates carry the full narrative). Three follow-ups from continued live
+testing against the same fleet:
 
-**1. A GPU-baseboard tray with a non-CPU companion (an FPGA) was
-rejected as a tray.** `has_only_gpu_processors` required *every*
-processor to be a GPU; redefined to "at least one GPU, none a CPU" — a
-non-CPU, non-GPU companion (FPGA, NVSwitch, ...) no longer disqualifies
-it. Caught in review: the pasted fix used `p.get("ProcessorType", "")`
-for the CPU check, silently breaking `cpu_summary`'s own established
-convention that a `Processor` with no `ProcessorType` at all is a CPU —
-fixed to `p.get("ProcessorType", "CPU")` before shipping, or a normal
-host with unmarked CPUs and a GPU add-in card would have misclassified
-as an all-GPU tray. `docs/adr/0016`'s 2026-09-15 update.
+**Helm gap:** `INVENTORY_REDFISH_PCIE_GPU_DETECTION`/`_MAX_DEVICES`/
+`_MAX_GPUS` had no chart wiring at all. Added to `values.yaml` and both
+the `REDFISH_STANDALONE` and OpenManage CronJobs — OpenManage
+cross-references `redfishStandalone`'s own values (matching the
+existing `caBundle` precedent) rather than a second set of knobs, since
+both share the identical `RedfishStandaloneProvider` code path.
 
-**2. A GPU reported only as a `PCIeDevice`, never `Processors`, read as
-0 GPUs.** Confirmed live: `Manufacturer` carries a PCI-SIG vendor ID
-concatenated with a device ID (`"10DE20B2"`, NVIDIA), `Description` is
-the closest thing to a model name (`"10DE VGA"`) — real hardware,
-despite `DeviceType: "Simulated"` being a genuine, confusing BMC quirk.
-Built as an opt-in fallback (`INVENTORY_REDFISH_PCIE_GPU_DETECTION`,
-off by default, triggered only when `Processors` reports no GPU):
-`is_gpu_pcie_device` requires a known vendor ID *and* a display-shaped
-`Description` (NVIDIA/10DE confirmed live; AMD/Intel included but
-unresearched). **Before implementing the pasted design's brute-force
-per-device scan (measured ~6.5 min for 214 devices), researched DSP0266
-directly**: `$expand=.($levels=1)` is combinable with `$select` and
-collapses a whole collection into a handful of requests when advertised
-via `ProtocolFeaturesSupported.ExpandQuery`. The operator checked their
-fleet live and confirmed most BMCs (Redfish 1.7) advertise
-`ExpandQuery.NoLinks: true`. Built `_paged_members` to try `$expand`
-first and transparently degrade to the original per-device `$select`
-scan when a BMC doesn't honor it — one code path either way, bounded by
-`pcie_gpu_max_devices` in both cases (`get_collection`'s own unbounded
-per-member resolve otherwise defeats the point of the cap on a BMC that
-ignores `$expand`).
+**PSU `power_watts` was `None` "by construction, not yet researched"**
+— followed up: DMTF's `PowerSupply.v1_5_1`/`PowerSupplyMetrics.v1_1_2`
+schemas confirm real-time input power lives on a **separate linked
+`PowerSupplyMetrics` resource** (`InputPowerWatts`, a `.Reading`-shaped
+sensor field), never on `PowerSupply` itself — the exact same
+"telemetry one link away from identity" pattern GPUs already used.
+Built `_psu_telemetry` (mirrors `_gpu_telemetry`) and threaded
+`metrics_by_supply` through `psus_from_supplies`. Whether a real BMC
+populates it is unconfirmed — same caveat GPU telemetry carried before
+its own live run settled it.
 
-**The "is `$expand` actually honored" question above got answered live,
-and the answer was no, for a case this design hadn't covered.** The
-operator tested a DGX H100 (150.3.20.83): its `Systems/DGX.PCIeDevices`
-is a **direct link array on the `ComputerSystem` itself** — a second
-real shape, distinct from `Chassis.PCIeDevices`'s actual collection
-resource — and `$expand=PCIeDevices` (the named-property form) silently
-returned 0 of 133 real entries. Fixed: `pcie_device_refs` reads the
-array shape directly (no collection exists to `$expand`, so never
-attempted there); both shapes are now checked and merged; `_paged_members`
-detects the DGX's exact failure signature (`Members@odata.count > 0`
-with zero `Members` returned) on its first `$expand`ed page and retries
-the whole collection without `$expand` rather than trusting the empty
-result. `docs/adr/0016`'s 2026-09-15 "continued" update.
+**Every PCIeDevice-sourced GPU showed the generic `"10DE VGA"`/`VRAM
+unknown`, indistinguishable from each other.** Traced: `Manufacturer`
+(`"10DE20B2"`) packs the PCI-SIG vendor ID and device ID as 8 raw hex
+digits, not a name. Researched the actual source (the operator asked
+for "an official Cisco list" — **there isn't one; PCI vendor/device IDs
+are PCI-SIG's registry, unrelated to Cisco**) — the real authority is
+the **PCI ID Repository** (pci-ids.ucw.cz, the database the Linux
+kernel/`lspci` ship). `20B2` resolves to `GA100 [A100 SXM4 80GB]`,
+confirmed against three independent sources and matching the operator's
+own EPYC 7742 + 2048GiB fleet exactly. Built `_pci_ids_from_manufacturer`
++ `_NVIDIA_PCI_DEVICE_MODELS`, mapping only to strings `GpuCatalog`
+*already* carries as aliases (`"A100-SXM4-80GB"`, `"A10"`,
+`"H100-SXM5-80GB"`, ...) — never inventing a new one — so
+`GpuCatalog.enrich()` fills in VRAM automatically at ingest with zero
+changes to `GpuCatalog`/`gpu_models.py`. AMD/Intel device IDs remain
+unresearched; an unlisted NVIDIA ID falls back to the raw `Description`.
 
-Full gate clean; new `test_redfish_gpu_baseboard.py` (7 tests, including
-the CPU-default regression the review caught) and `TestPcieDeviceGpuFallback`
-(8 tests: the no-extra-request proof when `$expand` is honored, a
-`max_devices` truncation case, the DGX array-shape fixture, and the
-count-mismatch retry).
-**Open:** AMD/Intel PCIeDevice GPU vendor IDs remain unresearched — only
-NVIDIA/10DE is confirmed live. `$expand` is confirmed to work for at
-least the collection shape on the operator's Redfish 1.7 fleet in
-principle, but the DGX finding means every shape needs its own live
-check before being trusted, not just an advertised capability flag.
+Full gate clean; new `test_redfish_pci_ids.py`, `TestPsuTelemetry`,
+`TestPowerWatts`, and an updated `TestPcieDeviceGpuFallback` (the
+confirmed device ID now asserts the resolved model, plus a new
+unresolved-ID fallback case).
+**Open:** same two unresearched-vendor caveats as before (AMD/Intel PCI
+IDs; whether any real BMC populates `InputPowerWatts`) — both need a
+live run against real (non-NVIDIA-GPU / non-A100-family) hardware to
+settle, not something this session could confirm further on its own.

@@ -684,6 +684,69 @@ DGX's failure signature — an advertised `Members@odata.count > 0` with
 zero returned `Members` — and retries the whole collection without
 `$expand` when it sees that, rather than trusting an empty result.
 
+## Update (2026-09-15, continued again): PSU real-time draw lives on a separate `PowerSupplyMetrics`, not `PowerSupply` itself
+
+Operator report: every PSU line printed `draw unknown` — `power_watts`
+had been left `None` "by construction" pending research (this ADR's
+GPU telemetry update did the equivalent research for GPUs but PSUs were
+never followed up). Checked DMTF's current `PowerSupply.v1_5_1` and
+`PowerSupplyMetrics.v1_1_2` schemas directly: `PowerCapacityWatts`
+(rated capacity, already read correctly) **is** on `PowerSupply` itself,
+but real-time draw is not — it lives on a linked `PowerSupplyMetrics`
+resource (`PowerSupply.Metrics` → `{"@odata.id": ".../Metrics"}`),
+`InputPowerWatts` a `SensorPowerExcerpt` (a `.Reading` field), the exact
+same shape `_sensor_reading` already parses for GPU
+`EnvironmentMetrics`. The same "telemetry lives one link away from
+identity" pattern as GPUs, just never chased down for PSUs.
+
+**Built:** `RedfishStandaloneProvider._psu_telemetry` fetches each
+supply's `Metrics` link (mirroring `_gpu_telemetry`'s per-processor
+fetch) and `psus_from_supplies` takes the result as `metrics_by_supply`,
+reading `_sensor_reading(metrics, "InputPowerWatts")` for `power_watts`.
+One more request per PSU — the same per-server-scaling cost this
+module's own docstring already accounts for. `PowerSupplyMetrics` is
+only reachable through the modern `PowerSubsystem/PowerSupplies` path;
+a PSU reached through the deprecated `Power` resource has no `Metrics`
+link at all and stays `power_watts: None`, honestly.
+
+**Whether a real BMC actually populates `InputPowerWatts` is
+unconfirmed** — same caveat this ADR's GPU telemetry update carried
+before its own live run settled it. If it turns out unpopulated too,
+that is itself the answer (a hardware/firmware gap, not a mapping bug),
+the same way `psu_wattage` reading `0` on UCS turned out to be
+(`docs/cisco-collectors.md`).
+
+## Update (2026-09-15, continued a third time): a PCIeDevice's `Manufacturer` decodes to a real GPU model
+
+Operator report, on the same fleet: every PCIeDevice-sourced GPU printed
+`10DE VGA` with `VRAM unknown`, all 8 GPUs on one host looking identical
+and telling the operator nothing beyond "there are 8 of them." Traced:
+`Manufacturer` (`"10DE20B2"`) is not a vendor name — it is the PCI-SIG
+vendor ID and device ID concatenated as 8 hex digits, a firmware quirk
+this schema gives no way to distinguish from a real name up front.
+`10DE` is NVIDIA's registered vendor ID; `20B2` is looked up against the
+**PCI ID Repository** (`pci-ids.ucw.cz`) — the community-maintained
+database the Linux kernel and `lspci`/`hwdata` ship, not a Cisco-owned
+or Cisco-specific list; PCI-SIG assigns vendor IDs, individual vendors
+publish their own device IDs, and this repository is the de facto
+aggregation point. `20B2` resolves to `GA100 [A100 SXM4 80GB]` —
+confirmed against three independent sources (DeviceHunt, FreeBSD's
+`pci_vendors` port, and the repository itself) — matching the operator's
+own EPYC 7742 + 2048GiB fleet exactly (a DGX/HGX A100 80GB-class system).
+
+**Built:** `_pci_ids_from_manufacturer` splits the 8-hex-digit string;
+`_NVIDIA_PCI_DEVICE_MODELS` maps a handful of neighboring Ampere/Hopper
+device IDs (only `20b2` confirmed live, the rest the same silicon
+family's IDs on the sourcing bar ADR-0021 already sets) to a string
+`GpuCatalog` already carries as an alias (`"A100-SXM4-80GB"`, `"A10"`,
+`"H100-SXM5-80GB"`, ...) — never a fabricated new one. `pcie_device_to_gpu`
+resolves `model` through this table before returning, so the platform's
+existing ingest-time `GpuCatalog.enrich()` fills in VRAM automatically,
+the same way it already does for every other vendor's GPU — no changes
+to `GpuCatalog` or `gpu_models.py` at all. An unlisted device ID (AMD's
+`1002`, Intel's `8086`, or an NVIDIA ID not yet in the table) falls back
+to the raw `Description` exactly as before.
+
 ## Update (2026-09-09): `uniq_system_uuid` gave up its uniqueness too
 
 The fix above (`{"$exists": True}` → `{"$type": "string"}`) settled the

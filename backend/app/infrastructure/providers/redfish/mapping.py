@@ -519,6 +519,44 @@ _GPU_PCI_VENDOR_IDS: dict[str, str] = {"10DE": "NVIDIA", "1002": "AMD", "8086": 
 
 _GPU_DESCRIPTION_HINTS = ("VGA", "GPU", "3D", "DISPLAY")
 
+# NVIDIA device ID -> a string `GpuCatalog` already has as an alias,
+# never invented — see ADR-0016's 2026-09-15 GPU-model update for sourcing.
+_NVIDIA_PCI_DEVICE_MODELS: dict[str, str] = {
+    "1eb8": "Tesla T4",
+    "20b0": "A100-SXM4-40GB",
+    "20b1": "A100-PCIE-40GB",
+    "20b2": "A100-SXM4-80GB",
+    "20b5": "A100-PCIE-80GB",
+    "20b7": "A30",
+    "2235": "A40",
+    "2236": "A10",
+    "2330": "H100-SXM5-80GB",
+    "2331": "H100 PCIe",
+}
+
+
+def _pci_ids_from_manufacturer(manufacturer: str) -> tuple[str, str] | None:
+    """
+    Split a `Manufacturer` that packs a raw PCI vendor+device ID as 8 hex digits.
+
+    See ADR-0016's 2026-09-15 GPU-model update.
+
+    Args:
+        manufacturer (str): The raw `Manufacturer` string.
+
+    Returns:
+        tuple[str, str] | None: `(vendor_id, device_id)`, both lowercase
+            4-hex-digit strings, or None when it isn't 8 hex digits.
+    """
+    candidate = manufacturer.strip()
+    if len(candidate) != 8:
+        return None
+    try:
+        int(candidate, 16)
+    except ValueError:
+        return None
+    return candidate[:4].lower(), candidate[4:].lower()
+
 
 def pcie_device_refs(system: dict[str, Any]) -> tuple[str, ...]:
     """
@@ -599,17 +637,26 @@ def pcie_device_to_gpu(device: dict[str, Any]) -> dict[str, object]:
 
     Returns:
         dict[str, object]: Keys mirroring `app.domain.models.hardware.Gpu`.
-            Only `vendor`/`model`/`pci_address`/`health`/`health_detail`
-            are real; every telemetry field a `Processor`-reported GPU
-            can carry (`memory_bytes`, `ecc_mode_enabled`, error counts,
-            `temperature_celsius`, `power_watts`) is `None` by
-            construction — `PCIeDevice` has no such properties at all.
+            `model` is a `GpuCatalog`-matchable name when the device ID
+            is one of `_NVIDIA_PCI_DEVICE_MODELS`, so `VRAM` fills in
+            downstream at ingest the same way it does for any other
+            vendor's GPU — the raw `Description` (`"10DE VGA"`) otherwise.
+            Every telemetry field a `Processor`-reported GPU can carry
+            (`memory_bytes`, `ecc_mode_enabled`, error counts,
+            `temperature_celsius`, `power_watts`) is still `None` by
+            construction — `PCIeDevice` itself has no such properties.
     """
-    manufacturer = str(device.get("Manufacturer") or "").upper()
-    vendor = _GPU_PCI_VENDOR_IDS.get(manufacturer[:4])
+    manufacturer = str(device.get("Manufacturer") or "")
+    pci_ids = _pci_ids_from_manufacturer(manufacturer)
+    vendor = _GPU_PCI_VENDOR_IDS.get(manufacturer[:4].upper())
+    model = device.get("Description") or None
+    if pci_ids is not None:
+        vendor_id, device_id = pci_ids
+        if vendor_id == "10de":
+            model = _NVIDIA_PCI_DEVICE_MODELS.get(device_id, model)
     return {
         "vendor": vendor,
-        "model": device.get("Description") or None,
+        "model": model,
         "serial": None,
         "memory_bytes": None,
         "health": health_of(device),
@@ -725,16 +772,21 @@ def psu_health(supply: dict[str, Any]) -> str:
 
 def psus_from_supplies(
     supplies: list[dict[str, Any]] | None,
+    *,
+    metrics_by_supply: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, object], ...] | None:
     """
     Map a chassis's power supplies onto the platform's PSU shape.
 
-    Absent bays are dropped (docs/architecture.md, "Every collector now
-    reports power supplies").
+    See ADR-0016's 2026-09-15 PSU telemetry update for `power_watts`.
 
     Args:
         supplies (list[dict[str, Any]] | None): `PowerSupply` resources,
             from either schema generation, or None when unread.
+        metrics_by_supply (dict[str, dict[str, Any]] | None): Each
+            supply's own `PowerSupplyMetrics`, keyed by the supply's
+            `@odata.id`. Empty/missing entries degrade to unread rather
+            than failing the PSU.
 
     Returns:
         tuple[dict[str, object], ...] | None: One entry per fitted supply,
@@ -743,12 +795,11 @@ def psus_from_supplies(
             unreduced for the dry-run print the way the Cisco mapping
             carries `oper_power`. Not persisted. None propagates "unread",
             which `_carry_forward` needs to keep stored PSUs on a run that
-            could not reach the chassis. `power_watts` is `None` by
-            construction — not yet researched whether this schema
-            generation's `PowerSupply` exposes a real-time draw property.
+            could not reach the chassis.
     """
     if supplies is None:
         return None
+    metrics_by_supply = metrics_by_supply or {}
     psus: list[dict[str, object]] = []
     for supply in supplies:
         if is_absent(supply):
@@ -756,6 +807,7 @@ def psus_from_supplies(
         status = supply.get("Status")
         status = status if isinstance(status, dict) else {}
         raw_status = f"{status.get('Health') or '—'}/{status.get('State') or '—'}"
+        metrics = metrics_by_supply.get(str(supply.get("@odata.id") or ""))
         psus.append(
             {
                 "id": str(supply.get("MemberId") or supply.get("Id") or supply.get("Name") or "")
@@ -767,7 +819,7 @@ def psus_from_supplies(
                 "capacity_watts": _as_int(
                     supply.get("PowerCapacityWatts") or supply.get("CapacityWatts")
                 ),
-                "power_watts": None,
+                "power_watts": _sensor_reading(metrics, "InputPowerWatts"),
                 "redfish_status": raw_status,
             }
         )

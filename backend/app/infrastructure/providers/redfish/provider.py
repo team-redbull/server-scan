@@ -461,6 +461,8 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                             system=str(system.get("@odata.id") or system.get("Id") or ""),
                             gpus=len(pcie_gpus),
                         )
+                supplies = await self._psus(client, system)
+                psu_metrics = await self._psu_telemetry(client, supplies)
                 collected.append(
                     system_to_provider_server(
                         system,
@@ -473,7 +475,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         dimms=await self._optional(client, system, "Memory"),
                         interfaces=await self._optional(client, system, "EthernetInterfaces"),
                         bmc_mac=bmc_mac,
-                        psus=psus_from_supplies(await self._psus(client, system)),
+                        psus=psus_from_supplies(supplies, metrics_by_supply=psu_metrics),
                         gpu_metrics_by_processor=gpu_metrics,
                         gpu_environment_by_processor=gpu_environment,
                         extra_gpus=system_extra_gpus,
@@ -666,6 +668,35 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             return None
         inline = power.get("PowerSupplies")
         return inline if isinstance(inline, list) else None
+
+    async def _psu_telemetry(
+        self, client: Any, supplies: list[dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Read each PSU's own `PowerSupplyMetrics` for its real-time input power draw.
+
+        See ADR-0016's 2026-09-15 PSU telemetry update.
+
+        Args:
+            client (Any): The authenticated client.
+            supplies (list[dict[str, Any]] | None): `PowerSupply`
+                resources, or None when unread — nothing to look up.
+
+        Returns:
+            dict[str, dict[str, Any]]: Each `PowerSupplyMetrics` reached,
+                keyed by its owning supply's `@odata.id`. The deprecated
+                `Power` resource has no such link, so a supply reached
+                that way contributes nothing here.
+        """
+        metrics: dict[str, dict[str, Any]] = {}
+        for supply in supplies or ():
+            supply_id = str(supply.get("@odata.id") or "")
+            if not supply_id:
+                continue
+            fetched = await self._optional_link(client, supply, "Metrics")
+            if fetched is not None:
+                metrics[supply_id] = fetched
+        return metrics
 
     async def _pcie_gpus(
         self, client: Any, system: dict[str, Any]

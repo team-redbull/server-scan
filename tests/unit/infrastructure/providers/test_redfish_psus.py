@@ -142,3 +142,24 @@ class TestFields:
         """
         [psu] = psus_from_supplies([_supply("OK", "Enabled", CapacityWatts=800)]) or []
         assert psu["capacity_watts"] == 800
+
+
+class TestPowerWatts:
+    """`power_watts` reads `PowerSupplyMetrics.InputPowerWatts`, a
+    separate linked resource — see ADR-0016's 2026-09-15 update.
+    """
+
+    def test_reads_input_power_from_the_linked_metrics(self) -> None:
+        supply = _supply("OK", "Enabled", **{"@odata.id": "/redfish/v1/.../PSU1"})
+        metrics = {
+            "/redfish/v1/.../PSU1": {"InputPowerWatts": {"Reading": 245.0}},
+        }
+        [psu] = psus_from_supplies([supply], metrics_by_supply=metrics) or []
+        assert psu["power_watts"] == 245.0
+
+    def test_is_none_without_metrics(self) -> None:
+        """No `metrics_by_supply` entry — the deprecated `Power` resource
+        path has no `Metrics` link at all — degrades to unread, not 0.
+        """
+        [psu] = psus_from_supplies([_supply("OK", "Enabled")]) or []
+        assert psu["power_watts"] is None
