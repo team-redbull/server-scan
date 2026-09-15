@@ -343,22 +343,26 @@ def has_only_gpu_processors(processors: list[dict[str, Any]] | None) -> bool:
     """
     Report whether a `ComputerSystem` is a DGX/HGX GPU-baseboard tray.
 
-    See ADR-0016's DGX/HGX update.
+    See ADR-0016's DGX/HGX update and its 2026-09-15 addendum.
 
     Args:
         processors (list[dict[str, Any]] | None): The system's
             `Processors` members, or None when unread.
 
     Returns:
-        bool: True when every non-absent processor is a GPU and at least
-            one is. False for an empty or unread `Processors`, so a
-            system this collector could not read is never assumed to be
-            a tray.
+        bool: True when at least one non-absent processor is a GPU and
+            none is a CPU — a non-CPU, non-GPU companion (an FPGA,
+            NVSwitch, ...) does not disqualify the tray. False for an
+            empty or unread `Processors`, so a system this collector
+            could not read is never assumed to be a tray.
     """
     if not processors:
         return False
     present = [p for p in processors if not is_absent(p)]
-    return bool(present) and all(is_gpu_processor(p) for p in present)
+    has_gpu = any(is_gpu_processor(p) for p in present)
+    # Same missing-key default as `cpu_summary`'s `has_cpus` — see ADR-0016's 2026-09-15 update.
+    has_cpu = any(str(p.get("ProcessorType", "CPU")) == "CPU" for p in present)
+    return has_gpu and not has_cpu
 
 
 def _gpu_memory_type(processor: dict[str, Any]) -> str | None:
@@ -506,6 +510,147 @@ def gpus_from_processors(
                 "power_watts": _sensor_reading(environment, "PowerWatts"),
             }
         )
+    return tuple(gpus)
+
+
+# PCI-SIG vendor IDs matched against `Manufacturer`'s leading 4 hex
+# digits — see ADR-0016's 2026-09-15 PCIeDevice update for which are confirmed live.
+_GPU_PCI_VENDOR_IDS: dict[str, str] = {"10DE": "NVIDIA", "1002": "AMD", "8086": "Intel"}
+
+_GPU_DESCRIPTION_HINTS = ("VGA", "GPU", "3D", "DISPLAY")
+
+
+def pcie_device_refs(system: dict[str, Any]) -> tuple[str, ...]:
+    """
+    A `ComputerSystem`'s own `PCIeDevices` links, a direct array — not a collection.
+
+    Distinct from `Chassis.PCIeDevices`, which links to a real
+    `PCIeDeviceCollection` instead. See ADR-0016's 2026-09-15 update.
+
+    Args:
+        system (dict[str, Any]): The `ComputerSystem` resource.
+
+    Returns:
+        tuple[str, ...]: Every entry's `@odata.id`, or `()` when the
+            property is absent or empty.
+    """
+    entries = system.get("PCIeDevices")
+    if not isinstance(entries, list):
+        return ()
+    return tuple(
+        odata_id
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(odata_id := entry.get("@odata.id"), str)
+    )
+
+
+def is_gpu_pcie_device(device: dict[str, Any]) -> bool:
+    """
+    Report whether a `PCIeDevice` looks like a GPU, by vendor ID and description.
+
+    See ADR-0016's 2026-09-15 PCIeDevice update.
+
+    Args:
+        device (dict[str, Any]): A `PCIeDevice` resource.
+
+    Returns:
+        bool: True when `Manufacturer` starts with a known GPU vendor's
+            PCI-SIG ID and `Description` names a display/GPU-shaped
+            device. Neither alone is trusted: a vendor ID can belong to
+            a non-GPU card, and a description could plausibly mention a
+            device type by coincidence.
+    """
+    if is_absent(device):
+        return False
+    manufacturer = str(device.get("Manufacturer") or "").upper()
+    if manufacturer[:4] not in _GPU_PCI_VENDOR_IDS:
+        return False
+    description = str(device.get("Description") or "").upper()
+    return any(hint in description for hint in _GPU_DESCRIPTION_HINTS)
+
+
+def _pcie_address(device: dict[str, Any]) -> str | None:
+    """
+    A PCIe device's location, from the last segment of its own `@odata.id`.
+
+    Args:
+        device (dict[str, Any]): A `PCIeDevice` resource.
+
+    Returns:
+        str | None: The trailing path segment (e.g. `"00_4E_00"`), or
+            None when `@odata.id` is absent or malformed.
+    """
+    odata_id = device.get("@odata.id")
+    if not isinstance(odata_id, str) or not odata_id:
+        return None
+    return odata_id.rsplit("/", 1)[-1] or None
+
+
+def pcie_device_to_gpu(device: dict[str, Any]) -> dict[str, object]:
+    """
+    One `PCIeDevice` as the platform's GPU shape — the fallback for a BMC with no `Processor` GPUs.
+
+    See ADR-0016's 2026-09-15 PCIeDevice update for the fields this
+    resource does and does not carry.
+
+    Args:
+        device (dict[str, Any]): A `PCIeDevice` already confirmed a GPU
+            by `is_gpu_pcie_device`.
+
+    Returns:
+        dict[str, object]: Keys mirroring `app.domain.models.hardware.Gpu`.
+            Only `vendor`/`model`/`pci_address`/`health`/`health_detail`
+            are real; every telemetry field a `Processor`-reported GPU
+            can carry (`memory_bytes`, `ecc_mode_enabled`, error counts,
+            `temperature_celsius`, `power_watts`) is `None` by
+            construction — `PCIeDevice` has no such properties at all.
+    """
+    manufacturer = str(device.get("Manufacturer") or "").upper()
+    vendor = _GPU_PCI_VENDOR_IDS.get(manufacturer[:4])
+    return {
+        "vendor": vendor,
+        "model": device.get("Description") or None,
+        "serial": None,
+        "memory_bytes": None,
+        "health": health_of(device),
+        "health_detail": health_detail_of(device),
+        "pci_address": _pcie_address(device),
+        "firmware_version": None,
+        "memory_type": None,
+        "ecc_mode_enabled": None,
+        "correctable_error_count": None,
+        "uncorrectable_error_count": None,
+        "temperature_celsius": None,
+        "power_watts": None,
+    }
+
+
+def gpus_from_pcie_devices(
+    devices: list[dict[str, Any]] | None, *, max_gpus: int
+) -> tuple[dict[str, object], ...] | None:
+    """
+    Screen `ComputerSystem.PCIeDevices` for GPUs — the fallback when `Processors` reports none.
+
+    See ADR-0016's 2026-09-15 PCIeDevice update.
+
+    Args:
+        devices (list[dict[str, Any]] | None): `PCIeDevices` members, or
+            None when unread.
+        max_gpus (int): Stop once this many GPUs are found, bounding a
+            chassis with hundreds of unrelated PCIe functions.
+
+    Returns:
+        tuple[dict[str, object], ...] | None: One entry per matched GPU,
+            in encounter order, or None when `devices` itself is unread.
+    """
+    if devices is None:
+        return None
+    gpus: list[dict[str, object]] = []
+    for device in devices:
+        if len(gpus) >= max_gpus:
+            break
+        if is_gpu_pcie_device(device):
+            gpus.append(pcie_device_to_gpu(device))
     return tuple(gpus)
 
 

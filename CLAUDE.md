@@ -583,54 +583,67 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-14, later — both UCS Central findings shipped, plus a live
-data-quality bug found and fixed along the way.** Continuing the same
-day's PSU/vNIC investigation (moved to `docs/notes/session-log.md`): the
-operator ran `verify_ucs_central.py` live and confirmed both open
-questions. Section 9 (query one domain's own UCS Manager directly,
-bypassing Central) got 42 `equipmentPsu` / 2 `equipmentRackUnitPsuStats`
-back — settling that Central's own API never proxies statistics classes
-at all, independent of any domain policy. **Shipped:** `Psu.power_watts`
-(real-time input power, alongside — never replacing — the existing
-rated `capacity_watts`), read through `UcsManagerProvider`'s new
-14th domain-wide query and DN-joined onto its owning PSU in `_psus`;
-Intersight/OneView/Redfish set it `None` with a one-line pointer,
-matching `Gpu.power_watts`'s existing per-vendor pattern; the fake
-provider populates it ~5% of the time for UCS_CENTRAL only, echoing the
-confirmed 2-of-42 live ratio. **Also shipped:** vNIC `link_state` (both
-`_nics` and a `VNIC`-kind `_attachments` call) now reads `operability`
-instead of `oper_state` via a new `_vnic_link_state` — this reopens the
-exact false-CRITICAL case ADR-0027 fixed on 2026-09-12, but safely: that
-fix's `network.links_known_count` gate stays, so a mostly-`operable`
-fleet just now has a real non-zero denominator instead of a permanent
-zero one. ADR-0027 and `docs/architecture.md` both got dated updates
-rather than silent rewrites.
+**2026-09-15 — two real Redfish standalone defects from the operator's
+air-gapped estate, both shipped.** Moved to `docs/notes/session-log.md`:
+2026-09-14's UCS Central PSU/vNIC work. The operator pasted a live
+finding write-up (from a separate session against real hardware) for
+review and re-implementation here, not a verbatim diff to trust —
+research caught one real bug in it before it shipped.
 
-**Caught mid-session, before it shipped:** the fake generator's first
-`power_watts` draft used `rng.random()` conditionally on
-`collector is UCS_CENTRAL` inside `_build_psus` — exactly the landmine
-ADR-0027's own "Seeded data" section already named for `_link_states`
-(a vendor-conditional draw on the one shared `rng` stream shifts every
-later server's fields for the same seed, corrupting the whole fleet mix).
-Caught by actually re-seeding and measuring rather than trusting the
-diff — fixed by keying the decision off `index` via `zlib.crc32`
-instead, matching `_link_states`'s own pattern; re-verified the site
-distribution (211/224/224/220/121) came back byte-identical after the
-fix. **The user also asked to make disk `na`/`unknown`, physical
-`indeterminate`, and disk `offline`/`self-test-failed` all "known"** —
-declined for the first three (ADR-0009/0027's deliberately-unmapped
-no-verdict states, pinned by tests; forcing a severity would be exactly
-the fabrication `None`-means-unread exists to prevent) and explained why;
-the fourth turned out to already be correctly mapped to CRITICAL in
-production — only `verify_ucs_central.py`'s own separate hand-copied
-`_DISK_HEALTH_MAP` mirror had drifted and was reporting false gaps, fixed
-by importing the real `_disk_health` directly so it cannot drift again
-(ADR-0009 updated).
+**1. A GPU-baseboard tray with a non-CPU companion (an FPGA) was
+rejected as a tray.** `has_only_gpu_processors` required *every*
+processor to be a GPU; redefined to "at least one GPU, none a CPU" — a
+non-CPU, non-GPU companion (FPGA, NVSwitch, ...) no longer disqualifies
+it. Caught in review: the pasted fix used `p.get("ProcessorType", "")`
+for the CPU check, silently breaking `cpu_summary`'s own established
+convention that a `Processor` with no `ProcessorType` at all is a CPU —
+fixed to `p.get("ProcessorType", "CPU")` before shipping, or a normal
+host with unmarked CPUs and a GPU add-in card would have misclassified
+as an all-GPU tray. `docs/adr/0016`'s 2026-09-15 update.
 
-**README re-measured live**, not estimated: same seed/count, network
-policy counts moved from 22 CRITICAL/17 MAJOR to 25/20 (+3/+3, all from
-UCS Central; Intersight still 0/0, unchanged and still exempt — no
-equivalent field researched for it). Full gate (backend, frontend, helm
-lint, 1337 tests with the dev stack up) clean throughout.
-**Open:** Intersight has no researched real-time PSU draw or better
-vNIC signal — untouched on purpose, not a gap in this unit of work.
+**2. A GPU reported only as a `PCIeDevice`, never `Processors`, read as
+0 GPUs.** Confirmed live: `Manufacturer` carries a PCI-SIG vendor ID
+concatenated with a device ID (`"10DE20B2"`, NVIDIA), `Description` is
+the closest thing to a model name (`"10DE VGA"`) — real hardware,
+despite `DeviceType: "Simulated"` being a genuine, confusing BMC quirk.
+Built as an opt-in fallback (`INVENTORY_REDFISH_PCIE_GPU_DETECTION`,
+off by default, triggered only when `Processors` reports no GPU):
+`is_gpu_pcie_device` requires a known vendor ID *and* a display-shaped
+`Description` (NVIDIA/10DE confirmed live; AMD/Intel included but
+unresearched). **Before implementing the pasted design's brute-force
+per-device scan (measured ~6.5 min for 214 devices), researched DSP0266
+directly**: `$expand=.($levels=1)` is combinable with `$select` and
+collapses a whole collection into a handful of requests when advertised
+via `ProtocolFeaturesSupported.ExpandQuery`. The operator checked their
+fleet live and confirmed most BMCs (Redfish 1.7) advertise
+`ExpandQuery.NoLinks: true`. Built `_paged_members` to try `$expand`
+first and transparently degrade to the original per-device `$select`
+scan when a BMC doesn't honor it — one code path either way, bounded by
+`pcie_gpu_max_devices` in both cases (`get_collection`'s own unbounded
+per-member resolve otherwise defeats the point of the cap on a BMC that
+ignores `$expand`).
+
+**The "is `$expand` actually honored" question above got answered live,
+and the answer was no, for a case this design hadn't covered.** The
+operator tested a DGX H100 (150.3.20.83): its `Systems/DGX.PCIeDevices`
+is a **direct link array on the `ComputerSystem` itself** — a second
+real shape, distinct from `Chassis.PCIeDevices`'s actual collection
+resource — and `$expand=PCIeDevices` (the named-property form) silently
+returned 0 of 133 real entries. Fixed: `pcie_device_refs` reads the
+array shape directly (no collection exists to `$expand`, so never
+attempted there); both shapes are now checked and merged; `_paged_members`
+detects the DGX's exact failure signature (`Members@odata.count > 0`
+with zero `Members` returned) on its first `$expand`ed page and retries
+the whole collection without `$expand` rather than trusting the empty
+result. `docs/adr/0016`'s 2026-09-15 "continued" update.
+
+Full gate clean; new `test_redfish_gpu_baseboard.py` (7 tests, including
+the CPU-default regression the review caught) and `TestPcieDeviceGpuFallback`
+(8 tests: the no-extra-request proof when `$expand` is honored, a
+`max_devices` truncation case, the DGX array-shape fixture, and the
+count-mismatch retry).
+**Open:** AMD/Intel PCIeDevice GPU vendor IDs remain unresearched — only
+NVIDIA/10DE is confirmed live. `$expand` is confirmed to work for at
+least the collection shape on the operator's Redfish 1.7 fleet in
+principle, but the DGX finding means every shape needs its own live
+check before being trusted, not just an advertised capability flag.

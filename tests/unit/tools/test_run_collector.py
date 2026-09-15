@@ -506,6 +506,57 @@ class TestDryRun:
         assert "power=350W" in out
         assert "health=HEALTHY (OK)" in out
 
+    async def test_dry_run_shows_a_pcie_fallback_gpus_address(self, capsys: Any) -> None:
+        """A PCIeDevice-sourced GPU's telemetry is sparse (ADR-0016's
+        2026-09-15 update) — `pci_address` is the one real field that
+        tells two otherwise-identical `10DE VGA` entries apart.
+        """
+
+        class FakeProvider(ServerInventoryProvider):
+            provider_type = "REDFISH_STANDALONE"
+
+            async def health_check(self) -> None:
+                return None
+
+            async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+                raise NotImplementedError
+
+            async def _list_servers(self) -> Any:
+                yield ProviderServer(
+                    external_id="redfish://150.3.20.19/redfish/v1/Systems/Self",
+                    vendor="standalone",
+                    name="ocp4-five-prep-compute-02",
+                    gpus=(
+                        {
+                            "vendor": "NVIDIA",
+                            "model": "10DE VGA",
+                            "serial": None,
+                            "memory_bytes": None,
+                            "memory_type": None,
+                            "ecc_mode_enabled": None,
+                            "correctable_error_count": None,
+                            "uncorrectable_error_count": None,
+                            "temperature_celsius": None,
+                            "power_watts": None,
+                            "health": "HEALTHY",
+                            "health_detail": "OK",
+                            "pci_address": "00_4E_00",
+                            "firmware_version": None,
+                        },
+                    ),
+                )
+
+        await _dry_run_one_manager(
+            _manager(),
+            credential_resolver=FakeCredentialResolver(),
+            timeout_seconds=5.0,
+            limit=None,
+            provider_factory=_factory(FakeProvider()),
+        )
+        out = capsys.readouterr().out
+        assert "pci=00_4E_00" in out
+        assert "VRAM unknown" in out
+
     async def test_dry_run_shows_drive_health_detail(self, capsys: Any) -> None:
         class FakeProvider(ServerInventoryProvider):
             provider_type = "UCS_CENTRAL"

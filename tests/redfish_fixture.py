@@ -25,6 +25,7 @@ import uuid
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 _SESSIONS = "/redfish/v1/SessionService/Sessions"
 
@@ -123,19 +124,21 @@ class RedfishFixture:
 
             def do_GET(self) -> None:
                 fixture.requests.append(("GET", self.path))
-                if self.path in fixture.delays:
-                    time.sleep(fixture.delays[self.path])
-                if self.path in fixture.faults:
-                    self._respond(fixture.faults[self.path], {"error": {"code": "Base.1.0.Fault"}})
+                # Query strings ($select, $expand, ...) are recorded above but ignored below.
+                path = urlsplit(self.path).path
+                if path in fixture.delays:
+                    time.sleep(fixture.delays[path])
+                if path in fixture.faults:
+                    self._respond(fixture.faults[path], {"error": {"code": "Base.1.0.Fault"}})
                     return
                 # The service root is unauthenticated by specification,
                 # which is what lets the collector probe a host for
                 # conformance before presenting any credential.
-                needs_auth = self.path.rstrip("/") != "/redfish/v1" and fixture.require_auth
+                needs_auth = path.rstrip("/") != "/redfish/v1" and fixture.require_auth
                 if needs_auth and not self._authorized():
                     self._respond(401, {"error": {"code": "Base.1.0.NoValidSession"}})
                     return
-                resource = fixture.resources.get(self.path)
+                resource = fixture.resources.get(path)
                 if resource is None:
                     self._respond(404, {"error": {"code": "Base.1.0.ResourceMissing"}})
                     return

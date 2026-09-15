@@ -580,6 +580,110 @@ reports zero CPU-type `Processors` entries (rather than, say, omitting
 `has_only_gpu_processors` correctly returns `False` for it and it would
 be — wrongly — treated as an unmergeable second host).
 
+## Update (2026-09-15): a real tray has a non-CPU companion, not just GPUs
+
+Run against real DGX/HGX-class hardware for the first time (operator's
+air-gapped estate): a GPU-baseboard tray reported 8 GPUs *and* one FPGA
+`Processor` entry. `has_only_gpu_processors`'s "every processor is a
+GPU" rule rejected it as a tray outright, so it would have ingested as
+its own zero-CPU, zero-vendor server instead of merging into its host.
+
+**Redefined** from "every non-absent processor is a GPU" to "at least
+one is a GPU and none is a CPU" — a non-CPU, non-GPU companion (this
+FPGA, an NVSwitch, ...) no longer disqualifies the tray. The CPU check
+keeps `cpu_summary`'s own default: a `Processor` entry with no
+`ProcessorType` at all is still a CPU, not a companion device, so a
+normal host with unmarked CPUs and a GPU add-in card cannot misclassify
+as an all-GPU tray under the loosened rule.
+
+## Update (2026-09-15): a GPU reported only as a `PCIeDevice` is invisible to `gpus_from_processors`
+
+A real host in the operator's air-gapped estate reported 0 GPUs despite
+having 8 NVIDIA cards installed. Its `Processors` collection held only
+its two CPUs — no `ProcessorType == "GPU"` entries at all — because this
+BMC enumerates GPUs as `ComputerSystem.PCIeDevices` entries instead,
+confirmed live:
+
+```json
+{
+  "@odata.id": "/redfish/v1/Chassis/Self/PCIeDevices/00_4E_00",
+  "Description": "10DE VGA",
+  "Manufacturer": "10DE20B2",
+  "DeviceType": "Simulated",
+  "PCIeInterface": { "LanesInUse": 16, "MaxPCIeType": "Gen4" },
+  "Status": { "Health": "Ok", "State": "Enabled" }
+}
+```
+
+Confirmed against real hardware, not a mockup, despite `DeviceType:
+"Simulated"` — a real, if confusing, BMC quirk worth recording as-is
+rather than assumed to mean the host itself is fake. `Manufacturer`
+carries the PCI-SIG vendor ID concatenated with a device ID
+(`10DE20B2`: `10DE` is NVIDIA's registered ID), not a human-readable
+name — `Description` is the closest thing to a model string this
+resource offers, and it is exactly that generic (`"10DE VGA"`, not a
+real product name).
+
+**Built as an opt-in, bounded fallback** — `INVENTORY_REDFISH_PCIE_GPU_DETECTION`
+(default off), `_MAX_DEVICES`, `_MAX_GPUS` — triggered only when
+`Processors` reported zero GPUs, never replacing that path.
+`is_gpu_pcie_device` requires **both** a known GPU vendor's PCI-SIG ID
+(`10DE`/NVIDIA confirmed live; `1002`/AMD and `8086`/Intel included on
+the same convention but unresearched) **and** a display/GPU-shaped
+`Description` — vendor ID alone is not trusted, since Intel in
+particular ships far more non-GPU PCIe silicon than GPU.
+
+**A real, documented capability ceiling, not a bug**: `PCIeDevice` has
+no VRAM, ECC, error-count, temperature or power property of any kind —
+every one of `Gpu`'s telemetry fields is `None` by construction for a
+device found this way. This fallback answers "does this server have N
+GPUs", never "what state are they in" — a DGX/HGX box whose GPUs come
+through `Processors` still gets the fuller shape from
+`gpus_from_processors`, unaffected.
+
+**Cost, settled**: screening every `PCIeDevice` individually (this BMC
+has 214 of them) measured ~6.5 minutes for one host — the operator then
+checked `ProtocolFeaturesSupported` across their fleet and confirmed
+most BMCs (Redfish 1.7) advertise `ExpandQuery.NoLinks: true` with
+`MaxLevels: 5` (a smaller, newer 1.11 subset adds `DeepOperations` on
+top, unrelated here). `_pcie_scan_query` requests
+`$expand=.($levels=1)&$select=Manufacturer,Description,Status` on the
+`PCIeDevices` collection whenever `NoLinks` is advertised — DSP0266
+§7.3.2 confirms `$expand` and `$select` are combinable — collapsing what
+would be 214 individual requests into a handful of paginated ones.
+`_paged_members` mirrors `RedfishClient.get_collection`'s own
+already-expanded-vs-reference-only per-member handling, so a BMC that
+does *not* honor the query degrades to exactly the original per-device
+`$select`-only scan, automatically, with no separate code path. Either
+way, paging stops at `pcie_gpu_max_devices` — a cap `pcie_gpu_max_gpus`
+alone cannot give on a BMC that ignores `$expand`, since without it
+`get_collection`'s own unbounded resolve-every-member behavior would
+still cost one request per device regardless of how few GPUs are found.
+
+## Update (2026-09-15, continued): a second real shape, and `$expand` confirmed unreliable on it
+
+Tested live against a DGX H100 (150.3.20.83): `Systems/DGX.PCIeDevices`
+is a **direct array of links on the `ComputerSystem` itself**
+(`"PCIeDevices": [{"@odata.id": ...}, ...]`, `"PCIeDevices@odata.count":
+133`) — confirmed against DMTF's own Resource and Schema Guide as a
+real, distinct property from `Chassis.PCIeDevices`, which links to an
+actual `PCIeDeviceCollection` resource instead (the 150.3.20.19 shape
+above). `GET Systems/DGX?$expand=PCIeDevices` (the named-property form,
+not `.`/`*`) returned successfully but with **zero** entries despite the
+133 real references — a silent, dangerous failure mode: nothing errors,
+so a naive reader would conclude the host has no GPUs at all.
+
+**Built:** `pcie_device_refs` reads the array directly off the system —
+no collection to `$expand` at all, so `_pcie_gpus` never attempts it for
+this shape, only ever fetching each reference with `$select`. Both
+shapes are now checked and merged (deduplicated by `@odata.id`, capped
+at `pcie_gpu_max_devices` combined) since a system could plausibly carry
+either or, in principle, both. **Also added, for the collection shape**:
+`_paged_members` now checks its first `$expand`ed page for exactly the
+DGX's failure signature — an advertised `Members@odata.count > 0` with
+zero returned `Members` — and retries the whole collection without
+`$expand` when it sees that, rather than trusting an empty result.
+
 ## Update (2026-09-09): `uniq_system_uuid` gave up its uniqueness too
 
 The fix above (`{"$exists": True}` → `{"$type": "string"}`) settled the

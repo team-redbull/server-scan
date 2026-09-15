@@ -150,6 +150,10 @@ class Settings(BaseSettings):
 
     redfish_fleet_concurrency: int = 16
 
+    redfish_pcie_gpu_detection: bool = False
+    redfish_pcie_gpu_max_devices: int = 50
+    redfish_pcie_gpu_max_gpus: int = 16
+
     ucs_central_domain_concurrency: int = 4
 
     collector_name_pattern: str = ""

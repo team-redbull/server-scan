@@ -562,9 +562,11 @@ async def _dry_run_one_manager(
                     )
                     temp = gpu.get("temperature_celsius")
                     power = gpu.get("power_watts")
+                    pci = gpu.get("pci_address")
                     print(
                         f"        gpu {gpu.get('model') or '—'}  vendor={gpu.get('vendor') or '—'}"
                         f"  serial={gpu.get('serial') or '—'}"
+                        f"{f'  pci={pci}' if pci else ''}"
                         f"  {gpu_size} ({gpu.get('memory_type') or 'memory type unknown'})"
                         f"  ecc={gpu.get('ecc_mode_enabled')}"
                         f"  errors={gpu.get('correctable_error_count')}c/"

@@ -40,9 +40,11 @@ from app.infrastructure.providers.redfish.client import (
     validate_odata_id,
 )
 from app.infrastructure.providers.redfish.mapping import (
+    gpus_from_pcie_devices,
     gpus_from_processors,
     has_only_gpu_processors,
     is_gpu_processor,
+    pcie_device_refs,
     psus_from_supplies,
     system_to_provider_server,
 )
@@ -55,6 +57,32 @@ _PROVIDER_TYPE = ManagerType.REDFISH_STANDALONE.value
 # `collection_errors` shapes, exported for `tools.run_collector` and `..openmanage`.
 UNREACHABLE_MARKER = ": unreachable — "
 AUTH_REJECTED_MARKER = ": login failed for credential "
+
+_PCIE_SELECT = "$select=Manufacturer,Description,Status"
+
+
+def _pcie_scan_query(service_root: dict[str, Any]) -> str:
+    """
+    Build the query string a `PCIeDevices` scan uses, narrowed to what the BMC advertises.
+
+    See ADR-0016's 2026-09-15 PCIeDevice update for the DSP0266 query
+    parameters this checks and why `.` (never `~`/`*`) is requested.
+
+    Args:
+        service_root (dict[str, Any]): The client's own `service_root`,
+            already fetched at login.
+
+    Returns:
+        str: `"?$expand=.($levels=1)&$select=..."` when the BMC
+            advertises `ExpandQuery.NoLinks`, else `"?$select=..."`.
+    """
+    protocol = service_root.get("ProtocolFeaturesSupported")
+    protocol = protocol if isinstance(protocol, dict) else {}
+    expand = protocol.get("ExpandQuery")
+    expand = expand if isinstance(expand, dict) else {}
+    if expand.get("NoLinks"):
+        return f"?$expand=.($levels=1)&{_PCIE_SELECT}"
+    return f"?{_PCIE_SELECT}"
 
 
 class RedfishStandaloneProvider(ServerInventoryProvider):
@@ -78,6 +106,9 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         fleet_concurrency: int,
         tls_min_version: str = "TLSv1_2",
         debug_http: bool = False,
+        pcie_gpu_detection: bool = False,
+        pcie_gpu_max_devices: int = 50,
+        pcie_gpu_max_gpus: int = 16,
         client_factory: Callable[[RedfishTarget], Any] | None = None,
     ) -> None:
         """
@@ -93,6 +124,14 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             fleet_concurrency (int): BMCs contacted at once.
             tls_min_version (str): Minimum TLS version.
             debug_http (bool): Emit one redacted line per request.
+            pcie_gpu_detection (bool): Screen `PCIeDevices` for GPUs when
+                a system's `Processors` reports none — see ADR-0016's
+                2026-09-15 PCIeDevice update.
+            pcie_gpu_max_devices (int): Stop paging a system's
+                `PCIeDevices` collection once this many entries have
+                been seen.
+            pcie_gpu_max_gpus (int): Stop once this many GPUs are found
+                among the scanned devices.
             client_factory (Callable[[RedfishTarget], Any] | None): Test
                 seam returning a client for a target.
         """
@@ -105,6 +144,9 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         self._concurrency = max(1, fleet_concurrency)
         self._tls_min_version = tls_min_version
         self._debug_http = debug_http
+        self._pcie_gpu_detection = pcie_gpu_detection
+        self._pcie_gpu_max_devices = pcie_gpu_max_devices
+        self._pcie_gpu_max_gpus = pcie_gpu_max_gpus
         super().__init__()
         self._auth_failures = 0
         self._client_factory: Callable[[RedfishTarget], Any] = client_factory or self._new_client
@@ -396,14 +438,29 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                     trays=[str(t[0].get("@odata.id") or t[0].get("Id") or "") for t in trays],
                     hosts=len(hosts),
                     hint=(
-                        "Found a GPU-only ComputerSystem (all-GPU Processors, no CPU) but "
-                        "could not identify exactly one sibling host to merge it into, so "
-                        "every system is being ingested separately instead."
+                        "Found a GPU-baseboard ComputerSystem (has a GPU, no CPU) but could "
+                        "not identify exactly one sibling host to merge it into, so every "
+                        "system is being ingested separately instead."
                     ),
                 )
 
             collected: list[ProviderServer] = []
             for system, processors, gpu_metrics, gpu_environment in emit:
+                system_extra_gpus = extra_gpus
+                if self._pcie_gpu_detection and not gpus_from_processors(
+                    processors,
+                    metrics_by_processor=gpu_metrics,
+                    environment_by_processor=gpu_environment,
+                ):
+                    pcie_gpus = await self._pcie_gpus(client, system)
+                    if pcie_gpus:
+                        system_extra_gpus = system_extra_gpus + pcie_gpus
+                        logger.info(
+                            "redfish.pcie_gpu_fallback_used",
+                            host=target.host,
+                            system=str(system.get("@odata.id") or system.get("Id") or ""),
+                            gpus=len(pcie_gpus),
+                        )
                 collected.append(
                     system_to_provider_server(
                         system,
@@ -419,7 +476,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         psus=psus_from_supplies(await self._psus(client, system)),
                         gpu_metrics_by_processor=gpu_metrics,
                         gpu_environment_by_processor=gpu_environment,
-                        extra_gpus=extra_gpus,
+                        extra_gpus=system_extra_gpus,
                     )
                 )
         return collected
@@ -609,6 +666,145 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             return None
         inline = power.get("PowerSupplies")
         return inline if isinstance(inline, list) else None
+
+    async def _pcie_gpus(
+        self, client: Any, system: dict[str, Any]
+    ) -> tuple[dict[str, object], ...] | None:
+        """
+        Screen a system's `PCIeDevices` for GPUs its `Processors` did not report.
+
+        Two real, distinct shapes exist for where the references live —
+        see ADR-0016's 2026-09-15 update.
+
+        Args:
+            client (Any): The authenticated client.
+            system (dict[str, Any]): The `ComputerSystem` to start from.
+
+        Returns:
+            tuple[dict[str, object], ...] | None: GPUs found, or None
+                when neither shape is present or both fail to read.
+        """
+        max_devices = self._pcie_gpu_max_devices
+        found: dict[str, dict[str, Any]] = {}
+        truncated = False
+
+        direct_refs = pcie_device_refs(system)
+        if direct_refs:
+            for ref in direct_refs[:max_devices]:
+                try:
+                    device = await client.get(f"{validate_odata_id(ref)}?{_PCIE_SELECT}")
+                except (
+                    RedfishForbiddenError,
+                    RedfishProtocolError,
+                    RedfishUnreachableError,
+                ) as exc:
+                    logger.warning(
+                        "redfish.resource_skipped", resource="PCIeDevice", error=str(exc)
+                    )
+                    continue
+                found[str(device.get("@odata.id") or ref)] = device
+            truncated = truncated or len(direct_refs) > max_devices
+
+        remaining = max_devices - len(found)
+        if remaining > 0:
+            links = system.get("Links", {})
+            chassis_refs = links.get("Chassis", []) if isinstance(links, dict) else []
+            if chassis_refs and isinstance(chassis_refs[0], dict):
+                try:
+                    chassis = await client.get(validate_odata_id(chassis_refs[0].get("@odata.id")))
+                except (
+                    RedfishForbiddenError,
+                    RedfishProtocolError,
+                    RedfishUnreachableError,
+                ) as exc:
+                    logger.warning("redfish.resource_skipped", resource="Chassis", error=str(exc))
+                    chassis = None
+                link = chassis.get("PCIeDevices") if chassis is not None else None
+                path = link.get("@odata.id") if isinstance(link, dict) else None
+                if path:
+                    try:
+                        collected, collection_truncated = await self._paged_members(
+                            client, validate_odata_id(path), max_members=remaining
+                        )
+                    except (
+                        RedfishForbiddenError,
+                        RedfishProtocolError,
+                        RedfishUnreachableError,
+                    ) as exc:
+                        logger.warning(
+                            "redfish.resource_skipped", resource="PCIeDevices", error=str(exc)
+                        )
+                    else:
+                        for device in collected:
+                            key = str(device.get("@odata.id") or "")
+                            if key:
+                                found[key] = device
+                        truncated = truncated or collection_truncated
+
+        if not found and not direct_refs:
+            return None
+        if truncated:
+            logger.warning(
+                "redfish.pcie_scan_truncated",
+                system=str(system.get("@odata.id") or system.get("Id") or ""),
+                limit=max_devices,
+            )
+        return gpus_from_pcie_devices(list(found.values()), max_gpus=self._pcie_gpu_max_gpus)
+
+    async def _paged_members(
+        self, client: Any, path: str, *, max_members: int, allow_expand: bool = True
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """
+        Page a collection up to `max_members`, using `$expand` when the BMC advertises it.
+
+        See ADR-0016's 2026-09-15 PCIeDevice update.
+
+        Args:
+            client (Any): The authenticated client.
+            path (str): The collection's own `@odata.id`, already validated.
+            max_members (int): Stop once this many members are collected.
+            allow_expand (bool): False retries a collection whose first
+                `$expand`ed page came back suspiciously empty.
+
+        Returns:
+            tuple[list[dict[str, Any]], bool]: The members (each a full
+                resource body), and whether the collection held more
+                than `max_members` and was cut off.
+        """
+        query = _pcie_scan_query(client.service_root) if allow_expand else f"?{_PCIE_SELECT}"
+        expanding = allow_expand and "$expand" in query
+        members: list[dict[str, Any]] = []
+        next_path: str | None = path
+        first_page = True
+        while next_path and len(members) < max_members:
+            page = await client.get(f"{next_path}{query}" if query else next_path)
+            page_members = page.get("Members", []) or []
+            if first_page and expanding and not page_members:
+                advertised = page.get("Members@odata.count")
+                if isinstance(advertised, int) and advertised > 0:
+                    logger.warning(
+                        "redfish.pcie_expand_returned_nothing", path=path, advertised=advertised
+                    )
+                    return await self._paged_members(
+                        client, path, max_members=max_members, allow_expand=False
+                    )
+            first_page = False
+            for member in page_members:
+                if len(members) >= max_members:
+                    break
+                if not isinstance(member, dict):
+                    continue
+                if "@odata.type" in member:
+                    members.append(member)
+                else:
+                    # Not pre-expanded — $select alone narrows this one
+                    # resource's body; re-requesting $expand on a single
+                    # member (rather than the collection) buys nothing.
+                    ref = validate_odata_id(member.get("@odata.id"))
+                    members.append(await client.get(f"{ref}?{_PCIE_SELECT}"))
+            raw_next = page.get("Members@odata.nextLink")
+            next_path = validate_odata_id(raw_next) if raw_next else None
+        return members, next_path is not None
 
     async def _bmc_mac(self, client: Any, system: dict[str, Any]) -> str | None:
         """

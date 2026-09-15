@@ -133,6 +133,20 @@ the global and filter on the override, silently.
   **Nothing skips a BMC (2026-09-12)** — the `_AuthGuard` breaker is
   deleted at the operator's explicit direction; the lockout risk (Lenovo
   XCC, hour-long iDRAC IP block) is theirs. Do not re-add without asking.
+  **A GPU-baseboard tray is "has a GPU, no CPU," not "every processor is
+  a GPU"** (2026-09-15) — a real tray's FPGA/NVSwitch companions in
+  `Processors` must not disqualify it; `has_only_gpu_processors` still
+  treats a missing `ProcessorType` as a CPU, matching `cpu_summary`'s own
+  default. **A GPU reported only as a `PCIeDevice`** (never `Processors`)
+  needs `INVENTORY_REDFISH_PCIE_GPU_DETECTION=true`, off by default — see
+  ADR-0016's 2026-09-15 update for the vendor-ID+description heuristic
+  and its confidence level (NVIDIA confirmed live; AMD/Intel are not).
+  **Two distinct real shapes exist and both are checked**:
+  `Chassis.PCIeDevices` (a real collection, `$expand`-eligible) and
+  `ComputerSystem.PCIeDevices` (a direct link array — confirmed live on
+  a DGX H100, where named-property `$expand` on it silently returned
+  zero of 133 real entries). Never trust an empty `$expand` result
+  without checking `Members@odata.count` first.
 - **`ONEVIEW`** (ADR-0022, `docs/hpe-collectors.md`): **one collection
   standard for all HP hardware, whatever its iLO generation** — no Redfish
   pass, no BMC credentials, `mpModel` reported but never branched on. An

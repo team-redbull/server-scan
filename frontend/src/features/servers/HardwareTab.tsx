@@ -139,6 +139,7 @@ export function HardwareTab({
                     <th className="py-1 pr-4">Vendor</th>
                     <th className="py-1 pr-4">Model</th>
                     <th className="py-1 pr-4">Serial</th>
+                    <th className="py-1 pr-4">PCI</th>
                     <th className="py-1 pr-4">VRAM</th>
                     <th className="py-1 pr-4">Memory type</th>
                     <th className="py-1 pr-4">ECC</th>
@@ -155,6 +156,7 @@ export function HardwareTab({
                       <td className="py-1 pr-4">{gpu.vendor ?? "—"}</td>
                       <td className="py-1 pr-4">{gpu.model ?? "Unknown model"}</td>
                       <td className="py-1 pr-4">{gpu.serial ?? "—"}</td>
+                      <td className="py-1 pr-4">{gpu.pci_address ?? "—"}</td>
                       <td className="py-1 pr-4">
                         {gpu.memory_bytes != null ? formatBytes(gpu.memory_bytes) : "—"}
                       </td>

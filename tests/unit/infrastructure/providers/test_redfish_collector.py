@@ -292,6 +292,35 @@ class TestGpuBaseboardMerging:
         models = {gpu["model"] for gpu in gpus}
         assert models == {"Nvidia(R) TU102", "H100 SXM5"}
 
+    async def test_a_tray_with_a_non_cpu_companion_is_still_merged(self) -> None:
+        """A real tray's non-CPU, non-GPU FPGA companion must not disqualify it.
+
+        See ADR-0016's 2026-09-15 update.
+        """
+        resources = _with_hgx_baseboard(minimal_service())
+        resources["/redfish/v1/Systems/HGX_Baseboard_0/Processors"] = {
+            "@odata.id": "/redfish/v1/Systems/HGX_Baseboard_0/Processors",
+            "Members": [
+                {"@odata.id": "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_1"},
+                {"@odata.id": "/redfish/v1/Systems/HGX_Baseboard_0/Processors/FPGA_0"},
+            ],
+        }
+        resources["/redfish/v1/Systems/HGX_Baseboard_0/Processors/FPGA_0"] = {
+            "@odata.id": "/redfish/v1/Systems/HGX_Baseboard_0/Processors/FPGA_0",
+            "@odata.type": "#Processor.v1_22_0.Processor",
+            "Id": "FPGA_0",
+            "Name": "FPGA_0",
+            "ProcessorType": "FPGA",
+            "Status": {"State": "Enabled", "Health": "OK"},
+        }
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        assert len(servers) == 1
+        gpus = servers[0].gpus or ()
+        models = {gpu["model"] for gpu in gpus}
+        assert models == {"Nvidia(R) TU102", "H100 SXM5"}
+
     async def test_an_ambiguous_tray_is_left_unmerged(self) -> None:
         """Two real hosts plus one tray: there is no single sibling to
         fold it into, so nothing is merged and every system ingests
@@ -318,6 +347,216 @@ class TestGpuBaseboardMerging:
         # The tray ingests on its own as standalone, not guessed onto a host.
         assert len(servers) == 3
         assert sum(1 for s in servers if s.vendor == Vendor.STANDALONE.value) == 1
+
+
+def _with_pcie_devices(
+    resources: dict[str, Any], *, devices: dict[str, Any], expand_advertised: bool = False
+) -> dict[str, Any]:
+    """Give `minimal_service()`'s host a GPU-less `Processors` and a `Chassis/Self/PCIeDevices`.
+
+    See ADR-0016's 2026-09-15 PCIeDevice update.
+    """
+    resources = dict(resources)
+    system = dict(resources["/redfish/v1/Systems/1"])
+    system["Links"] = {**system["Links"], "Chassis": [{"@odata.id": "/redfish/v1/Chassis/Self"}]}
+    resources["/redfish/v1/Systems/1"] = system
+    resources["/redfish/v1/Systems/1/Processors"] = {
+        "@odata.id": "/redfish/v1/Systems/1/Processors",
+        "Members": [{"@odata.id": "/redfish/v1/Systems/1/Processors/CPU1"}],
+    }
+    resources["/redfish/v1/Chassis/Self"] = {
+        "@odata.id": "/redfish/v1/Chassis/Self",
+        "@odata.type": "#Chassis.v1_22_0.Chassis",
+        "Id": "Self",
+        "Name": "Chassis",
+        "PCIeDevices": {"@odata.id": "/redfish/v1/Chassis/Self/PCIeDevices"},
+    }
+    members = (
+        [dict(body) for body in devices.values()]
+        if expand_advertised
+        else [{"@odata.id": path} for path in devices]
+    )
+    resources["/redfish/v1/Chassis/Self/PCIeDevices"] = {
+        "@odata.id": "/redfish/v1/Chassis/Self/PCIeDevices",
+        "Members": members,
+    }
+    resources.update(devices)
+    if expand_advertised:
+        root = dict(resources["/redfish/v1/"])
+        root["ProtocolFeaturesSupported"] = {"ExpandQuery": {"NoLinks": True, "MaxLevels": 5}}
+        resources["/redfish/v1/"] = root
+    return resources
+
+
+def _pcie_gpu(path: str) -> dict[str, Any]:
+    """An NVIDIA `PCIeDevice`, confirmed live 2026-09-15 (ADR-0016)."""
+    return {
+        "@odata.id": path,
+        "@odata.type": "#PCIeDevice.v1_9_0.PCIeDevice",
+        "Description": "10DE VGA",
+        "Manufacturer": "10DE20B2",
+        "Status": {"State": "Enabled", "Health": "OK"},
+    }
+
+
+def _pcie_nic(path: str) -> dict[str, Any]:
+    """A non-GPU Intel `PCIeDevice` — same vendor family Intel also ships GPUs under."""
+    return {
+        "@odata.id": path,
+        "@odata.type": "#PCIeDevice.v1_9_0.PCIeDevice",
+        "Description": "82599ES 10-Gigabit SFI/SFP+ Network Connection",
+        "Manufacturer": "808610FB",
+        "Status": {"State": "Enabled", "Health": "OK"},
+    }
+
+
+class TestPcieDeviceGpuFallback:
+    """Confirmed live 2026-09-15: a real BMC reports GPUs only under
+    `ComputerSystem.PCIeDevices`, invisible to `gpus_from_processors`. See
+    ADR-0016's 2026-09-15 PCIeDevice update.
+    """
+
+    async def test_finds_a_gpu_when_processors_reports_none(self) -> None:
+        devices = {
+            "/redfish/v1/Chassis/Self/PCIeDevices/0": _pcie_gpu(
+                "/redfish/v1/Chassis/Self/PCIeDevices/0"
+            )
+        }
+        resources = _with_pcie_devices(minimal_service(), devices=devices)
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        [server] = servers
+        gpus = server.gpus or ()
+        assert len(gpus) == 1
+        assert gpus[0]["vendor"] == "NVIDIA"
+        assert gpus[0]["model"] == "10DE VGA"
+        assert gpus[0]["pci_address"] == "0"
+        assert gpus[0]["memory_bytes"] is None  # PCIeDevice carries no telemetry
+
+    async def test_off_by_default(self) -> None:
+        devices = {
+            "/redfish/v1/Chassis/Self/PCIeDevices/0": _pcie_gpu(
+                "/redfish/v1/Chassis/Self/PCIeDevices/0"
+            )
+        }
+        resources = _with_pcie_devices(minimal_service(), devices=devices)
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        assert (servers[0].gpus or ()) == ()
+        assert not any("PCIeDevices" in path for _, path in fixture.requests)
+
+    async def test_skipped_when_processors_already_has_a_gpu(self) -> None:
+        """No wasted request, no double count, when `Processors` already answered."""
+        devices = {
+            "/redfish/v1/Chassis/Self/PCIeDevices/0": _pcie_gpu(
+                "/redfish/v1/Chassis/Self/PCIeDevices/0"
+            )
+        }
+        resources = _with_pcie_devices(minimal_service(), devices=devices)
+        # Restore the GPU processor `_with_pcie_devices` stripped.
+        resources["/redfish/v1/Systems/1/Processors"] = minimal_service()[
+            "/redfish/v1/Systems/1/Processors"
+        ]
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        assert len(servers[0].gpus or ()) == 1  # from Processors, not doubled
+        assert not any("PCIeDevices" in path for _, path in fixture.requests)
+
+    async def test_ignores_a_non_gpu_device_from_a_known_vendor(self) -> None:
+        """Vendor ID alone is not trusted — see `is_gpu_pcie_device`."""
+        devices = {
+            "/redfish/v1/Chassis/Self/PCIeDevices/0": _pcie_nic(
+                "/redfish/v1/Chassis/Self/PCIeDevices/0"
+            )
+        }
+        resources = _with_pcie_devices(minimal_service(), devices=devices)
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        assert (servers[0].gpus or ()) == ()
+
+    async def test_stops_scanning_at_max_devices(self) -> None:
+        """The GPU sits past the cap, so raising `max_gpus` alone would not find it."""
+        devices = {
+            f"/redfish/v1/Chassis/Self/PCIeDevices/{i}": _pcie_nic(
+                f"/redfish/v1/Chassis/Self/PCIeDevices/{i}"
+            )
+            for i in range(3)
+        }
+        devices["/redfish/v1/Chassis/Self/PCIeDevices/3"] = _pcie_gpu(
+            "/redfish/v1/Chassis/Self/PCIeDevices/3"
+        )
+        resources = _with_pcie_devices(minimal_service(), devices=devices)
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(
+                _provider(fixture.port, pcie_gpu_detection=True, pcie_gpu_max_devices=3)
+            )
+
+        assert (servers[0].gpus or ()) == ()
+
+    async def test_expand_avoids_a_per_device_request_when_advertised(self) -> None:
+        """When the BMC pre-expands `Members`, no per-device GET follows."""
+        gpu_path = "/redfish/v1/Chassis/Self/PCIeDevices/0"
+        devices = {gpu_path: _pcie_gpu(gpu_path)}
+        resources = _with_pcie_devices(minimal_service(), devices=devices, expand_advertised=True)
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        assert len(servers[0].gpus or ()) == 1
+        assert not any(path.startswith(gpu_path) for _, path in fixture.requests)
+
+    async def test_finds_a_gpu_via_the_computer_system_array_shape(self) -> None:
+        """Confirmed live 2026-09-15 on a DGX H100: `ComputerSystem.PCIeDevices`
+        is a direct array of links, a genuinely different shape from
+        `Chassis.PCIeDevices`'s own real collection resource.
+        """
+        gpu_path = "/redfish/v1/Systems/1/PCIeDevices/00_00_08"
+        resources = dict(minimal_service())
+        system = dict(resources["/redfish/v1/Systems/1"])
+        system["Processors"] = {"@odata.id": "/redfish/v1/Systems/1/Processors"}
+        system["PCIeDevices"] = [{"@odata.id": gpu_path}]
+        resources["/redfish/v1/Systems/1"] = system
+        resources["/redfish/v1/Systems/1/Processors"] = {
+            "@odata.id": "/redfish/v1/Systems/1/Processors",
+            "Members": [{"@odata.id": "/redfish/v1/Systems/1/Processors/CPU1"}],
+        }
+        resources[gpu_path] = _pcie_gpu(gpu_path)
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        gpus = servers[0].gpus or ()
+        assert len(gpus) == 1
+        assert gpus[0]["vendor"] == "NVIDIA"
+        # This system carries no Links.Chassis at all — the array shape
+        # alone must be enough, no PCIeDevices collection fetch attempted.
+        assert not any("PCIeDevices" in path and "Chassis" in path for _, path in fixture.requests)
+
+    async def test_a_collection_expand_returning_nothing_falls_back_to_select(self) -> None:
+        """A collection whose `Members@odata.count` disagrees with an empty `Members` retries.
+
+        See ADR-0016's 2026-09-15 update.
+        """
+        gpu_path = "/redfish/v1/Chassis/Self/PCIeDevices/0"
+        devices = {gpu_path: _pcie_gpu(gpu_path)}
+        resources = _with_pcie_devices(minimal_service(), devices=devices, expand_advertised=True)
+        collection = dict(resources["/redfish/v1/Chassis/Self/PCIeDevices"])
+        collection["Members"] = []
+        collection["Members@odata.count"] = 1
+        resources["/redfish/v1/Chassis/Self/PCIeDevices"] = collection
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port, pcie_gpu_detection=True))
+
+        # The fixture always serves the same broken body regardless of
+        # query string, so the retry can't recover this device — the
+        # point here is that a retry happens at all, not that it succeeds.
+        assert (servers[0].gpus or ()) == ()
+        requests_to_collection = [
+            p for _, p in fixture.requests if p.startswith(gpu_path.rsplit("/", 1)[0])
+        ]
+        assert len(requests_to_collection) >= 2
 
 
 class TestFailureModes:

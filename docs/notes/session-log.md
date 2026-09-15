@@ -8,6 +8,58 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-14, later — both UCS Central findings shipped, plus a live
+data-quality bug found and fixed along the way.** Continuing the same
+day's PSU/vNIC investigation: the operator ran `verify_ucs_central.py`
+live and confirmed both open questions. Section 9 (query one domain's
+own UCS Manager directly, bypassing Central) got 42 `equipmentPsu` / 2
+`equipmentRackUnitPsuStats` back — settling that Central's own API never
+proxies statistics classes at all, independent of any domain policy.
+**Shipped:** `Psu.power_watts` (real-time input power, alongside — never
+replacing — the existing rated `capacity_watts`), read through
+`UcsManagerProvider`'s new 14th domain-wide query and DN-joined onto its
+owning PSU in `_psus`; Intersight/OneView/Redfish set it `None` with a
+one-line pointer, matching `Gpu.power_watts`'s existing per-vendor
+pattern; the fake provider populates it ~5% of the time for UCS_CENTRAL
+only, echoing the confirmed 2-of-42 live ratio. **Also shipped:** vNIC
+`link_state` (both `_nics` and a `VNIC`-kind `_attachments` call) now
+reads `operability` instead of `oper_state` via a new
+`_vnic_link_state` — this reopens the exact false-CRITICAL case
+ADR-0027 fixed on 2026-09-12, but safely: that fix's
+`network.links_known_count` gate stays, so a mostly-`operable` fleet
+just now has a real non-zero denominator instead of a permanent zero
+one. ADR-0027 and `docs/architecture.md` both got dated updates rather
+than silent rewrites.
+
+**Caught mid-session, before it shipped:** the fake generator's first
+`power_watts` draft used `rng.random()` conditionally on
+`collector is UCS_CENTRAL` inside `_build_psus` — exactly the landmine
+ADR-0027's own "Seeded data" section already named for `_link_states`
+(a vendor-conditional draw on the one shared `rng` stream shifts every
+later server's fields for the same seed, corrupting the whole fleet mix).
+Caught by actually re-seeding and measuring rather than trusting the
+diff — fixed by keying the decision off `index` via `zlib.crc32`
+instead, matching `_link_states`'s own pattern; re-verified the site
+distribution (211/224/224/220/121) came back byte-identical after the
+fix. **The user also asked to make disk `na`/`unknown`, physical
+`indeterminate`, and disk `offline`/`self-test-failed` all "known"** —
+declined for the first three (ADR-0009/0027's deliberately-unmapped
+no-verdict states, pinned by tests; forcing a severity would be exactly
+the fabrication `None`-means-unread exists to prevent) and explained why;
+the fourth turned out to already be correctly mapped to CRITICAL in
+production — only `verify_ucs_central.py`'s own separate hand-copied
+`_DISK_HEALTH_MAP` mirror had drifted and was reporting false gaps, fixed
+by importing the real `_disk_health` directly so it cannot drift again
+(ADR-0009 updated).
+
+**README re-measured live**, not estimated: same seed/count, network
+policy counts moved from 22 CRITICAL/17 MAJOR to 25/20 (+3/+3, all from
+UCS Central; Intersight still 0/0, unchanged and still exempt — no
+equivalent field researched for it). Full gate (backend, frontend, helm
+lint, 1337 tests with the dev stack up) clean throughout.
+
+---
+
 **2026-09-14 — two UI reports from the operator's own UCS Central fleet
 turned into two previewed-not-wired findings, plus a chart timeout gap
 closed.** The operator reported PSU wattage showing `0W` in the UI

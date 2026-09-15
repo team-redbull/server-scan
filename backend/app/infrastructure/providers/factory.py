@@ -120,6 +120,9 @@ def _openmanage_provider(
             fleet_concurrency=settings.redfish_fleet_concurrency,
             tls_min_version=settings.redfish_tls_min_version,
             debug_http=debug_http_enabled(),
+            pcie_gpu_detection=settings.redfish_pcie_gpu_detection,
+            pcie_gpu_max_devices=settings.redfish_pcie_gpu_max_devices,
+            pcie_gpu_max_gpus=settings.redfish_pcie_gpu_max_gpus,
         )
 
     return OpenManageProvider(
@@ -223,6 +226,9 @@ def _redfish_provider(
         fleet_concurrency=settings.redfish_fleet_concurrency,
         tls_min_version=settings.redfish_tls_min_version,
         debug_http=debug_http_enabled(),
+        pcie_gpu_detection=settings.redfish_pcie_gpu_detection,
+        pcie_gpu_max_devices=settings.redfish_pcie_gpu_max_devices,
+        pcie_gpu_max_gpus=settings.redfish_pcie_gpu_max_gpus,
     )
 
 
