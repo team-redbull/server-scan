@@ -583,35 +583,44 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-16 — a blank `ComputerSystem.Model` now falls back to
-`Chassis.ProductName`, and the frontend already had a fallback of its
-own for what's left.** Moved to `docs/notes/session-log.md`: the same
-day's frontend-only GPU-derived Model hint (shipped first, still in
-place for whatever this doesn't cover) and the PCIeDevice GPU-model
+**2026-09-16 — a blank Redfish `SerialNumber` now falls back to
+`Chassis.SerialNumber` too, closing a real duplicate-document bug; a
+`Duplicate` inventory filter/metric and label cleanup are next.** Moved
+to `docs/notes/session-log.md`: the Model-only fallback this extends,
+the frontend GPU-derived Model hint, and the PCIeDevice GPU-model
 table's operator-extensibility work.
 
-**The gap:** some DGX/HGX-class hosts on the operator's air-gapped fleet
-report `Model` as empty/whitespace, but their `Chassis` resource
-(`GET .../Chassis/Self`) carries the real value in `ProductName` —
-confirmed by the operator directly with `curl -sku
-https://<redfish_ip>/redfish/v1/Chassis/Self | jq '.ProductName'`.
+**The bug:** operator's own duplicate-server investigation
+(`ocp4-five-bpod-compute-06`, two documents, one per CronJob run) traced
+to a DGX host reporting `SerialNumber: ""` — `serial_normalized` empty
+means correlation never finds `existing`. Six other duplicate-name pairs
+in the same report were confirmed **not** bugs (distinct machines
+sharing a name; correct `(vendor, serial_normalized)` behavior).
 
-**Built:** `mapping._model(system, chassis_product_name)` — a real,
-non-blank `Model` always wins, never overwritten; the chassis is fetched
-only when `Model` is already unusable, so a normal host (the majority)
-pays no extra request. Extracted a shared `_chassis()` helper in
-`provider.py` from `_psus`'s and `_pcie_gpus`'s previously-duplicated
-`Links.Chassis` walk, and added `_chassis_product_name()` on top of it.
-This is a real stored-value fix — `Server.model` itself now gets filled
-in — distinct from the frontend hint shipped earlier the same day, which
-stays as a fallback for a host where even `Chassis.ProductName` is
-blank. ADR-0016 has a second 2026-09-16 update recording it.
+**Built, researched against DMTF's schema first** (`ComputerSystem.
+SerialNumber` vs `Chassis.SerialNumber` are documented as two different
+things that can legitimately disagree; `Chassis.Links.ComputerSystems`
+can name more than one system, in which case that chassis's serial
+isn't safely attributable to just one): `mapping._chassis_serial` adds
+that source at the end of the existing precedence
+(`_dell_serial(system) or _clean_serial(system.get("SerialNumber")) or
+_chassis_serial(chassis)`), refusing it when the chassis wholly contains
+more than one system. `_chassis_fallback()` (was `_chassis_product_
+name()`) now triggers on either field being blank; a still-serial-less
+record logs `redfish.no_serial` (previously silent). ADR-0016's second
+2026-09-16 update ("continued") has the full citations.
+**Deliberately parked**: a serial-less ingest correlation guard and
+cleanup of the two existing duplicate documents — both bigger,
+operator-side decisions, not something this fix's own scope covers.
 
-Full gate clean (backend: `ruff`/`ty`/comment-density/`lint-imports`/
-`pytest`, 1398 passed). New `test_redfish_model_fallback.py` (pure
-`_model` unit tests) plus a `TestModelFallback` class in
-`test_redfish_collector.py` (absent/blank/whitespace/real-model, end to
-end through the fixture, plus a no-extra-request guarantee test).
-**Open:** unchanged — whether any real BMC populates `InputPowerWatts`,
-and whether `$expand` is actually honored beyond what's advertised, both
-need further live runs to settle.
+**Still requested, not yet done**: a `Duplicate` toggle next to
+Maintenance/Stale (client-side, by `ServerRow.name` collision — no API
+change, per ADR-0033), a metric for it, and renaming "Maintenance
+only"/"Stale only" to "Maintenance"/"Stale"/"Duplicate" (no "only").
+
+Full backend gate clean, 1407 tests passing. New/renamed
+`test_redfish_chassis_fallback.py` plus an expanded `TestChassisFallback`
+in `test_redfish_collector.py`.
+**Open:** the ingest correlation guard and Mongo cleanup above; unchanged
+from prior entries — whether any real BMC populates `InputPowerWatts`,
+and whether `$expand` is actually honored beyond what's advertised.

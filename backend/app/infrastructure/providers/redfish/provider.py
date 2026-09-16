@@ -41,6 +41,8 @@ from app.infrastructure.providers.redfish.client import (
 )
 from app.infrastructure.providers.redfish.mapping import (
     _BUILTIN_PCI_DEVICE_MODELS,
+    _clean_serial,
+    _dell_serial,
     gpus_from_pcie_devices,
     gpus_from_processors,
     has_only_gpu_processors,
@@ -472,25 +474,35 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         )
                 supplies = await self._psus(client, system)
                 psu_metrics = await self._psu_telemetry(client, supplies)
-                collected.append(
-                    system_to_provider_server(
-                        system,
-                        host=target.host,
-                        base_url=target.base_url,
-                        manager_id=self._manager.id,
-                        override_name=target.name,
-                        processors=processors,
-                        drives=await self._drives(client, system),
-                        dimms=await self._optional(client, system, "Memory"),
-                        interfaces=await self._optional(client, system, "EthernetInterfaces"),
-                        bmc_mac=bmc_mac,
-                        psus=psus_from_supplies(supplies, metrics_by_supply=psu_metrics),
-                        gpu_metrics_by_processor=gpu_metrics,
-                        gpu_environment_by_processor=gpu_environment,
-                        extra_gpus=system_extra_gpus,
-                        chassis_product_name=await self._chassis_product_name(client, system),
-                    )
+                mapped = system_to_provider_server(
+                    system,
+                    host=target.host,
+                    base_url=target.base_url,
+                    manager_id=self._manager.id,
+                    override_name=target.name,
+                    processors=processors,
+                    drives=await self._drives(client, system),
+                    dimms=await self._optional(client, system, "Memory"),
+                    interfaces=await self._optional(client, system, "EthernetInterfaces"),
+                    bmc_mac=bmc_mac,
+                    psus=psus_from_supplies(supplies, metrics_by_supply=psu_metrics),
+                    gpu_metrics_by_processor=gpu_metrics,
+                    gpu_environment_by_processor=gpu_environment,
+                    extra_gpus=system_extra_gpus,
+                    chassis=await self._chassis_fallback(client, system),
                 )
+                if mapped.serial is None:
+                    logger.warning(
+                        "redfish.no_serial",
+                        host=target.host,
+                        system=str(system.get("@odata.id") or system.get("Id") or ""),
+                        hint=(
+                            "Neither ComputerSystem.SerialNumber nor Chassis.SerialNumber "
+                            "resolved; correlation cannot recognize this machine again and a "
+                            "new document will be minted on the next run."
+                        ),
+                    )
+                collected.append(mapped)
         return collected
 
     def _note_no_systems(self, target: RedfishTarget, *, reason: str) -> None:
@@ -665,30 +677,31 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             logger.warning("redfish.resource_skipped", resource="Chassis", error=str(exc))
             return None
 
-    async def _chassis_product_name(self, client: Any, system: dict[str, Any]) -> str | None:
+    async def _chassis_fallback(self, client: Any, system: dict[str, Any]) -> dict[str, Any] | None:
         """
-        `Chassis.ProductName`, for when `Model` is blank.
+        The owning `Chassis`, fetched only when `Model` or `SerialNumber` needs it.
 
-        Skipped when `Model` is already usable, so a normal host costs
-        no extra request — confirmed live, ADR-0016's 2026-09-16 update.
+        Skipped when both are already usable, so a normal host costs no
+        extra request — confirmed live, ADR-0016's 2026-09-16 update.
 
         Args:
             client (Any): The authenticated client.
             system (dict[str, Any]): The `ComputerSystem` to start from.
 
         Returns:
-            str | None: `ProductName`, or None when `Model` is already
-                usable, there is no chassis link, or `ProductName` is
-                itself blank.
+            dict[str, Any] | None: The chassis, or None when neither
+                field needs a fallback, there is no chassis link, or it
+                could not be read.
         """
         model = system.get("Model")
-        if isinstance(model, str) and model.strip():
+        model_usable = isinstance(model, str) and bool(model.strip())
+        serial_usable = (
+            _dell_serial(system) is not None
+            or _clean_serial(system.get("SerialNumber")) is not None
+        )
+        if model_usable and serial_usable:
             return None
-        chassis = await self._chassis(client, system)
-        if chassis is None:
-            return None
-        name = chassis.get("ProductName")
-        return name.strip() if isinstance(name, str) and name.strip() else None
+        return await self._chassis(client, system)
 
     async def _psus(self, client: Any, system: dict[str, Any]) -> list[dict[str, Any]] | None:
         """

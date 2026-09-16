@@ -156,10 +156,16 @@ the global and filter on the override, silently.
   automatically. **PSU `power_watts` reads a separate linked
   `PowerSupplyMetrics.InputPowerWatts`**, never a property on
   `PowerSupply` itself — the same "telemetry lives one link away"
-  pattern GPUs already use. **A blank/whitespace `ComputerSystem.Model`
-  falls back to `Chassis.ProductName`** (`mapping._model`, confirmed live
-  on the operator's own DGX/HGX fleet) — a real `Model` always wins and
-  the chassis is fetched only when it's actually needed.
+  pattern GPUs already use. **A blank/whitespace `Model` or
+  `SerialNumber` falls back to `Chassis.ProductName`/`SerialNumber`**
+  (`mapping._model`/`_chassis_serial`, confirmed live on the operator's
+  own DGX/HGX fleet — an unprogrammed SMBIOS serial minted a fresh
+  document every collector run until this shipped). A real value always
+  wins, the chassis is fetched only when actually needed, and the
+  chassis serial is refused when `Chassis.Links.ComputerSystems` names
+  more than one system (a shared enclosure's serial cannot be attributed
+  to just one of them). A record still serial-less after all sources
+  logs `redfish.no_serial`.
 - **`ONEVIEW`** (ADR-0022, `docs/hpe-collectors.md`): **one collection
   standard for all HP hardware, whatever its iLO generation** — no Redfish
   pass, no BMC credentials, `mpModel` reported but never branched on. An

@@ -1025,7 +1025,7 @@ def system_to_provider_server(
     gpu_metrics_by_processor: dict[str, dict[str, Any]] | None = None,
     gpu_environment_by_processor: dict[str, dict[str, Any]] | None = None,
     extra_gpus: tuple[dict[str, object], ...] = (),
-    chassis_product_name: str | None = None,
+    chassis: dict[str, Any] | None = None,
 ) -> ProviderServer:
     """
     Convert one `ComputerSystem` and its sub-resources into a `ProviderServer`.
@@ -1055,8 +1055,10 @@ def system_to_provider_server(
             entries from a sibling GPU-baseboard system being merged
             into this one — see `has_only_gpu_processors`. Appended
             after this system's own GPUs, if any.
-        chassis_product_name (str | None): The owning chassis's own
-            `ProductName`, used only when `Model` is blank.
+        chassis (dict[str, Any] | None): The owning chassis, already
+            fetched, used as a fallback for a blank `Model` or
+            `SerialNumber` — or None when neither needed it or it was
+            unread.
 
     Returns:
         ProviderServer: The vendor-neutral DTO the ingest pipeline
@@ -1082,8 +1084,10 @@ def system_to_provider_server(
         external_id=f"redfish://{host}{odata_id}",
         vendor=vendor.value,
         name=override_name or _server_name(system),
-        model=_model(system, chassis_product_name),
-        serial=_dell_serial(system) or _clean_serial(system.get("SerialNumber")),
+        model=_model(system, chassis),
+        serial=_dell_serial(system)
+        or _clean_serial(system.get("SerialNumber"))
+        or _chassis_serial(chassis),
         system_uuid=system.get("UUID") or None,
         nic_macs=macs_from_interfaces(interfaces),
         nics=nics_from_interfaces(interfaces),
@@ -1107,7 +1111,7 @@ def system_to_provider_server(
     )
 
 
-def _model(system: dict[str, Any], chassis_product_name: str | None) -> str | None:
+def _model(system: dict[str, Any], chassis: dict[str, Any] | None) -> str | None:
     """
     A server's model, falling back to `Chassis.ProductName` when blank.
 
@@ -1115,8 +1119,7 @@ def _model(system: dict[str, Any], chassis_product_name: str | None) -> str | No
 
     Args:
         system (dict[str, Any]): The `ComputerSystem` resource.
-        chassis_product_name (str | None): The owning chassis's
-            `ProductName`, already cleaned, or None.
+        chassis (dict[str, Any] | None): The owning chassis, or None.
 
     Returns:
         str | None: The model, or None when neither source has one.
@@ -1124,7 +1127,33 @@ def _model(system: dict[str, Any], chassis_product_name: str | None) -> str | No
     value = system.get("Model")
     if isinstance(value, str) and value.strip():
         return value.strip()
-    return chassis_product_name
+    if chassis is None:
+        return None
+    name = chassis.get("ProductName")
+    return name.strip() if isinstance(name, str) and name.strip() else None
+
+
+def _chassis_serial(chassis: dict[str, Any] | None) -> str | None:
+    """
+    `Chassis.SerialNumber`, only when the chassis wholly contains one system.
+
+    More than one makes the chassis serial ambiguous — confirmed
+    against the DMTF schema, ADR-0016's 2026-09-16 update.
+
+    Args:
+        chassis (dict[str, Any] | None): The owning chassis, or None.
+
+    Returns:
+        str | None: The chassis serial, or None when absent, a
+            placeholder, or the chassis holds more than one system.
+    """
+    if chassis is None:
+        return None
+    links = chassis.get("Links", {})
+    systems = links.get("ComputerSystems", []) if isinstance(links, dict) else []
+    if isinstance(systems, list) and len(systems) > 1:
+        return None
+    return _clean_serial(chassis.get("SerialNumber"))
 
 
 def _server_name(system: dict[str, Any]) -> str:

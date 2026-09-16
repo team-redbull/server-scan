@@ -776,17 +776,69 @@ the same host's `Chassis` resource (`GET .../Chassis/Self`) carries the
 real value in `ProductName`. Confirmed with the operator's own
 `curl -sku https://<redfish_ip>/redfish/v1/Chassis/Self | jq '.ProductName'`.
 
-**Fixed** with `mapping._model(system, chassis_product_name)`: a real,
-non-blank `Model` always wins; the chassis name is used only when
-`Model` is missing or all-whitespace, never to override a value already
-read. The provider reads `ProductName` through the same `Links.Chassis`
-walk `_psus`/`_pcie_gpus` already use — extracted into a shared
-`_chassis()` helper — but only when `Model` is already unusable, so a
-normal host (the overwhelming majority) pays no extra request. This is
-a stored-value fix, distinct from the frontend's GPU-derived Model hint
+**Fixed** with `mapping._model(system, chassis)`: a real, non-blank
+`Model` always wins; the chassis name is used only when `Model` is
+missing or all-whitespace, never to override a value already read. The
+provider reads `ProductName` through the same `Links.Chassis` walk
+`_psus`/`_pcie_gpus` already use — extracted into a shared `_chassis()`
+helper — but only when `Model` is already unusable, so a normal host
+(the overwhelming majority) pays no extra request. This is a
+stored-value fix, distinct from the frontend's GPU-derived Model hint
 (ADR-0021, 2026-09-16 update): here the chassis genuinely reports the
 model, just on a different resource, so `Server.model` itself is filled
 in — no fabrication involved.
+
+## Update (2026-09-16, continued): the same fallback for a blank `SerialNumber` — with a collision guard `Model` didn't need
+
+A separate operator investigation (into a real duplicate document —
+`ocp4-five-bpod-compute-06` accumulating one document per collector
+run) traced the cause to the same class of gap: this host's
+`ComputerSystem.SerialNumber` is `""` (an unprogrammed SMBIOS field, not
+a transient read failure — every HTTP request succeeded). `_clean_serial`
+correctly reduces it to `None` (ADR-0016, 2026-09-13 update), but a
+`None` serial means `serial_normalized == ""`, correlation never finds
+`existing`, and each of the two CronJob runs at investigation time
+minted its own fresh `_id` — unbounded growth, one document per run.
+
+**Researched before fixing, per this project's standing convention**:
+DMTF's schema gives `ComputerSystem.SerialNumber` as "the serial number
+for this system" and `Chassis.SerialNumber` as "a manufacturer-allocated
+number that identifies the chassis" — two different things that usually
+agree but are not guaranteed to. A community write-up on Redfish-based
+CMDB ingestion (gse.kz) makes the concrete risk explicit: "different
+serials are not necessarily an error... the problem is silently
+overwriting a CMDB field with an unexpected source" — exactly the shape
+of mistake `_dell_serial`'s own precedent (preferring the Dell OEM
+`NodeID`) already avoids by never overriding a value already read.
+
+The specific hazard for *this* fallback: `Chassis.Links.ComputerSystems`
+is documented as "the computer systems that this chassis directly and
+wholly contains" — a chassis CAN wholly contain more than one system
+(a blade enclosure, a multi-node tray), in which case its own serial
+cannot be attributed to just one of them. `mapping._chassis_serial`
+checks this reverse link and refuses the fallback when it names more
+than one system; when the link is simply absent (common — plenty of
+real implementations never populate it) the chassis serial is trusted,
+matching this collector's design as a single-BMC-per-physical-machine
+tool (`_note_no_systems`'s own hint already tells an operator to check
+the address is a server's own BMC, not a shared enclosure manager).
+
+**Fixed**: `_dell_serial(system) or _clean_serial(system.get(
+"SerialNumber")) or _chassis_serial(chassis)` — the same precedence
+order as before, one fallback added at the end. `_chassis_fallback()`
+replaces `_chassis_product_name()`: it now fetches the chassis when
+*either* `Model` or `SerialNumber` needs it, still nothing when both are
+already usable. A provider record that still has no serial after all
+three sources logs `redfish.no_serial` — previously silent, since every
+HTTP request in the chain succeeds and nothing distinguished this from
+a healthy collection.
+
+**Explicitly not done in this update** (parked pending an operator
+decision): a serial-less ingest correlation guard (correlating on
+`(source_provider, network.bmc.host)` when `serial_normalized` is empty)
+and cleanup of the two documents this specific host had already
+accumulated before the fix shipped — both estate/ingest-semantics
+decisions, not something this session's own research settles.
 
 ## Update (2026-09-09): `uniq_system_uuid` gave up its uniqueness too
 

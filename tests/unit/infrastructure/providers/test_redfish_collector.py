@@ -639,18 +639,26 @@ class TestPsuTelemetry:
         assert psu["power_watts"] == 245.0
 
 
-class TestModelFallback:
-    """`ComputerSystem.Model` blank/whitespace falls back to
-    `Chassis.ProductName` (ADR-0016, 2026-09-16 update).
+class TestChassisFallback:
+    """A blank `Model` or `SerialNumber` falls back to `Chassis.ProductName`/
+    `SerialNumber` (ADR-0016, 2026-09-16 update).
     """
 
-    def _with_chassis(self, *, model: str | None) -> dict[str, Any]:
+    def _with_chassis(
+        self,
+        *,
+        model: str | None = "PowerEdge R660",
+        serial: str | None = "FCH2201V0AB",
+        chassis_serial: str | None = "88712345000678901B",
+        chassis_systems: int = 1,
+    ) -> dict[str, Any]:
         resources = dict(minimal_service())
         system = dict(resources["/redfish/v1/Systems/1"])
-        if model is None:
-            del system["Model"]
-        else:
-            system["Model"] = model
+        for key, value in (("Model", model), ("SerialNumber", serial)):
+            if value is None:
+                system.pop(key, None)
+            else:
+                system[key] = value
         system["Links"] = {
             **system["Links"],
             "Chassis": [{"@odata.id": "/redfish/v1/Chassis/Self"}],
@@ -662,6 +670,12 @@ class TestModelFallback:
             "Id": "Self",
             "Name": "Chassis",
             "ProductName": "DGX H100",
+            "SerialNumber": chassis_serial,
+            "Links": {
+                "ComputerSystems": [
+                    {"@odata.id": f"/redfish/v1/Systems/{i}"} for i in range(chassis_systems)
+                ]
+            },
         }
         return resources
 
@@ -676,13 +690,37 @@ class TestModelFallback:
         assert servers[0].model == "DGX H100"
 
     async def test_a_real_model_is_never_replaced_by_the_chassis_name(self) -> None:
-        with RedfishFixture(resources=self._with_chassis(model="PowerEdge R660")) as fixture:
+        with RedfishFixture(resources=self._with_chassis()) as fixture:
             servers = await _collect(_provider(fixture.port))
         assert servers[0].model == "PowerEdge R660"
 
-    async def test_a_usable_model_costs_no_chassis_fetch(self) -> None:
+    async def test_falls_back_to_the_chassis_serial_when_serial_is_absent(self) -> None:
+        with RedfishFixture(resources=self._with_chassis(serial=None)) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].serial == "88712345000678901B"
+
+    async def test_falls_back_when_serial_is_whitespace_only(self) -> None:
+        with RedfishFixture(resources=self._with_chassis(serial="   ")) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].serial == "88712345000678901B"
+
+    async def test_a_real_serial_is_never_replaced_by_the_chassis_serial(self) -> None:
+        with RedfishFixture(resources=self._with_chassis()) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].serial == "FCH2201V0AB"
+
+    async def test_a_shared_chassis_serial_is_not_attributed_to_either_system(self) -> None:
+        """A chassis wholly containing more than one system cannot lend its
+        own serial to just one of them (DMTF Chassis.Links.ComputerSystems)."""
+        with RedfishFixture(
+            resources=self._with_chassis(serial=None, chassis_systems=2)
+        ) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].serial is None
+
+    async def test_both_fields_usable_costs_no_chassis_fetch(self) -> None:
         """A normal host must not pay for a request this fallback only needs
-        when `Model` is blank."""
+        when Model or SerialNumber is blank."""
 
         class _ExplodingClient:
             async def get(self, path: str) -> dict[str, Any]:
@@ -690,10 +728,11 @@ class TestModelFallback:
 
         system = {
             "Model": "PowerEdge R660",
+            "SerialNumber": "FCH2201V0AB",
             "Links": {"Chassis": [{"@odata.id": "/redfish/v1/Chassis/Self"}]},
         }
         provider = _provider(0)
-        assert await provider._chassis_product_name(_ExplodingClient(), system) is None
+        assert await provider._chassis_fallback(_ExplodingClient(), system) is None
 
 
 class TestFailureModes:

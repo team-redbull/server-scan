@@ -8,6 +8,50 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-16 — a blank Redfish `SerialNumber` falls back to
+`Chassis.SerialNumber`, closing the real duplicate-document bug the
+Model fallback's sibling investigation found.** The operator's own live
+testing found a DGX host reporting `SerialNumber: ""` (unprogrammed
+SMBIOS, not a transient failure) — `serial_normalized` empty means
+correlation never finds `existing`, so the collector's two runs at
+investigation time each minted a fresh document (`ocp4-five-
+bpod-compute-06`, two `_id`s, same BMC). Six other duplicate-name pairs
+in the same report were confirmed as **not** bugs — genuinely distinct
+machines sharing a name across vendors/domains, correct
+`(vendor, serial_normalized)` correlation behavior.
+
+**Researched against DMTF's schema before fixing** (the operator asked
+for this explicitly): `ComputerSystem.SerialNumber` and
+`Chassis.SerialNumber` are documented as two different things that can
+legitimately disagree; `Chassis.Links.ComputerSystems` can name more
+than one system, in which case that chassis's own serial cannot be
+safely attributed to just one of them. `mapping._chassis_serial` checks
+that reverse link and refuses the fallback above one system. `_dell_serial(
+system) or _clean_serial(system.get("SerialNumber")) or _chassis_serial(
+chassis)` — same precedence as before, one source appended.
+`_chassis_fallback()` (was `_chassis_product_name()`) now fetches the
+chassis for either a blank `Model` or `SerialNumber`; a record still
+serial-less after all three logs `redfish.no_serial` (previously
+silent). ADR-0016 has a second 2026-09-16 update ("continued") with the
+full citations.
+
+**Deliberately not done, pending an operator decision**: a serial-less
+ingest correlation guard (`(source_provider, network.bmc.host)` as a
+fallback key) and cleanup of the two documents this host had already
+accumulated — both bigger, riskier changes than what was asked for.
+
+Full backend gate clean, 1407 tests passing. New/renamed
+`test_redfish_chassis_fallback.py` (pure `_model`/`_chassis_serial`
+unit tests) plus an expanded `TestChassisFallback` in
+`test_redfish_collector.py` (absent/blank/whitespace/real-value for
+both fields, the multi-system collision guard, and the no-extra-request
+guarantee).
+**Open:** the ingest correlation guard and Mongo cleanup above; unchanged
+from prior entries — whether any real BMC populates `InputPowerWatts`,
+and whether `$expand` is actually honored beyond what's advertised.
+
+---
+
 **2026-09-16 — the server detail page shows a GPU-derived Model hint when
 the chassis never reported one, then a real fix landed for the more
 common case.** A DGX/HGX-class host's BMC often omits
