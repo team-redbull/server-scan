@@ -32,8 +32,8 @@ export function useToggleMaintenanceMutation() {
       enable ? enableMaintenance(id, reason ? { reason } : {}) : disableMaintenance(id),
     onSuccess: (server) => {
       queryClient.setQueryData(queryKeys.servers.detail(server.id), server);
-      // Patch, then refetch: under "Maintenance only" the row must leave
-      // the list at once, not on the next poll.
+      // Patch, then refetch: under the Maintenance filter the row must
+      // leave the list at once, not on the next poll.
       queryClient.setQueryData<ServerRowsResponse>(
         queryKeys.servers.rows(),
         (rows) =>

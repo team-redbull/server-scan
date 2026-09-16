@@ -47,7 +47,14 @@ Loaded only when a `frontend/` file is open.
   `"SourceSITE_CUSTOMMANAGER_CUSTOMVENDOR_CUSTOM…"` and collides with the
   Vendor field. ADR-0008 has the XPath workaround; the `labeledField`
   helper that implemented it was removed with the editor pages, so the
-  next form page will hit this cold.
+  next form page will hit this cold. **A second `getByLabel` trap, hit
+  renaming "Maintenance only" to "Maintenance" (2026-09-16, broke CI):**
+  `getByLabel` matches any accessible name, not just a `<label>` — the
+  inventory row's `aria-label="Put X into maintenance"` buttons made a
+  bare `getByLabel("Maintenance")` a 51-element strict-mode violation.
+  Scope with `getByRole("checkbox", { name: "Maintenance" })` instead —
+  substring matching still survives the checked state's `" (N)"` suffix,
+  but `role: "checkbox"` excludes every button.
 - **The Architecture page (`/architecture`) embeds pre-generated static
   HTML**, never live data: `frontend/public/architecture/*.html`, built
   from `docs/diagrams/*.json` with the `archify` skill

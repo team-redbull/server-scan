@@ -631,3 +631,20 @@ the two existing `ocp4-five-bpod-compute-06` documents — both parked
 pending an operator decision, from the previous unit; unchanged from
 prior entries — whether any real BMC populates `InputPowerWatts`, and
 whether `$expand` is actually honored beyond what's advertised.
+
+**Postscript, same day: this unit's label rename broke CI's E2E job.**
+`frontend/e2e/maintenance.spec.ts` still used `getByLabel("Maintenance
+only")`, which no longer exists — the local frontend gate does not run
+Playwright (`npm run test:e2e` needs a live backend+frontend, not part
+of `npm run lint/typecheck/test/build`), so this reached CI, not review.
+Fixing it surfaced a second, previously-latent `getByLabel` trap now in
+`.claude/rules/frontend.md`: a bare `getByLabel("Maintenance")` is a
+51-element strict-mode violation because it matches every row's `Put X
+into maintenance`/`End maintenance on X` button `aria-label`, not just
+the checkbox — `getByRole("checkbox", { name: "Maintenance" })` is the
+fix. Verified by actually running the full local Playwright suite
+(`gh run view --log-failed` to find the failure, then a local Chromium
+run against seeded data) rather than trusting the text-diff alone —
+10/10 E2E passing before pushing. **Lesson for next time a filter label
+changes: grep `frontend/e2e/*.spec.ts` for the old text before calling
+a rename done**, since nothing else catches it before CI.

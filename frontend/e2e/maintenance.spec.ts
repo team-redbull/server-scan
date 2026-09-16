@@ -51,11 +51,12 @@ test.describe("Maintenance", () => {
     const detail = await (await request.get(`/api/v1/servers/${server.id}`)).json();
     expect(detail.maintenance.reason).toBe("e2e list toggle");
 
-    // Under "Maintenance only" the row must LEAVE the list the moment it
-    // leaves maintenance: the mutation patches the cached fleet, and the
+    // Under the Maintenance filter the row must LEAVE the list the moment
+    // it leaves maintenance: the mutation patches the cached fleet, and the
     // server clears its rows/list cache so the next poll agrees (ADR-0028).
-    await page.getByLabel("Maintenance only").click();
-    await expect(page.getByLabel("Maintenance only")).toBeChecked();
+    const maintenanceFilter = page.getByRole("checkbox", { name: "Maintenance" });
+    await maintenanceFilter.click();
+    await expect(maintenanceFilter).toBeChecked();
     await expect(page.getByRole("link", { name: server.name })).toBeVisible();
 
     await page.getByRole("button", { name: `End maintenance on ${server.name}` }).click();
