@@ -66,6 +66,46 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
   };
 }
 
+describe("OverviewTab model", () => {
+  it("shows the chassis's own model when it read one", () => {
+    render(<OverviewTab server={makeServer({ model: "PowerEdge R6515" })} />);
+    expect(screen.getByText("PowerEdge R6515")).toBeInTheDocument();
+    expect(screen.queryByText(/from GPU/)).not.toBeInTheDocument();
+  });
+
+  it("shows a labeled GPU-derived hint when the chassis never reported a model", () => {
+    const server = makeServer({ model: null });
+    server.hardware.gpus = [
+      {
+        vendor: "NVIDIA",
+        model: "NVIDIA A100 80GB",
+        serial: null,
+        memory_bytes: null,
+        health: null,
+        health_detail: null,
+        pci_address: null,
+        firmware_version: null,
+        memory_type: null,
+        ecc_mode_enabled: null,
+        correctable_error_count: null,
+        uncorrectable_error_count: null,
+        temperature_celsius: null,
+        power_watts: null,
+      },
+    ];
+
+    render(<OverviewTab server={server} />);
+
+    expect(screen.getByText("A100")).toBeInTheDocument();
+    expect(screen.getByText("(from GPU)")).toBeInTheDocument();
+  });
+
+  it("falls back to a dash when neither the chassis nor a GPU reported a model", () => {
+    render(<OverviewTab server={makeServer({ model: null })} />);
+    expect(screen.getByText("Model").nextElementSibling).toHaveTextContent("—");
+  });
+});
+
 describe("OverviewTab maintenance", () => {
   it("says a server is not in maintenance, and offers no way to change that", () => {
     render(<OverviewTab server={makeServer()} />);

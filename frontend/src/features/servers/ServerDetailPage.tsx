@@ -7,6 +7,15 @@ import { HardwareTab } from "@/features/servers/HardwareTab";
 import { useServerDetailQuery } from "@/features/servers/hooks";
 import { NetworkTab } from "@/features/servers/NetworkTab";
 import { OverviewTab } from "@/features/servers/OverviewTab";
+import { inferredGpuModel } from "@/lib/gpuModel";
+import type { GpuInfo } from "@/types/server";
+
+/** The header's Model line — a short GPU-derived hint when the chassis
+ * never reported one, never written back to `Server.model` itself. */
+function modelHint(gpus: GpuInfo[]): string {
+  const inferred = inferredGpuModel(gpus);
+  return inferred ? `${inferred} (from GPU)` : "—";
+}
 
 const TABS = ["overview", "hardware", "network", "connectivity"] as const;
 type TabId = (typeof TABS)[number];
@@ -45,7 +54,7 @@ export function ServerDetailPage() {
       {data && (
         <>
           <h1 className="mt-4 text-2xl font-semibold">{data.name}</h1>
-          <p className="text-sm text-gray-500">{data.model ?? "—"}</p>
+          <p className="text-sm text-gray-500">{data.model ?? modelHint(data.hardware.gpus)}</p>
 
           <div className="mt-6 border-b border-gray-200 dark:border-gray-700">
             <nav className="-mb-px flex gap-4" aria-label="Server detail tabs">

@@ -4,6 +4,7 @@ import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
+import { inferredGpuModel } from "@/lib/gpuModel";
 import type { HealthSummary, ServerDetail } from "@/types/server";
 
 interface OverviewTabProps {
@@ -28,7 +29,7 @@ export function OverviewTab({ server }: OverviewTabProps) {
     <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
       <Field label="Name" value={server.name} />
       <Field label="Vendor" value={server.identity?.vendor ?? "unknown"} />
-      <Field label="Model" value={server.model ?? "—"} />
+      <Field label="Model" value={<ModelValue server={server} />} />
       {profileTemplateLabel && (
         <Field label={profileTemplateLabel} value={server.profile_template.name ?? "—"} />
       )}
@@ -77,6 +78,22 @@ export function OverviewTab({ server }: OverviewTabProps) {
       />
       <Field label="Updated" value={formatTimestamp(server.updated_at)} />
     </dl>
+  );
+}
+
+/** Falls back to a short GPU-derived hint when the chassis itself never
+ * reported a Model — never written back to `server.model` itself. */
+function ModelValue({ server }: { server: ServerDetail }) {
+  if (server.model) return <>{server.model}</>;
+
+  const inferred = inferredGpuModel(server.hardware.gpus);
+  if (!inferred) return <>—</>;
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {inferred}
+      <span className="text-xs text-[var(--text-secondary)]">(from GPU)</span>
+    </span>
   );
 }
 

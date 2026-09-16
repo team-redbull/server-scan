@@ -583,46 +583,35 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-16 — the PCIeDevice GPU-model table is now operator-extensible,
-same as `INVENTORY_GPU_MODELS` already is for `GpuCatalog`.** Moved to
-`docs/notes/session-log.md`: 2026-09-15/16's PSU-telemetry and
-PCIeDevice-GPU-model work (ADR-0016's dated updates carry that
-narrative). The operator asked, reasonably, why the PCI ID table
-(`_NVIDIA_PCI_DEVICE_MODELS` at the time) was hardcoded when
-`GpuCatalog`'s own equivalent is not.
+**2026-09-16 — the server detail page shows a GPU-derived Model hint when
+the chassis never reported one.** Moved to `docs/notes/session-log.md`:
+the PCIeDevice GPU-model table's operator-extensibility work (and the
+same-day `values.yaml` PCIe-GPU-defaults commit, d25cdf4, that had
+landed with no CLAUDE.md entry of its own).
 
-**Built:** `INVENTORY_REDFISH_PCIE_GPU_MODELS` (`"vendor_id:device_id:Model
-Name"`, comma-separated), parsed by `parse_pcie_gpu_models` and merged
-over the built-in table by `factory._pcie_gpu_models` — mirroring
-`gpu_catalog(settings.gpu_models)`'s own merge over `GpuCatalog`'s
-built-in table exactly. Renamed the built-in table
-`_BUILTIN_PCI_DEVICE_MODELS` and rekeyed it `(vendor_id, device_id) ->
-model` (was NVIDIA-only, keyed by device ID alone) so an operator entry
-can name **any** vendor — directly closing the "AMD/Intel unresearched"
-gap without this codebase researching them itself.
+**The gap:** a DGX/HGX-class host's BMC often omits
+`ComputerSystem.Model` entirely, so the detail page's "Model" field
+showed "—" even though the same server's GPUs were already correctly
+enriched via `GpuCatalog` (e.g. "NVIDIA A100 80GB" in the Hardware tab).
+Operator asked for the short form ("A100") to show on the server too.
 
-**Also expanded the built-in table** with every plausible device ID
-from the original research pass: Tesla P100 12GB/16GB (already
-catalog-matchable), A800 40GB/80GB, H800, and A10G. The latter three
-needed new `gpu_models.py` rows/aliases — A800 40GB sourced from
-NVIDIA's own datasheet, A800/H800 80GB from Lenovo's OEM product guide
-(neither has a public NVIDIA page — confirmed), A10G as a new alias on
-the existing A10 row per AWS's own datasheet confirming the identical
-24GB. Pre-Pascal Tesla IDs (Fermi/Kepler/Maxwell) deliberately excluded
-— out of scope for the DGX/HGX-class fleet this feature targets, and
-`gpu_models.py`'s own sourcing standard forbids guessing VRAM for
-hardware this platform has no evidence any real estate still runs.
+**Confirmed design, after raising a fabrication concern:** `Server.model`
+— the database field and the API response — stays untouched; writing
+GPU-derived data into a field whose meaning is "what the chassis
+reported" would be exactly the guessing the provider contract forbids
+(`None` means "could not read", never a stand-in value). The hint is
+UI-only: `frontend/src/lib/gpuModel.ts`'s `inferredGpuModel` strips the
+vendor prefix and capacity suffix off the GPU's already-enriched model
+("NVIDIA A100 80GB" -> "A100"), dedupes identical GPUs on a homogeneous
+node, and joins distinct ones. Wired into `OverviewTab`'s Model field
+and `ServerDetailPage`'s header subtitle, always labeled "(from GPU)" so
+it can never be mistaken for a value the chassis actually reported.
+ADR-0021 has a second 2026-09-16 update recording this.
 
-Helm/`.env.example` wired: `INVENTORY_REDFISH_PCIE_GPU_MODELS` in both
-`values.yaml` (`collectors.redfishStandalone.pcieGpuModels`) and both
-CronJobs, and a real, sourced example in `.env.example` (an AMD ID, the
-one class the built-in table still can't resolve on its own).
-
-Full gate clean; `test_redfish_pci_ids.py` covers the parser, the
-operator-override-wins-over-built-in case, and an end-to-end
-`GpuCatalog.enrich()` proof (the real catalog, not a stub) that a
-resolved model string actually enriches VRAM.
-**Open:** whether any real BMC populates `InputPowerWatts`, and whether
-`$expand` is actually honored beyond what's advertised — both need
-further live runs to settle, not something this session can confirm
-further on its own.
+Full frontend gate clean (`npm run lint && typecheck && test -- --run
+&& build`); new `gpuModel.test.ts` plus `OverviewTab.test.tsx` cases
+cover the strip/dedupe/join logic and both the labeled-hint and
+plain-dash render paths.
+**Open:** unchanged from the prior entry — whether any real BMC
+populates `InputPowerWatts`, and whether `$expand` is actually honored
+beyond what's advertised, both need further live runs to settle.

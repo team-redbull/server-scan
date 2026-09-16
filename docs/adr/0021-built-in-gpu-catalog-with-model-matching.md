@@ -250,3 +250,22 @@ and adding VRAM rows for decade-old hardware this platform has no
 evidence any real estate still runs would be exactly the "guessed
 because it seemed plausible" this ADR's sourcing standard exists to
 prevent.
+
+## Update, 2026-09-16: the detail page's Model field, not `Server.model`
+
+A DGX/HGX-class host's BMC frequently omits `ComputerSystem.Model`
+entirely, so `Server.model` (and the "Model" row on the detail page)
+showed a bare "—" even when the same server's GPUs were already
+correctly enriched via this catalog (e.g. "NVIDIA A100 80GB"). Operator
+request: show a short hint ("A100") there too.
+
+**`Server.model` itself is untouched** — this stays a UI-only fallback
+in `frontend/src/lib/gpuModel.ts`'s `inferredGpuModel`, never written to
+the stored field or the API response. Overwriting a `None` field with
+GPU-derived data would be exactly the fabrication this platform's
+provider contract forbids (`None` means "could not read", never a
+guess). The hint strips the vendor prefix and capacity suffix off the
+already-enriched `GpuInfo.model` ("NVIDIA A100 80GB" -> "A100"),
+dedupes across a homogeneous node's identical GPUs, and is always
+labeled "(from GPU)" so it is never mistaken for a value the chassis
+actually reported.

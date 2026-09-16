@@ -8,6 +8,55 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-16 — the PCIeDevice GPU-model table is now operator-extensible,
+same as `INVENTORY_GPU_MODELS` already is for `GpuCatalog`.** The
+operator asked, reasonably, why the PCI ID table
+(`_NVIDIA_PCI_DEVICE_MODELS` at the time) was hardcoded when
+`GpuCatalog`'s own equivalent is not.
+
+**Built:** `INVENTORY_REDFISH_PCIE_GPU_MODELS` (`"vendor_id:device_id:Model
+Name"`, comma-separated), parsed by `parse_pcie_gpu_models` and merged
+over the built-in table by `factory._pcie_gpu_models` — mirroring
+`gpu_catalog(settings.gpu_models)`'s own merge over `GpuCatalog`'s
+built-in table exactly. Renamed the built-in table
+`_BUILTIN_PCI_DEVICE_MODELS` and rekeyed it `(vendor_id, device_id) ->
+model` (was NVIDIA-only, keyed by device ID alone) so an operator entry
+can name **any** vendor — directly closing the "AMD/Intel unresearched"
+gap without this codebase researching them itself.
+
+**Also expanded the built-in table** with every plausible device ID
+from the original research pass: Tesla P100 12GB/16GB (already
+catalog-matchable), A800 40GB/80GB, H800, and A10G. The latter three
+needed new `gpu_models.py` rows/aliases — A800 40GB sourced from
+NVIDIA's own datasheet, A800/H800 80GB from Lenovo's OEM product guide
+(neither has a public NVIDIA page — confirmed), A10G as a new alias on
+the existing A10 row per AWS's own datasheet confirming the identical
+24GB. Pre-Pascal Tesla IDs (Fermi/Kepler/Maxwell) deliberately excluded
+— out of scope for the DGX/HGX-class fleet this feature targets, and
+`gpu_models.py`'s own sourcing standard forbids guessing VRAM for
+hardware this platform has no evidence any real estate still runs.
+
+Helm/`.env.example` wired: `INVENTORY_REDFISH_PCIE_GPU_MODELS` in both
+`values.yaml` (`collectors.redfishStandalone.pcieGpuModels`) and both
+CronJobs, and a real, sourced example in `.env.example` (an AMD ID, the
+one class the built-in table still can't resolve on its own).
+
+Full gate clean; `test_redfish_pci_ids.py` covers the parser, the
+operator-override-wins-over-built-in case, and an end-to-end
+`GpuCatalog.enrich()` proof (the real catalog, not a stub) that a
+resolved model string actually enriches VRAM.
+
+Separately shipped the same day (d25cdf4, no CLAUDE.md entry at the
+time): `values.yaml`'s PCIe GPU defaults flipped to fleet-appropriate —
+`pcieGpuDetection: true`, `pcieGpuMaxDevices: 250` (real hosts measured
+133-214), `hostBudgetSeconds: 600` (a slow-path host measured ~6.5 min).
+
+**Open at the time:** whether any real BMC populates `InputPowerWatts`,
+and whether `$expand` is actually honored beyond what's advertised —
+both needed further live runs to settle.
+
+---
+
 **2026-09-15/16 — PSU draw and PCIeDevice GPU model both went from
 "unknown" to real data; the PCI ID table then made operator-extensible.**
 Continuing the same day's GPU-baseboard-tray and PCIeDevice-fallback
