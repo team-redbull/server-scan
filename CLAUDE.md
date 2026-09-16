@@ -583,44 +583,51 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-16 — a blank Redfish `SerialNumber` now falls back to
-`Chassis.SerialNumber` too, closing a real duplicate-document bug; a
-`Duplicate` inventory filter/metric and label cleanup are next.** Moved
-to `docs/notes/session-log.md`: the Model-only fallback this extends,
-the frontend GPU-derived Model hint, and the PCIeDevice GPU-model
-table's operator-extensibility work.
+**2026-09-16 — a `Duplicate` inventory filter and two fleet gauges for
+name collisions, plus the "Maintenance only"/"Stale only" label
+cleanup.** Moved to `docs/notes/session-log.md`: the Redfish
+`SerialNumber` fallback this follows on from, the Model-only fallback it
+extended, the frontend GPU-derived Model hint, and the PCIeDevice
+GPU-model table's operator-extensibility work.
 
-**The bug:** operator's own duplicate-server investigation
-(`ocp4-five-bpod-compute-06`, two documents, one per CronJob run) traced
-to a DGX host reporting `SerialNumber: ""` — `serial_normalized` empty
-means correlation never finds `existing`. Six other duplicate-name pairs
-in the same report were confirmed **not** bugs (distinct machines
-sharing a name; correct `(vendor, serial_normalized)` behavior).
+**Why:** the same duplicate-server investigation that found the real
+serial bug also confirmed six other duplicate-name pairs as **not**
+bugs — distinct machines sharing a name across vendors/domains, correct
+`(vendor, serial_normalized)` correlation. Both classes deserve
+visibility either way, so the operator asked for a way to see every
+name collision in the UI and a metric for it, on top of the code fix.
 
-**Built, researched against DMTF's schema first** (`ComputerSystem.
-SerialNumber` vs `Chassis.SerialNumber` are documented as two different
-things that can legitimately disagree; `Chassis.Links.ComputerSystems`
-can name more than one system, in which case that chassis's serial
-isn't safely attributable to just one): `mapping._chassis_serial` adds
-that source at the end of the existing precedence
-(`_dell_serial(system) or _clean_serial(system.get("SerialNumber")) or
-_chassis_serial(chassis)`), refusing it when the chassis wholly contains
-more than one system. `_chassis_fallback()` (was `_chassis_product_
-name()`) now triggers on either field being blank; a still-serial-less
-record logs `redfish.no_serial` (previously silent). ADR-0016's second
-2026-09-16 update ("continued") has the full citations.
-**Deliberately parked**: a serial-less ingest correlation guard and
-cleanup of the two existing duplicate documents — both bigger,
-operator-side decisions, not something this fix's own scope covers.
+**Built:**
+- `features/inventory/rows.ts`'s `filterRows` gained a `duplicate`
+  filter: `nameCounts()` counts rows per `name` over the *whole* fleet
+  given (not an already-filtered subset — a pair split by another active
+  filter would each look unique otherwise), entirely client-side, no new
+  endpoint (ADR-0033). A `Duplicate` checkbox sits beside Maintenance/
+  Stale in `InventoryPage.tsx`.
+- Renamed "Maintenance only"/"Stale only" to "Maintenance"/"Stale" (no
+  product meaning change — three consistent labels, the operator found
+  "only" redundant once there were three toggles).
+- Two new unlabeled Prometheus gauges, `server_scan_duplicate_name_
+  groups`/`_servers`, computed in the same `fleet_snapshot` `$facet`
+  pipeline as everything else in ADR-0029 (`$group` by `name`, `$match`
+  on `count > 1`) — plus matching `:max` recording rules in the chart's
+  `PrometheusRule`. No alert yet: a collision isn't inherently urgent
+  (6 of 7 in the investigation were fine).
 
-**Still requested, not yet done**: a `Duplicate` toggle next to
-Maintenance/Stale (client-side, by `ServerRow.name` collision — no API
-change, per ADR-0033), a metric for it, and renaming "Maintenance
-only"/"Stale only" to "Maintenance"/"Stale"/"Duplicate" (no "only").
+ADR-0029 has a new dated update with the full table; ADR-0016's
+2026-09-16 "continued" update (previous entry) has the serial-fallback
+research and citations this follows.
 
-Full backend gate clean, 1407 tests passing. New/renamed
-`test_redfish_chassis_fallback.py` plus an expanded `TestChassisFallback`
-in `test_redfish_collector.py`.
-**Open:** the ingest correlation guard and Mongo cleanup above; unchanged
-from prior entries — whether any real BMC populates `InputPowerWatts`,
-and whether `$expand` is actually honored beyond what's advertised.
+Full gate clean: backend (`ruff`/`ty`/comment-density/`lint-imports`/
+`pytest`, 1408 passed, `helm lint`/`template` for the new recording
+rules) and frontend (`lint`/`typecheck`/`test -- --run`, 123 passed/
+`build`). New tests: `rows.test.ts`'s duplicate cases (including the
+split-by-another-filter case), an `InventoryPage.test.tsx` end-to-end
+case, `test_fleet_snapshot.py`'s duplicate-names integration test (both
+shapes: same-vendor-empty-serial and different-vendor-same-name), and
+`test_fleet_gauges.py`'s two new assertions.
+**Open:** the serial-less ingest correlation guard and Mongo cleanup of
+the two existing `ocp4-five-bpod-compute-06` documents — both parked
+pending an operator decision, from the previous unit; unchanged from
+prior entries — whether any real BMC populates `InputPowerWatts`, and
+whether `$expand` is actually honored beyond what's advertised.

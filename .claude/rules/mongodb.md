@@ -72,6 +72,10 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   label set is cleared each refresh; `servers_partial` ignores a field
   unread on *every* one of a collector's servers. **`Manager.last_run`
   survives `upsert`** because that is a `$set`, not a replace — keep it so.
+  **`duplicate_name_groups`/`_servers`** (2026-09-16) are one more facet
+  in the same `$facet` pipeline — `$group` by `name`, `$match` on
+  `count > 1` — deliberately unlabeled like `servers_in_maintenance`,
+  since a name collision has no dimension worth breaking out yet.
 - **`Manager` carries only what is read**: five never-written fields and
   an index on one were removed 2026-09-13; the index is in
   `RETIRED_INDEXES`.

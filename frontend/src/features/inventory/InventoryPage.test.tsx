@@ -203,7 +203,7 @@ describe("InventoryPage", () => {
     expect(screen.getByText("1 server")).toBeInTheDocument();
   });
 
-  it("keeps only stale rows when Stale only is ticked, and marks stale rows", async () => {
+  it("keeps only stale rows when Stale is ticked, and marks stale rows", async () => {
     mockRows(() =>
       jsonResponse(
         rowsResponse([
@@ -226,7 +226,7 @@ describe("InventoryPage", () => {
     // The chip marks the stale row even with no filter applied.
     expect(screen.getByText("Stale 20h")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText(/Stale only/));
+    fireEvent.click(screen.getByLabelText(/^Stale/));
 
     await waitFor(() => {
       expect(router.state.location.search).toContain("stale=true");
@@ -234,8 +234,35 @@ describe("InventoryPage", () => {
     expect(screen.queryByText("fresh-01")).not.toBeInTheDocument();
     expect(screen.getByText("stale-01")).toBeInTheDocument();
     // The toggles count only while ticked — no "(21)" on an option nobody chose.
-    expect(screen.getByLabelText(/Stale only \(1\)/)).toBeChecked();
-    expect(screen.getByLabelText(/^Maintenance only$/)).not.toBeChecked();
+    expect(screen.getByLabelText(/^Stale \(1\)/)).toBeChecked();
+    expect(screen.getByLabelText(/^Maintenance$/)).not.toBeChecked();
+  });
+
+  it("keeps only rows sharing a name when Duplicate is ticked", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ id: "srv_hp", name: "ocp4-five-compute-06", vendor: "hp" }),
+          makeServer({ id: "srv_cisco", name: "ocp4-five-compute-06", vendor: "cisco" }),
+          makeServer({ id: "srv_unique", name: "ocp4-five-compute-07" }),
+        ]),
+      ),
+    );
+
+    const { router } = renderInventoryPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("ocp4-five-compute-06")).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByLabelText(/^Duplicate/));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("duplicate=true");
+    });
+    expect(screen.getAllByText("ocp4-five-compute-06")).toHaveLength(2);
+    expect(screen.queryByText("ocp4-five-compute-07")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Duplicate \(2\)/)).toBeChecked();
   });
 
   it("searches by substring across name, serial, BMC host and MAC", async () => {

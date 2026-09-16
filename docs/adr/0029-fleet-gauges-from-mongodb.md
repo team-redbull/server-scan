@@ -176,7 +176,8 @@ deleted so the correction is visible.
   string exactly as the gauge assumes (ADR-0006's string rule). The two
   clocks can disagree by skew and nothing more.
 - **In the UI**: a `Stale only` checkbox (with its facet count) beside
-  `Maintenance only`; a `Stale 20h` chip in the State column next to the
+  `Maintenance only` (both renamed to drop "only", 2026-09-16 update
+  below); a `Stale 20h` chip in the State column next to the
   severity badge — outside the severity palette, no glyph, wrapping under
   the badge rather than widening the column (measured: the stale chip adds
   zero width at 1440px) — so a stale row stands out unfiltered, which was
@@ -187,3 +188,26 @@ Deliberately not added: a `Seen` column (built, measured, removed — it
 pushed the Maintenance column off a 1440px viewport and duplicated the
 chip's age on every fresh row), and a per-site stale count on the sites
 overview (needs `site_breakdown` extended; nothing asked for it yet).
+
+## Update (2026-09-16): duplicate-name gauges and the UI toggle for them
+
+From the same duplicate-server investigation as ADR-0016's 2026-09-16
+serial-fallback update — a real bug (one machine, two documents, empty
+serial) surfaced alongside six confirmed-not-bugs (distinct machines
+sharing a name across vendors/domains). The serial fix closes the first
+class going forward; both classes still deserve visibility, since a
+name collision — bug or not — is worth an operator's attention.
+
+| Gauge | Labels | Answers |
+|---|---|---|
+| `server_scan_duplicate_name_groups` | — | Distinct server names more than one document currently shares |
+| `server_scan_duplicate_name_servers` | — | Servers caught in one of those groups (always ≥ 2x the group count) |
+
+Computed in the same `fleet_snapshot` `$facet` as everything else above:
+`$group` by `name`, `$match` on `count > 1`. **In the UI**: a `Duplicate`
+checkbox beside `Maintenance` and `Stale` (both renamed to drop "only"
+the same day — no product meaning change, just three consistent labels)
+— entirely client-side, matching `ServerRow.name` collisions over the
+whole polled fleet (`rows.ts`'s `nameCounts`, computed before other
+filters narrow the set, or a collision split by an unrelated filter
+would look unique). No new endpoint, per ADR-0033.

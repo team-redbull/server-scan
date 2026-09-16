@@ -37,12 +37,14 @@ def _server(
     reported_ago: timedelta | None = None,
     unread: tuple[str, ...] = (),
     policies: tuple[str, ...] = (),
+    vendor: Vendor = Vendor.DELL,
+    serial: str | None = None,
 ) -> Server:
     """
     Build one stored server with just the fields the snapshot reads.
 
     Args:
-        name (str): Server name, also its serial.
+        name (str): Server name.
         provider (str): The `source_provider` to store.
         seen_ago (timedelta | None): How long ago it was last seen, or
             `None` for never.
@@ -53,6 +55,10 @@ def _server(
         reported_ago (timedelta | None): How long ago that cluster reported.
         unread (tuple[str, ...]): `unread_fields` to store.
         policies (tuple[str, ...]): `health.active_policy_keys` to store.
+        vendor (Vendor): The stored `identity.vendor`.
+        serial (str | None): The stored serial; `None` defaults to
+            `name`, `""` builds a genuinely serial-less server (the
+            `uniq_vendor_serial` index excludes an empty one).
 
     Returns:
         Server: A server ready to upsert.
@@ -65,11 +71,16 @@ def _server(
             cluster_name=cluster,
             last_reported_at=now - (reported_ago or timedelta(0)),
         )
+    resolved_serial = name if serial is None else serial
     return Server(
         _id=new_id("server"),
         name=name,
         name_normalized=normalize_text(name),
-        identity=Identity(vendor=Vendor.DELL, serial=name, serial_normalized=normalize_text(name)),
+        identity=Identity(
+            vendor=vendor,
+            serial=resolved_serial or None,
+            serial_normalized=normalize_text(resolved_serial),
+        ),
         source_provider=provider,
         health=Health(overall=health, active_policy_keys=list(policies)),
         maintenance=Maintenance(enabled=maintenance),
@@ -184,6 +195,48 @@ async def test_fleet_snapshot_on_an_empty_fleet(mongo_holder: MongoClientHolder)
     assert snapshot.by_health == {}
     assert snapshot.by_policy == {}
     assert snapshot.in_maintenance == 0
+    assert snapshot.duplicate_name_groups == 0
+    assert snapshot.duplicate_name_servers == 0
+
+
+async def test_fleet_snapshot_counts_duplicate_names(mongo_holder: MongoClientHolder) -> None:
+    """Both real duplicate-server shapes from docs/adr/0016's 2026-09-16
+    investigation: one machine with two empty-serial documents (a
+    platform bug), and two different vendors sharing a name (not a bug).
+    """
+    repo = MongoServerRepository(mongo_holder, cursor_secret="t")
+    for server in (
+        _server(
+            "ocp4-five-bpod-compute-06",
+            provider="REDFISH_STANDALONE",
+            seen_ago=timedelta(0),
+            vendor=Vendor.STANDALONE,
+            serial="",
+        ),
+        _server(
+            "ocp4-five-bpod-compute-06",
+            provider="REDFISH_STANDALONE",
+            seen_ago=timedelta(minutes=18),
+            vendor=Vendor.STANDALONE,
+            serial="",
+        ),
+        _server(
+            "ocp4-five-compute-06", provider="ONEVIEW", seen_ago=timedelta(0), vendor=Vendor.HP
+        ),
+        _server(
+            "ocp4-five-compute-06",
+            provider="UCS_CENTRAL",
+            seen_ago=timedelta(0),
+            vendor=Vendor.CISCO,
+            serial="FDT31052M07",
+        ),
+        _server("unique-1", provider="OPENMANAGE", seen_ago=timedelta(0)),
+    ):
+        await repo.upsert(server)
+
+    snapshot = await repo.fleet_snapshot(stale_before=utcnow() - timedelta(hours=12))
+    assert snapshot.duplicate_name_groups == 2
+    assert snapshot.duplicate_name_servers == 4
 
 
 async def test_fleet_snapshot_reads_documents_written_before_the_new_fields(

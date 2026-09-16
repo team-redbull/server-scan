@@ -69,6 +69,33 @@ describe("filterRows", () => {
     ).toEqual(["srv-2"]);
     expect(filterRows(FLEET, { site_id: "tlv" })).toHaveLength(2);
   });
+
+  it("keeps every row sharing a name with another row, and only those", () => {
+    const fleet = [
+      row({ name: "ocp4-five-compute-06", vendor: "hp" }),
+      row({ name: "ocp4-five-compute-06", vendor: "cisco" }),
+      row({ name: "ocp4-five-compute-07" }),
+    ];
+    expect(filterRows(fleet, { duplicate: true }).map((r) => r.vendor)).toEqual(
+      ["hp", "cisco"],
+    );
+  });
+
+  it("still finds a duplicate pair split by another active filter", () => {
+    // Filtering by vendor alone would hide one side of the pair; the
+    // duplicate count must still be computed over the whole fleet.
+    const fleet = [
+      row({ name: "ocp4-five-compute-06", vendor: "hp" }),
+      row({ name: "ocp4-five-compute-06", vendor: "cisco" }),
+    ];
+    expect(
+      filterRows(fleet, { duplicate: true, vendor: "hp" }).map((r) => r.name),
+    ).toEqual(["ocp4-five-compute-06"]);
+  });
+
+  it("finds nothing when no name repeats", () => {
+    expect(filterRows(FLEET, { duplicate: true })).toHaveLength(0);
+  });
 });
 
 describe("searchRows", () => {

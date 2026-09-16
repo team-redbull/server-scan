@@ -45,6 +45,8 @@ def _snapshot(**overrides: Any) -> FleetSnapshot:
         "by_health": {"HEALTHY": 7, "CRITICAL": 3},
         "by_policy": {"power.failed_psu": 3},
         "in_maintenance": 2,
+        "duplicate_name_groups": 1,
+        "duplicate_name_servers": 2,
     }
     base.update(overrides)
     return FleetSnapshot(**base)
@@ -162,6 +164,8 @@ def test_apply_snapshot_sets_every_gauge() -> None:
     assert _value("server_scan_cluster_servers_held", cluster="hc-tlv-01") == 4
     assert _value("server_scan_servers_by_health", severity="CRITICAL") == 3
     assert _value("server_scan_servers_in_maintenance") == 2
+    assert _value("server_scan_duplicate_name_groups") == 1
+    assert _value("server_scan_duplicate_name_servers") == 2
     assert _value("server_scan_servers_partial", source_provider="OPENMANAGE") == 2
     assert _value("server_scan_policy_active", policy_key="power.failed_psu") == 3
     assert (

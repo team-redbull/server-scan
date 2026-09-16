@@ -115,6 +115,14 @@ servers_in_maintenance = Gauge(
     "server_scan_servers_in_maintenance",
     "Servers currently in maintenance mode",
 )
+duplicate_name_groups = Gauge(
+    "server_scan_duplicate_name_groups",
+    "Distinct server names shared by more than one document",
+)
+duplicate_name_servers = Gauge(
+    "server_scan_duplicate_name_servers",
+    "Servers whose name is shared by another server's document",
+)
 fleet_snapshot_failures_total = Counter(
     "server_scan_fleet_snapshot_failures_total",
     "Fleet gauge refreshes that failed, leaving the previous values in place",

@@ -64,6 +64,10 @@ spec:
           expr: max by (namespace, severity) (server_scan_servers_by_health)
         - record: server_scan:servers_in_maintenance:max
           expr: max by (namespace) (server_scan_servers_in_maintenance)
+        - record: server_scan:duplicate_name_groups:max
+          expr: max by (namespace) (server_scan_duplicate_name_groups)
+        - record: server_scan:duplicate_name_servers:max
+          expr: max by (namespace) (server_scan_duplicate_name_servers)
         # Age in seconds, so a dashboard needs no arithmetic.
         - record: server_scan:collector_silent_seconds
           expr: time() - max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)

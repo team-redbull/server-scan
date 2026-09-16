@@ -18,6 +18,7 @@ export interface RowFilters {
   health?: string;
   maintenance?: true;
   stale?: true;
+  duplicate?: true;
 }
 
 export interface FacetCounts {
@@ -40,10 +41,32 @@ const COLLATOR = new Intl.Collator("en", {
 const HEX_LIKE = /^[0-9a-f:-]+$/i;
 
 /**
+ * How many rows in the given set share each name — the estate-side
+ * naming collisions a name-derived duplicate can't tell apart from a
+ * genuine platform bug (docs/adr/0016's duplicate-server update).
+ *
+ * Args:
+ *   rows (ServerRow[]): The set to count within — the whole fleet, not
+ *     an already-filtered subset, or a pair split by another filter
+ *     would each look unique.
+ *
+ * Returns:
+ *   Map<string, number>: Row count per `name`.
+ */
+function nameCounts(rows: ServerRow[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.name, (counts.get(row.name) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
  * Keep the rows every set filter matches; `search` is applied last.
  *
  * Args:
- *   rows (ServerRow[]): The fleet.
+ *   rows (ServerRow[]): The fleet — always the whole thing, even when a
+ *     `duplicate` filter is also set (see `nameCounts`).
  *   filters (RowFilters): Empty strings and unset keys are "any".
  *
  * Returns:
@@ -53,6 +76,7 @@ export function filterRows(
   rows: ServerRow[],
   filters: RowFilters,
 ): ServerRow[] {
+  const counts = filters.duplicate ? nameCounts(rows) : null;
   const kept = rows.filter(
     (row) =>
       (!filters.vendor || row.vendor === filters.vendor) &&
@@ -66,7 +90,8 @@ export function filterRows(
         row.openshift_state === filters.openshift_state) &&
       (!filters.health || row.health === filters.health) &&
       (!filters.maintenance || row.maintenance.enabled) &&
-      (!filters.stale || row.stale),
+      (!filters.stale || row.stale) &&
+      (!counts || (counts.get(row.name) ?? 0) > 1),
   );
   return searchRows(kept, filters.search ?? "");
 }

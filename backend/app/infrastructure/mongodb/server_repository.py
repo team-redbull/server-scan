@@ -432,6 +432,10 @@ class MongoServerRepository:
                         {"$match": {"maintenance.enabled": True}},
                         {"$count": "count"},
                     ],
+                    "duplicate_names": [
+                        {"$group": {"_id": "$name", "count": {"$sum": 1}}},
+                        {"$match": {"count": {"$gt": 1}}},
+                    ],
                 }
             }
         ]
@@ -466,6 +470,10 @@ class MongoServerRepository:
             },
             by_policy={str(row["_id"]): int(row["count"]) for row in result.get("by_policy", [])},
             in_maintenance=int(next(iter(result.get("in_maintenance", [])), {}).get("count", 0)),
+            duplicate_name_groups=len(result.get("duplicate_names", [])),
+            duplicate_name_servers=sum(
+                int(row["count"]) for row in result.get("duplicate_names", [])
+            ),
         )
 
     async def _partial_counts(

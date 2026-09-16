@@ -65,6 +65,7 @@ export function InventoryPage() {
   const sourceProvider = searchParams.get("source_provider") ?? "";
   const maintenanceOnly = searchParams.get("maintenance") === "true";
   const staleOnly = searchParams.get("stale") === "true";
+  const duplicateOnly = searchParams.get("duplicate") === "true";
   const sortParam = searchParams.get("sort") ?? "";
   const sortField: SortableField = isSortableField(sortParam)
     ? sortParam
@@ -85,6 +86,7 @@ export function InventoryPage() {
     if (healthOverall) next.health = healthOverall;
     if (maintenanceOnly) next.maintenance = true;
     if (staleOnly) next.stale = true;
+    if (duplicateOnly) next.duplicate = true;
     return next;
   }, [
     debouncedSearch,
@@ -96,6 +98,7 @@ export function InventoryPage() {
     healthOverall,
     maintenanceOnly,
     staleOnly,
+    duplicateOnly,
   ]);
 
   const { data, isPending, isError, error } = useServerRowsQuery();
@@ -207,8 +210,10 @@ export function InventoryPage() {
       label: `Health ${healthOverall}`,
     });
   if (maintenanceOnly)
-    activeFilters.push({ key: "maintenance", label: "Maintenance only" });
-  if (staleOnly) activeFilters.push({ key: "stale", label: "Stale only" });
+    activeFilters.push({ key: "maintenance", label: "Maintenance" });
+  if (staleOnly) activeFilters.push({ key: "stale", label: "Stale" });
+  if (duplicateOnly)
+    activeFilters.push({ key: "duplicate", label: "Duplicate" });
 
   function clearFilters() {
     updateFilters({
@@ -221,6 +226,7 @@ export function InventoryPage() {
       health_overall: null,
       maintenance: null,
       stale: null,
+      duplicate: null,
     });
   }
 
@@ -398,7 +404,7 @@ export function InventoryPage() {
             </select>
           </div>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center gap-6">
           <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
             <input
               type="checkbox"
@@ -409,7 +415,7 @@ export function InventoryPage() {
                 });
               }}
             />
-            Maintenance only
+            Maintenance
             {maintenanceOnly && facets ? ` (${facets.total})` : ""}
           </label>
 
@@ -424,7 +430,21 @@ export function InventoryPage() {
                 updateFilters({ stale: e.target.checked ? "true" : null });
               }}
             />
-            Stale only{staleOnly && facets ? ` (${facets.total})` : ""}
+            Stale{staleOnly && facets ? ` (${facets.total})` : ""}
+          </label>
+
+          <label
+            className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+            title="Shares its name with another server — a real platform bug (one machine, two documents) or two different machines with the same profile name"
+          >
+            <input
+              type="checkbox"
+              checked={duplicateOnly}
+              onChange={(e) => {
+                updateFilters({ duplicate: e.target.checked ? "true" : null });
+              }}
+            />
+            Duplicate{duplicateOnly && facets ? ` (${facets.total})` : ""}
           </label>
         </div>
       </form>

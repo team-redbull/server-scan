@@ -116,6 +116,8 @@ def apply_snapshot(snapshot: FleetSnapshot, managers: list[Manager]) -> None:
         metrics.policy_active.labels(policy_key=policy_key).set(count)
 
     metrics.servers_in_maintenance.set(snapshot.in_maintenance)
+    metrics.duplicate_name_groups.set(snapshot.duplicate_name_groups)
+    metrics.duplicate_name_servers.set(snapshot.duplicate_name_servers)
 
     for manager in managers:
         run = manager.last_run

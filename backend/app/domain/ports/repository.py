@@ -100,6 +100,11 @@ class FleetSnapshot:
         by_policy (dict[str, int]): Servers each health `policy_key` is
             firing on.
         in_maintenance (int): Servers with maintenance enabled.
+        duplicate_name_groups (int): Distinct `name`s shared by more than
+            one server — a real platform bug or an estate-side naming
+            collision, docs/adr/0016's duplicate-server update.
+        duplicate_name_servers (int): Servers whose `name` is one of
+            those groups — always >= 2x `duplicate_name_groups`.
     """
 
     by_provider: list[ProviderSnapshotRow]
@@ -107,6 +112,8 @@ class FleetSnapshot:
     by_health: dict[str, int]
     by_policy: dict[str, int]
     in_maintenance: int
+    duplicate_name_groups: int
+    duplicate_name_servers: int
 
 
 class ServerRepository(Protocol):

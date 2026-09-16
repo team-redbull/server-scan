@@ -241,6 +241,10 @@ servers but not fully reading them, and
 `server_scan_collector_last_run_*` carry each collector's most recent
 run — duration, servers fetched, errors, and whether it exited PARTIAL —
 so a degraded run shows up in minutes rather than after the stale window.
+`server_scan_duplicate_name_groups`/`_servers` count servers sharing a
+name — a real platform bug or an estate-side naming collision either way
+(docs/adr/0016's duplicate-server investigation); no alert ships on
+these yet, since a collision isn't inherently urgent.
 
 The chart ships the two Prometheus Operator objects for them:
 
