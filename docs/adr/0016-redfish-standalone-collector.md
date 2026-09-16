@@ -747,6 +747,27 @@ to `GpuCatalog` or `gpu_models.py` at all. An unlisted device ID (AMD's
 `1002`, Intel's `8086`, or an NVIDIA ID not yet in the table) falls back
 to the raw `Description` exactly as before.
 
+## Update (2026-09-16): the PCI ID table is operator-extensible, like `INVENTORY_GPU_MODELS`
+
+The operator asked, reasonably: why is `_NVIDIA_PCI_DEVICE_MODELS` a
+hardcoded table at all, when `GpuCatalog`'s own equivalent
+(`INVENTORY_GPU_MODELS`) is already operator-extensible? No good reason
+— the same override relationship applies here.
+
+**Built:** `INVENTORY_REDFISH_PCIE_GPU_MODELS`, parsed by
+`parse_pcie_gpu_models` as `"vendor_id:device_id:Model Name"` triples,
+comma-separated (`"10de:20f3:A800-SXM4-80GB,1002:74a1:Instinct MI300X"`).
+Renamed the built-in table `_BUILTIN_PCI_DEVICE_MODELS` and rekeyed it
+`(vendor_id, device_id) -> model` (was NVIDIA-only, keyed by device ID
+alone) so an operator entry can name **any** vendor, not just NVIDIA —
+directly closing the "AMD/Intel remain unresearched" gap from the
+2026-09-15 update without this codebase having to research them itself.
+`_pcie_gpu_models` in `factory.py` merges the two (operator wins on a
+shared ID) once per collector construction and threads the result
+through `RedfishStandaloneProvider` into `pcie_device_to_gpu`, mirroring
+exactly how `gpu_catalog(settings.gpu_models)` already merges
+`INVENTORY_GPU_MODELS` over `GpuCatalog`'s own built-in table.
+
 ## Update (2026-09-09): `uniq_system_uuid` gave up its uniqueness too
 
 The fix above (`{"$exists": True}` → `{"$type": "string"}`) settled the

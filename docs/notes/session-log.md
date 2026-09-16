@@ -8,6 +8,65 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-15/16 — PSU draw and PCIeDevice GPU model both went from
+"unknown" to real data; the PCI ID table then made operator-extensible.**
+Continuing the same day's GPU-baseboard-tray and PCIeDevice-fallback
+work (ADR-0016's 2026-09-15 updates carry that narrative). Helm gap
+closed: `INVENTORY_REDFISH_PCIE_GPU_DETECTION`/`_MAX_DEVICES`/
+`_MAX_GPUS` had no chart wiring — added to `values.yaml` and both the
+`REDFISH_STANDALONE` and OpenManage CronJobs (OpenManage
+cross-references `redfishStandalone`'s own values, matching the
+existing `caBundle` precedent).
+
+**PSU `power_watts`** was `None` "by construction, not yet researched" —
+DMTF's `PowerSupply.v1_5_1`/`PowerSupplyMetrics.v1_1_2` schemas confirm
+real-time input power lives on a separate linked `PowerSupplyMetrics`
+resource (`InputPowerWatts`), never on `PowerSupply` itself — the same
+"telemetry one link away" pattern GPUs already used. Built
+`_psu_telemetry` (mirrors `_gpu_telemetry`).
+
+**Every PCIeDevice-sourced GPU showed the generic `"10DE VGA"`/`VRAM
+unknown`.** `Manufacturer` (`"10DE20B2"`) packs the PCI-SIG vendor ID and
+device ID as 8 raw hex digits. The operator asked for "an official Cisco
+list" — there isn't one; PCI vendor/device IDs are PCI-SIG's registry,
+unrelated to Cisco. The real authority is the **PCI ID Repository**
+(pci-ids.ucw.cz). `20B2` resolves to `GA100 [A100 SXM4 80GB]`, confirmed
+against three independent sources and matching the operator's own EPYC
+7742 + 2048GiB fleet exactly. Built `_pci_ids_from_manufacturer` +
+a built-in table mapping only to strings `GpuCatalog` already carries as
+aliases, so `GpuCatalog.enrich()` fills in VRAM automatically — zero
+changes to `GpuCatalog` itself.
+
+**Then made operator-extensible**, at the operator's own suggestion —
+the same override relationship `INVENTORY_GPU_MODELS` already has with
+`GpuCatalog`'s own table didn't exist for this new, smaller table.
+`INVENTORY_REDFISH_PCIE_GPU_MODELS` (`"vendor_id:device_id:Model
+Name"`, comma-separated) is parsed by `parse_pcie_gpu_models` and merged
+over the built-in table (renamed `_BUILTIN_PCI_DEVICE_MODELS`, rekeyed
+`(vendor_id, device_id) -> model` so it is no longer NVIDIA-only) —
+directly closing the AMD/Intel gap without this codebase researching
+those vendors itself. Also expanded the built-in table itself with
+every plausible device ID surfaced during the original research:
+Tesla P100 12GB/16GB, A800 40GB/80GB, H800, and A10G — the latter three
+needed new `gpu_models.py` rows (A800/H800, sourced from NVIDIA's own
+40GB datasheet plus Lenovo's OEM product guide for the 80GB variants
+neither has a public NVIDIA page for; A10G as a new alias on the
+existing A10 row, per AWS's own datasheet confirming the identical
+24GB). Pre-Pascal Tesla IDs (Fermi/Kepler/Maxwell) were deliberately
+left out — out of scope for the DGX/HGX-class fleet this feature
+targets, and gpu_models.py's own sourcing standard forbids guessing VRAM
+for hardware this platform has no evidence any real estate still runs.
+
+Full gate clean throughout; `test_redfish_pci_ids.py` covers the parser,
+the operator-override-wins-over-built-in case, and an end-to-end
+`GpuCatalog.enrich()` proof (not a stub) that a resolved model string
+actually enriches VRAM.
+**Open:** whether any real BMC populates `InputPowerWatts`, and whether
+`$expand` is actually honored beyond what's advertised — both need
+further live runs to settle.
+
+---
+
 **2026-09-15 — two real Redfish standalone defects from the operator's
 air-gapped estate, both shipped.** The operator pasted a live finding
 write-up (from a separate session against real hardware) for review and

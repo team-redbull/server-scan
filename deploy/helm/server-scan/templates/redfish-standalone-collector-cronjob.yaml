@@ -73,6 +73,8 @@ spec:
                   value: {{ $rf.pcieGpuMaxDevices | quote }}
                 - name: INVENTORY_REDFISH_PCIE_GPU_MAX_GPUS
                   value: {{ $rf.pcieGpuMaxGpus | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MODELS
+                  value: {{ $rf.pcieGpuModels | quote }}
                 {{- include "serverScan.dbEnv" . | nindent 16 }}
               envFrom:
                 - configMapRef:

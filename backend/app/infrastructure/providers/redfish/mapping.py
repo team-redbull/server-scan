@@ -519,20 +519,84 @@ _GPU_PCI_VENDOR_IDS: dict[str, str] = {"10DE": "NVIDIA", "1002": "AMD", "8086": 
 
 _GPU_DESCRIPTION_HINTS = ("VGA", "GPU", "3D", "DISPLAY")
 
-# NVIDIA device ID -> a string `GpuCatalog` already has as an alias,
-# never invented — see ADR-0016's 2026-09-15 GPU-model update for sourcing.
-_NVIDIA_PCI_DEVICE_MODELS: dict[str, str] = {
-    "1eb8": "Tesla T4",
-    "20b0": "A100-SXM4-40GB",
-    "20b1": "A100-PCIE-40GB",
-    "20b2": "A100-SXM4-80GB",
-    "20b5": "A100-PCIE-80GB",
-    "20b7": "A30",
-    "2235": "A40",
-    "2236": "A10",
-    "2330": "H100-SXM5-80GB",
-    "2331": "H100 PCIe",
+# (vendor_id, device_id) -> a string `GpuCatalog` already has as an
+# alias — see ADR-0016's 2026-09-15/2026-09-16 GPU-model updates.
+_BUILTIN_PCI_DEVICE_MODELS: dict[tuple[str, str], str] = {
+    ("10de", "15f7"): "Tesla P100-PCIE-12GB",
+    ("10de", "15f8"): "Tesla P100-PCIE-16GB",
+    ("10de", "1eb8"): "Tesla T4",
+    ("10de", "20b0"): "A100-SXM4-40GB",
+    ("10de", "20b1"): "A100-PCIE-40GB",
+    ("10de", "20b2"): "A100-SXM4-80GB",
+    ("10de", "20b5"): "A100-PCIE-80GB",
+    ("10de", "20b7"): "A30",
+    ("10de", "20bd"): "A800-SXM4-40GB",
+    ("10de", "20f3"): "A800-SXM4-80GB",
+    ("10de", "2235"): "A40",
+    ("10de", "2236"): "A10",
+    ("10de", "2237"): "A10G",
+    ("10de", "2322"): "H800 PCIe",
+    ("10de", "2324"): "H800",
+    ("10de", "2330"): "H100-SXM5-80GB",
+    ("10de", "2331"): "H100 PCIe",
 }
+
+
+class PcieGpuModelSpecError(ValueError):
+    """`INVENTORY_REDFISH_PCIE_GPU_MODELS` is malformed."""
+
+
+def parse_pcie_gpu_models(spec: str) -> dict[tuple[str, str], str]:
+    """
+    Parse `INVENTORY_REDFISH_PCIE_GPU_MODELS` into PCI ID -> model overrides.
+
+    `"vendor_id:device_id:Model Name"` triples, comma-separated. See
+    ADR-0016's 2026-09-16 update.
+
+    Args:
+        spec (str): The raw env var value; empty adds nothing.
+
+    Returns:
+        dict[tuple[str, str], str]: Lowercase `(vendor_id, device_id)` ->
+            model, merged over `_BUILTIN_PCI_DEVICE_MODELS` by the caller
+            so an operator entry overrides a built-in one with the same
+            ID, never the reverse.
+
+    Raises:
+        PcieGpuModelSpecError: On a malformed entry.
+    """
+    overrides: dict[tuple[str, str], str] = {}
+    for raw_entry in spec.split(","):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":", 2)
+        if len(parts) != 3:
+            raise PcieGpuModelSpecError(
+                f"INVENTORY_REDFISH_PCIE_GPU_MODELS: {entry!r} is not "
+                "'vendor_id:device_id:Model Name' — expected exactly two ':'."
+            )
+        vendor_id, device_id, model = (p.strip() for p in parts)
+        for label, value in (("vendor_id", vendor_id), ("device_id", device_id)):
+            if len(value) != 4:
+                raise PcieGpuModelSpecError(
+                    f"INVENTORY_REDFISH_PCIE_GPU_MODELS: {entry!r}'s {label} "
+                    f"{value!r} must be exactly 4 hex digits."
+                )
+            try:
+                int(value, 16)
+            except ValueError as exc:
+                raise PcieGpuModelSpecError(
+                    f"INVENTORY_REDFISH_PCIE_GPU_MODELS: {entry!r}'s {label} "
+                    f"{value!r} is not valid hex."
+                ) from exc
+        if not model:
+            raise PcieGpuModelSpecError(
+                f"INVENTORY_REDFISH_PCIE_GPU_MODELS: {entry!r} names no model — the "
+                "part after the second ':'."
+            )
+        overrides[(vendor_id.lower(), device_id.lower())] = model
+    return overrides
 
 
 def _pci_ids_from_manufacturer(manufacturer: str) -> tuple[str, str] | None:
@@ -624,7 +688,11 @@ def _pcie_address(device: dict[str, Any]) -> str | None:
     return odata_id.rsplit("/", 1)[-1] or None
 
 
-def pcie_device_to_gpu(device: dict[str, Any]) -> dict[str, object]:
+def pcie_device_to_gpu(
+    device: dict[str, Any],
+    *,
+    pci_device_models: dict[tuple[str, str], str] = _BUILTIN_PCI_DEVICE_MODELS,
+) -> dict[str, object]:
     """
     One `PCIeDevice` as the platform's GPU shape — the fallback for a BMC with no `Processor` GPUs.
 
@@ -634,26 +702,28 @@ def pcie_device_to_gpu(device: dict[str, Any]) -> dict[str, object]:
     Args:
         device (dict[str, Any]): A `PCIeDevice` already confirmed a GPU
             by `is_gpu_pcie_device`.
+        pci_device_models (dict[tuple[str, str], str]): `(vendor_id,
+            device_id)` -> a `GpuCatalog`-matchable model name. Defaults
+            to the built-in table; the provider passes one already
+            merged with `INVENTORY_REDFISH_PCIE_GPU_MODELS`.
 
     Returns:
         dict[str, object]: Keys mirroring `app.domain.models.hardware.Gpu`.
-            `model` is a `GpuCatalog`-matchable name when the device ID
-            is one of `_NVIDIA_PCI_DEVICE_MODELS`, so `VRAM` fills in
-            downstream at ingest the same way it does for any other
-            vendor's GPU — the raw `Description` (`"10DE VGA"`) otherwise.
-            Every telemetry field a `Processor`-reported GPU can carry
-            (`memory_bytes`, `ecc_mode_enabled`, error counts,
-            `temperature_celsius`, `power_watts`) is still `None` by
-            construction — `PCIeDevice` itself has no such properties.
+            `model` is a `GpuCatalog`-matchable name when its PCI ID is
+            in `pci_device_models`, so `VRAM` fills in downstream at
+            ingest the same way it does for any other vendor's GPU — the
+            raw `Description` (`"10DE VGA"`) otherwise. Every telemetry
+            field a `Processor`-reported GPU can carry (`memory_bytes`,
+            `ecc_mode_enabled`, error counts, `temperature_celsius`,
+            `power_watts`) is still `None` by construction — `PCIeDevice`
+            itself has no such properties.
     """
     manufacturer = str(device.get("Manufacturer") or "")
     pci_ids = _pci_ids_from_manufacturer(manufacturer)
     vendor = _GPU_PCI_VENDOR_IDS.get(manufacturer[:4].upper())
     model = device.get("Description") or None
     if pci_ids is not None:
-        vendor_id, device_id = pci_ids
-        if vendor_id == "10de":
-            model = _NVIDIA_PCI_DEVICE_MODELS.get(device_id, model)
+        model = pci_device_models.get(pci_ids, model)
     return {
         "vendor": vendor,
         "model": model,
@@ -673,7 +743,10 @@ def pcie_device_to_gpu(device: dict[str, Any]) -> dict[str, object]:
 
 
 def gpus_from_pcie_devices(
-    devices: list[dict[str, Any]] | None, *, max_gpus: int
+    devices: list[dict[str, Any]] | None,
+    *,
+    max_gpus: int,
+    pci_device_models: dict[tuple[str, str], str] = _BUILTIN_PCI_DEVICE_MODELS,
 ) -> tuple[dict[str, object], ...] | None:
     """
     Screen `ComputerSystem.PCIeDevices` for GPUs — the fallback when `Processors` reports none.
@@ -685,6 +758,8 @@ def gpus_from_pcie_devices(
             None when unread.
         max_gpus (int): Stop once this many GPUs are found, bounding a
             chassis with hundreds of unrelated PCIe functions.
+        pci_device_models (dict[tuple[str, str], str]): Passed through to
+            `pcie_device_to_gpu` — see its own docstring.
 
     Returns:
         tuple[dict[str, object], ...] | None: One entry per matched GPU,
@@ -697,7 +772,7 @@ def gpus_from_pcie_devices(
         if len(gpus) >= max_gpus:
             break
         if is_gpu_pcie_device(device):
-            gpus.append(pcie_device_to_gpu(device))
+            gpus.append(pcie_device_to_gpu(device, pci_device_models=pci_device_models))
     return tuple(gpus)
 
 

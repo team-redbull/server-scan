@@ -225,3 +225,28 @@ Record the answer here. If iDRAC does populate it, the catalog quietly
 stops mattering for Dell and stays load-bearing for Cisco and HPE. If it
 does not, that is worth knowing too: it means the standard path is
 decorative on real hardware and the catalog is carrying every vendor.
+
+## Update, 2026-09-16: A800/H800/A10G rows, for `redfish/mapping.py`'s PCI ID table
+
+Added while building `INVENTORY_REDFISH_PCIE_GPU_MODELS`
+(`docs/adr/0016`'s 2026-09-16 update) — a PCIeDevice-sourced GPU can now
+resolve to "A800 80GB" etc., and this table is what turns that string
+into VRAM. `A10G` is a new alias on the existing `NVIDIA A10 24GB` row
+(AWS's own datasheet confirms the identical 24GB/GDDR6 — an OEM-branded
+SKU, not a separate capacity). `NVIDIA A800 40GB`/`80GB` and
+`NVIDIA H800 80GB` are new rows: China-market, export-compliance
+variants of A100/H100, same silicon, NVLink-limited. The 40GB A800 is
+confirmed via NVIDIA's own published datasheet; neither 80GB variant has
+an NVIDIA public page at all (confirmed: NVIDIA does not publish one for
+either China SKU), but both independently agree across multiple
+server-vendor/reseller spec sheets — Lenovo's own ThinkSystem product
+guide for H800 specifically, the same OEM-source standard this ADR
+already accepts for a Cisco UCS spec sheet.
+
+Deliberately not added: pre-Pascal Tesla device IDs (Fermi/Kepler/Maxwell
+— K20/K40/K80/M60/the C-series) turned up while researching the PCI ID
+table. Out of scope for the DGX/HGX-class fleet this feature targets,
+and adding VRAM rows for decade-old hardware this platform has no
+evidence any real estate still runs would be exactly the "guessed
+because it seemed plausible" this ADR's sourcing standard exists to
+prevent.

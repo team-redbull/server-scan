@@ -30,6 +30,10 @@ from app.infrastructure.credentials.env import resolve_login
 from app.infrastructure.providers.intersight.provider import IntersightProvider
 from app.infrastructure.providers.oneview.provider import OneViewProvider
 from app.infrastructure.providers.openmanage.provider import OpenManageProvider
+from app.infrastructure.providers.redfish.mapping import (
+    _BUILTIN_PCI_DEVICE_MODELS,
+    parse_pcie_gpu_models,
+)
 from app.infrastructure.providers.redfish.provider import RedfishStandaloneProvider
 from app.infrastructure.providers.redfish.targets import (
     RedfishCredential,
@@ -51,6 +55,24 @@ def debug_http_enabled() -> bool:
         bool: True when HTTP tracing is on.
     """
     return os.environ.get(DEBUG_HTTP_VAR) == "1"
+
+
+def _pcie_gpu_models(settings: Settings) -> dict[tuple[str, str], str]:
+    """
+    The built-in PCIeDevice-GPU model table, with `INVENTORY_REDFISH_PCIE_GPU_MODELS` merged in.
+
+    See ADR-0016's 2026-09-16 update.
+
+    Args:
+        settings (Settings): For `redfish_pcie_gpu_models`.
+
+    Returns:
+        dict[tuple[str, str], str]: `(vendor_id, device_id)` -> model.
+
+    Raises:
+        PcieGpuModelSpecError: If the env var is malformed.
+    """
+    return {**_BUILTIN_PCI_DEVICE_MODELS, **parse_pcie_gpu_models(settings.redfish_pcie_gpu_models)}
 
 
 def _openmanage_provider(
@@ -123,6 +145,7 @@ def _openmanage_provider(
             pcie_gpu_detection=settings.redfish_pcie_gpu_detection,
             pcie_gpu_max_devices=settings.redfish_pcie_gpu_max_devices,
             pcie_gpu_max_gpus=settings.redfish_pcie_gpu_max_gpus,
+            pcie_gpu_models=_pcie_gpu_models(settings),
         )
 
     return OpenManageProvider(
@@ -229,6 +252,7 @@ def _redfish_provider(
         pcie_gpu_detection=settings.redfish_pcie_gpu_detection,
         pcie_gpu_max_devices=settings.redfish_pcie_gpu_max_devices,
         pcie_gpu_max_gpus=settings.redfish_pcie_gpu_max_gpus,
+        pcie_gpu_models=_pcie_gpu_models(settings),
     )
 
 

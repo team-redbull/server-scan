@@ -46,7 +46,9 @@ DEFAULT_GPU_MODELS: tuple[tuple[str, int, tuple[str, ...]], ...] = (
     ("NVIDIA Quadro RTX 8000 48GB", 48, ("UCSC-GPU-RTX8000", "Quadro RTX 8000")),
     # --- NVIDIA, Ampere ---
     ("NVIDIA A2 16GB", 16, ("A2",)),
-    ("NVIDIA A10 24GB", 24, ("UCSC-GPU-A10", "A10")),
+    # A10G: AWS's own datasheet confirms the identical 24GB/GDDR6 — an
+    # OEM-branded SKU sharing the row, not a separate capacity.
+    ("NVIDIA A10 24GB", 24, ("UCSC-GPU-A10", "A10", "A10G")),
     # One card, four 16GB GPUs; the row is per GPU — ADR-0021, "Consequences".
     (
         "NVIDIA A16 16GB",
@@ -89,6 +91,10 @@ DEFAULT_GPU_MODELS: tuple[tuple[str, int, tuple[str, ...]], ...] = (
             "A100 80GB",
         ),
     ),
+    # China-market A100/H100 variants — sourcing in the 2026-09-16 update below.
+    ("NVIDIA A800 40GB", 40, ("A800-SXM4-40GB", "A800 40GB")),
+    ("NVIDIA A800 80GB", 80, ("A800-SXM4-80GB", "A800-PCIE-80GB", "A800 80GB")),
+    ("NVIDIA H800 80GB", 80, ("H800-SXM5-80GB", "H800 PCIe", "H800 80GB", "H800")),
     # --- NVIDIA, Ada Lovelace ---
     ("NVIDIA L4 24GB", 24, ("UCSC-GPU-L4", "UCSC-GPU-L4M6", "UCSX-GPU-L4", "L4")),
     ("NVIDIA L40 48GB", 48, ("UCSC-GPU-L40", "UCSX-GPU-L40", "L40")),

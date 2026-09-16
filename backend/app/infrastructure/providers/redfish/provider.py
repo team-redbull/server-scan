@@ -40,6 +40,7 @@ from app.infrastructure.providers.redfish.client import (
     validate_odata_id,
 )
 from app.infrastructure.providers.redfish.mapping import (
+    _BUILTIN_PCI_DEVICE_MODELS,
     gpus_from_pcie_devices,
     gpus_from_processors,
     has_only_gpu_processors,
@@ -109,6 +110,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         pcie_gpu_detection: bool = False,
         pcie_gpu_max_devices: int = 50,
         pcie_gpu_max_gpus: int = 16,
+        pcie_gpu_models: dict[tuple[str, str], str] | None = None,
         client_factory: Callable[[RedfishTarget], Any] | None = None,
     ) -> None:
         """
@@ -132,6 +134,10 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 been seen.
             pcie_gpu_max_gpus (int): Stop once this many GPUs are found
                 among the scanned devices.
+            pcie_gpu_models (dict[tuple[str, str], str] | None): PCI ID
+                -> model overrides, already merged over the built-in
+                table by the factory — see ADR-0016's 2026-09-16 update.
+                None uses the built-in table alone.
             client_factory (Callable[[RedfishTarget], Any] | None): Test
                 seam returning a client for a target.
         """
@@ -147,6 +153,9 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         self._pcie_gpu_detection = pcie_gpu_detection
         self._pcie_gpu_max_devices = pcie_gpu_max_devices
         self._pcie_gpu_max_gpus = pcie_gpu_max_gpus
+        self._pcie_gpu_models = (
+            _BUILTIN_PCI_DEVICE_MODELS if pcie_gpu_models is None else pcie_gpu_models
+        )
         super().__init__()
         self._auth_failures = 0
         self._client_factory: Callable[[RedfishTarget], Any] = client_factory or self._new_client
@@ -780,7 +789,11 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 system=str(system.get("@odata.id") or system.get("Id") or ""),
                 limit=max_devices,
             )
-        return gpus_from_pcie_devices(list(found.values()), max_gpus=self._pcie_gpu_max_gpus)
+        return gpus_from_pcie_devices(
+            list(found.values()),
+            max_gpus=self._pcie_gpu_max_gpus,
+            pci_device_models=self._pcie_gpu_models,
+        )
 
     async def _paged_members(
         self, client: Any, path: str, *, max_members: int, allow_expand: bool = True

@@ -541,6 +541,11 @@ collectors:
     pcieGpuDetection: false
     pcieGpuMaxDevices: 50
     pcieGpuMaxGpus: 16
+    # Extends (never replaces) the built-in PCI vendor+device ID -> model
+    # table, the same way config.gpuModels above extends GpuCatalog's own.
+    # "vendorId:deviceId:Model Name", comma-separated. Same comma-splitting
+    # gotcha as config.sites applies to `--set` on the command line.
+    pcieGpuModels: ""
 
     tls:
       # ConfigMap with a `ca-bundle.crt` key. Empty means the image's
