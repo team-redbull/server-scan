@@ -8,6 +8,38 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-16 — the server detail page shows a GPU-derived Model hint when
+the chassis never reported one, then a real fix landed for the more
+common case.** A DGX/HGX-class host's BMC often omits
+`ComputerSystem.Model` entirely, so the detail page showed "—" even
+though the same server's GPUs were already correctly enriched via
+`GpuCatalog`. First shipped a UI-only fallback (`frontend/src/lib/
+gpuModel.ts`'s `inferredGpuModel`, labeled "(from GPU)", `Server.model`
+itself untouched — ADR-0021's second 2026-09-16 update).
+
+**Then the operator found the real fix**, testing against the air-gapped
+fleet: some of these hosts report `Model` as empty/whitespace but their
+`Chassis` resource carries the true value in `ProductName` (confirmed
+via `curl .../Chassis/Self | jq '.ProductName'`). Built
+`mapping._model(system, chassis_product_name)`: a real, non-blank
+`Model` always wins; the chassis fetch happens only when `Model` is
+already unusable, via a `_chassis()` helper extracted from `_psus`/
+`_pcie_gpus`'s existing duplicated `Links.Chassis` walk. This actually
+fills `Server.model` — no fabrication, the chassis genuinely reports the
+model on a different resource — so the frontend hint above now only
+matters for a host where even `Chassis.ProductName` is blank. ADR-0016's
+2026-09-16 update (a second one, after the PCI-table entry) has the
+detail. Full gate clean; new `test_redfish_model_fallback.py` plus a
+`TestModelFallback` class in `test_redfish_collector.py` cover the
+absent/blank/whitespace/real-model cases and the no-extra-request
+guarantee.
+
+**Open:** unchanged — whether any real BMC populates `InputPowerWatts`,
+and whether `$expand` is actually honored beyond what's advertised, both
+need further live runs to settle.
+
+---
+
 **2026-09-16 — the PCIeDevice GPU-model table is now operator-extensible,
 same as `INVENTORY_GPU_MODELS` already is for `GpuCatalog`.** The
 operator asked, reasonably, why the PCI ID table

@@ -768,6 +768,26 @@ through `RedfishStandaloneProvider` into `pcie_device_to_gpu`, mirroring
 exactly how `gpu_catalog(settings.gpu_models)` already merges
 `INVENTORY_GPU_MODELS` over `GpuCatalog`'s own built-in table.
 
+## Update (2026-09-16): blank `ComputerSystem.Model` falls back to `Chassis.ProductName`
+
+Operator report from the air-gapped fleet: some DGX/HGX-class hosts
+report `ComputerSystem.Model` as an empty or whitespace-only string, but
+the same host's `Chassis` resource (`GET .../Chassis/Self`) carries the
+real value in `ProductName`. Confirmed with the operator's own
+`curl -sku https://<redfish_ip>/redfish/v1/Chassis/Self | jq '.ProductName'`.
+
+**Fixed** with `mapping._model(system, chassis_product_name)`: a real,
+non-blank `Model` always wins; the chassis name is used only when
+`Model` is missing or all-whitespace, never to override a value already
+read. The provider reads `ProductName` through the same `Links.Chassis`
+walk `_psus`/`_pcie_gpus` already use — extracted into a shared
+`_chassis()` helper — but only when `Model` is already unusable, so a
+normal host (the overwhelming majority) pays no extra request. This is
+a stored-value fix, distinct from the frontend's GPU-derived Model hint
+(ADR-0021, 2026-09-16 update): here the chassis genuinely reports the
+model, just on a different resource, so `Server.model` itself is filled
+in — no fabrication involved.
+
 ## Update (2026-09-09): `uniq_system_uuid` gave up its uniqueness too
 
 The fix above (`{"$exists": True}` → `{"$type": "string"}`) settled the

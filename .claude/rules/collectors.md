@@ -148,14 +148,18 @@ the global and filter on the override, silently.
   zero of 133 real entries). Never trust an empty `$expand` result
   without checking `Members@odata.count` first. **A PCIeDevice's
   `Manufacturer` can pack a raw PCI vendor+device ID** (`"10DE20B2"`,
-  not a real name) — `_NVIDIA_PCI_DEVICE_MODELS` resolves the ones
-  cross-checked against the PCI ID Repository (pci-ids.ucw.cz — not a
-  Cisco list; PCI-SIG assigns vendor IDs, this repo aggregates every
-  vendor's own device IDs) to a `GpuCatalog`-matchable string so VRAM
-  enriches automatically. **PSU `power_watts` reads a separate linked
+  not a real name) — `_BUILTIN_PCI_DEVICE_MODELS` (operator-extensible via
+  `INVENTORY_REDFISH_PCIE_GPU_MODELS`) resolves the ones cross-checked
+  against the PCI ID Repository (pci-ids.ucw.cz — not a Cisco list;
+  PCI-SIG assigns vendor IDs, this repo aggregates every vendor's own
+  device IDs) to a `GpuCatalog`-matchable string so VRAM enriches
+  automatically. **PSU `power_watts` reads a separate linked
   `PowerSupplyMetrics.InputPowerWatts`**, never a property on
   `PowerSupply` itself — the same "telemetry lives one link away"
-  pattern GPUs already use.
+  pattern GPUs already use. **A blank/whitespace `ComputerSystem.Model`
+  falls back to `Chassis.ProductName`** (`mapping._model`, confirmed live
+  on the operator's own DGX/HGX fleet) — a real `Model` always wins and
+  the chassis is fetched only when it's actually needed.
 - **`ONEVIEW`** (ADR-0022, `docs/hpe-collectors.md`): **one collection
   standard for all HP hardware, whatever its iLO generation** — no Redfish
   pass, no BMC credentials, `mpModel` reported but never branched on. An

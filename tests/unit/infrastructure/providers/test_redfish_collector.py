@@ -639,6 +639,63 @@ class TestPsuTelemetry:
         assert psu["power_watts"] == 245.0
 
 
+class TestModelFallback:
+    """`ComputerSystem.Model` blank/whitespace falls back to
+    `Chassis.ProductName` (ADR-0016, 2026-09-16 update).
+    """
+
+    def _with_chassis(self, *, model: str | None) -> dict[str, Any]:
+        resources = dict(minimal_service())
+        system = dict(resources["/redfish/v1/Systems/1"])
+        if model is None:
+            del system["Model"]
+        else:
+            system["Model"] = model
+        system["Links"] = {
+            **system["Links"],
+            "Chassis": [{"@odata.id": "/redfish/v1/Chassis/Self"}],
+        }
+        resources["/redfish/v1/Systems/1"] = system
+        resources["/redfish/v1/Chassis/Self"] = {
+            "@odata.id": "/redfish/v1/Chassis/Self",
+            "@odata.type": "#Chassis.v1_22_0.Chassis",
+            "Id": "Self",
+            "Name": "Chassis",
+            "ProductName": "DGX H100",
+        }
+        return resources
+
+    async def test_falls_back_to_the_chassis_product_name_when_model_is_absent(self) -> None:
+        with RedfishFixture(resources=self._with_chassis(model=None)) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].model == "DGX H100"
+
+    async def test_falls_back_when_model_is_whitespace_only(self) -> None:
+        with RedfishFixture(resources=self._with_chassis(model="   ")) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].model == "DGX H100"
+
+    async def test_a_real_model_is_never_replaced_by_the_chassis_name(self) -> None:
+        with RedfishFixture(resources=self._with_chassis(model="PowerEdge R660")) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert servers[0].model == "PowerEdge R660"
+
+    async def test_a_usable_model_costs_no_chassis_fetch(self) -> None:
+        """A normal host must not pay for a request this fallback only needs
+        when `Model` is blank."""
+
+        class _ExplodingClient:
+            async def get(self, path: str) -> dict[str, Any]:
+                raise AssertionError(f"unexpected fetch: {path}")
+
+        system = {
+            "Model": "PowerEdge R660",
+            "Links": {"Chassis": [{"@odata.id": "/redfish/v1/Chassis/Self"}]},
+        }
+        provider = _provider(0)
+        assert await provider._chassis_product_name(_ExplodingClient(), system) is None
+
+
 class TestFailureModes:
     async def test_an_unreachable_host_is_recorded_not_raised(self) -> None:
         # Port 1 is reserved and refuses immediately.

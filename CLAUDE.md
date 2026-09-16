@@ -583,35 +583,35 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-16 — the server detail page shows a GPU-derived Model hint when
-the chassis never reported one.** Moved to `docs/notes/session-log.md`:
-the PCIeDevice GPU-model table's operator-extensibility work (and the
-same-day `values.yaml` PCIe-GPU-defaults commit, d25cdf4, that had
-landed with no CLAUDE.md entry of its own).
+**2026-09-16 — a blank `ComputerSystem.Model` now falls back to
+`Chassis.ProductName`, and the frontend already had a fallback of its
+own for what's left.** Moved to `docs/notes/session-log.md`: the same
+day's frontend-only GPU-derived Model hint (shipped first, still in
+place for whatever this doesn't cover) and the PCIeDevice GPU-model
+table's operator-extensibility work.
 
-**The gap:** a DGX/HGX-class host's BMC often omits
-`ComputerSystem.Model` entirely, so the detail page's "Model" field
-showed "—" even though the same server's GPUs were already correctly
-enriched via `GpuCatalog` (e.g. "NVIDIA A100 80GB" in the Hardware tab).
-Operator asked for the short form ("A100") to show on the server too.
+**The gap:** some DGX/HGX-class hosts on the operator's air-gapped fleet
+report `Model` as empty/whitespace, but their `Chassis` resource
+(`GET .../Chassis/Self`) carries the real value in `ProductName` —
+confirmed by the operator directly with `curl -sku
+https://<redfish_ip>/redfish/v1/Chassis/Self | jq '.ProductName'`.
 
-**Confirmed design, after raising a fabrication concern:** `Server.model`
-— the database field and the API response — stays untouched; writing
-GPU-derived data into a field whose meaning is "what the chassis
-reported" would be exactly the guessing the provider contract forbids
-(`None` means "could not read", never a stand-in value). The hint is
-UI-only: `frontend/src/lib/gpuModel.ts`'s `inferredGpuModel` strips the
-vendor prefix and capacity suffix off the GPU's already-enriched model
-("NVIDIA A100 80GB" -> "A100"), dedupes identical GPUs on a homogeneous
-node, and joins distinct ones. Wired into `OverviewTab`'s Model field
-and `ServerDetailPage`'s header subtitle, always labeled "(from GPU)" so
-it can never be mistaken for a value the chassis actually reported.
-ADR-0021 has a second 2026-09-16 update recording this.
+**Built:** `mapping._model(system, chassis_product_name)` — a real,
+non-blank `Model` always wins, never overwritten; the chassis is fetched
+only when `Model` is already unusable, so a normal host (the majority)
+pays no extra request. Extracted a shared `_chassis()` helper in
+`provider.py` from `_psus`'s and `_pcie_gpus`'s previously-duplicated
+`Links.Chassis` walk, and added `_chassis_product_name()` on top of it.
+This is a real stored-value fix — `Server.model` itself now gets filled
+in — distinct from the frontend hint shipped earlier the same day, which
+stays as a fallback for a host where even `Chassis.ProductName` is
+blank. ADR-0016 has a second 2026-09-16 update recording it.
 
-Full frontend gate clean (`npm run lint && typecheck && test -- --run
-&& build`); new `gpuModel.test.ts` plus `OverviewTab.test.tsx` cases
-cover the strip/dedupe/join logic and both the labeled-hint and
-plain-dash render paths.
-**Open:** unchanged from the prior entry — whether any real BMC
-populates `InputPowerWatts`, and whether `$expand` is actually honored
-beyond what's advertised, both need further live runs to settle.
+Full gate clean (backend: `ruff`/`ty`/comment-density/`lint-imports`/
+`pytest`, 1398 passed). New `test_redfish_model_fallback.py` (pure
+`_model` unit tests) plus a `TestModelFallback` class in
+`test_redfish_collector.py` (absent/blank/whitespace/real-model, end to
+end through the fixture, plus a no-extra-request guarantee test).
+**Open:** unchanged — whether any real BMC populates `InputPowerWatts`,
+and whether `$expand` is actually honored beyond what's advertised, both
+need further live runs to settle.

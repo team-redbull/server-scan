@@ -488,6 +488,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         gpu_metrics_by_processor=gpu_metrics,
                         gpu_environment_by_processor=gpu_environment,
                         extra_gpus=system_extra_gpus,
+                        chassis_product_name=await self._chassis_product_name(client, system),
                     )
                 )
         return collected
@@ -639,6 +640,56 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         else:
             return resolved
 
+    async def _chassis(self, client: Any, system: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Read a system's owning `Chassis` through its first `Links.Chassis` entry.
+
+        Shared by the PSU, PCIe-GPU-fallback and Model-fallback reads,
+        which all start from the same link (ADR-0016, 2026-09-16 update).
+
+        Args:
+            client (Any): The authenticated client.
+            system (dict[str, Any]): The `ComputerSystem` to start from.
+
+        Returns:
+            dict[str, Any] | None: The chassis, or None when there is no
+                link or it could not be read.
+        """
+        links = system.get("Links", {})
+        chassis_refs = links.get("Chassis", []) if isinstance(links, dict) else []
+        if not chassis_refs or not isinstance(chassis_refs[0], dict):
+            return None
+        try:
+            return await client.get(validate_odata_id(chassis_refs[0].get("@odata.id")))
+        except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
+            logger.warning("redfish.resource_skipped", resource="Chassis", error=str(exc))
+            return None
+
+    async def _chassis_product_name(self, client: Any, system: dict[str, Any]) -> str | None:
+        """
+        `Chassis.ProductName`, for when `Model` is blank.
+
+        Skipped when `Model` is already usable, so a normal host costs
+        no extra request — confirmed live, ADR-0016's 2026-09-16 update.
+
+        Args:
+            client (Any): The authenticated client.
+            system (dict[str, Any]): The `ComputerSystem` to start from.
+
+        Returns:
+            str | None: `ProductName`, or None when `Model` is already
+                usable, there is no chassis link, or `ProductName` is
+                itself blank.
+        """
+        model = system.get("Model")
+        if isinstance(model, str) and model.strip():
+            return None
+        chassis = await self._chassis(client, system)
+        if chassis is None:
+            return None
+        name = chassis.get("ProductName")
+        return name.strip() if isinstance(name, str) and name.strip() else None
+
     async def _psus(self, client: Any, system: dict[str, Any]) -> list[dict[str, Any]] | None:
         """
         Read a system's power supplies through `Links.Chassis`.
@@ -656,14 +707,8 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 read. None means unread, which `_carry_forward` keeps
                 stored PSUs across — an empty list would clear them.
         """
-        links = system.get("Links", {})
-        chassis_refs = links.get("Chassis", []) if isinstance(links, dict) else []
-        if not chassis_refs or not isinstance(chassis_refs[0], dict):
-            return None
-        try:
-            chassis = await client.get(validate_odata_id(chassis_refs[0].get("@odata.id")))
-        except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
-            logger.warning("redfish.resource_skipped", resource="Chassis", error=str(exc))
+        chassis = await self._chassis(client, system)
+        if chassis is None:
             return None
 
         subsystem = await self._optional_link(client, chassis, "PowerSubsystem")
@@ -747,19 +792,9 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
         remaining = max_devices - len(found)
         if remaining > 0:
-            links = system.get("Links", {})
-            chassis_refs = links.get("Chassis", []) if isinstance(links, dict) else []
-            if chassis_refs and isinstance(chassis_refs[0], dict):
-                try:
-                    chassis = await client.get(validate_odata_id(chassis_refs[0].get("@odata.id")))
-                except (
-                    RedfishForbiddenError,
-                    RedfishProtocolError,
-                    RedfishUnreachableError,
-                ) as exc:
-                    logger.warning("redfish.resource_skipped", resource="Chassis", error=str(exc))
-                    chassis = None
-                link = chassis.get("PCIeDevices") if chassis is not None else None
+            chassis = await self._chassis(client, system)
+            if chassis is not None:
+                link = chassis.get("PCIeDevices")
                 path = link.get("@odata.id") if isinstance(link, dict) else None
                 if path:
                     try:

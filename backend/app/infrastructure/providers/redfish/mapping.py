@@ -1025,6 +1025,7 @@ def system_to_provider_server(
     gpu_metrics_by_processor: dict[str, dict[str, Any]] | None = None,
     gpu_environment_by_processor: dict[str, dict[str, Any]] | None = None,
     extra_gpus: tuple[dict[str, object], ...] = (),
+    chassis_product_name: str | None = None,
 ) -> ProviderServer:
     """
     Convert one `ComputerSystem` and its sub-resources into a `ProviderServer`.
@@ -1054,6 +1055,8 @@ def system_to_provider_server(
             entries from a sibling GPU-baseboard system being merged
             into this one — see `has_only_gpu_processors`. Appended
             after this system's own GPUs, if any.
+        chassis_product_name (str | None): The owning chassis's own
+            `ProductName`, used only when `Model` is blank.
 
     Returns:
         ProviderServer: The vendor-neutral DTO the ingest pipeline
@@ -1079,7 +1082,7 @@ def system_to_provider_server(
         external_id=f"redfish://{host}{odata_id}",
         vendor=vendor.value,
         name=override_name or _server_name(system),
-        model=system.get("Model") or None,
+        model=_model(system, chassis_product_name),
         serial=_dell_serial(system) or _clean_serial(system.get("SerialNumber")),
         system_uuid=system.get("UUID") or None,
         nic_macs=macs_from_interfaces(interfaces),
@@ -1102,6 +1105,26 @@ def system_to_provider_server(
         attachments=(),
         tags=(),
     )
+
+
+def _model(system: dict[str, Any], chassis_product_name: str | None) -> str | None:
+    """
+    A server's model, falling back to `Chassis.ProductName` when blank.
+
+    Confirmed live — ADR-0016's 2026-09-16 update.
+
+    Args:
+        system (dict[str, Any]): The `ComputerSystem` resource.
+        chassis_product_name (str | None): The owning chassis's
+            `ProductName`, already cleaned, or None.
+
+    Returns:
+        str | None: The model, or None when neither source has one.
+    """
+    value = system.get("Model")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return chassis_product_name
 
 
 def _server_name(system: dict[str, Any]) -> str:
