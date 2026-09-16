@@ -523,23 +523,31 @@ collectors:
     # pod with no reason logged at all. Keep it ~300s above the run budget.
     activeDeadlineSeconds: 3900
 
-    # --- Pacing. Arithmetic in docs/test-redfish-standalone-collector.md.
-    # 400 hosts x ~20s each / 16 at a time = ~8 min typical.
+    # --- Pacing. Arithmetic in docs/test-redfish-standalone-collector.md;
+    # 400 hosts x ~20s each / 16 at a time = ~8 min typical WITHOUT
+    # pcieGpuDetection below — a host that needs its slow path can cost
+    # up to hostBudgetSeconds on its own. Watch runBudgetSeconds/
+    # activeDeadlineSeconds above once pcieGpuDetection is live against a
+    # real fleet size; raise both if many hosts hit the slow path at once.
     fleetConcurrency: 16
     connectTimeoutSeconds: 10
     # 30, not the 15 the other collectors use: a documented iLO fleet
     # failed every 10-15 minutes at 3s and was fixed at 20s.
     readTimeoutSeconds: 30
-    hostBudgetSeconds: 180
+    # 600, not 180: raised for pcieGpuDetection below — a BMC whose
+    # PCIeDevices collection doesn't honor $expand measured ~6.5 minutes
+    # for one host (docs/adr/0016, 2026-09-15).
+    hostBudgetSeconds: 600
     runBudgetSeconds: 3600
 
-    # Opt-in fallback for a BMC that reports GPUs only as PCIeDevice
-    # entries, never as Processors (confirmed live 2026-09-15,
-    # docs/adr/0016). A BMC with hundreds of PCIeDevices can take
-    # minutes to scan even with $expand — raise hostBudgetSeconds above
-    # before turning this on.
-    pcieGpuDetection: false
-    pcieGpuMaxDevices: 50
+    # A BMC that reports GPUs only as PCIeDevice entries, never as
+    # Processors (confirmed live 2026-09-15, docs/adr/0016) — on by
+    # default since this operator's own fleet needs it. pcieGpuMaxDevices
+    # is 250, not the code default of 50: live fleets measured 133-214
+    # PCIeDevices on a single host, and a GPU past the cutoff is silently
+    # never found — raise this further if a larger host turns up.
+    pcieGpuDetection: true
+    pcieGpuMaxDevices: 250
     pcieGpuMaxGpus: 16
     # Extends (never replaces) the built-in PCI vendor+device ID -> model
     # table, the same way config.gpuModels above extends GpuCatalog's own.
