@@ -25,7 +25,8 @@ test.describe("Inventory", () => {
     page,
   }) => {
     await page.goto("/servers");
-    const firstLink = page.locator("tbody tr").first().getByRole("link");
+    // Scoped to the Name cell: the row also carries a BMC console link.
+    const firstLink = page.locator("tbody tr").first().locator("td").first().getByRole("link");
     const name = await firstLink.innerText();
     await firstLink.click();
 
@@ -67,7 +68,7 @@ test.describe("Inventory", () => {
     const rows = page.locator("tbody tr");
     await expect(rows.first()).toBeVisible();
 
-    await rows.first().getByRole("link").click();
+    await rows.first().locator("td").first().getByRole("link").click();
     await expect(page).toHaveURL(/\/servers\//);
 
     await page.getByRole("link", { name: "← Back to inventory" }).click();

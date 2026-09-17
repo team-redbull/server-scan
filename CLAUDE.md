@@ -606,10 +606,38 @@ measurement method for the next column addition.
 Full gate clean: frontend (`lint`/`typecheck`/`test -- --run`, 124
 passed/`build`); a new `InventoryPage.test.tsx` case covers both the
 link (`href`, `target="_blank"`) and the no-`bmc_host` case rendering
-nothing. No backend change, so no backend gate re-run needed.
+nothing.
+
+**Postscript, same push: broke CI's E2E job a third time, same root
+cause as the Maintenance-label one.** `npm run lint/typecheck/test/
+build` never runs Playwright, so pushing without a local `npx playwright
+test` run reached CI, not review — again. This time: a row now carries
+two `<a>`s (Name, BMC), so `row.getByRole("link")` (`inventory.spec.ts`,
+including this unit's own new test) and `getByRole("link", { name:
+server.name })` (`maintenance.spec.ts`) both went ambiguous — the BMC
+link's aria-label contains the plain server name as a substring. Fixed
+by scoping the row-level query to the Name `<td>` and adding `exact:
+true` to the page-level one. `.claude/rules/frontend.md` now says
+plainly: **any element added inside a table row needs a real local
+`npx playwright test` run before pushing, not just the unit gate** —
+this is the second time skipping that step shipped a broken CI run.
+
+**Separately, an unrelated hazard surfaced mid-fix**: amending and
+force-pushing the previous commit (to fix its undersold subject line,
+`9a62f55` → `b7ce589`) happened *after* CI had already tagged and
+published `v2.11.1` from `9a62f55` — so that tag now points at a commit
+unreachable from `main`. The release itself is fine (identical tree,
+just a better commit message), and this unit's own `feat:` commit
+should move the next computed version past v2.11.1 without colliding,
+but **never amend+force-push a commit once its own CI run has started**
+— confirm it failed or was cancelled first, or fix forward with a new
+commit instead.
 
 **Open:** unchanged from prior entries — the serial-less ingest
 correlation guard and Mongo cleanup of the two `ocp4-five-bpod-
 compute-06` documents (parked pending an operator decision); whether any
 real BMC populates `InputPowerWatts`; whether `$expand` is actually
-honored beyond what's advertised.
+honored beyond what's advertised. **New:** confirm the next CI run
+after this push actually publishes (watch for a version-collision
+repeat) — if it does, the `v2.11.1` tag needs deleting and re-cutting,
+not another amend.

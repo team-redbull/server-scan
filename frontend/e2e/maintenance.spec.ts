@@ -57,10 +57,10 @@ test.describe("Maintenance", () => {
     const maintenanceFilter = page.getByRole("checkbox", { name: "Maintenance" });
     await maintenanceFilter.click();
     await expect(maintenanceFilter).toBeChecked();
-    await expect(page.getByRole("link", { name: server.name })).toBeVisible();
+    await expect(page.getByRole("link", { name: server.name, exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: `End maintenance on ${server.name}` }).click();
-    await expect(page.getByRole("link", { name: server.name })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: server.name, exact: true })).toHaveCount(0);
 
     await request.delete(`/api/v1/servers/${server.id}/maintenance`);
   });

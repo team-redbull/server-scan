@@ -76,7 +76,18 @@ Loaded only when a `frontend/` file is open.
   bare `getByLabel("Maintenance")` a 51-element strict-mode violation.
   Scope with `getByRole("checkbox", { name: "Maintenance" })` instead —
   substring matching still survives the checked state's `" (N)"` suffix,
-  but `role: "checkbox"` excludes every button.
+  but `role: "checkbox"` excludes every button. **A third one, same day
+  the BMC column shipped (also broke CI, also missed locally because
+  `npm run test/lint/typecheck/build` never runs Playwright — only
+  `npx playwright test` does):** an inventory row now carries two
+  `<a>`s (Name, BMC), so `row.getByRole("link")` and
+  `getByRole("link", { name: server.name })` both go ambiguous — the
+  BMC link's `aria-label` ("Open BMC console for `<name>`") contains
+  the plain name as a substring. Scope a row-level link query to
+  `row.locator("td").first()` (the Name cell); scope a page-level one
+  with `{ name, exact: true }`. **Any new element added inside a table
+  row is a candidate for this — re-run `npx playwright test` locally,
+  not just the unit/lint/build gate, before pushing a row change.**
 - **The Architecture page (`/architecture`) embeds pre-generated static
   HTML**, never live data: `frontend/public/architecture/*.html`, built
   from `docs/diagrams/*.json` with the `archify` skill
