@@ -49,7 +49,13 @@ Loaded only when a `frontend/` file is open.
   removed for exactly that on 2026-09-13); put row-level signals in the
   State cell as a chip that wraps under the badge (`StateBadge`'s
   `flex-wrap`), the way `Maint` and `Stale 20h` do. `stale` comes from the
-  API as a flag; the frontend never knows the threshold.
+  API as a flag; the frontend never knows the threshold. **A narrow
+  icon-only column fits where a text column doesn't**: the "BMC" column
+  (2026-09-17, opens `https://<bmc_host>` in a new tab, `size-7` like
+  `MaintenanceToggle`'s own button) measured zero horizontal overflow at
+  1440px with MCE showing too — verified with a real headless Chromium
+  run (`document.body.scrollWidth` vs `window.innerWidth`), not by eye.
+  Renders nothing for a server with no `bmc_host` read.
 - **`HealthSeverity` has five values** — `INFO` was retired 2026-09-13;
   `SEVERITY_GLYPH`, `SEVERITY_ORDER`, `StateBadge`, `HealthBadge` and the
   inventory's Health filter list must stay in step with the enum.

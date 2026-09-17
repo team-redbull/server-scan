@@ -8,6 +8,49 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-17 — three unrelated operator-reported bugs fixed in one pass:
+a name-token false positive, the standalone Overview layout, and the
+detail page's "Back to inventory" link.**
+
+**1. `server.name_has_5tb`/`_10tb` were a naive substring check**
+(`facts.py`) — `"5tb" in name.lower()` matches inside `"35tb"`, so a real
+35TB-class server (`...-1536gb-35tb-<serial>`) false-positived the
+`storage.name_5tb_oversized` CRITICAL policy the moment it had more than
+6 TB, which it always would. Fixed with `_has_name_token`: the token
+must be one of `name`'s whole `-`-delimited segments, not a substring
+anywhere. New tests pin both this exact case and the `"10tb"`/`"110tb"`
+analogue.
+
+**2. The standalone server's Overview tab had a visibly different
+layout from every other vendor's.** Root cause: `OverviewTab` was one
+`grid-cols-2` auto-flowing over a flat field list, and
+`REDFISH_STANDALONE` is the one vendor with no profile-template row —
+one field short, so *every* field after it silently shifted into the
+other visual column. Fixed by splitting into two explicit `<dl>`s (a
+fixed left array, a fixed right array) so a vendor missing an optional
+field (the template row, or "Collection" when reachable) just leaves
+that one slot empty instead of reflowing its neighbors. Also closes the
+same latent bug for "Collection" (unreachable badge), unnoticed before
+because nobody had compared a reachable and unreachable server's layout.
+
+**3. "Back to inventory" went to `/` (the sites overview), and lost
+whatever filter the operator had active.** Fixed two ways at once:
+`InventoryTable`'s `<Link>` and row-click `navigate()` now both pass
+`state: { from: pathname+search }` into `/servers/:id`; `ServerDetailPage`
+reads it back for the link's target, falling back to `/servers` (not
+`/`) for a direct visit. `?vendor=cisco` survives the round trip exactly
+like every other inventory filter, since `from` is the real URL, not a
+reconstructed one.
+
+Full gate clean everywhere (backend 1410 tests, frontend 123 tests +
+build, plus the full local Playwright suite — 12/12, including two new
+E2E cases for the back-link fix, since nothing else exercises real
+router `state`). `.claude/rules/frontend.md` has both new frontend
+facts; `docs/architecture.md`'s facts-vocabulary entry has the name-token
+fix.
+
+---
+
 **2026-09-16 — a `Duplicate` inventory filter and two fleet gauges for
 name collisions, plus the "Maintenance only"/"Stale only" label
 cleanup.** The same duplicate-server investigation that found the real

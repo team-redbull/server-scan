@@ -583,48 +583,31 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-17 — three unrelated operator-reported bugs fixed in one pass:
-a name-token false positive, the standalone Overview layout, and the
-detail page's "Back to inventory" link.** Moved to `docs/notes/
-session-log.md`: the Duplicate filter/gauges unit and its CI-fix
-postscript.
+**2026-09-17 — a "BMC" column between Name and Installation opens each
+server's own console.** Moved to `docs/notes/session-log.md`: the
+name-token/Overview-layout/back-link three-bug-fix unit.
 
-**1. `server.name_has_5tb`/`_10tb` were a naive substring check**
-(`facts.py`) — `"5tb" in name.lower()` matches inside `"35tb"`, so a real
-35TB-class server (`...-1536gb-35tb-<serial>`) false-positived the
-`storage.name_5tb_oversized` CRITICAL policy the moment it had more than
-6 TB, which it always would. Fixed with `_has_name_token`: the token
-must be one of `name`'s whole `-`-delimited segments, not a substring
-anywhere. New tests pin both this exact case and the `"10tb"`/`"110tb"`
-analogue.
+**Built:** `InventoryTable.tsx`'s new narrow icon-only "BMC" column
+(`ServerRow.bmc_host` already existed — "search parity only, never
+rendered" until now, no backend change needed) opens
+`https://<bmc_host>` in a new tab, `size-7` matching `MaintenanceToggle`'s
+own button so it costs no more width than that already-accepted column.
+Renders nothing for a server with no `bmc_host` read, rather than a dead
+button. A real `<a>`, so the row's existing `.closest("a")` click-guard
+already excludes it — no `stopPropagation` needed.
 
-**2. The standalone server's Overview tab had a visibly different
-layout from every other vendor's.** Root cause: `OverviewTab` was one
-`grid-cols-2` auto-flowing over a flat field list, and
-`REDFISH_STANDALONE` is the one vendor with no profile-template row —
-one field short, so *every* field after it silently shifted into the
-other visual column. Fixed by splitting into two explicit `<dl>`s (a
-fixed left array, a fixed right array) so a vendor missing an optional
-field (the template row, or "Collection" when reachable) just leaves
-that one slot empty instead of reflowing its neighbors. Also closes the
-same latent bug for "Collection" (unreachable badge), unnoticed before
-because nobody had compared a reachable and unreachable server's layout.
+**Verified the width constraint directly, not by eye**: a headless
+Chromium run at 1440px with both BMC and MCE columns showing (8 columns
+total, the worst case) measured `document.body.scrollWidth ===
+window.innerWidth` — zero horizontal overflow — screenshotted for a
+visual sanity check too. `.claude/rules/frontend.md` records the
+measurement method for the next column addition.
 
-**3. "Back to inventory" went to `/` (the sites overview), and lost
-whatever filter the operator had active.** Fixed two ways at once:
-`InventoryTable`'s `<Link>` and row-click `navigate()` now both pass
-`state: { from: pathname+search }` into `/servers/:id`; `ServerDetailPage`
-reads it back for the link's target, falling back to `/servers` (not
-`/`) for a direct visit. `?vendor=cisco` survives the round trip exactly
-like every other inventory filter, since `from` is the real URL, not a
-reconstructed one.
+Full gate clean: frontend (`lint`/`typecheck`/`test -- --run`, 124
+passed/`build`); a new `InventoryPage.test.tsx` case covers both the
+link (`href`, `target="_blank"`) and the no-`bmc_host` case rendering
+nothing. No backend change, so no backend gate re-run needed.
 
-Full gate clean everywhere (backend 1410 tests, frontend 123 tests +
-build, plus the full local Playwright suite — 12/12, including two new
-E2E cases for the back-link fix, since nothing else exercises real
-router `state`). `.claude/rules/frontend.md` has both new frontend
-facts; `docs/architecture.md`'s facts-vocabulary entry has the name-token
-fix.
 **Open:** unchanged from prior entries — the serial-less ingest
 correlation guard and Mongo cleanup of the two `ocp4-five-bpod-
 compute-06` documents (parked pending an operator decision); whether any

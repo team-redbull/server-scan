@@ -129,6 +129,30 @@ describe("InventoryPage", () => {
     expect(screen.getByText(/^Updated /)).toBeInTheDocument();
   });
 
+  it("links each row's BMC host to its own console, and renders nothing without one", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ bmc_host: "10.2.3.4" }),
+          makeServer({ id: "srv_2", name: "no-bmc-01", bmc_host: null }),
+        ]),
+      ),
+    );
+
+    renderInventoryPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
+    });
+
+    const bmcLink = screen.getByRole("link", { name: /open bmc console for ocp-dell-worker-001/i });
+    expect(bmcLink).toHaveAttribute("href", "https://10.2.3.4");
+    expect(bmcLink).toHaveAttribute("target", "_blank");
+    expect(
+      screen.queryByRole("link", { name: /open bmc console for no-bmc-01/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the cluster as a column, and hides MCE until a row has one", async () => {
     mockRows(() => jsonResponse(rowsResponse([makeServer()])));
 
