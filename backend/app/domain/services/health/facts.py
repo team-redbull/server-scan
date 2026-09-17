@@ -28,6 +28,23 @@ _NOT_GOOD = frozenset({"CRITICAL", "WARNING", "DOWN"})
 _STORAGE_NAME_TOKENS = {"server.name_has_10tb": "10tb", "server.name_has_5tb": "5tb"}
 
 
+def _has_name_token(name: str | None, token: str) -> bool:
+    """
+    Whether `name` carries `token` as a whole `-`-delimited segment.
+
+    Not a substring check: `"35tb"` must never match `"5tb"` (a real
+    35TB-class server, 2026-09-17).
+
+    Args:
+        name (str | None): The server's name.
+        token (str): The lowercase token to look for, e.g. `"5tb"`.
+
+    Returns:
+        bool: Whether one of `name`'s hyphen-delimited segments is exactly `token`.
+    """
+    return token in (name or "").lower().split("-")
+
+
 def _os_disk_capacities(drives: list[Any]) -> tuple[int, ...]:
     """
     Capacities that identify a server's OS disks: the single smallest present.
@@ -90,7 +107,7 @@ def extract_facts(server: Server) -> dict[str, Any]:
         "storage.data_disk_count": len(data_disks),
         "storage.data_bad_disk_count": sum(1 for d in data_disks if d.health in _NOT_GOOD),
         **{
-            fact: token in (server.name or "").lower()
+            fact: _has_name_token(server.name, token)
             for fact, token in _STORAGE_NAME_TOKENS.items()
         },
         "memory.dimm_count": len(dimms),

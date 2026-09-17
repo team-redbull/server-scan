@@ -26,58 +26,72 @@ export function OverviewTab({ server }: OverviewTabProps) {
     : undefined;
 
   return (
-    <dl className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
-      <Field label="Name" value={server.name} />
-      <Field label="Vendor" value={server.identity?.vendor ?? "unknown"} />
-      <Field label="Model" value={<ModelValue server={server} />} />
-      {profileTemplateLabel && (
-        <Field label={profileTemplateLabel} value={server.profile_template.name ?? "—"} />
-      )}
-      <Field label="Serial" value={server.identity?.serial ?? "—"} />
-      <Field label="Site" value={server.site_id ?? "—"} />
-      <Field label="Manager" value={server.manager_id ?? "—"} />
-      <Field label="Classification" value={<Badge>{server.classification.installation_type}</Badge>} />
-      <Field label="OpenShift" value={<OpenShiftValue server={server} />} />
-      <Field label="Overall health" value={<HealthBadge severity={server.health.overall} />} />
-      <Field label="Health breakdown" value={<HealthBreakdown health={server.health} />} />
-      {/* Read-only: maintenance is switched from the inventory list. */}
-      <Field
-        label="Maintenance"
-        value={
-          server.maintenance.enabled ? (
-            <Badge tone="warning">{server.maintenance.reason ?? "Enabled"}</Badge>
-          ) : (
-            <span className="text-[var(--text-secondary)]">Not in maintenance</span>
-          )
-        }
-      />
-      {!server.reachable && (
+    <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+      {/* Two explicit columns, not one auto-flowing grid: a field that only
+          some vendors have (the template row below, "Collection" when
+          unreachable) must never reflow every field after it into the
+          other column — a standalone server was one field short and so
+          showed a visibly different layout from every other vendor. */}
+      <dl className="flex flex-col gap-4">
+        <Field label="Name" value={server.name} />
+        <Field label="Model" value={<ModelValue server={server} />} />
+        <Field label="Serial" value={server.identity?.serial ?? "—"} />
+        <Field label="Manager" value={server.manager_id ?? "—"} />
+        <Field label="OpenShift" value={<OpenShiftValue server={server} />} />
+        <Field label="Health breakdown" value={<HealthBreakdown health={server.health} />} />
+        {/* Relative so staleness reads at a glance; the exact instant is the hover. */}
         <Field
-          label="Collection"
+          label="Last seen"
           value={
-            <Badge tone="warning">
-              Unreachable
-              {server.unreachable_since ? ` since ${formatTimestamp(server.unreachable_since)}` : ""}
-            </Badge>
+            server.last_seen_at ? (
+              <span
+                className="inline-flex items-center gap-2"
+                title={formatTimestamp(server.last_seen_at)}
+              >
+                {formatRelative(server.last_seen_at)}
+                {server.stale && <Badge tone="warning">Stale</Badge>}
+              </span>
+            ) : (
+              <Badge tone="warning">Never collected</Badge>
+            )
           }
         />
-      )}
-      {/* Relative so staleness reads at a glance; the exact instant is the hover. */}
-      <Field
-        label="Last seen"
-        value={
-          server.last_seen_at ? (
-            <span className="inline-flex items-center gap-2" title={formatTimestamp(server.last_seen_at)}>
-              {formatRelative(server.last_seen_at)}
-              {server.stale && <Badge tone="warning">Stale</Badge>}
-            </span>
-          ) : (
-            <Badge tone="warning">Never collected</Badge>
-          )
-        }
-      />
-      <Field label="Updated" value={formatTimestamp(server.updated_at)} />
-    </dl>
+      </dl>
+      <dl className="flex flex-col gap-4">
+        <Field label="Vendor" value={server.identity?.vendor ?? "unknown"} />
+        {profileTemplateLabel && (
+          <Field label={profileTemplateLabel} value={server.profile_template.name ?? "—"} />
+        )}
+        <Field label="Site" value={server.site_id ?? "—"} />
+        <Field label="Classification" value={<Badge>{server.classification.installation_type}</Badge>} />
+        <Field label="Overall health" value={<HealthBadge severity={server.health.overall} />} />
+        {/* Read-only: maintenance is switched from the inventory list. */}
+        <Field
+          label="Maintenance"
+          value={
+            server.maintenance.enabled ? (
+              <Badge tone="warning">{server.maintenance.reason ?? "Enabled"}</Badge>
+            ) : (
+              <span className="text-[var(--text-secondary)]">Not in maintenance</span>
+            )
+          }
+        />
+        {!server.reachable && (
+          <Field
+            label="Collection"
+            value={
+              <Badge tone="warning">
+                Unreachable
+                {server.unreachable_since
+                  ? ` since ${formatTimestamp(server.unreachable_since)}`
+                  : ""}
+              </Badge>
+            }
+          />
+        )}
+        <Field label="Updated" value={formatTimestamp(server.updated_at)} />
+      </dl>
+    </div>
   );
 }
 

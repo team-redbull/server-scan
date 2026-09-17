@@ -27,6 +27,22 @@ Loaded only when a `frontend/` file is open.
   byte-stable for an unchanged fleet, or the ETag/304 stops working.
 - **Maintenance is switched only from the inventory list** (per-row
   switch); the detail page shows it read-only. One place, on purpose.
+- **`OverviewTab`'s two columns are two explicit `<dl>`s, not one
+  auto-flowing grid** (2026-09-17) — a single `grid-cols-2` over a flat
+  field list means a vendor missing one conditional field (the profile
+  template row `REDFISH_STANDALONE` never has, or "Collection" on a
+  reachable server) reflows every field after it into the other visual
+  column, so a standalone server's Overview looked structurally
+  different from every other vendor's even though the field list is the
+  same. Add a new field to the fixed left or right array, never back to
+  one flat list.
+- **A row's link into `/servers/:id` passes `state: { from }`** (its own
+  `pathname + search`, 2026-09-17) so the detail page's "Back to
+  inventory" returns to the same filtered view, not a blank one. Falls
+  back to `/servers` — **not `/`**, the sites overview — for a direct
+  visit with no router state. Both `InventoryTable`'s `<Link>` and its
+  row `onClick`'s `navigate()` must pass it; either one bypassing it
+  loses the filter for that click path only, silently.
 - **The inventory table has no width to spare at 1440px** — with the MCE
   column showing it already overflows its wrapper by ~14px. A new column
   pushes Maintenance off-screen (a `Seen` column was built, measured and

@@ -583,68 +583,50 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-16 — a `Duplicate` inventory filter and two fleet gauges for
-name collisions, plus the "Maintenance only"/"Stale only" label
-cleanup.** Moved to `docs/notes/session-log.md`: the Redfish
-`SerialNumber` fallback this follows on from, the Model-only fallback it
-extended, the frontend GPU-derived Model hint, and the PCIeDevice
-GPU-model table's operator-extensibility work.
+**2026-09-17 — three unrelated operator-reported bugs fixed in one pass:
+a name-token false positive, the standalone Overview layout, and the
+detail page's "Back to inventory" link.** Moved to `docs/notes/
+session-log.md`: the Duplicate filter/gauges unit and its CI-fix
+postscript.
 
-**Why:** the same duplicate-server investigation that found the real
-serial bug also confirmed six other duplicate-name pairs as **not**
-bugs — distinct machines sharing a name across vendors/domains, correct
-`(vendor, serial_normalized)` correlation. Both classes deserve
-visibility either way, so the operator asked for a way to see every
-name collision in the UI and a metric for it, on top of the code fix.
+**1. `server.name_has_5tb`/`_10tb` were a naive substring check**
+(`facts.py`) — `"5tb" in name.lower()` matches inside `"35tb"`, so a real
+35TB-class server (`...-1536gb-35tb-<serial>`) false-positived the
+`storage.name_5tb_oversized` CRITICAL policy the moment it had more than
+6 TB, which it always would. Fixed with `_has_name_token`: the token
+must be one of `name`'s whole `-`-delimited segments, not a substring
+anywhere. New tests pin both this exact case and the `"10tb"`/`"110tb"`
+analogue.
 
-**Built:**
-- `features/inventory/rows.ts`'s `filterRows` gained a `duplicate`
-  filter: `nameCounts()` counts rows per `name` over the *whole* fleet
-  given (not an already-filtered subset — a pair split by another active
-  filter would each look unique otherwise), entirely client-side, no new
-  endpoint (ADR-0033). A `Duplicate` checkbox sits beside Maintenance/
-  Stale in `InventoryPage.tsx`.
-- Renamed "Maintenance only"/"Stale only" to "Maintenance"/"Stale" (no
-  product meaning change — three consistent labels, the operator found
-  "only" redundant once there were three toggles).
-- Two new unlabeled Prometheus gauges, `server_scan_duplicate_name_
-  groups`/`_servers`, computed in the same `fleet_snapshot` `$facet`
-  pipeline as everything else in ADR-0029 (`$group` by `name`, `$match`
-  on `count > 1`) — plus matching `:max` recording rules in the chart's
-  `PrometheusRule`. No alert yet: a collision isn't inherently urgent
-  (6 of 7 in the investigation were fine).
+**2. The standalone server's Overview tab had a visibly different
+layout from every other vendor's.** Root cause: `OverviewTab` was one
+`grid-cols-2` auto-flowing over a flat field list, and
+`REDFISH_STANDALONE` is the one vendor with no profile-template row —
+one field short, so *every* field after it silently shifted into the
+other visual column. Fixed by splitting into two explicit `<dl>`s (a
+fixed left array, a fixed right array) so a vendor missing an optional
+field (the template row, or "Collection" when reachable) just leaves
+that one slot empty instead of reflowing its neighbors. Also closes the
+same latent bug for "Collection" (unreachable badge), unnoticed before
+because nobody had compared a reachable and unreachable server's layout.
 
-ADR-0029 has a new dated update with the full table; ADR-0016's
-2026-09-16 "continued" update (previous entry) has the serial-fallback
-research and citations this follows.
+**3. "Back to inventory" went to `/` (the sites overview), and lost
+whatever filter the operator had active.** Fixed two ways at once:
+`InventoryTable`'s `<Link>` and row-click `navigate()` now both pass
+`state: { from: pathname+search }` into `/servers/:id`; `ServerDetailPage`
+reads it back for the link's target, falling back to `/servers` (not
+`/`) for a direct visit. `?vendor=cisco` survives the round trip exactly
+like every other inventory filter, since `from` is the real URL, not a
+reconstructed one.
 
-Full gate clean: backend (`ruff`/`ty`/comment-density/`lint-imports`/
-`pytest`, 1408 passed, `helm lint`/`template` for the new recording
-rules) and frontend (`lint`/`typecheck`/`test -- --run`, 123 passed/
-`build`). New tests: `rows.test.ts`'s duplicate cases (including the
-split-by-another-filter case), an `InventoryPage.test.tsx` end-to-end
-case, `test_fleet_snapshot.py`'s duplicate-names integration test (both
-shapes: same-vendor-empty-serial and different-vendor-same-name), and
-`test_fleet_gauges.py`'s two new assertions.
-**Open:** the serial-less ingest correlation guard and Mongo cleanup of
-the two existing `ocp4-five-bpod-compute-06` documents — both parked
-pending an operator decision, from the previous unit; unchanged from
-prior entries — whether any real BMC populates `InputPowerWatts`, and
-whether `$expand` is actually honored beyond what's advertised.
-
-**Postscript, same day: this unit's label rename broke CI's E2E job.**
-`frontend/e2e/maintenance.spec.ts` still used `getByLabel("Maintenance
-only")`, which no longer exists — the local frontend gate does not run
-Playwright (`npm run test:e2e` needs a live backend+frontend, not part
-of `npm run lint/typecheck/test/build`), so this reached CI, not review.
-Fixing it surfaced a second, previously-latent `getByLabel` trap now in
-`.claude/rules/frontend.md`: a bare `getByLabel("Maintenance")` is a
-51-element strict-mode violation because it matches every row's `Put X
-into maintenance`/`End maintenance on X` button `aria-label`, not just
-the checkbox — `getByRole("checkbox", { name: "Maintenance" })` is the
-fix. Verified by actually running the full local Playwright suite
-(`gh run view --log-failed` to find the failure, then a local Chromium
-run against seeded data) rather than trusting the text-diff alone —
-10/10 E2E passing before pushing. **Lesson for next time a filter label
-changes: grep `frontend/e2e/*.spec.ts` for the old text before calling
-a rename done**, since nothing else catches it before CI.
+Full gate clean everywhere (backend 1410 tests, frontend 123 tests +
+build, plus the full local Playwright suite — 12/12, including two new
+E2E cases for the back-link fix, since nothing else exercises real
+router `state`). `.claude/rules/frontend.md` has both new frontend
+facts; `docs/architecture.md`'s facts-vocabulary entry has the name-token
+fix.
+**Open:** unchanged from prior entries — the serial-less ingest
+correlation guard and Mongo cleanup of the two `ocp4-five-bpod-
+compute-06` documents (parked pending an operator decision); whether any
+real BMC populates `InputPowerWatts`; whether `$expand` is actually
+honored beyond what's advertised.

@@ -184,6 +184,17 @@ class TestLargeStorageName:
         assert facts["server.name_has_10tb"] is True
         assert facts["server.name_has_5tb"] is False
 
+    def test_a_larger_number_containing_the_token_does_not_match(self) -> None:
+        """A real 35TB-class server false-positived as "5TB" (2026-09-17):
+        "5tb" is a substring of "35tb", but not one of its own segments.
+        """
+        facts = extract_facts(_server(name="ocp-dell-r660-five-192-1536gb-35tb-DEL0001234"))
+        assert facts["server.name_has_5tb"] is False
+        assert facts["server.name_has_10tb"] is False
+
+    def test_a_larger_10tb_lookalike_does_not_match_either(self) -> None:
+        assert extract_facts(_server(name="ocp4-nyc-110tb-01"))["server.name_has_10tb"] is False
+
 
 class TestDegradedDimms:
     """DIMM health, which nothing populated before."""

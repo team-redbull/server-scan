@@ -573,6 +573,11 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     site is parsed from the name. Each token is its own boolean fact
     because the condition grammar has no regex operator — "the name says
     10TB" has to already be a boolean by the time a policy sees it.
+    **Matched as a whole `-`-delimited segment** (`facts._has_name_token`),
+    not a substring — a real 35TB-class server false-positived as "5TB"
+    until 2026-09-17, because `"5tb" in name` is also true of `"35tb"`.
+    Unlike `parse_site_code`'s deliberate substring-within-a-token
+    matching, nothing here asked for that; it was simply unguarded.
   - Network counts links **up**, not links down: a server with unused
     NICs has DOWN links and is perfectly healthy, so "any link down" is a
     useless signal; "nothing is up" is the one that means something, and
