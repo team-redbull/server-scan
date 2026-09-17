@@ -68,18 +68,60 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
-    failed_psu = HealthPolicy(
+    psu_failed_major = HealthPolicy(
         id=new_id("health_policy"),
-        name="Power supply failed",
+        name="Power supply failed (redundancy lost)",
         description=(
-            "Fires when one or more power supplies report DOWN. Covers every "
-            "server kind: UCS and Intersight report PSUs from OperState, and "
-            "Redfish from the chassis power subsystem."
+            "Fires when exactly one power supply reports DOWN and the "
+            "server has more than one fitted — redundancy lost, not power "
+            "lost, which is exactly what a redundant PSU pair is for."
         ),
-        policy_key="power.failed_psu",
+        policy_key="power.psu_failed_major",
+        category="power",
+        severity=HealthSeverity.MAJOR,
+        condition=Condition(
+            all_of=[
+                Condition(metric="power.failed_psu_count", operator="EQ", value=1),
+                Condition(metric="power.psu_count", operator="GT", value=1),
+            ]
+        ),
+        evidence=[
+            EvidenceField(key="failed", metric="power.failed_psu_count"),
+            EvidenceField(key="total", metric="power.psu_count"),
+        ],
+        message_template="{failed} of {total} power supplies failed",
+        scope=PolicyScope(),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    psu_failed_critical = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Power supply failed (no redundancy left)",
+        description=(
+            "Fires when two or more power supplies report DOWN, or a "
+            "single-PSU server's only one does — either way there is no "
+            "working redundancy left. Covers every server kind: UCS and "
+            "Intersight report PSUs from OperState, Redfish from the "
+            "chassis power subsystem."
+        ),
+        policy_key="power.psu_failed_critical",
         category="power",
         severity=HealthSeverity.CRITICAL,
-        condition=Condition(metric="power.failed_psu_count", operator="GTE", value=1),
+        condition=Condition(
+            any_of=[
+                Condition(metric="power.failed_psu_count", operator="GTE", value=2),
+                Condition(
+                    all_of=[
+                        Condition(metric="power.failed_psu_count", operator="EQ", value=1),
+                        Condition(metric="power.psu_count", operator="LTE", value=1),
+                    ]
+                ),
+            ]
+        ),
         evidence=[
             EvidenceField(key="failed", metric="power.failed_psu_count"),
             EvidenceField(key="total", metric="power.psu_count"),
@@ -392,7 +434,8 @@ def default_system_policies() -> list[HealthPolicy]:
     return [
         fabric_warning,
         fabric_critical,
-        failed_psu,
+        psu_failed_major,
+        psu_failed_critical,
         os_disk_major,
         os_disk_critical,
         large_storage_data_warning,

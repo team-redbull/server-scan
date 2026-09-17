@@ -583,47 +583,36 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-17 — the 5TB/10TB storage policies became one generic,
-symmetric rule for any `-<N>tb` name token.** Moved to `docs/notes/
-session-log.md`: the BMC column unit (and its E2E/tag postscripts) and
-the earlier name-token/Overview-layout/back-link unit.
+**2026-09-17 — one failed PSU is MAJOR, not CRITICAL, unless it's the
+server's only one.** Moved to `docs/notes/session-log.md`: the storage
+capacity-mismatch generalization, the BMC column unit (and its E2E/tag
+postscripts), and the earlier name-token/Overview-layout/back-link unit.
 
-**Why:** confirmed with the operator after flagging a real concern —
-their first proposal (±1.5 GiB tolerance) was tighter than any real
-drive/RAID combination could land inside, which would have replaced one
-false-positive-storm bug with another. Settled on **±1.5 TB**, generic
-over any `-<N>tb` token, both directions — replacing the two hand-picked,
-one-sided defaults (`name_5tb_oversized`: only flagged over 6 TB;
-`large_storage_undersized`: only flagged under 8 TB for a 10TB node).
+**The ask, and the refinement:** operator's own call — a single PSU
+report shouldn't page someone the way it used to. Split the old, always-
+CRITICAL `power.failed_psu` into `power.psu_failed_major` (exactly 1 of
+2+ fitted PSUs down) and `power.psu_failed_critical` (2+ down, **or** a
+single-PSU server's only one down) — mirroring the existing OS-disk
+MAJOR/CRITICAL tier exactly. The single-PSU carve-out wasn't asked for
+explicitly but is load-bearing: without it, a non-redundant server
+losing its only supply would read as merely MAJOR, understating a real
+outage — flagged and implemented rather than asked, since it's a
+correctness gap in the literal request, not a design preference.
 
-**Built:**
-- `facts._name_capacity_bytes`: parses any whole `-<N>tb` segment (reuses
-  today's earlier whole-segment-matching fix, not a substring check) into
-  `N * 10**12` decimal bytes.
-- Two new facts/metrics: `storage.name_capacity_bytes` (the parsed
-  nominal capacity, or `None`) and `storage.capacity_deviation_bytes`
-  (`abs(total_bytes - name_capacity_bytes)`, or `None` without a token) —
-  both nullable `INT`s, since the condition grammar has no fact-vs-fact
-  arithmetic, so the deviation has to be precomputed.
-- One new policy, `storage.name_capacity_mismatch` (CRITICAL): `EXISTS`
-  on the capacity fact, `GT` 1.5 TB on the deviation.
-- **`server.name_has_5tb`/`_10tb` themselves are untouched** — the
-  disk-failure escalation policies (`data_disk_bad_large_*`) still key
-  off those booleans specifically; a different concern (how severe a bad
-  data disk is) from the capacity-mismatch check, so left alone.
-- **Seeding never deletes** (same precedent as the 2026-09-06 failed-
-  drive-default removal): a database seeded before this change keeps the
-  two old policies, with their old narrower thresholds, until an
-  operator disables them. A fresh database gets only the new one — 14
-  system defaults now, not 15.
+**Built:** two `HealthPolicy`s replacing one, same `power.failed_psu_
+count`/`power.psu_count` facts (no new facts needed — the condition tree
+itself does the `EQ 1 AND GT 1` / `GTE 2 OR (EQ 1 AND LTE 1)` split,
+nested `all_of`/`any_of`, well within the depth/node limits). Same
+"seeding never deletes" precedent as the storage-rule change above: an
+existing database keeps the old always-CRITICAL `power.failed_psu`
+until an operator disables it.
 
-Full backend gate clean (1418 tests). New `TestNameCapacityMismatch` in
-`test_health_storage_tiers.py`: any-token parsing, both directions of
-mismatch, the real 35TB-class server's own case (now correctly silent),
-and the no-token no-fire case. `docs/architecture.md`'s policy table and
-"facts vocabulary" bullet both updated; checked `fake/generator.py` per
-convention 10 — its storage sizing was never wired to the name token at
-all, so no change needed there.
+Full backend gate clean (1422 tests). New `TestPsuFailureTiers` in
+`test_health_defaults_coverage.py`: one-of-two down (MAJOR), two-of-two
+down (CRITICAL), the single-PSU-server case (CRITICAL, the deliberate
+refinement), and the all-healthy no-fire case. `docs/architecture.md`'s
+policy table and system-defaults bullet list both updated (15 system
+defaults again — one became two).
 
 **Open:** unchanged from prior entries — the serial-less ingest
 correlation guard and Mongo cleanup of the two `ocp4-five-bpod-

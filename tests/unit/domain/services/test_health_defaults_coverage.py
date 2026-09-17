@@ -94,6 +94,45 @@ class TestSeededPolicies:
         assert len(keys) == len(set(keys))
 
 
+class TestPsuFailureTiers:
+    """One PSU down is a redundant pair doing its job (MAJOR); the server's
+    only PSU, or two or more, down is a real loss (CRITICAL) — 2026-09-17,
+    mirroring the existing OS-disk MAJOR/CRITICAL tier.
+    """
+
+    @staticmethod
+    def _power_severity(psus: list[Psu]) -> HealthSeverity:
+        server = _server(power=Power(psus=psus))
+        state = evaluate_health(
+            extract_facts(server),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+        return state.categories["power"].severity
+
+    def test_one_of_two_down_is_major(self) -> None:
+        psus = [Psu(id="0", health="UP"), Psu(id="1", health="DOWN")]
+        assert self._power_severity(psus) == HealthSeverity.MAJOR
+
+    def test_two_of_two_down_is_critical(self) -> None:
+        psus = [Psu(id="0", health="DOWN"), Psu(id="1", health="DOWN")]
+        assert self._power_severity(psus) == HealthSeverity.CRITICAL
+
+    def test_the_only_psu_down_is_critical_not_major(self) -> None:
+        """A single-PSU server has no redundancy to lose — its only supply
+        failing is a real outage, whatever the redundant-pair case is.
+        """
+        assert self._power_severity([Psu(id="0", health="DOWN")]) == HealthSeverity.CRITICAL
+
+    def test_all_psus_healthy_is_not_flagged(self) -> None:
+        psus = [Psu(id="0", health="UP"), Psu(id="1", health="UP")]
+        assert self._power_severity(psus) != HealthSeverity.MAJOR
+        assert self._power_severity(psus) != HealthSeverity.CRITICAL
+
+
 class TestCoverageAcrossVendors:
     """A check that only fires for one vendor is not fleet coverage."""
 

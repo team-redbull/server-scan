@@ -588,7 +588,7 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     useless signal; "nothing is up" is the one that means something, and
     it needs `links_known_count` beside it (ADR-0027).
 - **The system-default policies** (`app.domain.services.health.
-  health_policy_defaults`, fourteen as of 2026-09-17) are built, never
+  health_policy_defaults`, fifteen as of 2026-09-17) are built, never
   persisted, by that module; `bootstrap` seeds and re-syncs them.
   Everything except the two fabric policies is vendor-neutral by
   construction — each reads a fact off the normalized `Server`, never a
@@ -597,7 +597,8 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   | `policy_key` | Fires when | Severity |
   |---|---|---|
   | `connectivity.fabric_paths_down_warning` / `_critical` | exactly 1 / 2+ fabric paths down | WARNING / CRITICAL |
-  | `power.failed_psu` | a PSU reports `DOWN` | CRITICAL |
+  | `power.psu_failed_major` | exactly 1 of 2+ fitted PSUs `DOWN` | MAJOR |
+  | `power.psu_failed_critical` | 2+ PSUs `DOWN`, or a single-PSU server's only one is | CRITICAL |
   | `storage.os_disk_bad_major` / `_critical` | exactly 1 / 2+ OS disks bad | MAJOR / CRITICAL |
   | `storage.data_disk_bad_large_warning` / `_critical` | 10TB-named node, exactly 1 / 2+ data disks bad | WARNING / CRITICAL |
   | `storage.data_disk_bad_warning` | any other node, 1+ data disks bad | WARNING |
@@ -613,6 +614,14 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     compete for one winner (ADR-0005), and they are meant to coexist.
     They are scoped to `[UCS_CENTRAL, INTERSIGHT]` (ADR-0030) — only a
     fabric interconnect has fabric paths.
+  - **`power.psu_failed_major`/`_critical` replaced a single always-
+    CRITICAL `power.failed_psu`, 2026-09-17** — operator's own call,
+    matching the OS-disk MAJOR/CRITICAL tier: a redundant PSU pair losing
+    one supply is exactly what redundancy is *for* (MAJOR, not a page-
+    someone event), while two or more down — or a single-PSU server's
+    only one — leaves nothing redundant (CRITICAL). The single-PSU case
+    is deliberate: without it, a non-redundant server's only supply
+    failing would read as merely MAJOR, understating a real outage.
   - **There is deliberately no blanket "any failed drive is CRITICAL"
     default** — removed 2026-09-06 (`feat!`) when the OS/data split
     landed. Keeping both would make a failed OS disk fire MAJOR *and*

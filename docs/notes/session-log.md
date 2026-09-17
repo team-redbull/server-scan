@@ -8,6 +8,46 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-17 — the 5TB/10TB storage policies became one generic,
+symmetric rule for any `-<N>tb` name token.**
+
+**Why:** confirmed with the operator after flagging a real concern —
+their first proposal (±1.5 GiB tolerance) was tighter than any real
+drive/RAID combination could land inside, which would have replaced one
+false-positive-storm bug with another. Settled on **±1.5 TB**, generic
+over any `-<N>tb` token, both directions — replacing the two hand-picked,
+one-sided defaults (`name_5tb_oversized`: only flagged over 6 TB;
+`large_storage_undersized`: only flagged under 8 TB for a 10TB node).
+
+**Built:**
+- `facts._name_capacity_bytes`: parses any whole `-<N>tb` segment (reuses
+  the same day's earlier whole-segment-matching fix, not a substring
+  check) into `N * 10**12` decimal bytes.
+- Two new facts/metrics: `storage.name_capacity_bytes` (the parsed
+  nominal capacity, or `None`) and `storage.capacity_deviation_bytes`
+  (`abs(total_bytes - name_capacity_bytes)`, or `None` without a token) —
+  both nullable `INT`s, since the condition grammar has no fact-vs-fact
+  arithmetic, so the deviation has to be precomputed.
+- One new policy, `storage.name_capacity_mismatch` (CRITICAL): `EXISTS`
+  on the capacity fact, `GT` 1.5 TB on the deviation.
+- **`server.name_has_5tb`/`_10tb` themselves are untouched** — the
+  disk-failure escalation policies (`data_disk_bad_large_*`) still key
+  off those booleans specifically; a different concern (how severe a bad
+  data disk is) from the capacity-mismatch check, so left alone.
+- **Seeding never deletes** (same precedent as the 2026-09-06 failed-
+  drive-default removal): a database seeded before this change keeps the
+  two old policies, with their old narrower thresholds, until an
+  operator disables them.
+
+Full backend gate clean. New `TestNameCapacityMismatch` in
+`test_health_storage_tiers.py`: any-token parsing, both directions of
+mismatch, the real 35TB-class server's own case (now correctly silent),
+and the no-token no-fire case. Checked `fake/generator.py` per
+convention 10 — its storage sizing was never wired to the name token at
+all, so no change needed there.
+
+---
+
 **2026-09-17 — a "BMC" column between Name and Installation opens each
 server's own console; broke CI's E2E job a third time on the way.**
 
