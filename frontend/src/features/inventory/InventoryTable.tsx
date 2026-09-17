@@ -6,7 +6,7 @@ import type { SortingState } from "@tanstack/react-table";
 // workaround, so this builds on it rather than the `useTable` + `features` API.
 import { legacyCreateColumnHelper, useLegacyTable } from "@tanstack/react-table/legacy";
 import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import type { SortableField } from "@/features/inventory/sorting";
 import { InstallationBadge } from "@/components/InstallationBadge";
@@ -45,15 +45,18 @@ const columnHelper = legacyCreateColumnHelper<ServerRow>();
 // Columns have heterogeneous `TValue`; TanStack's docs recommend
 // `ColumnDef<TData, any>` for exactly this case — a `TValue=unknown` array
 // is rejected by `exactOptionalPropertyTypes` on every column.
-function buildColumns(withMce: boolean): LegacyColumnDef<ServerRow, any>[] {
+function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow, any>[] {
   return [
   columnHelper.accessor("name", {
     id: "name",
     header: "Name",
     cell: (info) => (
       // A real anchor; the row's `onClick` is a convenience on top of it.
+      // `state.from` is this page's own URL (filters included), so the
+      // detail page's "Back to inventory" returns to the same filtered view.
       <Link
         to={`/servers/${info.row.original.id}`}
+        state={{ from }}
         className="font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
       >
         {info.getValue()}
@@ -129,9 +132,11 @@ export function InventoryTable({
   emptyMessage,
 }: InventoryTableProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = `${location.pathname}${location.search}`;
   const sorting: SortingState = [{ id: sortField, desc: sortDesc }];
   const withMce = servers.some((server) => server.mce_name);
-  const columns = useMemo(() => buildColumns(withMce), [withMce]);
+  const columns = useMemo(() => buildColumns(withMce, from), [withMce, from]);
 
   const table = useLegacyTable({
     data: servers,
@@ -199,7 +204,7 @@ export function InventoryTable({
                 if ((event.target as HTMLElement).closest("a")) {
                   return;
                 }
-                void navigate(`/servers/${row.original.id}`);
+                void navigate(`/servers/${row.original.id}`, { state: { from } });
               }}
               className={`group cursor-pointer border-b border-[var(--border-subtle)] transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] last:border-0 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-status-info)] ${ROW_ACCENT[row.original.health]}`}
             >

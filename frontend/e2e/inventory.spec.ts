@@ -59,4 +59,35 @@ test.describe("Inventory", () => {
     const emptyState = page.getByText("No connectivity data.");
     await expect(fabricGroups.first().or(emptyState)).toBeVisible();
   });
+
+  test("remembers the active filter when returning from a server's detail page", async ({
+    page,
+  }) => {
+    await page.goto("/servers?vendor=cisco");
+    const rows = page.locator("tbody tr");
+    await expect(rows.first()).toBeVisible();
+
+    await rows.first().getByRole("link").click();
+    await expect(page).toHaveURL(/\/servers\//);
+
+    await page.getByRole("link", { name: "← Back to inventory" }).click();
+    await expect(page).toHaveURL(/\/servers\?vendor=cisco/);
+    await expect(page.getByRole("heading", { name: "Servers" })).toBeVisible();
+  });
+
+  test("a direct visit to a server's page returns to the unfiltered inventory, not the sites overview", async ({
+    page,
+    request,
+  }) => {
+    const listResponse = await request.get("/api/v1/servers?page_size=1");
+    const { items } = (await listResponse.json()) as { items: { id: string }[] };
+    const serverId = items[0]?.id;
+    if (!serverId) {
+      throw new Error("No seeded server available to test the back link against.");
+    }
+
+    await page.goto(`/servers/${serverId}`);
+    await page.getByRole("link", { name: "← Back to inventory" }).click();
+    await expect(page).toHaveURL(/\/servers$/);
+  });
 });

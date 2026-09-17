@@ -8,6 +8,54 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-16 — a `Duplicate` inventory filter and two fleet gauges for
+name collisions, plus the "Maintenance only"/"Stale only" label
+cleanup.** The same duplicate-server investigation that found the real
+serial bug also confirmed six other duplicate-name pairs as **not**
+bugs — distinct machines sharing a name across vendors/domains, correct
+`(vendor, serial_normalized)` correlation. Both classes deserve
+visibility either way, so the operator asked for a way to see every
+name collision in the UI and a metric for it, on top of the code fix.
+
+**Built:**
+- `features/inventory/rows.ts`'s `filterRows` gained a `duplicate`
+  filter: `nameCounts()` counts rows per `name` over the *whole* fleet
+  given (not an already-filtered subset — a pair split by another active
+  filter would each look unique otherwise), entirely client-side, no new
+  endpoint (ADR-0033). A `Duplicate` checkbox sits beside Maintenance/
+  Stale in `InventoryPage.tsx`.
+- Renamed "Maintenance only"/"Stale only" to "Maintenance"/"Stale" (no
+  product meaning change — three consistent labels, the operator found
+  "only" redundant once there were three toggles).
+- Two new unlabeled Prometheus gauges, `server_scan_duplicate_name_
+  groups`/`_servers`, computed in the same `fleet_snapshot` `$facet`
+  pipeline as everything else in ADR-0029 (`$group` by `name`, `$match`
+  on `count > 1`) — plus matching `:max` recording rules in the chart's
+  `PrometheusRule`. No alert yet: a collision isn't inherently urgent
+  (6 of 7 in the investigation were fine).
+
+ADR-0029 has a new dated update with the full table; ADR-0016's
+2026-09-16 "continued" update has the serial-fallback research and
+citations this follows.
+
+**Postscript, same day: this unit's label rename broke CI's E2E job.**
+`frontend/e2e/maintenance.spec.ts` still used `getByLabel("Maintenance
+only")`, which no longer exists — the local frontend gate does not run
+Playwright (`npm run test:e2e` needs a live backend+frontend, not part
+of `npm run lint/typecheck/test/build`), so this reached CI, not review.
+Fixing it surfaced a second, previously-latent `getByLabel` trap now in
+`.claude/rules/frontend.md`: a bare `getByLabel("Maintenance")` is a
+51-element strict-mode violation because it matches every row's `Put X
+into maintenance`/`End maintenance on X` button `aria-label`, not just
+the checkbox — `getByRole("checkbox", { name: "Maintenance" })` is the
+fix. Verified by actually running the full local Playwright suite
+rather than trusting the text-diff alone — 10/10 E2E passing before
+pushing. **Lesson for next time a filter label changes: grep
+`frontend/e2e/*.spec.ts` for the old text before calling a rename
+done**, since nothing else catches it before CI.
+
+---
+
 **2026-09-16 — a blank Redfish `SerialNumber` falls back to
 `Chassis.SerialNumber`, closing the real duplicate-document bug the
 Model fallback's sibling investigation found.** The operator's own live

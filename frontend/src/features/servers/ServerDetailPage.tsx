@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import { ApiError } from "@/api/client";
 import { ConnectivityTab } from "@/features/servers/ConnectivityTab";
@@ -29,13 +29,19 @@ const TAB_LABELS: Record<TabId, string> = {
 
 export function ServerDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const { data, isPending, isError, error } = useServerDetailQuery(id ?? "");
 
+  // The inventory row that linked here passes its own URL (filters
+  // included) as router state; a direct visit has none, so land on the
+  // unfiltered list rather than the sites overview at "/".
+  const backTo = (location.state as { from?: string } | null)?.from ?? "/servers";
+
   return (
     <main className="mx-auto max-w-5xl p-8">
-      <Link to="/" className="text-sm text-blue-600 hover:underline dark:text-blue-400">
+      <Link to={backTo} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
         ← Back to inventory
       </Link>
 
