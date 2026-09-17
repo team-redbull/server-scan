@@ -13,6 +13,7 @@ Every fact counts only definite readings — never UNKNOWN (ADR-0027).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.domain.enums import HealthSeverity
@@ -43,6 +44,28 @@ def _has_name_token(name: str | None, token: str) -> bool:
         bool: Whether one of `name`'s hyphen-delimited segments is exactly `token`.
     """
     return token in (name or "").lower().split("-")
+
+
+_CAPACITY_TOKEN = re.compile(r"^(\d+)tb$")
+
+
+def _name_capacity_bytes(name: str | None) -> int | None:
+    """
+    The nominal capacity a `-<N>tb` name segment promises, in decimal bytes.
+
+    Any whole segment, not just `"5tb"`/`"10tb"` — ADR update, 2026-09-17.
+
+    Args:
+        name (str | None): The server's name.
+
+    Returns:
+        int | None: `N * 10**12` bytes, or None if no segment matches.
+    """
+    for segment in (name or "").lower().split("-"):
+        match = _CAPACITY_TOKEN.match(segment)
+        if match:
+            return int(match.group(1)) * 1_000_000_000_000
+    return None
 
 
 def _os_disk_capacities(drives: list[Any]) -> tuple[int, ...]:
@@ -89,6 +112,7 @@ def extract_facts(server: Server) -> dict[str, Any]:
     uncorrectable = [
         g.uncorrectable_error_count for g in gpus if g.uncorrectable_error_count is not None
     ]
+    name_capacity_bytes = _name_capacity_bytes(server.name)
 
     return {
         "cpu.socket_count": server.hardware.cpu.sockets,
@@ -110,6 +134,12 @@ def extract_facts(server: Server) -> dict[str, Any]:
             fact: _has_name_token(server.name, token)
             for fact, token in _STORAGE_NAME_TOKENS.items()
         },
+        "storage.name_capacity_bytes": name_capacity_bytes,
+        "storage.capacity_deviation_bytes": (
+            abs(server.hardware.storage.total_bytes - name_capacity_bytes)
+            if name_capacity_bytes is not None
+            else None
+        ),
         "memory.dimm_count": len(dimms),
         "memory.degraded_dimm_count": sum(1 for d in dimms if d.health in _NOT_GOOD),
         "network.interface_link_states": link_states,

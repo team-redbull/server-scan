@@ -287,6 +287,24 @@ def build_default_registry() -> MetricRegistry:
     )
     registry.register(
         MetricDef(
+            name="storage.name_capacity_bytes",
+            type=MetricType.INT,
+            category="storage",
+            description="The capacity a `-<N>tb` name segment promises, or None",
+            resolver=lambda f: _get(f, "storage.name_capacity_bytes", None),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="storage.capacity_deviation_bytes",
+            type=MetricType.INT,
+            category="storage",
+            description="abs(total_bytes - name_capacity_bytes), or None without a name token",
+            resolver=lambda f: _get(f, "storage.capacity_deviation_bytes", None),
+        )
+    )
+    registry.register(
+        MetricDef(
             name="memory.dimm_count",
             type=MetricType.INT,
             category="memory",

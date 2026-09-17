@@ -12,7 +12,10 @@ from app.domain.enums import HEALTH_SEVERITY_RANK, HealthSeverity, LinkState
 from app.domain.models.hardware import Hardware, Memory, MemoryModule, Storage, StorageDrive
 from app.domain.models.network import NetworkInfo, NetworkInterface
 from app.domain.models.server import Server
+from app.domain.services.health.evaluate import evaluate_health
 from app.domain.services.health.facts import extract_facts
+from app.domain.services.health.health_policy_defaults import default_system_policies
+from app.domain.services.health.metrics import build_default_registry
 
 _GB = 1_000_000_000
 _TB = 1_000_000_000_000
@@ -163,8 +166,7 @@ class TestLargeStorageName:
         facts = extract_facts(_server(name="ocp4-nyc-prod-worker-01"))
         assert facts["server.name_has_10tb"] is False
 
-    def test_total_capacity_is_exposed_for_the_undersized_check(self) -> None:
-        """The CRITICAL rule compares this against 8 TB decimal."""
+    def test_total_capacity_is_exposed_for_the_capacity_mismatch_check(self) -> None:
         facts = extract_facts(_server(name="ocp4-nyc-10tb-01", drives=[_drive(4 * _TB)]))
         assert facts["storage.total_bytes"] == 4 * _TB
 
@@ -194,6 +196,62 @@ class TestLargeStorageName:
 
     def test_a_larger_10tb_lookalike_does_not_match_either(self) -> None:
         assert extract_facts(_server(name="ocp4-nyc-110tb-01"))["server.name_has_10tb"] is False
+
+
+class TestNameCapacityMismatch:
+    """`storage.name_capacity_mismatch` — one symmetric rule for any
+    `-<N>tb` name token, replacing the old 5TB/10TB-specific ones
+    (2026-09-17).
+    """
+
+    def test_parses_any_capacity_token_not_just_5_and_10(self) -> None:
+        facts = extract_facts(_server(name="ocp4-nyc-20tb-01"))
+        assert facts["storage.name_capacity_bytes"] == 20 * _TB
+
+    def test_no_token_means_no_capacity_fact_at_all(self) -> None:
+        facts = extract_facts(_server(name="ocp4-nyc-prod-worker-01"))
+        assert facts["storage.name_capacity_bytes"] is None
+        assert facts["storage.capacity_deviation_bytes"] is None
+
+    def test_deviation_is_the_absolute_difference(self) -> None:
+        facts = extract_facts(_server(name="ocp4-nyc-10tb-01", drives=[_drive(8 * _TB)]))
+        assert facts["storage.capacity_deviation_bytes"] == 2 * _TB
+
+    @staticmethod
+    def _storage_severity(name: str, total_bytes: int) -> HealthSeverity:
+        server = _server(name=name, drives=[_drive(total_bytes)])
+        state = evaluate_health(
+            extract_facts(server),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+        return state.categories["storage"].severity
+
+    def test_within_1_5tb_either_way_is_not_critical(self) -> None:
+        assert self._storage_severity("ocp4-nyc-10tb-01", 9 * _TB) != HealthSeverity.CRITICAL
+        assert self._storage_severity("ocp4-nyc-10tb-01", 11 * _TB) != HealthSeverity.CRITICAL
+
+    def test_more_than_1_5tb_short_is_critical(self) -> None:
+        # The old undersized-only rule's own case, now symmetric.
+        assert self._storage_severity("ocp4-nyc-10tb-01", 7 * _TB) == HealthSeverity.CRITICAL
+
+    def test_more_than_1_5tb_over_is_critical_too(self) -> None:
+        # The old oversized-only rule's own case, on the 10TB side this time.
+        assert self._storage_severity("ocp4-nyc-10tb-01", 12 * _TB) == HealthSeverity.CRITICAL
+
+    def test_the_35tb_regression_case_is_now_correctly_evaluated(self) -> None:
+        """The bug this whole rule was rewritten over: a real 35TB-class
+        server actually reporting ~35TB must never fire — the old rule
+        would have false-positived it as an oversized "5TB" box.
+        """
+        name = "ocp-dell-r660-five-192-1536gb-35tb-DEL0001234"
+        assert self._storage_severity(name, 35 * _TB) != HealthSeverity.CRITICAL
+
+    def test_a_server_with_no_capacity_token_is_never_judged_by_this_rule(self) -> None:
+        assert self._storage_severity("ocp4-nyc-prod-worker-01", 1) != HealthSeverity.CRITICAL
 
 
 class TestDegradedDimms:

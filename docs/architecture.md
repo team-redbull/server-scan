@@ -578,12 +578,17 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     until 2026-09-17, because `"5tb" in name` is also true of `"35tb"`.
     Unlike `parse_site_code`'s deliberate substring-within-a-token
     matching, nothing here asked for that; it was simply unguarded.
+    **`storage.name_capacity_bytes`/`capacity_deviation_bytes`**
+    (`facts._name_capacity_bytes`, 2026-09-17) is the separate, general
+    version of the same idea — parses *any* `-<N>tb` segment into a
+    number, for `storage.name_capacity_mismatch` below, rather than one
+    boolean per hardcoded capacity.
   - Network counts links **up**, not links down: a server with unused
     NICs has DOWN links and is perfectly healthy, so "any link down" is a
     useless signal; "nothing is up" is the one that means something, and
     it needs `links_known_count` beside it (ADR-0027).
 - **The system-default policies** (`app.domain.services.health.
-  health_policy_defaults`, fifteen as of 2026-09-13) are built, never
+  health_policy_defaults`, fourteen as of 2026-09-17) are built, never
   persisted, by that module; `bootstrap` seeds and re-syncs them.
   Everything except the two fabric policies is vendor-neutral by
   construction — each reads a fact off the normalized `Server`, never a
@@ -596,8 +601,7 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   | `storage.os_disk_bad_major` / `_critical` | exactly 1 / 2+ OS disks bad | MAJOR / CRITICAL |
   | `storage.data_disk_bad_large_warning` / `_critical` | 10TB-named node, exactly 1 / 2+ data disks bad | WARNING / CRITICAL |
   | `storage.data_disk_bad_warning` | any other node, 1+ data disks bad | WARNING |
-  | `storage.large_storage_undersized` | 10TB-named node, total storage < 8 TB | CRITICAL |
-  | `storage.name_5tb_oversized` | 5TB-named node, total storage > 6 TB | CRITICAL |
+  | `storage.name_capacity_mismatch` | `-<N>tb`-named node, total storage more than 1.5 TB off `N` TB either way | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
   | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
   | `network.single_link_up` | readable links ≥ 2, exactly one up | MAJOR |
@@ -624,11 +628,21 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     is *for*, which only its name records: on a large-storage node a bad
     data disk escalates at two; elsewhere the local disks are incidental
     and one bad disk is a warning.
-  - The 8 TB and 6 TB bounds are **decimal**, matching how the collectors
-    measure and the dry run renders capacity, and both leave headroom for
-    how a "10TB"/"5TB" build is actually assembled and measured. Both are
-    CRITICAL for the same reason: capacity that does not match the name a
-    workload is placed by — a workload placed by name will not fit.
+  - **`storage.name_capacity_mismatch` replaced two hardcoded, one-sided
+    rules with one symmetric one, 2026-09-17** — a real 35TB-class server
+    false-positived the old `name_5tb_oversized` rule, because that
+    policy read `server.name_has_5tb` (a whole-segment match check, fixed
+    the same day) rather than what the name actually promised. The new
+    rule parses any `-<N>tb` segment into `storage.name_capacity_bytes`
+    (decimal, `N * 10**12`) and fires when `storage.total_bytes` is more
+    than 1.5 TB off that in *either* direction — one rule for 5TB, 10TB,
+    20TB or any future capacity class, not two hand-picked ones with
+    different one-sided thresholds (6 TB ceiling for 5TB, 8 TB floor for
+    10TB). **Seeding never deletes**: a database seeded before this
+    change keeps the old `storage.large_storage_undersized`/
+    `name_5tb_oversized` policies (and the old, narrower thresholds) until
+    an operator disables them — same as the failed-drive-default removal
+    below.
   - A degraded DIMM is WARNING, not MAJOR: a scheduled swap, not lost
     redundancy — the server keeps running on the memory it has, and ECC
     is doing its job until it cannot. Only providers that read per-DIMM

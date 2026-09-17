@@ -2,9 +2,9 @@
 
 `default_system_policies()` builds them; `app.application.services.bootstrap`
 persists and re-syncs them. What each one is and why it carries the severity
-it does — the OS/data disk split, the decimal 8 TB / 6 TB bounds, the removed
-blanket failed-drive default — is in docs/architecture.md, "Health policy
-engine" ("The system-default policies").
+it does — the OS/data disk split, the 1.5 TB capacity-mismatch tolerance,
+the removed blanket failed-drive default — is in docs/architecture.md,
+"Health policy engine" ("The system-default policies").
 """
 
 from __future__ import annotations
@@ -219,32 +219,6 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
-    large_storage_undersized = HealthPolicy(
-        id=new_id("health_policy"),
-        name="Large-storage server below expected capacity",
-        description=(
-            "Fires when a server whose name carries the 10TB token reports "
-            "less than 8 TB of total storage."
-        ),
-        policy_key="storage.large_storage_undersized",
-        category="storage",
-        severity=HealthSeverity.CRITICAL,
-        condition=Condition(
-            all_of=[
-                Condition(metric="server.name_has_10tb", operator="EQ", value=True),
-                Condition(metric="storage.total_bytes", operator="LT", value=8_000_000_000_000),
-            ]
-        ),
-        evidence=[EvidenceField(key="total", metric="storage.total_bytes")],
-        message_template="only {total} bytes of storage on a 10TB server",
-        scope=PolicyScope(),
-        source="SYSTEM_DEFAULT",
-        priority=100,
-        system=True,
-        created_at=now,
-        updated_at=now,
-    )
-
     all_links_down = HealthPolicy(
         id=new_id("health_policy"),
         name="No network link up",
@@ -277,24 +251,34 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
-    name_5tb_oversized = HealthPolicy(
+    name_capacity_mismatch = HealthPolicy(
         id=new_id("health_policy"),
-        name="5TB server above expected capacity",
+        name="Storage doesn't match the server's own name",
         description=(
-            "Fires when a server whose name carries the 5TB token reports "
-            "more than 6 TB of total storage."
+            "Fires when a server's name carries a -<N>tb capacity token "
+            "and its total storage differs from that by more than 1.5 TB, "
+            "in either direction. Generalizes the old 5TB/10TB-specific "
+            "rules to any capacity token (docs/architecture.md update, "
+            "2026-09-17)."
         ),
-        policy_key="storage.name_5tb_oversized",
+        policy_key="storage.name_capacity_mismatch",
         category="storage",
         severity=HealthSeverity.CRITICAL,
         condition=Condition(
             all_of=[
-                Condition(metric="server.name_has_5tb", operator="EQ", value=True),
-                Condition(metric="storage.total_bytes", operator="GT", value=6_000_000_000_000),
+                Condition(metric="storage.name_capacity_bytes", operator="EXISTS"),
+                Condition(
+                    metric="storage.capacity_deviation_bytes",
+                    operator="GT",
+                    value=1_500_000_000_000,
+                ),
             ]
         ),
-        evidence=[EvidenceField(key="total", metric="storage.total_bytes")],
-        message_template="{total} bytes of storage on a 5TB server",
+        evidence=[
+            EvidenceField(key="total", metric="storage.total_bytes"),
+            EvidenceField(key="expected", metric="storage.name_capacity_bytes"),
+        ],
+        message_template="{total} bytes of storage, but the name promises {expected}",
         scope=PolicyScope(),
         source="SYSTEM_DEFAULT",
         priority=100,
@@ -414,8 +398,7 @@ def default_system_policies() -> list[HealthPolicy]:
         large_storage_data_warning,
         large_storage_data_critical,
         data_disk_warning,
-        large_storage_undersized,
-        name_5tb_oversized,
+        name_capacity_mismatch,
         degraded_dimm,
         all_links_down,
         single_link_up,

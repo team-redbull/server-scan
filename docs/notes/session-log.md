@@ -8,6 +8,42 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-17 — a "BMC" column between Name and Installation opens each
+server's own console; broke CI's E2E job a third time on the way.**
+
+**Built:** `InventoryTable.tsx`'s new narrow icon-only "BMC" column
+(`ServerRow.bmc_host` already existed — "search parity only, never
+rendered" until now, no backend change needed) opens
+`https://<bmc_host>` in a new tab, `size-7` matching `MaintenanceToggle`'s
+own button so it costs no more width than that already-accepted column.
+Verified the 1440px width constraint directly (headless Chromium,
+`document.body.scrollWidth` vs `window.innerWidth`, both BMC and MCE
+columns showing at once) rather than by eye.
+
+**Postscript: broke CI's E2E job, same root cause as the earlier
+Maintenance-label one.** `npm run lint/typecheck/test/build` never runs
+Playwright, so pushing without a local `npx playwright test` run reached
+CI, not review — again. A row now carries two `<a>`s (Name, BMC), so
+`row.getByRole("link")` and `getByRole("link", { name: server.name })`
+both went ambiguous — the BMC link's aria-label contains the plain
+server name as a substring. Fixed by scoping the row-level query to the
+Name `<td>` and adding `exact: true` to the page-level one.
+`.claude/rules/frontend.md` now says plainly: any element added inside a
+table row needs a real local `npx playwright test` run before pushing.
+
+**Separately, an unrelated hazard surfaced mid-fix**: amending and
+force-pushing the previous commit (`9a62f55` → `b7ce589`, to fix its
+undersold subject line) happened *after* CI had already tagged and
+published `v2.11.1` from `9a62f55` — that tag now points at a commit
+unreachable from `main`. The release itself is fine (identical tree,
+just a better commit message); the very next `feat:` commit (the BMC
+column) moved the computed version to `v2.12.0` and published cleanly,
+confirming the collision was self-resolving. **Lesson: never
+amend+force-push a commit once its own CI run has started** — confirm
+it failed/was cancelled first, or fix forward with a new commit.
+
+---
+
 **2026-09-17 — three unrelated operator-reported bugs fixed in one pass:
 a name-token false positive, the standalone Overview layout, and the
 detail page's "Back to inventory" link.**

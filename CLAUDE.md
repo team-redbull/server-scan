@@ -583,61 +583,50 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-17 — a "BMC" column between Name and Installation opens each
-server's own console.** Moved to `docs/notes/session-log.md`: the
-name-token/Overview-layout/back-link three-bug-fix unit.
+**2026-09-17 — the 5TB/10TB storage policies became one generic,
+symmetric rule for any `-<N>tb` name token.** Moved to `docs/notes/
+session-log.md`: the BMC column unit (and its E2E/tag postscripts) and
+the earlier name-token/Overview-layout/back-link unit.
 
-**Built:** `InventoryTable.tsx`'s new narrow icon-only "BMC" column
-(`ServerRow.bmc_host` already existed — "search parity only, never
-rendered" until now, no backend change needed) opens
-`https://<bmc_host>` in a new tab, `size-7` matching `MaintenanceToggle`'s
-own button so it costs no more width than that already-accepted column.
-Renders nothing for a server with no `bmc_host` read, rather than a dead
-button. A real `<a>`, so the row's existing `.closest("a")` click-guard
-already excludes it — no `stopPropagation` needed.
+**Why:** confirmed with the operator after flagging a real concern —
+their first proposal (±1.5 GiB tolerance) was tighter than any real
+drive/RAID combination could land inside, which would have replaced one
+false-positive-storm bug with another. Settled on **±1.5 TB**, generic
+over any `-<N>tb` token, both directions — replacing the two hand-picked,
+one-sided defaults (`name_5tb_oversized`: only flagged over 6 TB;
+`large_storage_undersized`: only flagged under 8 TB for a 10TB node).
 
-**Verified the width constraint directly, not by eye**: a headless
-Chromium run at 1440px with both BMC and MCE columns showing (8 columns
-total, the worst case) measured `document.body.scrollWidth ===
-window.innerWidth` — zero horizontal overflow — screenshotted for a
-visual sanity check too. `.claude/rules/frontend.md` records the
-measurement method for the next column addition.
+**Built:**
+- `facts._name_capacity_bytes`: parses any whole `-<N>tb` segment (reuses
+  today's earlier whole-segment-matching fix, not a substring check) into
+  `N * 10**12` decimal bytes.
+- Two new facts/metrics: `storage.name_capacity_bytes` (the parsed
+  nominal capacity, or `None`) and `storage.capacity_deviation_bytes`
+  (`abs(total_bytes - name_capacity_bytes)`, or `None` without a token) —
+  both nullable `INT`s, since the condition grammar has no fact-vs-fact
+  arithmetic, so the deviation has to be precomputed.
+- One new policy, `storage.name_capacity_mismatch` (CRITICAL): `EXISTS`
+  on the capacity fact, `GT` 1.5 TB on the deviation.
+- **`server.name_has_5tb`/`_10tb` themselves are untouched** — the
+  disk-failure escalation policies (`data_disk_bad_large_*`) still key
+  off those booleans specifically; a different concern (how severe a bad
+  data disk is) from the capacity-mismatch check, so left alone.
+- **Seeding never deletes** (same precedent as the 2026-09-06 failed-
+  drive-default removal): a database seeded before this change keeps the
+  two old policies, with their old narrower thresholds, until an
+  operator disables them. A fresh database gets only the new one — 14
+  system defaults now, not 15.
 
-Full gate clean: frontend (`lint`/`typecheck`/`test -- --run`, 124
-passed/`build`); a new `InventoryPage.test.tsx` case covers both the
-link (`href`, `target="_blank"`) and the no-`bmc_host` case rendering
-nothing.
-
-**Postscript, same push: broke CI's E2E job a third time, same root
-cause as the Maintenance-label one.** `npm run lint/typecheck/test/
-build` never runs Playwright, so pushing without a local `npx playwright
-test` run reached CI, not review — again. This time: a row now carries
-two `<a>`s (Name, BMC), so `row.getByRole("link")` (`inventory.spec.ts`,
-including this unit's own new test) and `getByRole("link", { name:
-server.name })` (`maintenance.spec.ts`) both went ambiguous — the BMC
-link's aria-label contains the plain server name as a substring. Fixed
-by scoping the row-level query to the Name `<td>` and adding `exact:
-true` to the page-level one. `.claude/rules/frontend.md` now says
-plainly: **any element added inside a table row needs a real local
-`npx playwright test` run before pushing, not just the unit gate** —
-this is the second time skipping that step shipped a broken CI run.
-
-**Separately, an unrelated hazard surfaced mid-fix**: amending and
-force-pushing the previous commit (to fix its undersold subject line,
-`9a62f55` → `b7ce589`) happened *after* CI had already tagged and
-published `v2.11.1` from `9a62f55` — so that tag now points at a commit
-unreachable from `main`. The release itself is fine (identical tree,
-just a better commit message), and this unit's own `feat:` commit
-should move the next computed version past v2.11.1 without colliding,
-but **never amend+force-push a commit once its own CI run has started**
-— confirm it failed or was cancelled first, or fix forward with a new
-commit instead.
+Full backend gate clean (1418 tests). New `TestNameCapacityMismatch` in
+`test_health_storage_tiers.py`: any-token parsing, both directions of
+mismatch, the real 35TB-class server's own case (now correctly silent),
+and the no-token no-fire case. `docs/architecture.md`'s policy table and
+"facts vocabulary" bullet both updated; checked `fake/generator.py` per
+convention 10 — its storage sizing was never wired to the name token at
+all, so no change needed there.
 
 **Open:** unchanged from prior entries — the serial-less ingest
 correlation guard and Mongo cleanup of the two `ocp4-five-bpod-
 compute-06` documents (parked pending an operator decision); whether any
 real BMC populates `InputPowerWatts`; whether `$expand` is actually
-honored beyond what's advertised. **New:** confirm the next CI run
-after this push actually publishes (watch for a version-collision
-repeat) — if it does, the `v2.11.1` tag needs deleting and re-cutting,
-not another amend.
+honored beyond what's advertised.
