@@ -67,7 +67,13 @@ class RedfishFixture:
         require_auth (bool): Whether anything but the service root needs a
             token.
         session_valid (bool): Set False to make every issued token stop
-            working, simulating an expiry mid-run.
+            working, simulating a BMC that never recovers.
+        expire_tokens_after (int | None): Kill exactly the Nth authorized
+            GET's own token — one mid-run expiry a fresh login recovers
+            from, unlike `session_valid` which never recovers.
+        reject_login_after (int | None): Reject any session-creation POST
+            after the Nth one succeeds — for a re-login that itself gets
+            rejected.
         requests (list[tuple[str, str]]): Every (method, path) served.
     """
 
@@ -78,10 +84,14 @@ class RedfishFixture:
     delays: dict[str, float] = field(default_factory=dict)
     require_auth: bool = True
     session_valid: bool = True
+    expire_tokens_after: int | None = None
+    reject_login_after: int | None = None
     requests: list[tuple[str, str]] = field(default_factory=list)
     tokens: set[str] = field(default_factory=set)
     _server: _QuietServer | None = None
     _thread: threading.Thread | None = None
+    _authorized_count: int = field(default=0, init=False, repr=False)
+    _login_count: int = field(default=0, init=False, repr=False)
 
     @property
     def port(self) -> int:
@@ -109,7 +119,14 @@ class RedfishFixture:
 
             def _authorized(self) -> bool:
                 token = self.headers.get("X-Auth-Token")
-                return bool(token) and token in fixture.tokens and fixture.session_valid
+                valid = bool(token) and token in fixture.tokens and fixture.session_valid
+                if not valid:
+                    return False
+                fixture._authorized_count += 1
+                if fixture._authorized_count == fixture.expire_tokens_after:
+                    fixture.tokens.discard(str(token))
+                    return False
+                return True
 
             def _respond(self, status: int, body: dict[str, Any] | None = None) -> None:
                 payload = json.dumps(body or {}).encode()
@@ -152,6 +169,12 @@ class RedfishFixture:
                 if not self.path.startswith(_SESSIONS):
                     self._respond(404, {})
                     return
+                if (
+                    fixture.reject_login_after is not None
+                    and fixture._login_count >= fixture.reject_login_after
+                ):
+                    self._respond(401, {"error": {"code": "Base.1.0.InsufficientPrivilege"}})
+                    return
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length) or b"{}")
                 if (
@@ -160,6 +183,7 @@ class RedfishFixture:
                 ):
                     self._respond(401, {"error": {"code": "Base.1.0.InsufficientPrivilege"}})
                     return
+                fixture._login_count += 1
                 token = uuid.uuid4().hex
                 fixture.tokens.add(token)
                 self._respond(

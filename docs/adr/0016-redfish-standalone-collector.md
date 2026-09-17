@@ -840,6 +840,72 @@ and cleanup of the two documents this specific host had already
 accumulated before the fix shipped — both estate/ingest-semantics
 decisions, not something this session's own research settles.
 
+## Update (2026-09-17): a live session dying mid-run is not a rejected credential
+
+Operator's own live evidence, from a real DGX (`15.3.20.83`): a healthy
+login at 11:28:07 completed ~140 authenticated requests over ~5 minutes,
+then at 11:33:56 a `$expand=PCIeDevices` query — ~130 members rendered
+into one response, ~35s server-side — 401'd mid-flight. The BMC's
+`SessionService.SessionTimeout` is 30s; the idle timer expired while the
+BMC was still composing the answer, so it killed the session and
+answered 401. The credential itself was never wrong (confirmed with a
+live `curl`, and the identical query succeeded on three sibling hosts on
+the same subnet). The code turned this into the wrong outcome twice:
+`client._request` raised `RedfishAuthError` for *any* 401 with no way to
+tell "the login was rejected" from "a live session just died", and
+`provider._collect_host`'s `except RedfishAuthError` branch logged
+`redfish.bmc_login_failed` and `"login failed for credential 'dgxadmin'"`
+— a lie — dropping the whole host.
+
+**The design principle, and why the never-retry rule survives intact**:
+this repo has a deliberate, tested rule that a 401 is never retried
+(`test_a_rejected_credential_is_never_retried`) — retrying a rejected
+login across an estate is what locks accounts. That rule is about
+*session creation* specifically, not every 401 a BMC can return, and the
+fix keeps it exactly where it was:
+
+| 401 on... | Meaning | Behaviour |
+|---|---|---|
+| Session creation (`_login`) | Credential is wrong | Unchanged — raise `RedfishAuthError`, never retried |
+| An authenticated request after a successful login | Session expired or was evicted | New — re-login once, retry that one request |
+
+**Fixed, entirely in `client.py`**: `_request` on a 401 with
+`authenticated=True` now calls `_login()` again and retries the same
+request once, rather than raising immediately. `_send` builds its
+headers from `self._token` at call time, so the retry carries the fresh
+token with no extra plumbing — and `_login`/`_logout` call `_send`
+directly, never `_request`, so there is no recursion into the login
+path. A `_MAX_REAUTHS = 3` budget lives on the `RedfishClient` instance,
+not the whole run — `_collect_host` builds a fresh client per target, so
+one pathologically flaky BMC's budget is never shared with, or drawn
+from, another host's (confirmed live: session creation is exactly what
+must not be hammered, so this is a real cap, not a formality). Outcomes:
+re-login itself rejected → `RedfishAuthError` (now genuinely a
+credential problem); re-login succeeds but the retry still 401s, or the
+budget is already exhausted → `RedfishProtocolError` — out of the benign
+`AUTH_REJECTED_MARKER` bucket, so the run correctly goes PARTIAL instead
+of reporting a login failure that never happened. A `redfish.
+session_reestablished` event (host, path, re-auth count) is emitted on
+each recovery, so the next investigation of this kind finds the event
+instead of reconstructing it from HTTP logs. `provider.py` needed no
+change at all: a mid-run expiry never surfaces as `RedfishAuthError` any
+more, so `_record_auth_failure`'s mislabeling disappears without
+touching the code that was actually wrong.
+
+**Rejected**: restarting the whole host's collection in the provider on
+session expiry. A DGX collection is ~140 requests over ~6 minutes;
+restarting it multiplies BMC load, risks the host budget, and a
+30s-timeout BMC would likely kill the *new* session mid-restart too.
+Request-level retry redoes exactly the one request that failed.
+
+**Fixture**: `tests/redfish_fixture.py`'s `session_valid=False` already
+covered "a BMC that never recovers" (every token, including a re-login's
+fresh one, stays rejected) but nothing exercised the recovery path
+itself. Added `expire_tokens_after` (kill exactly the Nth authorized
+GET's own token, once — a fresh login's new token keeps working) and
+`reject_login_after` (reject any session-creation POST past the Nth
+success, for testing a rejected re-login specifically).
+
 ## Update (2026-09-09): `uniq_system_uuid` gave up its uniqueness too
 
 The fix above (`{"$exists": True}` → `{"$type": "string"}`) settled the

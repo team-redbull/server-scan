@@ -29,6 +29,10 @@ _ODATA_ROOT = "/redfish/v1"
 _SERVICE_ROOT = "/redfish/v1/"
 _MAX_ATTEMPTS = 3
 _RETRY_STATUSES = frozenset({429, 503})
+# Across a whole client's run, not per request — ADR-0016's 2026-09-17
+# update. A pathologically flaky BMC must not turn one collection into a
+# login loop; session creation is exactly what must not be hammered.
+_MAX_REAUTHS = 3
 # See ADR-0016's 2026-09-13 update for the cap's reasoning.
 _MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
@@ -159,6 +163,7 @@ class RedfishClient:
         self._debug_http = debug_http
         self._token: str | None = None
         self._session_uri: str | None = None
+        self._reauth_count = 0
         self.service_root: dict[str, Any] = {}
         self._client = httpx.AsyncClient(
             base_url=target.base_url,
@@ -362,6 +367,9 @@ class RedfishClient:
         """
         Issue a request and parse its JSON body.
 
+        A 401 here is a session that died mid-run, re-established once —
+        `_login`'s own 401 handling is separate (ADR-0016, 2026-09-17).
+
         Args:
             method (str): HTTP method.
             path (str): Request path.
@@ -371,12 +379,35 @@ class RedfishClient:
             dict[str, Any]: The parsed payload.
 
         Raises:
-            RedfishAuthError: On a 401.
+            RedfishAuthError: On a 401 with no session yet (the
+                unauthenticated service-root probe), or when re-login
+                itself is rejected — now genuinely a credential problem.
             RedfishForbiddenError: On a 403 for a resource.
             RedfishProtocolError: On any other error status, a redirect,
-                an oversized body, or unparseable JSON.
+                an oversized body, unparseable JSON, or a session that
+                could not be re-established (budget exhausted, or the
+                retried request still 401s after a successful re-login).
         """
         response = await self._send(method, path, authenticated=authenticated)
+        if response.status_code == 401 and authenticated:
+            if self._reauth_count >= _MAX_REAUTHS:
+                raise RedfishProtocolError(
+                    f"{self._target.host}: {path} returned 401 and the re-auth budget "
+                    f"({_MAX_REAUTHS}) is exhausted for this run"
+                )
+            self._reauth_count += 1
+            await self._login()
+            logger.info(
+                "redfish.session_reestablished",
+                host=self._target.host,
+                path=path,
+                reauth_count=self._reauth_count,
+            )
+            response = await self._send(method, path, authenticated=authenticated)
+            if response.status_code == 401:
+                raise RedfishProtocolError(
+                    f"{self._target.host}: session re-established but {path} still returned 401"
+                )
         if response.status_code == 401:
             raise RedfishAuthError(f"{self._target.host} returned 401 for {path}")
         if response.status_code == 403:

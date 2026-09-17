@@ -8,6 +8,35 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-17 — one failed PSU is MAJOR, not CRITICAL, unless it's the
+server's only one.**
+
+**The ask, and the refinement:** operator's own call — a single PSU
+report shouldn't page someone the way it used to. Split the old, always-
+CRITICAL `power.failed_psu` into `power.psu_failed_major` (exactly 1 of
+2+ fitted PSUs down) and `power.psu_failed_critical` (2+ down, **or** a
+single-PSU server's only one down) — mirroring the existing OS-disk
+MAJOR/CRITICAL tier exactly. The single-PSU carve-out wasn't asked for
+explicitly but is load-bearing: without it, a non-redundant server
+losing its only supply would read as merely MAJOR, understating a real
+outage — flagged and implemented rather than asked, since it's a
+correctness gap in the literal request, not a design preference.
+
+**Built:** two `HealthPolicy`s replacing one, same `power.failed_psu_
+count`/`power.psu_count` facts (no new facts needed — the condition tree
+itself does the `EQ 1 AND GT 1` / `GTE 2 OR (EQ 1 AND LTE 1)` split,
+nested `all_of`/`any_of`, well within the depth/node limits). Same
+"seeding never deletes" precedent as the storage-rule change: an
+existing database keeps the old always-CRITICAL `power.failed_psu`
+until an operator disables it.
+
+Full backend gate clean. New `TestPsuFailureTiers` in
+`test_health_defaults_coverage.py`: one-of-two down (MAJOR), two-of-two
+down (CRITICAL), the single-PSU-server case (CRITICAL, the deliberate
+refinement), and the all-healthy no-fire case.
+
+---
+
 **2026-09-17 — the 5TB/10TB storage policies became one generic,
 symmetric rule for any `-<N>tb` name token.**
 

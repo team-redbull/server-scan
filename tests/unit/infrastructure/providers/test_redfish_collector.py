@@ -24,7 +24,6 @@ from app.domain.enums import ManagerType, Vendor
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.infrastructure.providers.redfish.client import (
-    RedfishAuthError,
     RedfishClient,
     RedfishProtocolError,
     validate_odata_id,
@@ -857,6 +856,62 @@ class TestFailureModes:
         assert any("no system" in e for e in provider.collection_errors)
 
 
+class TestSessionReestablishment:
+    """A live session dying mid-run is not a rejected credential — the
+    two 401s are told apart and handled differently (ADR-0016, 2026-09-17
+    update, from a real DGX with a 30s SessionTimeout).
+    """
+
+    async def test_a_mid_run_401_is_recovered_with_one_extra_login(self) -> None:
+        """The .83 story: one slow request outlives the idle timer, gets
+        401, and the collection still completes with real data.
+        """
+        with RedfishFixture(resources=minimal_service(), expire_tokens_after=1) as fixture:
+            provider = _provider(fixture.port)
+            servers = await _collect(provider)
+
+            posts = [p for m, p in fixture.requests if m == "POST"]
+            assert len(posts) == 2, "exactly one re-login, not a loop"
+        assert len(servers) == 1
+        assert servers[0].cpu_cores == 64
+        assert provider.collection_errors == ()
+
+    async def test_reestablishing_the_session_but_still_401ing_is_protocol_not_auth(self) -> None:
+        """Budget exhausted, or a BMC that never recovers either way — the
+        run must go PARTIAL, not read as a rejected credential.
+        """
+        with RedfishFixture(resources=minimal_service(), session_valid=False) as fixture:
+            provider = _provider(fixture.port)
+            servers = await _collect(provider)
+        assert servers == []
+        assert not any("login failed" in e for e in provider.collection_errors)
+
+    async def test_a_rejected_relogin_is_still_reported_as_an_auth_failure(self) -> None:
+        """Re-login is a genuine second credential check — if it's
+        rejected, that really is `RedfishAuthError`, not a protocol error.
+        """
+        with RedfishFixture(
+            resources=minimal_service(), expire_tokens_after=1, reject_login_after=1
+        ) as fixture:
+            provider = _provider(fixture.port)
+            servers = await _collect(provider)
+        assert servers == []
+        assert any("login failed" in e for e in provider.collection_errors)
+
+    async def test_the_reauth_budget_is_per_client_not_per_run(self) -> None:
+        """`_collect_host` builds a fresh `RedfishClient` per target, so
+        one flaky BMC's budget never comes out of another host's share.
+        """
+        first = RedfishClient(target=_target(0), connect_timeout=1.0, read_timeout=1.0)
+        second = RedfishClient(target=_target(0), connect_timeout=1.0, read_timeout=1.0)
+        try:
+            first._reauth_count = 99
+            assert second._reauth_count == 0
+        finally:
+            await first._client.aclose()
+            await second._client.aclose()
+
+
 class TestPartialFleetAndTheBreaker:
     async def test_a_partial_fleet_still_yields_the_healthy_hosts(self) -> None:
         """40 of 400 hosts down is a Tuesday, not an incident."""
@@ -996,9 +1051,12 @@ class TestSessionCleanup:
             await _collect(_provider(fixture.port))
             assert any(method == "DELETE" for method, _ in fixture.requests)
 
-    async def test_an_expired_session_mid_run_is_an_auth_error(self) -> None:
-        """A token that stops working must be distinguishable from a bad
-        password, and must not be re-logged-in in a loop.
+    async def test_an_expired_session_mid_run_reestablishes_rather_than_reporting_auth_failure(
+        self,
+    ) -> None:
+        """A token that stops working is not a bad password (ADR-0016,
+        2026-09-17) — re-established once; a BMC that never recovers
+        still bounds the retry, as `RedfishProtocolError`.
         """
         fixture = RedfishFixture(resources=minimal_service()).start()
         try:
@@ -1006,7 +1064,7 @@ class TestSessionCleanup:
             client = _PlainClient(target=target, connect_timeout=2.0, read_timeout=5.0)
             async with client as opened:
                 fixture.session_valid = False
-                with pytest.raises(RedfishAuthError):
+                with pytest.raises(RedfishProtocolError):
                     await opened.get("/redfish/v1/Systems/1")
         finally:
             fixture.stop()

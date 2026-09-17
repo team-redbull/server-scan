@@ -165,7 +165,12 @@ the global and filter on the override, silently.
   chassis serial is refused when `Chassis.Links.ComputerSystems` names
   more than one system (a shared enclosure's serial cannot be attributed
   to just one of them). A record still serial-less after all sources
-  logs `redfish.no_serial`.
+  logs `redfish.no_serial`. **A mid-run 401 (session expiry, not a
+  rejected login) is re-established once in-client** — confirmed live on
+  a BMC with a 30s `SessionTimeout` shorter than one slow `$expand`
+  response — capped by `_MAX_REAUTHS` per `RedfishClient` instance, never
+  raising `RedfishAuthError` for it; `_login`'s own 401 stays untouched
+  and never retried (ADR-0016, 2026-09-17 update).
 - **`ONEVIEW`** (ADR-0022, `docs/hpe-collectors.md`): **one collection
   standard for all HP hardware, whatever its iLO generation** — no Redfish
   pass, no BMC credentials, `mpModel` reported but never branched on. An
