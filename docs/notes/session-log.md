@@ -8,6 +8,72 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-17 — a Redfish session dying mid-run (not a rejected login)
+now re-establishes once instead of dropping the host.** Moved to
+`docs/notes/session-log.md`: the PSU MAJOR/CRITICAL split, the storage
+capacity-mismatch generalization, the BMC column unit, and the earlier
+name-token/Overview-layout/back-link unit.
+
+**Live evidence, from a real DGX**: a healthy login completed ~140
+authenticated requests over ~5 minutes, then one `$expand=PCIeDevices`
+query (~130 members, ~35s server-side) 401'd mid-flight — the BMC's own
+`SessionService.SessionTimeout` is 30s, and the idle timer expired while
+it was still composing the answer. The credential was never wrong
+(confirmed live). The code turned this into a lie twice: `client._
+request` raised `RedfishAuthError` for *any* 401, and `provider._
+collect_host`'s handler logged `"login failed for credential
+'dgxadmin'"` and dropped the whole host.
+
+**The tested never-retry-a-401 rule survives intact** — it's about
+*session creation* specifically, not every 401 a BMC can return:
+
+| 401 on... | Behaviour |
+|---|---|
+| Session creation (`_login`) | Unchanged — `RedfishAuthError`, never retried |
+| An authenticated request after login | New — re-login once, retry that one request |
+
+**Built, entirely in `client.py`**: `_request` on an authenticated 401
+now calls `_login()` again and retries the same request once (`_send`
+builds headers from `self._token` at call time, so the retry
+automatically carries the fresh token). `_MAX_REAUTHS = 3` lives on the
+`RedfishClient` **instance** — since `_collect_host` builds a fresh
+client per target, this is a per-host budget, not a whole-run one (an
+operator question worth settling explicitly: 5 flaky BMCs each get
+their own 3 re-logins, never sharing or depleting one another's).
+Outcomes: re-login itself rejected → `RedfishAuthError` (genuinely a
+credential problem now); re-login succeeds but the retry still 401s, or
+the budget's exhausted → `RedfishProtocolError` (PARTIAL, not a lying
+"login failed"). Emits `redfish.session_reestablished` (host, path,
+re-auth count) on each recovery. **`provider.py` needed no change** —
+the mislabeling disappears without touching the code that was actually
+wrong. Rejected alternative: restarting the whole host collection on
+expiry — multiplies BMC load and risks the host budget for no benefit
+over a single request-level retry.
+
+**Fixture**: added `expire_tokens_after` (kill exactly the Nth
+authorized GET's own token, once — recoverable) and `reject_login_after`
+(reject a session-creation POST past the Nth success — for a rejected
+re-login specifically) to `tests/redfish_fixture.py`, alongside the
+existing `session_valid=False` (a BMC that never recovers, already
+covered the failure path). One existing test's own name and assertion
+(`test_an_expired_session_mid_run_is_an_auth_error`) encoded the old,
+now-wrong behavior as a requirement — renamed and re-asserted rather
+than left stale.
+
+Full backend gate clean (1426 tests). New `TestSessionReestablishment`:
+the recovery case, budget-exhausted/never-recovers case, rejected-
+relogin case, and a direct instance-independence check for the budget.
+ADR-0016 has a new 2026-09-17 update with the full evidence and design
+table; `.claude/rules/collectors.md` has the one-line fact.
+
+**Open:** unchanged from prior entries — the serial-less ingest
+correlation guard and Mongo cleanup of the two `ocp4-five-bpod-
+compute-06` documents (parked pending an operator decision); whether any
+real BMC populates `InputPowerWatts`; whether `$expand` is actually
+honored beyond what's advertised.
+
+---
+
 **2026-09-17 — one failed PSU is MAJOR, not CRITICAL, unless it's the
 server's only one.**
 

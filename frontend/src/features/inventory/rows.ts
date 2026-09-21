@@ -19,6 +19,24 @@ export interface RowFilters {
   maintenance?: true;
   stale?: true;
   duplicate?: true;
+  /** Selected MCEs (OR within); ANDed with every other filter. */
+  mce?: string[];
+  /** Selected clusters, hosted and UPI alike (OR within). */
+  cluster?: string[];
+}
+
+/** One sidebar entry: a name and how many rows carry it under the current filters. */
+export interface ClusterOption {
+  name: string;
+  count: number;
+  /** The owning MCE for a hosted cluster; null for an MCE itself or a UPI cluster. */
+  mce: string | null;
+}
+
+export interface ClusterFacets {
+  mces: ClusterOption[];
+  hosted: ClusterOption[];
+  upi: ClusterOption[];
 }
 
 export interface FacetCounts {
@@ -91,6 +109,11 @@ export function filterRows(
       (!filters.health || row.health === filters.health) &&
       (!filters.maintenance || row.maintenance.enabled) &&
       (!filters.stale || row.stale) &&
+      (!filters.mce?.length ||
+        (row.mce_name !== null && filters.mce.includes(row.mce_name))) &&
+      (!filters.cluster?.length ||
+        (row.cluster_name !== null &&
+          filters.cluster.includes(row.cluster_name))) &&
       (!counts || (counts.get(row.name) ?? 0) > 1),
   );
   return searchRows(kept, filters.search ?? "");
@@ -224,5 +247,69 @@ export function paginate(
     items: rows.slice(start, start + pageSize),
     page: current,
     pageCount,
+  };
+}
+
+function without(filters: RowFilters, key: keyof RowFilters): RowFilters {
+  const next = { ...filters };
+  delete next[key];
+  return next;
+}
+
+/**
+ * The MCE / hosted-cluster / UPI-cluster sidebar options, read off the
+ * fleet itself — nothing is configured, so a new cluster appears with the
+ * next poll and vanishes with its last server.
+ *
+ * Options come from the whole fleet (they never disappear as you filter);
+ * each count is over the rows every *other* filter leaves, so it says what
+ * ticking that option would show. A cluster with an MCE on any row is
+ * hosted; one with none is UPI.
+ *
+ * Args:
+ *   rows (ServerRow[]): The whole fleet.
+ *   filters (RowFilters): The active filters, the sidebar's own included.
+ *
+ * Returns:
+ *   ClusterFacets: Each list sorted naturally by name.
+ */
+export function clusterFacets(
+  rows: ServerRow[],
+  filters: RowFilters,
+): ClusterFacets {
+  const mceCounts: Record<string, number> = {};
+  for (const row of filterRows(rows, without(filters, "mce"))) {
+    if (row.mce_name) count(mceCounts, row.mce_name);
+  }
+  const clusterCounts: Record<string, number> = {};
+  for (const row of filterRows(rows, without(filters, "cluster"))) {
+    if (row.cluster_name) count(clusterCounts, row.cluster_name);
+  }
+
+  const clusterMce = new Map<string, string | null>();
+  const mces = new Set<string>();
+  for (const row of rows) {
+    if (row.mce_name) mces.add(row.mce_name);
+    if (row.cluster_name) {
+      clusterMce.set(
+        row.cluster_name,
+        row.mce_name ?? clusterMce.get(row.cluster_name) ?? null,
+      );
+    }
+  }
+
+  const byName = (a: ClusterOption, b: ClusterOption) =>
+    COLLATOR.compare(a.name, b.name);
+  const hosted: ClusterOption[] = [];
+  const upi: ClusterOption[] = [];
+  for (const [name, mce] of clusterMce) {
+    (mce ? hosted : upi).push({ name, mce, count: clusterCounts[name] ?? 0 });
+  }
+  return {
+    mces: [...mces]
+      .map((name) => ({ name, mce: null, count: mceCounts[name] ?? 0 }))
+      .sort(byName),
+    hosted: hosted.sort(byName),
+    upi: upi.sort(byName),
   };
 }

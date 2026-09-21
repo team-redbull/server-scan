@@ -70,13 +70,19 @@ far, in order:
     generated with the `archify` skill from the ADRs and provider source
     (`docs/architecture.md`, "Architecture diagrams").
 
-The inventory table shows **Name, Installation, MCE, Cluster, Model,
-State** and a per-row maintenance switch, and sorts on Name, Model,
+The inventory table shows **Name, BMC, Installation, MCE, Cluster, Model,
+State** and a per-row maintenance switch (BMC is an icon that opens the
+server's own console in a new tab; the detail page's header carries the
+same button), and sorts on Name, Model,
 Installation, Cluster, MCE and State (by severity) — naturally (`srv-2`
 before `srv-10`), nulls last — and pages 50 rows at a time with page
 numbers, all in the browser over the whole fleet; every filter option
 shows its count under the current filters, `(0)` included
 (`docs/adr/0033-client-side-inventory-filtering.md`).
+A collapsible left sidebar filters by **MCE**, **hosted clusters** (a
+cluster with an MCE) and **UPI clusters** (a cluster with none) — three
+multi-select lists read off the fleet itself, so a new cluster appears on
+the next 30 s poll with nothing to configure.
 The API's own `GET /servers` still pages by keyset cursor for other
 callers; its two nullable sort fields needed a null-aware cursor
 (`docs/adr/0026-nullable-sort-fields.md`). MCE appears as a column only

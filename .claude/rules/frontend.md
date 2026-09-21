@@ -56,6 +56,17 @@ Loaded only when a `frontend/` file is open.
   1440px with MCE showing too — verified with a real headless Chromium
   run (`document.body.scrollWidth` vs `window.innerWidth`), not by eye.
   Renders nothing for a server with no `bmc_host` read.
+- **The MCE / hosted / UPI sidebar (`ClusterSidebar`, 2026-09-21)** is
+  derived from the rows (`clusterFacets`), never configured — ADR-0033's
+  2026-09-21 update has the semantics and the measured widths. Its two
+  params are *repeated* (`?mce=a&mce=b`), the only multi-valued ones;
+  `toggleMulti` reads the live `window.location` like every filter change,
+  so a memory-router unit test must mirror the router URL into
+  `window.history` between two toggles. **In Playwright use `click()` +
+  `expect(box).toBeChecked()`, not `check()`** — the router applies the
+  URL a tick after the click and `check()` reads the state at once.
+  `BmcLink` (`components/`) is the one BMC anchor: icon-only in the table,
+  `labeled` in the detail header.
 - **`HealthSeverity` has five values** — `INFO` was retired 2026-09-13;
   `SEVERITY_GLYPH`, `SEVERITY_ORDER`, `StateBadge`, `HealthBadge` and the
   inventory's Health filter list must stay in step with the enum.

@@ -9,6 +9,7 @@ import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import type { SortableField } from "@/features/inventory/sorting";
+import { BmcLink } from "@/components/BmcLink";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
 import { StateBadge } from "@/components/StateBadge";
@@ -32,46 +33,6 @@ const ROW_ACCENT: Record<HealthSeverity, string> = {
   HEALTHY: "border-l-2 border-l-transparent",
   UNKNOWN: "border-l-2 border-l-transparent",
 };
-
-function ExternalLinkIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      className="size-3.5 fill-none stroke-current"
-      strokeWidth="1.5"
-      aria-hidden="true"
-    >
-      <path
-        d="M6 4H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M10 3h3v3M13 3 7 9" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** Opens the BMC's own web console (iDRAC/iLO/UCSM/whatever the vendor
- * calls it) in a new tab. `bmc_host` is a bare host — https:// is the
- * one scheme every vendor's BMC web UI actually serves. No BMC host
- * read this run renders nothing, not a dead button. */
-function BmcLinkButton({ server }: { server: ServerRow }) {
-  if (!server.bmc_host) return null;
-
-  const label = `Open BMC console for ${server.name}`;
-  return (
-    <a
-      href={`https://${server.bmc_host}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={label}
-      aria-label={label}
-      className="inline-flex size-7 items-center justify-center rounded-md border border-[var(--border-subtle)] text-[var(--text-muted)] transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
-    >
-      <ExternalLinkIcon />
-    </a>
-  );
-}
 
 interface InventoryTableProps {
   servers: ServerRow[];
@@ -109,7 +70,10 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
   columnHelper.accessor((row) => row, {
     id: "bmc",
     header: "BMC",
-    cell: (info) => <BmcLinkButton server={info.getValue<ServerRow>()} />,
+    cell: (info) => {
+      const row = info.getValue<ServerRow>();
+      return <BmcLink host={row.bmc_host} serverName={row.name} />;
+    },
     enableSorting: false,
   }),
   columnHelper.accessor("openshift_state", {

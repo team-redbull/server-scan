@@ -185,7 +185,7 @@ describe("InventoryPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("columnheader", { name: /^mce$/i })).toBeInTheDocument();
     });
-    expect(screen.getByText("mce-tlv")).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getByText("mce-tlv")).toBeInTheDocument();
   });
 
   it("sorts in place when the Installation header is clicked, and records it in the URL", async () => {
@@ -494,5 +494,53 @@ describe("InventoryPage", () => {
       );
       expect(del).toBeDefined();
     });
+  });
+  it("filters by MCE and cluster from the sidebar, keeps them in the URL, and removes them from the chips", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ id: "a", name: "srv-a", mce_name: "mce-a", cluster_name: "hosted-1", installation_type: "HOSTED_CLUSTER" }),
+          makeServer({ id: "b", name: "srv-b", mce_name: "mce-b", cluster_name: "hosted-2", installation_type: "HOSTED_CLUSTER" }),
+          makeServer({ id: "c", name: "srv-c", mce_name: null, cluster_name: "upi-1" }),
+        ]),
+      ),
+    );
+
+    const { router } = renderInventoryPage();
+    await waitFor(() => {
+      expect(screen.getByText("srv-a")).toBeInTheDocument();
+    });
+
+    const sidebar = screen.getByRole("complementary", { name: "Cluster filters" });
+    expect(within(sidebar).getByRole("region", { name: "MCE" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("region", { name: "Hosted clusters" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("region", { name: "UPI clusters" })).toBeInTheDocument();
+
+    const mces = within(within(sidebar).getByRole("region", { name: "MCE" }));
+    fireEvent.click(mces.getByRole("checkbox", { name: /mce-a/ }));
+    await waitFor(() => {
+      expect(rowNames()).toEqual(["srv-a"]);
+    });
+    expect(router.state.location.search).toBe("?mce=mce-a");
+
+    // The page reads the live window.location, which a memory router never touches.
+    window.history.replaceState(null, "", `/${router.state.location.search}`);
+    fireEvent.click(mces.getByRole("checkbox", { name: /mce-b/ }));
+    await waitFor(() => {
+      expect(rowNames()).toEqual(["srv-a", "srv-b"]);
+    });
+
+    window.history.replaceState(null, "", `/${router.state.location.search}`);
+    fireEvent.click(screen.getByRole("button", { name: /^MCE mce-a/ }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?mce=mce-b");
+    });
+    window.history.replaceState(null, "", `/${router.state.location.search}`);
+
+    fireEvent.click(within(sidebar).getByRole("checkbox", { name: /upi-1/ }));
+    await waitFor(() => {
+      expect(screen.getByText(/No servers match: MCE mce-b, Cluster upi-1/)).toBeInTheDocument();
+    });
+    window.history.replaceState(null, "", "/");
   });
 });

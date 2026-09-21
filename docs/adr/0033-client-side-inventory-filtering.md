@@ -282,3 +282,38 @@ option with the heading count compared to the server's own facet total
   and it interacts badly with the 1440 px width rule and sticky headers
   (a documented TanStack Virtual issue). Page numbers were the smaller
   change and give random access.
+
+## Update (2026-09-21): an MCE / hosted-cluster / UPI sidebar, derived from the rows
+
+The operator asked to filter by MCE and cluster without maintaining a
+list. `ServerRow` already carried `mce_name` and `cluster_name`, so this
+is `rows.ts` and the page only — no endpoint, no stored field.
+
+- **Three multi-select lists**: MCEs, *hosted* clusters (a cluster that
+  has an MCE on any row) and *UPI* clusters (one that has none).
+  `clusterFacets(rows, filters)` builds them from the whole fleet, so a
+  cluster appears on the next poll and leaves with its last server.
+  A UPI list can therefore contain an MCE hub's own cluster (its nodes job
+  reports `cluster_name` with no `mce_name`) — correct by that definition.
+- **Semantics**: OR within `mce` and within `cluster`; AND with each other
+  and with every other filter. Both live in the URL as repeated params
+  (`?mce=a&mce=b&cluster=x`); `updateFilters` accepts arrays and
+  `toggleMulti` reads the live `window.location`, for the reason above.
+- **Counts** describe what ticking the option would show: each list is
+  counted over the rows every *other* filter leaves, and options are never
+  removed while filtering, so an unreachable pick reads `0` (the same
+  `(0)` rule as the selects). This differs on purpose from the selects'
+  "a filtered dimension shows no counts": a multi-select is used to add
+  values, so it keeps its own counts.
+- **An MCE's servers with no cluster** (`INSTALLED_TO_INVENTORY`) count
+  under the MCE and under no cluster; they are reachable through the MCE
+  list only.
+- **Width**: the sidebar is 12 rem and collapsible; the page container
+  became `max-w-[1600px]`. Measured with headless Chromium, MCE column
+  showing: 0 px table overflow at 1440 px (29 px with a 14 rem sidebar,
+  which is why it is 12 rem), 157 px at 1280 px open and 44 px collapsed.
+- **Layout**: the same day, Search and the Maintenance / Stale / Duplicate
+  toggles moved out of the top filter block into a toolbar directly above
+  the table (operator's call — they act on the list beneath them); the six
+  selects keep the top row alone. This supersedes the "two fixed rows"
+  layout described above.

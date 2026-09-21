@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clusterFacets,
   facetCounts,
   filterRows,
   paginate,
@@ -192,5 +193,83 @@ describe("paginate", () => {
     expect(paginate(FLEET, 9, 2).page).toBe(2);
     expect(paginate(FLEET, 0, 2).page).toBe(1);
     expect(paginate([], 3, 2)).toEqual({ items: [], page: 1, pageCount: 1 });
+  });
+});
+
+const CLUSTERS = [
+  row({
+    name: "h1",
+    mce_name: "mce-a",
+    cluster_name: "hosted-1",
+    vendor: "dell",
+  }),
+  row({
+    name: "h2",
+    mce_name: "mce-a",
+    cluster_name: "hosted-1",
+    vendor: "cisco",
+  }),
+  row({ name: "h3", mce_name: "mce-b", cluster_name: "hosted-2" }),
+  row({ name: "u1", cluster_name: "upi-1" }),
+  row({ name: "i1", mce_name: "mce-a" }),
+  row({ name: "free" }),
+];
+
+describe("filterRows by mce and cluster", () => {
+  it("ORs within a param and ANDs across them and other filters", () => {
+    const names = (f: Parameters<typeof filterRows>[1]) =>
+      filterRows(CLUSTERS, f).map((r) => r.name);
+    expect(names({ mce: ["mce-a"] })).toEqual(["h1", "h2", "i1"]);
+    expect(names({ mce: ["mce-a", "mce-b"] })).toEqual([
+      "h1",
+      "h2",
+      "h3",
+      "i1",
+    ]);
+    expect(names({ cluster: ["hosted-2", "upi-1"] })).toEqual(["h3", "u1"]);
+    expect(names({ mce: ["mce-a"], cluster: ["hosted-2"] })).toEqual([]);
+    expect(names({ mce: ["mce-a"], vendor: "cisco" })).toEqual(["h2"]);
+    expect(names({ mce: [], cluster: [] })).toHaveLength(6);
+  });
+});
+
+describe("clusterFacets", () => {
+  it("reads MCEs, hosted and UPI clusters off the rows, sorted", () => {
+    const f = clusterFacets(CLUSTERS, {});
+    expect(f.mces.map((o) => [o.name, o.count])).toEqual([
+      ["mce-a", 3],
+      ["mce-b", 1],
+    ]);
+    expect(f.hosted.map((o) => [o.name, o.mce, o.count])).toEqual([
+      ["hosted-1", "mce-a", 2],
+      ["hosted-2", "mce-b", 1],
+    ]);
+    expect(f.upi.map((o) => [o.name, o.count])).toEqual([["upi-1", 1]]);
+  });
+
+  it("counts each list under every other filter and keeps zero-count options", () => {
+    const f = clusterFacets(CLUSTERS, {
+      mce: ["mce-a"],
+      cluster: ["hosted-1"],
+    });
+    // MCE counts ignore the MCE selection but honour the cluster one.
+    expect(f.mces.map((o) => [o.name, o.count])).toEqual([
+      ["mce-a", 2],
+      ["mce-b", 0],
+    ]);
+    // Cluster counts ignore the cluster selection but honour the MCE one.
+    expect(f.hosted.map((o) => [o.name, o.count])).toEqual([
+      ["hosted-1", 2],
+      ["hosted-2", 0],
+    ]);
+    expect(f.upi.map((o) => o.count)).toEqual([0]);
+  });
+
+  it("is empty when nothing is in a cluster", () => {
+    expect(clusterFacets([row()], {})).toEqual({
+      mces: [],
+      hosted: [],
+      upi: [],
+    });
   });
 });

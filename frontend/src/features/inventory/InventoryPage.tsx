@@ -4,10 +4,12 @@ import { useSearchParams } from "react-router";
 import { ApiError } from "@/api/client";
 import { SORTABLE_FIELDS } from "@/features/inventory/sorting";
 import type { SortableField } from "@/features/inventory/sorting";
+import { ClusterSidebar } from "@/features/inventory/ClusterSidebar";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
 import { siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
 import { useServerRowsQuery } from "@/features/inventory/hooks";
 import {
+  clusterFacets,
   facetCounts,
   filterRows,
   paginate,
@@ -72,6 +74,11 @@ export function InventoryPage() {
     : DEFAULT_SORT;
   const sortDesc = searchParams.get("sort_desc") === "true";
   const pageParam = Number(searchParams.get("page") ?? "1");
+  const mceSel = useMemo(() => searchParams.getAll("mce"), [searchParams]);
+  const clusterSel = useMemo(
+    () => searchParams.getAll("cluster"),
+    [searchParams],
+  );
 
   const filters: RowFilters = useMemo(() => {
     // Built incrementally: `exactOptionalPropertyTypes` forbids assigning
@@ -87,6 +94,8 @@ export function InventoryPage() {
     if (maintenanceOnly) next.maintenance = true;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
+    if (mceSel.length) next.mce = mceSel;
+    if (clusterSel.length) next.cluster = clusterSel;
     return next;
   }, [
     debouncedSearch,
@@ -99,6 +108,8 @@ export function InventoryPage() {
     maintenanceOnly,
     staleOnly,
     duplicateOnly,
+    mceSel,
+    clusterSel,
   ]);
 
   const { data, isPending, isError, error } = useServerRowsQuery();
@@ -109,6 +120,10 @@ export function InventoryPage() {
   const facets = useMemo(
     () => (data ? facetCounts(matched) : undefined),
     [data, matched],
+  );
+  const clusterOptions = useMemo(
+    () => (data ? clusterFacets(data.items, filters) : undefined),
+    [data, filters],
   );
   const {
     items: servers,
@@ -136,15 +151,14 @@ export function InventoryPage() {
    * second silently drop the first. `replace: true` keeps keystrokes out of
    * browser history; `flushSync` keeps the navigation out of a transition,
    * or a controlled checkbox snaps back until the deferred render lands. */
-  function updateFilters(patch: Record<string, string | null>) {
+  function updateFilters(patch: Record<string, string | string[] | null>) {
     setSearchParams(
       () => {
         const next = new URLSearchParams(window.location.search);
         for (const [key, value] of Object.entries(patch)) {
-          if (value === null || value === "") {
-            next.delete(key);
-          } else {
-            next.set(key, value);
+          next.delete(key);
+          for (const v of Array.isArray(value) ? value : [value]) {
+            if (v !== null && v !== "") next.append(key, v);
           }
         }
         next.delete("page");
@@ -152,6 +166,15 @@ export function InventoryPage() {
       },
       { replace: true, flushSync: true },
     );
+  }
+
+  /** Tick or untick one value of a repeated param (`?mce=a&mce=b`). */
+  function toggleMulti(key: "mce" | "cluster", value: string) {
+    const current = new URLSearchParams(window.location.search).getAll(key);
+    const next = current.includes(value)
+      ? current.filter((v) => v !== value)
+      : [...current, value];
+    updateFilters({ [key]: next });
   }
 
   function handleSortChange(field: SortableField, desc: boolean) {
@@ -174,7 +197,7 @@ export function InventoryPage() {
   }
 
   // Named for the empty state: "no servers match" rather than "no servers".
-  const activeFilters: { key: string; label: string }[] = [];
+  const activeFilters: { key: string; label: string; value?: string }[] = [];
   if (debouncedSearch)
     activeFilters.push({ key: "search", label: `Search "${debouncedSearch}"` });
   if (vendor) activeFilters.push({ key: "vendor", label: `Vendor ${vendor}` });
@@ -211,6 +234,14 @@ export function InventoryPage() {
     });
   if (maintenanceOnly)
     activeFilters.push({ key: "maintenance", label: "Maintenance" });
+  for (const name of mceSel)
+    activeFilters.push({ key: "mce", label: `MCE ${name}`, value: name });
+  for (const name of clusterSel)
+    activeFilters.push({
+      key: "cluster",
+      label: `Cluster ${name}`,
+      value: name,
+    });
   if (staleOnly) activeFilters.push({ key: "stale", label: "Stale" });
   if (duplicateOnly)
     activeFilters.push({ key: "duplicate", label: "Duplicate" });
@@ -227,11 +258,13 @@ export function InventoryPage() {
       maintenance: null,
       stale: null,
       duplicate: null,
+      mce: null,
+      cluster: null,
     });
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-8 py-8">
+    <main className="mx-auto max-w-[1600px] px-8 py-8">
       <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">
         Servers
       </h1>
@@ -252,22 +285,10 @@ export function InventoryPage() {
           e.preventDefault();
         }}
       >
-        {/* Two fixed rows: the fields share the first and shrink to fit, so a
-            wide count can never wrap Health under Search or move the toggles. */}
+        {/* The selects share one row and shrink to fit, so a wide count can
+            never wrap one under another. Search and the toggles sit in the
+            toolbar directly above the table. */}
         <div className="flex items-end gap-3">
-          <label className="flex min-w-0 flex-[1.4] flex-col text-xs font-medium text-[var(--text-secondary)]">
-            Search
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => {
-                updateFilters({ search: e.target.value });
-              }}
-              placeholder="Name, serial, tag, BMC…"
-              className={FIELD_CLASS}
-            />
-          </label>
-
           <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
             <label htmlFor="filter-vendor">Vendor</label>
             <select
@@ -404,49 +425,6 @@ export function InventoryPage() {
             </select>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-6">
-          <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
-            <input
-              type="checkbox"
-              checked={maintenanceOnly}
-              onChange={(e) => {
-                updateFilters({
-                  maintenance: e.target.checked ? "true" : null,
-                });
-              }}
-            />
-            Maintenance
-            {maintenanceOnly && facets ? ` (${facets.total})` : ""}
-          </label>
-
-          <label
-            className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
-            title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"
-          >
-            <input
-              type="checkbox"
-              checked={staleOnly}
-              onChange={(e) => {
-                updateFilters({ stale: e.target.checked ? "true" : null });
-              }}
-            />
-            Stale{staleOnly && facets ? ` (${facets.total})` : ""}
-          </label>
-
-          <label
-            className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
-            title="Shares its name with another server — a real platform bug (one machine, two documents) or two different machines with the same profile name"
-          >
-            <input
-              type="checkbox"
-              checked={duplicateOnly}
-              onChange={(e) => {
-                updateFilters({ duplicate: e.target.checked ? "true" : null });
-              }}
-            />
-            Duplicate{duplicateOnly && facets ? ` (${facets.total})` : ""}
-          </label>
-        </div>
       </form>
 
       {activeFilters.length > 0 && (
@@ -457,7 +435,8 @@ export function InventoryPage() {
               key={f.key}
               type="button"
               onClick={() => {
-                updateFilters({ [f.key]: null });
+                if (f.value === undefined) updateFilters({ [f.key]: null });
+                else toggleMulti(f.key as "mce" | "cluster", f.value);
               }}
               title="Remove this filter"
               className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1 hover:border-[var(--border-strong)]"
@@ -476,64 +455,133 @@ export function InventoryPage() {
         </div>
       )}
 
-      <div className="mt-4">
-        {isPending && (
-          <p className="py-12 text-center text-sm text-[var(--text-muted)]">
-            Loading servers…
-          </p>
+      <div className="mt-4 flex items-start gap-4">
+        {clusterOptions && (
+          <ClusterSidebar
+            facets={clusterOptions}
+            mce={mceSel}
+            cluster={clusterSel}
+            onToggle={toggleMulti}
+          />
         )}
-
-        {isError && (
-          <p className="rounded border border-red-300 bg-red-50 p-3 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-            {error instanceof ApiError
-              ? error.problem.detail
-              : error instanceof Error
-                ? error.message
-                : "Failed to load servers."}
-          </p>
-        )}
-
-        {!isPending && !isError && (
-          <>
-            <InventoryTable
-              servers={servers}
-              sortField={sortField}
-              sortDesc={sortDesc}
-              onSortChange={handleSortChange}
-              {...(activeFilters.length > 0
-                ? {
-                    emptyMessage: `No servers match: ${activeFilters.map((f) => f.label).join(", ")}.`,
-                  }
-                : {})}
-            />
-
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  goToPage(page - 1);
+        <div className="min-w-0 flex-1">
+          <div className="mb-3 flex flex-wrap items-end gap-x-6 gap-y-2">
+            <label className="flex min-w-[14rem] max-w-md flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+              Search
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => {
+                  updateFilters({ search: e.target.value });
                 }}
-                disabled={page <= 1}
-                className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] transition-transform duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                placeholder="Name, serial, tag, BMC…"
+                className={FIELD_CLASS}
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-6 pb-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={maintenanceOnly}
+                  onChange={(e) => {
+                    updateFilters({
+                      maintenance: e.target.checked ? "true" : null,
+                    });
+                  }}
+                />
+                Maintenance
+                {maintenanceOnly && facets ? ` (${facets.total})` : ""}
+              </label>
+
+              <label
+                className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+                title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"
               >
-                Previous
-              </button>
-              <span className="text-sm text-[var(--text-secondary)]">
-                Page {page} of {pageCount}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  goToPage(page + 1);
-                }}
-                disabled={page >= pageCount}
-                className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] transition-transform duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                <input
+                  type="checkbox"
+                  checked={staleOnly}
+                  onChange={(e) => {
+                    updateFilters({ stale: e.target.checked ? "true" : null });
+                  }}
+                />
+                Stale{staleOnly && facets ? ` (${facets.total})` : ""}
+              </label>
+
+              <label
+                className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+                title="Shares its name with another server — a real platform bug (one machine, two documents) or two different machines with the same profile name"
               >
-                Next
-              </button>
+                <input
+                  type="checkbox"
+                  checked={duplicateOnly}
+                  onChange={(e) => {
+                    updateFilters({
+                      duplicate: e.target.checked ? "true" : null,
+                    });
+                  }}
+                />
+                Duplicate{duplicateOnly && facets ? ` (${facets.total})` : ""}
+              </label>
             </div>
-          </>
-        )}
+          </div>
+          {isPending && (
+            <p className="py-12 text-center text-sm text-[var(--text-muted)]">
+              Loading servers…
+            </p>
+          )}
+
+          {isError && (
+            <p className="rounded border border-red-300 bg-red-50 p-3 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+              {error instanceof ApiError
+                ? error.problem.detail
+                : error instanceof Error
+                  ? error.message
+                  : "Failed to load servers."}
+            </p>
+          )}
+
+          {!isPending && !isError && (
+            <>
+              <InventoryTable
+                servers={servers}
+                sortField={sortField}
+                sortDesc={sortDesc}
+                onSortChange={handleSortChange}
+                {...(activeFilters.length > 0
+                  ? {
+                      emptyMessage: `No servers match: ${activeFilters.map((f) => f.label).join(", ")}.`,
+                    }
+                  : {})}
+              />
+
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    goToPage(page - 1);
+                  }}
+                  disabled={page <= 1}
+                  className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] transition-transform duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-[var(--text-secondary)]">
+                  Page {page} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    goToPage(page + 1);
+                  }}
+                  disabled={page >= pageCount}
+                  className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] transition-transform duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </main>
   );

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
 import { ApiError } from "@/api/client";
+import { BmcLink } from "@/components/BmcLink";
 import { ConnectivityTab } from "@/features/servers/ConnectivityTab";
 import { HardwareTab } from "@/features/servers/HardwareTab";
 import { useServerDetailQuery } from "@/features/servers/hooks";
@@ -59,7 +60,10 @@ export function ServerDetailPage() {
 
       {data && (
         <>
-          <h1 className="mt-4 text-2xl font-semibold">{data.name}</h1>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold">{data.name}</h1>
+            <BmcLink host={data.network.bmc.host} serverName={data.name} labeled />
+          </div>
           <p className="text-sm text-gray-500">{data.model ?? modelHint(data.hardware.gpus)}</p>
 
           <div className="mt-6 border-b border-gray-200 dark:border-gray-700">
