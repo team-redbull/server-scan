@@ -488,6 +488,12 @@ is reachable.
   UCS Central servers now (docs/cisco-collectors.md). Only the 160
   Intersight servers still report `UNKNOWN` for every vNIC and are
   scored on nothing — no equivalent field is known for it yet.
+* **Ten servers are `UNKNOWN` overall, on purpose.** They are the
+  unreachable OpenManage ones — OME lists them, their iDRAC did not
+  answer, so no hardware field was read. A category nothing was read for
+  is `UNKNOWN` and judges nothing, so with every category unread the
+  server is too; before 2026-09-21 they read HEALTHY
+  (`docs/adr/0027-unknown-is-not-a-reading.md`).
 * **Availability is not derived from the name.** A seeded server named
   `ocp4-prod-tlv-compute-01` can come back `AVAILABLE`, because a freed
   server keeps the name it was installed under. That disagreement between

@@ -221,7 +221,10 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   weak ETag and `Cache-Control: no-cache`, and polled every 30 s (a 304
   when unchanged; `generated_at` is the newest `updated_at`, not the build
   time, precisely so the body is byte-stable). Filter, sort, substring
-  search, facet counts and paging then happen in the browser. Everything
+  search, facet counts and paging then happen in the browser — including
+  the left sidebar's MCE / hosted-cluster / UPI-cluster lists, which are
+  read off the same rows, so a new cluster needs no configuration
+  (ADR-0033, 2026-09-21 update). Everything
   below still holds for `GET /servers`, which API consumers and
   `/servers/available` use.
 
@@ -541,6 +544,13 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   extract_facts`) is the one place that reaches into the nested `Server`
   shape; everything downstream works on its flat dict. What each fact
   counts, and the live-data bug behind each choice:
+  - `<category>.has_data` (`cpu`, `memory`, `storage`, `network`,
+    `connectivity`, `power`, `gpu`; 2026-09-21) is whether anything was
+    read for that category at all — sockets, memory bytes or DIMMs, drives
+    or bytes, interfaces, fabric paths, PSUs, GPUs. It is not a policy
+    metric: `evaluate_health` reads it directly and skips every policy in a
+    category where it is false, which is what keeps a `-10tb` server whose
+    storage was never read from reading CRITICAL (ADR-0027's update).
   - `storage.failed_drive_count` counts `CRITICAL`, not `"FAILED"`: every
     collector normalizes a dead drive onto `HealthSeverity` at the
     provider boundary, so a policy counting `"FAILED"` counted nothing

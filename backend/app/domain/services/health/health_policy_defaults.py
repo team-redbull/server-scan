@@ -299,7 +299,8 @@ def default_system_policies() -> list[HealthPolicy]:
         description=(
             "Fires when a server's name carries a -<N>tb capacity token "
             "and its total storage differs from that by more than 1.5 TB, "
-            "in either direction. Generalizes the old 5TB/10TB-specific "
+            "in either direction — judged only when storage was actually "
+            "read (a total of zero is never a reading). Generalizes the old 5TB/10TB-specific "
             "rules to any capacity token (docs/architecture.md update, "
             "2026-09-17)."
         ),

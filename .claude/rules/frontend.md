@@ -67,6 +67,12 @@ Loaded only when a `frontend/` file is open.
   URL a tick after the click and `check()` reads the state at once.
   `BmcLink` (`components/`) is the one BMC anchor: icon-only in the table,
   `labeled` in the detail header.
+- **The inventory's filter block is one unit in the table's column**
+  (2026-09-21): Search and the six selects on one row, the three toggles
+  beneath, then the "Filtered by" chips — left and right edges equal to
+  the table's (measured 240/1408 px at 1440), with the sidebar beside it.
+  It is not above the sidebar; do not move Search back into a separate
+  toolbar.
 - **`HealthSeverity` has five values** — `INFO` was retired 2026-09-13;
   `SEVERITY_GLYPH`, `SEVERITY_ORDER`, `StateBadge`, `HealthBadge` and the
   inventory's Health filter list must stay in step with the enum.
