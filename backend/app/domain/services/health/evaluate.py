@@ -168,6 +168,9 @@ def evaluate_health(
             )
             continue
 
+        if not facts.get(f"{policy.category}.has_data", True):
+            continue  # nothing read for this category: UNKNOWN, never a verdict (ADR-0027)
+
         active = evaluate_condition(policy.condition, facts, registry)
         evidence = {}
         for ev in policy.evidence:

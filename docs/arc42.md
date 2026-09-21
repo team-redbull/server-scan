@@ -497,7 +497,7 @@ of it.
 | 0024 | Cluster membership is reported by the clusters, per cluster, as a reconcile |
 | 0025 | Search tokens are word-boundary suffixes, so an anchored query finds mid-name fragments |
 | 0026 | Nullable sort fields need a null-aware cursor; retired indexes are dropped automatically |
-| 0027 | A value a collector could not read is never a health verdict — UNKNOWN is excluded from every policy's denominator |
+| 0027 | A value a collector could not read is never a health verdict — UNKNOWN is excluded from every policy's denominator, and a category nothing was read for is UNKNOWN and judges nothing |
 | 0028 | An operator write clears the cached list pages and facet counts; an ingest write still does not |
 | 0029 | Staleness is a set of gauges the API derives from MongoDB on scrape — the only thing that can say a CronJob stopped |
 | 0030 | A health policy is scoped to a *set* of collectors (`manager_types`), `source_provider` is the manager type at evaluation, and the page groups by scope and sorts by severity |

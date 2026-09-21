@@ -254,6 +254,59 @@ class TestNameCapacityMismatch:
         assert self._storage_severity("ocp4-nyc-prod-worker-01", 1) != HealthSeverity.CRITICAL
 
 
+class TestNothingReadIsUnknown:
+    """A category nothing was read for is UNKNOWN and judges nothing
+    (ADR-0027, 2026-09-21) — the `-10tb` server whose storage was never
+    read used to be CRITICAL, and every unread category read HEALTHY.
+    """
+
+    @staticmethod
+    def _state(server: Server):  # noqa: ANN205 - HealthState, kept local to the test
+        return evaluate_health(
+            extract_facts(server),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+
+    def test_a_10tb_server_with_no_storage_read_is_not_critical(self) -> None:
+        state = self._state(_server(name="ocp-dell-r750-five-128c-1024gb-10tb-DEL0001891"))
+        assert state.categories["storage"].severity == HealthSeverity.UNKNOWN
+        assert not [e for e in state.evaluations if e.active]
+
+    def test_drives_listed_without_capacities_do_not_trip_the_mismatch(self) -> None:
+        state = self._state(
+            _server(name="ocp4-nyc-10tb-01", drives=[StorageDrive(id="d0", capacity_bytes=None)])
+        )
+        assert state.categories["storage"].severity == HealthSeverity.HEALTHY
+
+    def test_nothing_read_anywhere_is_unknown_overall(self) -> None:
+        state = self._state(_server())
+        assert state.overall == HealthSeverity.UNKNOWN
+        assert {c.severity for c in state.categories.values()} == {HealthSeverity.UNKNOWN}
+
+    def test_one_category_read_makes_overall_healthy_not_unknown(self) -> None:
+        state = self._state(_server(drives=[_drive(1 * _TB)]))
+        assert state.categories["storage"].severity == HealthSeverity.HEALTHY
+        assert state.categories["network"].severity == HealthSeverity.UNKNOWN
+        assert state.overall == HealthSeverity.HEALTHY
+
+    def test_a_category_that_was_read_still_fires(self) -> None:
+        state = self._state(
+            _server(
+                drives=[
+                    _drive(480 * _GB, "CRITICAL"),
+                    _drive(480 * _GB, "CRITICAL"),
+                    _drive(4 * _TB),
+                ]
+            )
+        )
+        assert state.categories["storage"].severity == HealthSeverity.CRITICAL
+        assert state.overall == HealthSeverity.CRITICAL
+
+
 class TestDegradedDimms:
     """DIMM health, which nothing populated before."""
 

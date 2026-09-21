@@ -165,3 +165,48 @@ no equivalent field has been researched for it. This does not reopen the
 false-CRITICAL bug this ADR fixed — `network.links_known_count` still
 gates both policies, and a mostly-`operable` fleet simply now has a
 non-zero denominator instead of an always-zero one.
+
+## Update (2026-09-21): a category nothing was read for is UNKNOWN, and judges nothing
+
+**The bug**: `ocp-dell-r750-five-128c-1024gb-10tb-DEL0001891` had no
+storage, network, GPU, memory or power data (only its BMC), yet read
+CRITICAL. `storage.name_capacity_mismatch` compared `storage.total_bytes`
+— 0 because nothing was read — with the `10tb` in the name, a 10 TB
+"deviation". Every other unread category read HEALTHY, because a category
+with policies that merely found nothing to fire is HEALTHY. The same
+mistake as the network one above: absence of a reading was treated as a
+reading of zero.
+
+**The rule**: `extract_facts` now emits `<category>.has_data` for each
+category — CPU sockets, memory bytes or DIMMs, storage drives or bytes,
+network interfaces, connectivity fabric paths, PSUs, GPUs. When it is
+false, `evaluate_health` skips every policy in that category, so the
+category has no evaluations and is `UNKNOWN` (the branch the engine
+already had for a category no policy covers). Overall health is still the
+worst category by rank and `UNKNOWN` ranks lowest, so:
+
+- a server with **nothing read but its BMC** has every category `UNKNOWN`
+  and is **`UNKNOWN` overall** — not HEALTHY;
+- a server with **any one category read** is judged by what was read; its
+  unread categories show `UNKNOWN` in the breakdown and never drag it down.
+
+`name_capacity_mismatch` also gained a `storage.total_bytes GT 0` leaf:
+drives can be listed with no capacity (`total_bytes == 0` while the
+category *has* data), and that must not read as an empty 10 TB box.
+Its definition changed, so `ensure_default_health_policies` re-syncs it on
+the next API start.
+
+Consequences and limits:
+
+- **Selection**: `GET /servers/available` already excluded `UNKNOWN` overall
+  (`SELECTABLE_TIERS`), so a reachable server with nothing read but its BMC
+  is no longer a BMH candidate until a run reads it. Unreachable ones were
+  already excluded.
+- **No GPU is indistinguishable from GPUs not read**: both are an empty
+  list, so a GPU-less server's GPU category is `UNKNOWN`, not HEALTHY. It
+  never changes the overall verdict. Likewise CPU, which no shipped policy
+  covers, has always been `UNKNOWN`.
+- Stored health changes on each server's next collection.
+- Seeded fleet (`--count 1000 --seed 42`): 10 servers, all the unreachable
+  OpenManage ones with every hardware field unread, are now `UNKNOWN`
+  overall; they read HEALTHY before.

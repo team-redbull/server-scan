@@ -521,6 +521,13 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   vNIC's link state comes from `operability` instead, a real signal
   `oper_state` never carried (ADR-0027's update, docs/cisco-collectors.md)
   — Intersight's vNICs still read `UNKNOWN`, unchanged.
+- **A category nothing was read for is `UNKNOWN` and judges nothing**
+  (ADR-0027, 2026-09-21). `extract_facts` emits `<category>.has_data`;
+  `evaluate_health` skips every policy in a category where it is false, so
+  a `-10tb` server whose storage was never read is no longer CRITICAL, and
+  a server with only its BMC read is `UNKNOWN` overall (every category
+  `UNKNOWN`) rather than HEALTHY. One category read is enough for a
+  verdict — `UNKNOWN` ranks lowest and never drags a server down.
 - **`MAJOR` sits between `WARNING` and `CRITICAL`** (added 2026-09-06):
   redundancy is gone but the server is still serving, so the *next*
   failure takes it down — worth waking someone for in a way a degraded
@@ -602,7 +609,7 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   | `storage.os_disk_bad_major` / `_critical` | exactly 1 / 2+ OS disks bad | MAJOR / CRITICAL |
   | `storage.data_disk_bad_large_warning` / `_critical` | 10TB-named node, exactly 1 / 2+ data disks bad | WARNING / CRITICAL |
   | `storage.data_disk_bad_warning` | any other node, 1+ data disks bad | WARNING |
-  | `storage.name_capacity_mismatch` | `-<N>tb`-named node, total storage more than 1.5 TB off `N` TB either way | CRITICAL |
+  | `storage.name_capacity_mismatch` | `-<N>tb`-named node whose storage was read, total more than 1.5 TB off `N` TB either way | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
   | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
   | `network.single_link_up` | readable links ≥ 2, exactly one up | MAJOR |

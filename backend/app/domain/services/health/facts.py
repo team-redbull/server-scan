@@ -8,7 +8,9 @@ function, not every policy evaluation path.
 
 What each fact counts, and the live-data bug behind each choice, is in
 docs/architecture.md, "Health policy engine" ("The facts vocabulary").
-Every fact counts only definite readings — never UNKNOWN (ADR-0027).
+Every fact counts only definite readings — never UNKNOWN (ADR-0027). Each
+`<category>.has_data` says whether anything was read for it at all; the
+engine judges no policy in a category without it (ADR-0027, 2026-09-21).
 """
 
 from __future__ import annotations
@@ -140,6 +142,19 @@ def extract_facts(server: Server) -> dict[str, Any]:
             if name_capacity_bytes is not None
             else None
         ),
+        "cpu.has_data": server.hardware.cpu.sockets > 0,
+        "memory.has_data": server.hardware.memory.total_bytes > 0 or bool(dimms),
+        "storage.has_data": bool(drives) or server.hardware.storage.total_bytes > 0,
+        "network.has_data": bool(link_states),
+        "connectivity.has_data": any(
+            (
+                server.connectivity.facts.fabric_paths_total,
+                server.connectivity.facts.fabric_paths_up,
+                server.connectivity.facts.fabric_paths_down,
+            )
+        ),
+        "power.has_data": bool(server.hardware.power.psus),
+        "gpu.has_data": bool(gpus),
         "memory.dimm_count": len(dimms),
         "memory.degraded_dimm_count": sum(1 for d in dimms if d.health in _NOT_GOOD),
         "network.interface_link_states": link_states,

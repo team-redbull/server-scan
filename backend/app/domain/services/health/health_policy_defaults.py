@@ -309,6 +309,7 @@ def default_system_policies() -> list[HealthPolicy]:
         condition=Condition(
             all_of=[
                 Condition(metric="storage.name_capacity_bytes", operator="EXISTS"),
+                Condition(metric="storage.total_bytes", operator="GT", value=0),
                 Condition(
                     metric="storage.capacity_deviation_bytes",
                     operator="GT",
