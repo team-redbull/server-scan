@@ -5,7 +5,7 @@ import type { ClusterFacets, ClusterOption } from "@/features/inventory/rows";
 /**
  * The MCE / hosted-cluster / UPI-cluster filter, built from the fleet itself
  * (`clusterFacets`). Three multi-select sections, each hidden while empty;
- * a box narrows the two cluster lists, which can run to dozens.
+ * a box above the MCE list narrows all three, since they can run to dozens.
  */
 
 interface ClusterSidebarProps {
@@ -109,25 +109,25 @@ export function ClusterSidebar({
       >
         ‹ Hide filters
       </button>
-      <Section
-        title="MCE"
-        options={mces}
-        selected={mce}
-        paramKey="mce"
-        onToggle={onToggle}
-      />
-      {hosted.length + upi.length > 8 && (
+      {mces.length + hosted.length + upi.length > 8 && (
         <input
           type="search"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
           }}
-          placeholder="Find a cluster…"
-          aria-label="Find a cluster"
+          placeholder="Find an MCE or cluster…"
+          aria-label="Find an MCE or cluster"
           className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-2 py-1 text-xs text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]"
         />
       )}
+      <Section
+        title="MCE"
+        options={narrow(mces)}
+        selected={mce}
+        paramKey="mce"
+        onToggle={onToggle}
+      />
       <Section
         title="Hosted clusters"
         options={narrow(hosted)}
