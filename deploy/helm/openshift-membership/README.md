@@ -89,6 +89,7 @@ oc create job --from=cronjob/<release>-openshift-nodes probe-1 -- \
 ```
 
 `--dry-run` writes nothing and prints the match rate plus every unmatched
-hostname. A low match rate means correlation is failing, not that the
+hostname. A real run also logs each one as an `ERROR`
+(`openshift.host_not_in_inventory`, with the hostname) and exits 3. A low match rate means correlation is failing, not that the
 cluster is empty — check that Dell hosts have their **requested** hostname
 set, since their reported one is derived from a MAC and matches nothing.

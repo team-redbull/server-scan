@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
 from app.application.services.openshift_membership import OpenShiftMembershipService
 from app.domain.enums import OpenShiftState, Vendor
@@ -183,6 +184,30 @@ class TestClaiming:
 
         assert summary.unmatched == ["ocp4-tlv-worker-99"]
         assert repo.written == []
+
+    async def test_each_unmatched_host_is_logged_as_an_error(self) -> None:
+        """The job's own log is where an operator finds out a cluster host
+        has no server, so each one is an ERROR line naming the host — not
+        only a count in the summary.
+        """
+        repo = FakeRepo([_server("ocp4-tlv-worker-01")])
+        with capture_logs() as logs:
+            await _service(repo, FakeAudit()).reconcile(
+                [
+                    _seen("ocp4-tlv-worker-01"),
+                    _seen("ocp4-tlv-worker-98"),
+                    _seen("ocp4-tlv-worker-99"),
+                ],
+                scope={"openshift.cluster_name": "ocp4-tlv"},
+                reported_by="ocp4-tlv",
+            )
+
+        errors = [entry for entry in logs if entry["log_level"] == "error"]
+        assert {entry["hostname"] for entry in errors} == {
+            "ocp4-tlv-worker-98",
+            "ocp4-tlv-worker-99",
+        }
+        assert all(entry["event"] == "openshift.host_not_in_inventory" for entry in errors)
 
     async def test_an_unchanged_server_is_not_rewritten(self) -> None:
         """Writing unconditionally would bump `revision` on every server

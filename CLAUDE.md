@@ -610,6 +610,10 @@ now `UNKNOWN` overall. `/servers/available` already excluded `UNKNOWN`, so
 a reachable BMC-only server is no longer a candidate. Stored health
 updates on each server's next collection.
 
+**Also:** the OpenShift membership jobs now log each unmatched host as an
+`ERROR` (`openshift.host_not_in_inventory`); exit 3 as before (ADR-0024's
+update).
+
 **Open:** **Stale ghost records** (a profile reassigned, the old name
 lingers) — parked; the questions to settle (which vendor, whether an
 unreachable-but-listed server may be pruned, whether maintenance or

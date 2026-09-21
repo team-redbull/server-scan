@@ -118,6 +118,11 @@ class OpenShiftMembershipService:
             server = await self._find_by_hostname(observation.hostname)
             if server is None:
                 summary.unmatched.append(observation.hostname)
+                logger.error(
+                    "openshift.host_not_in_inventory",
+                    hostname=observation.hostname,
+                    reported_by=reported_by,
+                )
                 continue
             summary.matched += 1
             seen_ids.add(server.id)

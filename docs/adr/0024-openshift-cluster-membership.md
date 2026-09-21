@@ -214,3 +214,15 @@ winner's claim.
   this feature adds two more CronJobs that it will need to cover.
 - `INSTALLED_TO_INVENTORY` is only ever produced by the agents job, so an
   estate with no MCE will never see that state.
+
+## Update (2026-09-21): an unmatched host is an ERROR line, not only a count
+
+A node or agent whose hostname matches no server in the inventory (the
+job creates nothing — the vendor collectors own what hardware exists) was
+counted in the summary and printed to stdout, but the structured log only
+carried `unmatched=<n>`. Each one is now also logged at `ERROR` as
+`openshift.host_not_in_inventory` with the hostname and the reporting
+cluster, so a log query on the CronJob finds the exact hosts. The exit
+code is unchanged: 3 (PARTIAL) whenever any host was unmatched. The job
+still reads the cluster through the Kubernetes API rather than shelling out
+to `oc` (Decision 2), so there is no `oc get nodes -o name` to add.
