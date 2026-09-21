@@ -468,7 +468,10 @@ long form of every entry as of 2026-09-13 is
   `Server.source_provider`.
 - **Health: UNKNOWN is not a verdict** (ADR-0027) — every fact counts only
   definite readings; a new fact must exclude UNKNOWN or
-  `TestUnknownIsNotAVerdict` fails. **A category exists only if
+  `TestUnknownIsNotAVerdict` fails. **A category with
+  no data read is `UNKNOWN` and its policies are skipped** (`<cat>.has_data`,
+  2026-09-21) — a new category needs a `has_data` fact or it is judged on
+  zeros; a policy that compares against a total also needs a `GT 0` guard. **A category exists only if
   `evaluate.CATEGORIES` names it** — `gpu` was missing from the rollup and
   a failed GPU read HEALTHY overall until 2026-09-13
   (`TestEveryPolicyCategoryReachesOverall` now guards it). **A policy's
@@ -584,24 +587,31 @@ When you finish yours, move this entry to the top of
 handoff.
 
 **2026-09-21 — BMC button on the server detail header; an MCE /
-hosted-cluster / UPI filter sidebar on the inventory.** Moved to
+hosted-cluster / UPI filter sidebar; the filter block above the table; a
+category nothing was read for is UNKNOWN.** Moved to
 `docs/notes/session-log.md`: the Redfish mid-run session re-login unit.
 
-**Built (frontend only, no API or stored-shape change):** `BmcLink`
-(`components/`) is now the one BMC anchor — icon-only in the table,
-labelled in `ServerDetailPage`'s header. `ClusterSidebar` filters by MCE,
-hosted clusters and UPI clusters, all read off the polled rows
-(`rows.clusterFacets`), OR within a list and AND across; repeated URL
-params. ADR-0033 has a 2026-09-21 update with the semantics and the
-measured widths; the frontend rule has the Playwright `check()` trap.
-README's column list was missing the BMC column (fixed).
+**Built:** `BmcLink` (`components/`) is the one BMC anchor — icon-only in
+the table, labelled in `ServerDetailPage`'s header. `ClusterSidebar`
+filters by MCE, hosted clusters and UPI clusters, read off the polled rows
+(`rows.clusterFacets`), OR within a list and AND across, repeated URL
+params (ADR-0033's 2026-09-21 update has the semantics and measured
+widths). Search, the six selects and the Maintenance/Stale/Duplicate
+toggles are one block in the table's column, edge to edge with it.
 
-**Open, decided with the operator:** (1) **A `-<N>tb` server with no
-storage read is CRITICAL** — reproduced: `storage.name_capacity_mismatch`
-compares `storage.total_bytes` (0 when nothing was read) to the name's
-capacity, the ADR-0027 violation. Fix proposed, not built: gate the
-policy on `storage.total_bytes GT 0`, and make the storage *category*
-`UNKNOWN` when nothing was read (overall stays the worst *evaluated*
-category, so it will not go `UNKNOWN`). (2) **Stale ghost records**
-(profile reassigned, old name lingers) — parked until 1 and 2 ship; the
-questions to settle are in the conversation that produced this entry.
+**Health (ADR-0027 update, backend):** a `-10tb` server with no storage
+read was CRITICAL because `storage.name_capacity_mismatch` compared a
+zero total with the name. `extract_facts` now emits `<category>.has_data`
+and `evaluate_health` skips a no-data category's policies, so the category
+is `UNKNOWN`; a server with only its BMC read is `UNKNOWN` overall, one
+category read is enough for a verdict. The mismatch policy also needs
+`storage.total_bytes GT 0`. Seeded: 10 unreachable OpenManage servers are
+now `UNKNOWN` overall. `/servers/available` already excluded `UNKNOWN`, so
+a reachable BMC-only server is no longer a candidate. Stored health
+updates on each server's next collection.
+
+**Open:** **Stale ghost records** (a profile reassigned, the old name
+lingers) — parked; the questions to settle (which vendor, whether an
+unreachable-but-listed server may be pruned, whether maintenance or
+`INSTALLED` servers are exempt, the window) are in the conversation that
+produced this entry.

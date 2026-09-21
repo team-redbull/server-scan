@@ -312,8 +312,9 @@ is `rows.ts` and the page only — no endpoint, no stored field.
   became `max-w-[1600px]`. Measured with headless Chromium, MCE column
   showing: 0 px table overflow at 1440 px (29 px with a 14 rem sidebar,
   which is why it is 12 rem), 157 px at 1280 px open and 44 px collapsed.
-- **Layout**: the same day, Search and the Maintenance / Stale / Duplicate
-  toggles moved out of the top filter block into a toolbar directly above
-  the table (operator's call — they act on the list beneath them); the six
-  selects keep the top row alone. This supersedes the "two fixed rows"
-  layout described above.
+- **Layout**: the same day, the whole filter block — Search and the six
+  selects on one row, Maintenance / Stale / Duplicate beneath, then the
+  "Filtered by" chips — moved into the table's own column, starting above
+  the Name header and exactly as wide as the table (operator's call; the
+  sidebar sits beside it). This supersedes the "two fixed rows" layout
+  described above.
