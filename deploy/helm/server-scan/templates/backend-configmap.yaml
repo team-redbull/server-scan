@@ -21,3 +21,17 @@ data:
   INVENTORY_MAX_AVAILABLE_COUNT: {{ required "config.maxAvailableCount must be set" .Values.config.maxAvailableCount | quote }}
   INVENTORY_CAPACITY_ALIASES: {{ .Values.config.capacityAliases | quote }}
   INVENTORY_MONGO_DB: {{ .Values.db.dbName | default "server-scan" | quote }}
+  # AD login (docs/adr/0034) — the AD API client id, session secret and
+  # both API tokens are secrets, rendered by backend-auth-secret.yaml instead.
+  INVENTORY_AUTH_ENABLED: {{ required "auth.enabled must be set" .Values.auth.enabled | quote }}
+  INVENTORY_LDAP_SERVER: {{ .Values.auth.ldap.server | quote }}
+  INVENTORY_LDAP_PORT: {{ required "auth.ldap.port must be set" .Values.auth.ldap.port | quote }}
+  INVENTORY_LDAP_DOMAIN: {{ .Values.auth.ldap.domain | quote }}
+  INVENTORY_LDAP_USE_SSL: {{ required "auth.ldap.useSsl must be set" .Values.auth.ldap.useSsl | quote }}
+  INVENTORY_AD_API_URL: {{ .Values.auth.adApi.url | quote }}
+  INVENTORY_AD_API_CA_BUNDLE: {{ .Values.auth.adApi.caBundle | quote }}
+  INVENTORY_ADMIN_GROUPS: {{ .Values.auth.adminGroups | quote }}
+  INVENTORY_VIEW_GROUPS: {{ .Values.auth.viewGroups | quote }}
+  INVENTORY_ADMIN_USERS: {{ .Values.auth.adminUsers | quote }}
+  INVENTORY_VIEWER_USERS: {{ .Values.auth.viewerUsers | quote }}
+  INVENTORY_SESSION_TTL_SECONDS: {{ required "auth.sessionTtlSeconds must be set" .Values.auth.sessionTtlSeconds | quote }}

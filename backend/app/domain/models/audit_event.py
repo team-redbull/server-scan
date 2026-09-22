@@ -29,12 +29,22 @@ class ActorType(StrEnum):
     TOKEN = "TOKEN"  # noqa: S105 - an actor-type label, not a credential
 
 
+class Role(StrEnum):
+    """An authenticated caller's permission level; see docs/adr/0034 for `NO_PERMISSION`."""
+
+    ADMIN = "ADMIN"
+    VIEWER = "VIEWER"
+
+
 class Actor(BaseModel):
     """The principal an `AuditEvent` records as having performed it."""
 
     type: ActorType
     id: str
     display: str | None = None
+    # None for the SYSTEM actor and for every actor recorded before
+    # docs/adr/0034 — an old stored event still decodes.
+    role: Role | None = None
 
 
 class EventType(StrEnum):

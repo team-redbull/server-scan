@@ -874,3 +874,58 @@ collectors:
         # with the fleet — the one collector whose memory does. `$select`
         # keeps them to mapped fields only; 1Gi covers ~10,000 servers.
         memory: 1Gi
+
+# AD login (docs/adr/0034): every request is open (auth.enabled: false,
+# the default) until this points at a real AD/LDAP + the operator's own
+# "AD API" REST service. There is no AD reachable from this chart's own
+# CI/dev use, so off is what every existing install keeps getting.
+#
+# DO NOT COMMIT REAL VALUES HERE. Pass them at install time
+# (`--set auth.adApi.clientId=...`), from a values file kept out of git,
+# or set `existingSecret` below and let a secrets operator own the Secret
+# — same pattern as `collectors.existingSecret` above.
+auth:
+  enabled: false
+
+  ldap:
+    server: ""
+    port: 389
+    domain: ""
+    # Plain LDAP (the default) sends the bind password in cleartext —
+    # set only against a server that terminates LDAPS on this port.
+    useSsl: false
+
+  adApi:
+    url: ""
+    clientId: ""
+    # A PEM CA bundle path, for an internal AD API behind a private CA.
+    # Blank verifies against the pod's system trust store.
+    caBundle: ""
+
+  # Comma-separated `sAMAccountName`s, matched case-insensitively. Admin is
+  # checked before viewer, and a user's own list before its group list, so
+  # a listed user costs no AD API call. Same `--set` comma-splitting
+  # gotcha as `config.sites` above — use a values file or `--set-string`.
+  adminGroups: ""
+  viewGroups: ""
+  adminUsers: ""
+  viewerUsers: ""
+
+  # Signs the login session cookie. Blank keeps the backend's own
+  # committed dev-insecure default, which it refuses to start with once
+  # `INVENTORY_ENVIRONMENT=production` and `auth.enabled` are both set —
+  # same fail-fast pattern as `backend.cursorSecret`.
+  sessionSecret: ""
+  sessionTtlSeconds: 28800
+
+  # Static bearer tokens for a machine caller (e.g. the BMH generator) that
+  # can't do an interactive AD login — `Authorization: Bearer <token>`
+  # gets admin or read-only access respectively. Blank disables each.
+  apiTokens:
+    admin: ""
+    viewer: ""
+
+  # Name of a Secret managed outside this chart, holding the same
+  # INVENTORY_* keys (see templates/backend-auth-secret.yaml). Set it and
+  # the chart stops rendering its own Secret from the values above entirely.
+  existingSecret: ""

@@ -61,7 +61,12 @@ from app.application.services.ingest import IngestService
 from app.application.services.maintenance_service import MaintenanceService
 from app.application.services.pipeline import classification_from_result, health_from_state
 from app.config import Settings, get_settings
-from app.dependencies import get_current_actor, get_mongo_holder, get_redis_holder, get_request_id
+from app.dependencies import (
+    get_mongo_holder,
+    get_redis_holder,
+    get_request_id,
+    require_admin,
+)
 from app.domain.enums import ManagerType, Vendor
 from app.domain.models.audit_event import Actor, EventType
 from app.domain.ports.regex_engine import RegexEngine
@@ -720,7 +725,7 @@ async def reclassify_server(
     cache: Annotated[CacheClient, Depends(_cache_client)],
     service: Annotated[ClassificationService, Depends(_classification_service)],
     audit: Annotated[AuditService, Depends(_audit_service)],
-    actor: Annotated[Actor, Depends(get_current_actor)],
+    actor: Annotated[Actor, Depends(require_admin)],
     request_id: Annotated[str | None, Depends(get_request_id)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ServerDetail:
@@ -794,7 +799,7 @@ async def recalculate_server_health(
     cache: Annotated[CacheClient, Depends(_cache_client)],
     service: Annotated[HealthPolicyService, Depends(_health_policy_service)],
     audit: Annotated[AuditService, Depends(_audit_service)],
-    actor: Annotated[Actor, Depends(get_current_actor)],
+    actor: Annotated[Actor, Depends(require_admin)],
     request_id: Annotated[str | None, Depends(get_request_id)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ServerDetail:
@@ -857,7 +862,7 @@ async def enable_maintenance(
     payload: MaintenanceEnableRequest,
     service: Annotated[MaintenanceService, Depends(_maintenance_service)],
     cache: Annotated[CacheClient, Depends(_cache_client)],
-    actor: Annotated[Actor, Depends(get_current_actor)],
+    actor: Annotated[Actor, Depends(require_admin)],
     request_id: Annotated[str | None, Depends(get_request_id)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ServerDetail:
@@ -899,7 +904,7 @@ async def disable_maintenance(
     server_id: str,
     service: Annotated[MaintenanceService, Depends(_maintenance_service)],
     cache: Annotated[CacheClient, Depends(_cache_client)],
-    actor: Annotated[Actor, Depends(get_current_actor)],
+    actor: Annotated[Actor, Depends(require_admin)],
     request_id: Annotated[str | None, Depends(get_request_id)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ServerDetail:

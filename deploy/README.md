@@ -553,6 +553,28 @@ credentials:
   "equivalent to write access to the credential Secret" even though it
   holds no password itself.
 
+## Auth (AD login, ADR-0034)
+
+Off by default (`auth.enabled: false`) — every request auto-admits as
+admin, exactly as before this feature existed. Turning it on requires a
+real LDAP server and the operator's own REST "AD API" reachable from the
+API pod; set `auth.ldap.*` and `auth.adApi.*`, plus at least one of
+`auth.adminGroups`/`auth.adminUsers` (checked before
+`auth.viewGroups`/`auth.viewerUsers`) or every login resolves to "no
+permission". `auth.apiTokens.admin`/`.viewer` are static bearer tokens for
+a machine caller (the BMH generator) that can't do an interactive login —
+leave blank to disable each independently of AD entirely.
+
+These render into `<release>-auth-credentials`
+(`templates/backend-auth-secret.yaml`), the same `existingSecret` escape
+hatch as `collectors.existingSecret` above, mounted onto the API
+Deployment unconditionally — safe because a blank value is read by the
+backend as "not configured," never as an error. `auth.sessionSecret`
+blank keeps the backend's own committed dev-insecure default, which it
+refuses to start on once `INVENTORY_ENVIRONMENT=production` **and**
+`auth.enabled` are both true — same fail-fast pattern as
+`backend.cursorSecret`.
+
 ## Current state
 
 The backend API and the frontend both have full manifests
@@ -585,13 +607,11 @@ the settings module's comments) because each cost a session:
   letter, and `.env.example`, the Helm values and the field are the three
   places to check.
 - **`INVENTORY_ENVIRONMENT=production` refuses the committed cursor
-  secret.** `cursor_secret` used to be "only a code comment, not enforced
-  at startup": an install that forgot `backend.cursorSecret` came up
-  healthy and stayed on the dev default forever. A forged cursor is not a
-  disclosure risk while every endpoint is open (CLAUDE.md convention 6),
-  but it becomes one the moment authentication lands, and rotating a
-  secret every deployed cursor already depends on is worse than failing
-  startup now. A blank value fails the same way as the default: a
+  secret** (and, the same way, the committed session secret once
+  `auth.enabled` is also true — ADR-0034). `cursor_secret` used to be
+  "only a code comment, not enforced at startup": an install that forgot
+  `backend.cursorSecret` came up healthy and stayed on the dev default
+  forever. A blank value fails the same way as the default: a
   `secretKeyRef` to an empty key still counts as "set" to
   pydantic-settings, unlike leaving the variable out, so it is a separate
   mistake with the same fix.

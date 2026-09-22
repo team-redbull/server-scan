@@ -8,6 +8,68 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-22 — nodes-status chart (renamed from openshift-membership),
+its jobs now list every node with no worker-role selector, and a two-tier
+MAJOR/CRITICAL split for multiple bad OS/data disks.** Moved to
+`docs/notes/session-log.md`: the BMC button / cluster sidebar / filter
+block / has_data UNKNOWN unit.
+
+**Deploy (operator's own air-gapped, private-repo environment; values in
+git accepted there):** `deploy/helm/openshift-membership` renamed to
+`deploy/helm/nodes-status` (path, Chart name, `openshiftMembership.*` ->
+`nodesStatus.*` helpers — breaking, update each cluster's ArgoCD
+Application). Both charts can now render their own Secrets from plaintext
+values instead of `oc create secret` (`db.mongoUri`/`db.redisUri`/
+`db.cursorSecret` -> `templates/db-secret.yaml`), and `db.dbName` (default
+`server-scan`, **not** `required()` — that broke redbull-platform's
+hand-maintained values.yaml, which doesn't sync from this repo) exposes
+`INVENTORY_MONGO_DB`, previously only settable via `.env`. `nodes-status`
+also gained `jobTtlSeconds` (default 1800) on both CronJobs.
+
+**Node/agent selection (ADR-0024 updates):** `OpenShiftClient.
+worker_nodes()` dropped the `node-role.kubernetes.io/worker` label
+selector entirely — some of the operator's worker nodes don't carry it,
+so the label was silently dropping real capacity. Name exclusion
+(default gained `master`) is now the *only* filter, applying identically
+to `agents` too: the check moved out of `client.py` into a pure
+`records.name_excluded()`, applied once by `tools.collect_openshift.
+_observe` to `ClusterObservation.hostname` (each source's already-
+resolved hostname, not its raw field) rather than duplicated per source.
+Same rule, but **two independent chart values** —
+`nodes.excludeNameParts` / `agents.excludeNameParts`, each defaulting to
+`infra,control-plane,master` — after a brief detour through one shared
+top-level value the operator asked to split back apart, since a term
+right for a node name isn't guaranteed right for an Agent's hostname.
+Both CronJobs now set `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` from their
+own value (previously only `nodes` ever set it at all). There is no
+longer a structural guarantee that a wrongly-named control-plane node or
+non-capacity Agent is excluded; that's entirely on the operator's two
+lists per cluster now.
+
+**Health (operator's request):** two-or-more bad OS/data disks now split
+MAJOR/CRITICAL by whether one has *actually* failed, not just by count —
+`storage.os_failed_disk_count`/`data_failed_disk_count` (CRITICAL-only)
+alongside the existing WARNING-or-CRITICAL `_bad_disk_count`. Two disks
+both merely predictive-failure (`WARNING`) is MAJOR
+(`storage.os_disk_bad_major_multiple` /
+`storage.data_disk_bad_large_major_multiple`); the `_critical` policies
+now require `_failed_disk_count GTE 1`. Same tiering `power.psu_failed_
+major`/`_critical` already used. Verified against the real UCS
+`predictive-failure` -> `WARNING` mapping end-to-end, not just a synthetic
+health string. 17 system-default policies now, up from 15.
+
+**Sites page (operator's request):** each site card now also shows
+Installed/Available counts (`SiteStats.by_openshift_state`, already
+computed backend-side — no backend change needed), linking to
+`/servers?site_id=<id>&openshift_state=<state>`. Deliberately not
+`InstallationBadge`'s red/green palette: the card already spends
+red/orange/yellow on health severity. Per-site vendor counts
+(`VendorBar`) already existed.
+
+**Open:** none from this session.
+
+---
+
 **2026-09-21 — BMC button on the server detail header; an MCE /
 hosted-cluster / UPI filter sidebar; the filter block above the table; a
 category nothing was read for is UNKNOWN.** Moved to

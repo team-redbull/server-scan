@@ -15,10 +15,9 @@ session-by-session history in `docs/notes/session-log.md`.
 
 ## Status
 
-Phase 1 is functionally complete except real authentication, which is
-deliberately deferred — see `CLAUDE.md`. All four vendor managers now
-have a collector, plus a fifth for machines no manager owns. Built so
-far, in order:
+Phase 1 is functionally complete, real authentication included. All four
+vendor managers now have a collector, plus a fifth for machines no
+manager owns. Built so far, in order:
 
 1. Inventory model, MongoDB/Redis persistence, search/filter/sort/cursor
    pagination, the inventory UI.
@@ -69,6 +68,13 @@ far, in order:
     diagram plus one per collector, interactive (pan/zoom/search),
     generated with the `archify` skill from the ADRs and provider source
     (`docs/architecture.md`, "Architecture diagrams").
+18. **AD login**, off by default (no AD is reachable from this repo's own
+    dev/test environment, so every request auto-admits as admin). Turned
+    on, credentials are checked against a real Active Directory over LDAP
+    and admin/viewer is resolved from four configured group/user lists;
+    two static API tokens let a machine caller like the BMH generator keep
+    working with no interactive login
+    (`docs/adr/0034-ad-login-roles-and-api-tokens.md`).
 
 The inventory table shows **Name, BMC, Installation, MCE, Cluster, Model,
 State** and a per-row maintenance switch (BMC is an icon that opens the

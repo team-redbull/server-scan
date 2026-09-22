@@ -5,6 +5,10 @@ import type { HealthPolicyListParams } from "@/api/healthPolicies";
 /** Central TanStack Query key factory, so invalidation can target a whole
  * resource or one slice of it. */
 export const queryKeys = {
+  auth: {
+    all: ["auth"] as const,
+    me: () => [...queryKeys.auth.all, "me"] as const,
+  },
   servers: {
     all: ["servers"] as const,
     rows: () => [...queryKeys.servers.all, "rows"] as const,

@@ -50,9 +50,9 @@ if [ "$want_helm" = 1 ]; then
       --set collectors.ucsCentral.enabled=true --set collectors.intersight.enabled=true \
       --set collectors.openmanage.enabled=true --set collectors.oneview.enabled=true \
       --set collectors.fake.enabled=true > /dev/null'
-  step "helm template openshift-membership" \
-    sh -c 'helm template ci-lint deploy/helm/openshift-membership --set nodes.clusterName=ci-cluster > /dev/null && \
-      helm template ci-lint deploy/helm/openshift-membership --set nodes.clusterName=ci-cluster \
+  step "helm template nodes-status" \
+    sh -c 'helm template ci-lint deploy/helm/nodes-status --set nodes.clusterName=ci-cluster > /dev/null && \
+      helm template ci-lint deploy/helm/nodes-status --set nodes.clusterName=ci-cluster \
       --set agents.enabled=true --set agents.mceName=ci-mce > /dev/null'
 fi
 

@@ -87,3 +87,16 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* The login page's ambient background icons (`LoginPage.tsx`) — a slow
+ * drift + rotation, covered by the reduced-motion rule above like every
+ * other animation here. */
+@keyframes login-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-18px) rotate(4deg);
+  }
+}

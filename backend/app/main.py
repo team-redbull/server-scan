@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import RequestResponseEndpoint
@@ -24,6 +24,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response
 
 from app.api.health import router as health_router
+from app.api.v1.auth import router as auth_router
 from app.api.v1.classification_rules import router as classification_rules_router
 from app.api.v1.events import router as events_router
 from app.api.v1.health_policies import router as health_policies_router
@@ -34,6 +35,7 @@ from app.application.services.bootstrap import (
     ensure_default_health_policies,
 )
 from app.config import get_settings
+from app.dependencies import get_current_actor
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.site import site_catalog
@@ -146,11 +148,15 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(health_router)
-    app.include_router(servers_router)
-    app.include_router(classification_rules_router)
-    app.include_router(health_policies_router)
-    app.include_router(events_router)
-    app.include_router(sites_router)
+    app.include_router(auth_router)
+    # Every route below requires a resolved caller (docs/adr/0034); `/health`,
+    # `/auth/*` and `/metrics` stay open.
+    _authenticated = [Depends(get_current_actor)]
+    app.include_router(servers_router, dependencies=_authenticated)
+    app.include_router(classification_rules_router, dependencies=_authenticated)
+    app.include_router(health_policies_router, dependencies=_authenticated)
+    app.include_router(events_router, dependencies=_authenticated)
+    app.include_router(sites_router, dependencies=_authenticated)
 
     if settings.metrics_enabled:
 

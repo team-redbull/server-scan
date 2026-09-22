@@ -342,6 +342,7 @@ OpenShift namespace                        (chart: deploy/helm/server-scan)
 ├── Deployment  backend API (N replicas)  ── Service ─┐
 │      envFrom: <release>-api-config (ConfigMap)   ← INVENTORY_SITES lives here
 │      envFrom: <release>-collector-credentials    ← ADR-0032's live recheck
+│      envFrom: <release>-auth-credentials         ← ADR-0034, blank unless auth.enabled
 │      env:     Mongo/Redis URIs from a Secret      │
 ├── Deployment  frontend (nginx + SPA)  ── Service ──┴── Route  ← the ONLY one
 │      nginx proxies /api/ and /health/ to the API Service, so the
@@ -426,6 +427,13 @@ collector does, and never call this platform's API.
   collector's per-host TOML files are deliberately **not** mounted here,
   to avoid putting every BMC password within reach of the pod the Route
   exposes; that collector's candidates always trust Mongo.
+- **AD login is off by default and adds one more Secret, unconditionally
+  mounted** (ADR-0034): `<release>-auth-credentials` (the AD API client
+  id, the session-signing secret, and the two API tokens), rendered by
+  `backend-auth-secret.yaml` unless `auth.existingSecret` points at one
+  managed outside the chart — same escape hatch as `collectors.
+  existingSecret`. `auth.enabled=false` (every existing install) needs no
+  AD/LDAP reachable at all; the backend auto-admits every caller.
 
 ---
 
@@ -451,16 +459,23 @@ collector does, and never call this platform's API.
 
 ### Authentication — the honest current state
 
-There is **no authentication and no authorization**. Not "permissive" —
-absent. `app.dependencies.get_current_actor` returns a fixed
-`unauthenticated` `Actor` so that audit events have *some* actor to
-record; that is the entire scaffolding. Every endpoint is open to anyone
-who can reach the Route.
+**Real authentication landed 2026-09-22** (ADR-0034), after being
+deliberately deferred through every earlier slice. AD login with two
+roles (`ADMIN`/`VIEWER`) resolved from four configured group/user lists,
+a stateless HMAC-signed session cookie, and two static API tokens for a
+machine caller like the BMH generator. `app.dependencies.
+get_current_actor` resolves the caller — the dev bypass, a bearer token,
+or the session cookie — and every router except `health`/`auth`/`metrics`
+requires one; `require_admin` additionally gates the four mutation
+endpoints.
 
-This is a deliberate, repeatedly-confirmed deferral to the last slice,
-and it is the release gate. `CLAUDE.md` was corrected to match this
-document (convention 6) — both now agree that no `AuthProvider`/RBAC
-scaffolding exists.
+**`auth.enabled` is still `false` by default** — no AD is reachable from
+this repo's own dev/test environment, so every existing install (and this
+one) keeps auto-admitting every caller as admin with no login page,
+exactly as before this ADR. Turning it on is the operator's own choice,
+made where a real AD/LDAP + their own "AD API" REST service are both
+reachable. `CLAUDE.md` convention 6 has the summary; ADR-0034 has the
+design.
 
 ---
 
@@ -504,6 +519,7 @@ of it.
 | 0031 | A release deploys itself: CI syncs the chart copy in redbull-platform and pins the image tags, Argo CD does the rest |
 | 0032 | `GET /servers/available` — Mongo-side ranking plus a per-candidate live recheck via a new `get_one()` on every provider; the API pod now holds the same manager credentials the CronJobs do |
 | 0033 | The inventory page filters, sorts, searches and pages in the browser from one polled, ETagged `GET /servers/rows`; the real fleet (2.5k, 5k at most) fits in a tab, and the measurements say so |
+| 0034 | AD login: admin/viewer roles from four admin/view group and user lists, a stateless HMAC-signed session cookie (not Redis), `auth.enabled=false` auto-admits every caller, and two static API tokens for machine callers like the BMH generator |
 
 ---
 
@@ -547,7 +563,7 @@ go stale — treat its date as load-bearing.
 
 | Risk | Detail |
 |---|---|
-| **No authentication at all** | Every endpoint is open to anyone who can reach the Route, including all write endpoints. Since ADR-0032, that now includes `GET /servers/available`, whose live recheck can write to a vendor manager's own inventory data (Mongo) using credentials the API pod holds. Deliberate and confirmed, but it is the release gate and nothing should go to production without it. |
+| ~~No authentication at all~~ | **Closed 2026-09-22** (ADR-0034): AD login with admin/viewer roles, gating every router except `health`/`auth`/`metrics`. Off by default (`auth.enabled=false`, this repo's own environment has no AD to check against) — a deployment that wants it has to turn it on and configure real LDAP/AD API values; the row is closed because the capability now exists and is production-ready, not because every install has it on. |
 | ~~Staleness not visible in the UI~~ | **Closed 2026-09-13** (ADR-0029's update): `?stale=true` on the inventory, a `Stale 20h` chip beside the severity badge, a facet count, `Last seen` on the detail page. The gauges and alerts had shipped the day before; this row and the one it replaced ("no staleness detection") are both kept struck rather than deleted, because each was true when written and the register's date is load-bearing. |
 
 ### Medium
@@ -558,7 +574,8 @@ go stale — treat its date as load-bearing.
 | The Redfish collector does not reach 10k | ~25 round trips per BMC; supported range ~400–1000 hosts per CronJob, sharded beyond that. Stated in ADR-0016 rather than hidden. |
 | Intersight requires an on-prem appliance | A licensed Cisco product this platform does not control — a deployment dependency no other collector carries. |
 | **Intersight's DOWN/CRITICAL vocabulary is unconfirmed** | Validated against a live on-prem PVA on 2026-09-01 and again 2026-09-07 (19 servers): auth, name resolution, `TotalMemory`-as-MiB, `cpu_model`, per-drive storage and GPU catalog matching are all confirmed, and a GPU-catalog matching bug plus an `OperState`/`Health` `"OK"`-spelling gap (silently reading PSUs and drives as UNKNOWN) were found and fixed the same day (`docs/adr/0017`'s "A second field pass (2026-09-07)"). What is left is narrower: no PSU, GPU or drive on that tenant has ever reported a failure state, so the DOWN/CRITICAL side of that same vocabulary is still contract-only. Demoted from High: every headline unknown that ADR listed (auth, the unit assumption, field mapping) is now settled. |
-| No rate limiting anywhere | |
+| No rate limiting anywhere | Includes `POST /auth/login` (ADR-0034) — repeated bad attempts are throttled only by AD's own account-lockout policy, not by the API. |
+| No session revocation | ADR-0034's login cookie is a stateless HMAC signature, not a server-side session — a removed admin/viewer keeps working until the cookie's TTL (default 8h) expires. Accepted trade-off of not using Redis for sessions (Redis here is deliberately non-persistent). |
 | Redis persistence | Deliberately none: cache-aside, degrades to Mongo. **MongoDB HA/backup is not a risk of this platform** — production Mongo is an operated service in the air-gapped estate, not the chart's bundled Bitnami pod (operator, 2026-09-13); the bundled one is for demos and dev. |
 | No concurrency cap on `GET /servers/available`'s live rechecks | Each request can open up to `count` vendor-manager sessions (UCS Manager, OneView, iDRAC all have hard concurrent-session caps). A retry-looping caller would exhaust those and fail the scheduled collector's login — a vendor-side outage, not an API slowdown. `RateLimitedError` (429) exists and nothing raises it; a per-`ManagerType` semaphore is the fix, before bmhgen goes to production. |
 | Manual dependency maintenance | Dependabot was deliberately removed (ADR-0013), making pin currency and CVE checks a standing quarterly chore. |

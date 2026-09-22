@@ -168,6 +168,40 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
    chosen over a bespoke envelope because it is the current IETF standard
    for HTTP API errors, not because any prior project used it.
 
+## Authentication and authorization (ADR-0034)
+
+- **`app.dependencies.get_current_actor`** resolves the caller in one of
+  three ways, in order: `Settings.auth_enabled=false` (this repo's own
+  default — no AD reachable here) returns a fixed dev-admin `Actor` with no
+  further checks; a `Authorization: Bearer` header matching
+  `api_token_admin`/`api_token_viewer` (`hmac.compare_digest`) resolves to
+  a `TOKEN` actor at that role, for a machine caller like the BMH generator
+  that can't do an interactive AD login; otherwise a session cookie is
+  verified. Anything else is 401. `require_admin` layers `role is
+  Role.ADMIN` on top, applied to the four mutation endpoints in
+  `servers.py`.
+- **The session is a stateless, HMAC-signed cookie** (`app.domain.services.
+  session`), the same scheme `app.domain.services.cursor` already uses for
+  pagination cursors, with its own secret. Chosen over a Redis-backed
+  session specifically because Redis here is cache-aside and non-
+  persistent — a session store there would force-logout every operator on
+  a Redis restart.
+- **`AuthService`** (`app.application.services.auth_service`) orchestrates
+  an LDAP bind (`app.infrastructure.ad.client.ldap_validate`, binding
+  `DOMAIN\username` — the bind succeeding *is* the credential check) and,
+  on success, checks the operator's four configured lists — admin users,
+  admin groups, viewer users, viewer groups, in that priority — against
+  the operator's own REST "AD API" for recursive group membership.
+  Infrastructure failures (LDAP or the AD API down) always raise
+  `ServiceUnavailableError` (503); they are never reported as a wrong
+  password (401).
+- **The frontend shadows rather than hides.** A viewer sees the same
+  maintenance button an admin does, disabled via `aria-disabled` (not the
+  native `disabled` attribute, which would suppress the hover tooltip) with
+  a tooltip explaining why; filtering by maintenance state is unaffected.
+  `AppLayout` gates the whole SPA on `GET /auth/me`, the one call that
+  tells it whether to show `LoginPage` at all.
+
 ## Persistence
 
 - **MongoDB is the source of truth.** One `AsyncMongoClient` (PyMongo's
@@ -1637,10 +1671,9 @@ process. Until that lands, staleness is a documented manual query, and
 `docs/test-redfish-standalone-collector.md` §6 carries it rather than
 implying coverage that does not exist.
 
-Real authentication is designed (see the session's approved plan) but
-lands in a subsequent slice — this document will gain a section and an
-ADR once it's implemented, rather than describing not-yet-existing code
-as done.
+Real authentication landed 2026-09-22 — see "Authentication and
+authorization" above and ADR-0034, rather than the placeholder this
+paragraph used to be.
 
 ## Architecture diagrams (interactive)
 

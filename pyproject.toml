@@ -56,6 +56,10 @@ dependencies = [
     # See ADR-0015's update. Cisco still labels `ucscsdk` an Alpha release.
     "ucsmsdk==0.9.18",
     "ucscsdk==0.9.0.8",
+    # AD login (docs/adr/0034): binds `DOMAIN\username` against LDAP as the
+    # credential check. Pure-Python (no system `libldap` build dependency,
+    # unlike `python-ldap`), which matters for an air-gapped wheel mirror.
+    "ldap3==2.9.1",
 ]
 
 [dependency-groups]

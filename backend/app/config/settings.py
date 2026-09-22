@@ -15,6 +15,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _INSECURE_DEV_CURSOR_SECRET = "dev-insecure-cursor-secret-change-in-production"  # noqa: S105 - dev default, not a real secret
+_INSECURE_DEV_SESSION_SECRET = "dev-insecure-session-secret-change-in-production"  # noqa: S105 - dev default, not a real secret
 
 
 class Settings(BaseSettings):
@@ -174,6 +175,38 @@ class Settings(BaseSettings):
 
     openshift_request_timeout_seconds: float = 30.0
 
+    # --- AD login (docs/adr/0034) ---
+    # Off by default: auto-admin until an operator points this at a real AD.
+    auth_enabled: bool = False
+
+    ldap_server: str = ""
+    ldap_port: int = 389
+    ldap_domain: str = ""
+    # Plain LDAP sends the bind password in cleartext; set only against a
+    # server that terminates LDAPS on this port.
+    ldap_use_ssl: bool = False
+
+    ad_api_url: str = ""
+    ad_api_client_id: SecretStr = SecretStr("")
+    ad_api_ca_bundle: str = ""
+    auth_request_timeout_seconds: float = 15.0
+
+    # Comma-separated `sAMAccountName`/group lists, matched case-insensitively.
+    # Admin is checked before viewer, and a user's own list is checked
+    # before its group list, so a listed user never costs an AD API call.
+    admin_groups: str = ""
+    view_groups: str = ""
+    admin_users: str = ""
+    viewer_users: str = ""
+
+    session_secret: str = _INSECURE_DEV_SESSION_SECRET
+    session_ttl_seconds: int = 28_800
+
+    # A machine caller (e.g. the BMH generator) sends `Authorization: Bearer
+    # <token>` instead of logging in. Blank disables that token.
+    api_token_admin: SecretStr = SecretStr("")
+    api_token_viewer: SecretStr = SecretStr("")
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:
@@ -214,6 +247,45 @@ class Settings(BaseSettings):
                 f"({_INSECURE_DEV_CURSOR_SECRET!r}) with INVENTORY_ENVIRONMENT=production. "
                 "Set INVENTORY_CURSOR_SECRET to a real, deployment-specific secret — "
                 "see deploy/helm/server-scan's cursorSecret value."
+            )
+        if self.auth_enabled and self.session_secret == _INSECURE_DEV_SESSION_SECRET:
+            raise ValueError(
+                "INVENTORY_SESSION_SECRET is still the committed dev default "
+                f"({_INSECURE_DEV_SESSION_SECRET!r}) with INVENTORY_ENVIRONMENT=production "
+                "and INVENTORY_AUTH_ENABLED=true. Set INVENTORY_SESSION_SECRET to a real, "
+                "deployment-specific secret — see deploy/helm/server-scan's "
+                "auth.sessionSecret value."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _require_ad_config_when_auth_enabled(self) -> Settings:
+        """
+        Fail fast if `auth_enabled` is set without the AD/LDAP config it needs.
+
+        Returns:
+            Settings: `self`, unchanged, once the check passes.
+
+        Raises:
+            ValueError: `auth_enabled` is true but `ldap_server`, `ldap_domain`,
+                `ad_api_url` or `ad_api_client_id` is blank.
+        """
+        if not self.auth_enabled:
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("INVENTORY_LDAP_SERVER", self.ldap_server),
+                ("INVENTORY_LDAP_DOMAIN", self.ldap_domain),
+                ("INVENTORY_AD_API_URL", self.ad_api_url),
+                ("INVENTORY_AD_API_CLIENT_ID", self.ad_api_client_id.get_secret_value()),
+            )
+            if not value.strip()
+        ]
+        if missing:
+            raise ValueError(
+                "INVENTORY_AUTH_ENABLED=true requires "
+                f"{', '.join(missing)} to be set. See .env.example."
             )
         return self
 

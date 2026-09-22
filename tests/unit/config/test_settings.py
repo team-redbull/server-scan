@@ -91,3 +91,53 @@ class TestCursorSecretProductionFailFast:
         monkeypatch.delenv("INVENTORY_CURSOR_SECRET", raising=False)
         settings = Settings(_env_file=None, environment=environment)
         assert settings.cursor_secret == "dev-insecure-cursor-secret-change-in-production"
+
+
+class TestAuthEnabledRequiresAdConfig:
+    """`INVENTORY_AUTH_ENABLED=true` with no AD reachable must fail at
+    startup, not serve every request as a 503 (docs/adr/0034).
+    """
+
+    def test_enabled_with_no_ad_config_refuses_to_start(self) -> None:
+        with pytest.raises(ValidationError, match="INVENTORY_LDAP_SERVER"):
+            Settings(_env_file=None, auth_enabled=True)
+
+    def test_disabled_needs_no_ad_config(self) -> None:
+        settings = Settings(_env_file=None, auth_enabled=False)
+        assert settings.ldap_server == ""
+
+    def test_enabled_with_full_ad_config_starts_fine(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            auth_enabled=True,
+            ldap_server="dc.example.com",
+            ldap_domain="EXAMPLE",
+            ad_api_url="https://ad-api.example.com",
+            ad_api_client_id="a-real-client-id",
+        )
+        assert settings.auth_enabled is True
+
+
+class TestSessionSecretProductionFailFast:
+    def test_the_dev_default_in_production_with_auth_enabled_refuses_to_start(self) -> None:
+        with pytest.raises(ValidationError, match="INVENTORY_SESSION_SECRET"):
+            Settings(
+                _env_file=None,
+                environment="production",
+                cursor_secret="a-real-deployment-specific-secret",
+                auth_enabled=True,
+                ldap_server="dc.example.com",
+                ldap_domain="EXAMPLE",
+                ad_api_url="https://ad-api.example.com",
+                ad_api_client_id="a-real-client-id",
+            )
+
+    def test_the_dev_default_in_production_with_auth_disabled_is_fine(self) -> None:
+        """Auth is off, so no session is ever signed — the secret is moot."""
+        settings = Settings(
+            _env_file=None,
+            environment="production",
+            cursor_secret="a-real-deployment-specific-secret",
+            auth_enabled=False,
+        )
+        assert settings.session_secret == "dev-insecure-session-secret-change-in-production"

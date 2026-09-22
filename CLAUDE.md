@@ -84,16 +84,19 @@ is a real mistake, not a style preference.
 5. **`.env.example` is committed; `.env` (the real local file) is
    gitignored** and is what you actually edit for local dev — don't
    recreate `.env.example` as if it were the working config.
-6. **Real authentication is deliberately deferred to the very last
-   slice.** Be precise about what that means, because an earlier version
-   of this file was not: there is **no** `AuthProvider` class and no RBAC
-   scaffolding. What exists is `app.dependencies.get_current_actor`,
-   which returns a fixed `unauthenticated` `Actor` so audit events have
-   an actor to record. Every endpoint, writes included, is open to anyone
-   who can reach the Route. Do not wire up real auth unless the user
-   explicitly asks for it — they've confirmed this deferral more than
-   once, most recently mid-collector-work ("lets leave the auth for now
-   what else is there to make this production and really run?").
+6. **Real authentication landed 2026-09-22** (`docs/adr/0034-ad-login-roles-and-api-tokens.md`)
+   after being deliberately deferred through every earlier slice — the
+   user asked for it directly. `app.dependencies.get_current_actor`
+   resolves an AD-backed session cookie or a static bearer API token, not
+   a fixed unauthenticated `Actor` anymore. **`auth.enabled` is still
+   false by default** (no AD is reachable from this repo's own dev/test
+   environment), which auto-admits every caller as admin with no
+   login page at all — so day-to-day work in this repo is unaffected;
+   only a deployment that turns `auth.enabled` on needs real
+   `INVENTORY_LDAP_*`/`INVENTORY_AD_API_*` values. Two roles only —
+   `Role.ADMIN`/`Role.VIEWER` — resolved from four configured group/user
+   lists, admin checked first; a login that matches neither is rejected
+   outright (403), never silently downgraded to read-only.
 7. **Every time you add or edit a file, run the full local check before
    calling the work done — not just a lint pass.** CI gates on `ruff
    check .` *and* `ruff format --check .` *and* `ty` as three separate
@@ -397,13 +400,15 @@ a handful of Mongo-selected candidates for a BMH-creation caller.
    MongoDB backup — production Mongo is an operated service in the
    air-gapped estate, not the chart's Bitnami pod (operator, 2026-09-13);
    Redis being single and non-persistent is by design.
-2. **Real authentication** — the release gate, explicitly last. There is
-   no `AuthProvider` to swap out (convention 6): `app.dependencies.
-   get_current_actor` returns a fixed `unauthenticated` `Actor`, so this
-   means introducing the concept, not replacing one. It touches every
-   router — and since ADR-0032, `GET /servers/available` is an open
-   endpoint that triggers writes using vendor credentials the API pod
-   holds, which sharpens the case.
+Real authentication is no longer on this list — see convention 6 and
+ADR-0034. Narrower items it left open: no session revocation (a removed
+admin/viewer keeps access until the cookie's TTL expires — a stateless
+cookie was the deliberate trade-off over a Redis-backed session, which
+would force-logout everyone on a Redis restart), no rate limiting on
+`POST /auth/login` (left to AD's own lockout policy), and a real local AD
+for testing was attempted and abandoned (two Samba AD DC containers
+crashed under rootless podman's ACL/xattr handling — ADR-0034's
+"Deferred" has the error and what to try next).
 
 ## Key technical facts worth knowing before you change something
 
@@ -442,6 +447,15 @@ long form of every entry as of 2026-09-13 is
   per-host TOML files, which stay CronJob-only so BMC passwords are not
   within reach of the Route-exposed pod. No reservation/lock: concurrent
   callers can draw the same server; accepted in the ADR.
+- **Every router except `health`/`auth`/`metrics` requires a resolved
+  caller** (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
+  `include_router`, not per-endpoint. A **write** additionally needs
+  `Depends(require_admin)` — currently the four mutation endpoints in
+  `servers.py`. A new mutation endpoint needs that dependency explicitly;
+  it is not inherited from the router-level gate. A machine caller sends
+  `Authorization: Bearer <api_token_admin|viewer>`; `auth.enabled=false`
+  (default, no AD reachable in this repo) skips all of this and returns a
+  fixed dev-admin actor.
 - **`Server.openshift` is written by two CronJobs and nothing else, and
   the reconcile frees on absence** (ADR-0024). Each run may only free
   servers naming **its own** cluster; a failed read *and* an empty
@@ -497,7 +511,7 @@ long form of every entry as of 2026-09-13 is
   0011/0018; env-based manager connections 0012; CI pinning without
   Dependabot 0013; the provider ABC 0023; search tokens 0025; nullable
   cursors and retired indexes 0026; list-cache invalidation 0028; fleet
-  gauges 0029; self-deploying releases 0031.
+  gauges 0029; self-deploying releases 0031; AD login and roles 0034.
 
 ## Verifying your work
 
@@ -586,62 +600,44 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-22 — nodes-status chart (renamed from openshift-membership),
-its jobs now list every node with no worker-role selector, and a two-tier
-MAJOR/CRITICAL split for multiple bad OS/data disks.** Moved to
-`docs/notes/session-log.md`: the BMC button / cluster sidebar / filter
-block / has_data UNKNOWN unit.
+**2026-09-22 — AD login: admin/viewer roles, a stateless session cookie,
+and two API tokens (`docs/adr/0034-ad-login-roles-and-api-tokens.md`).**
+Moved to `docs/notes/session-log.md`: the nodes-status chart rename /
+node-agent selection / disk-severity tiering / sites-page counts unit.
 
-**Deploy (operator's own air-gapped, private-repo environment; values in
-git accepted there):** `deploy/helm/openshift-membership` renamed to
-`deploy/helm/nodes-status` (path, Chart name, `openshiftMembership.*` ->
-`nodesStatus.*` helpers — breaking, update each cluster's ArgoCD
-Application). Both charts can now render their own Secrets from plaintext
-values instead of `oc create secret` (`db.mongoUri`/`db.redisUri`/
-`db.cursorSecret` -> `templates/db-secret.yaml`), and `db.dbName` (default
-`server-scan`, **not** `required()` — that broke redbull-platform's
-hand-maintained values.yaml, which doesn't sync from this repo) exposes
-`INVENTORY_MONGO_DB`, previously only settable via `.env`. `nodes-status`
-also gained `jobTtlSeconds` (default 1800) on both CronJobs.
+**Backend:** `Role` (`ADMIN`/`VIEWER`) on `app.domain.models.audit_event.
+Actor`; `app.domain.services.session` (stateless HMAC cookie, same scheme
+as `cursor.py`, its own secret); `app.infrastructure.ad.client`
+(`ldap_validate` + `AdApiClient`, constructor-injected `httpx.AsyncClient`
+like `InClusterClient`, so it's `MockTransport`-testable); `app.
+application.services.auth_service.AuthService` (credentials first, admin
+before viewer, a user's own list before its group list); new `POST /auth/
+login`, `POST /auth/logout`, `GET /auth/me`. `app.dependencies.
+get_current_actor` now resolves the dev bypass, a bearer API token, or the
+session cookie, in that order; `require_admin` gates the four mutation
+endpoints in `servers.py`. Every router except `health`/`auth`/`metrics`
+is mounted with `Depends(get_current_actor)` in `app.main`.
 
-**Node/agent selection (ADR-0024 updates):** `OpenShiftClient.
-worker_nodes()` dropped the `node-role.kubernetes.io/worker` label
-selector entirely — some of the operator's worker nodes don't carry it,
-so the label was silently dropping real capacity. Name exclusion
-(default gained `master`) is now the *only* filter, applying identically
-to `agents` too: the check moved out of `client.py` into a pure
-`records.name_excluded()`, applied once by `tools.collect_openshift.
-_observe` to `ClusterObservation.hostname` (each source's already-
-resolved hostname, not its raw field) rather than duplicated per source.
-Same rule, but **two independent chart values** —
-`nodes.excludeNameParts` / `agents.excludeNameParts`, each defaulting to
-`infra,control-plane,master` — after a brief detour through one shared
-top-level value the operator asked to split back apart, since a term
-right for a node name isn't guaranteed right for an Agent's hostname.
-Both CronJobs now set `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` from their
-own value (previously only `nodes` ever set it at all). There is no
-longer a structural guarantee that a wrongly-named control-plane node or
-non-capacity Agent is excluded; that's entirely on the operator's two
-lists per cluster now.
+**Frontend:** `AppLayout` gates the whole SPA on `GET /auth/me`;
+`MaintenanceToggle` shadows (not hides) for a viewer — `aria-disabled`,
+not `disabled`, because the tooltip needs the hover event a real disabled
+button suppresses. `LoginPage`'s visual design (wordmark, floating
+server-rack icons, red/black accent replacing the app's usual blue) was
+iterated live against the running dev server at the operator's direction.
 
-**Health (operator's request):** two-or-more bad OS/data disks now split
-MAJOR/CRITICAL by whether one has *actually* failed, not just by count —
-`storage.os_failed_disk_count`/`data_failed_disk_count` (CRITICAL-only)
-alongside the existing WARNING-or-CRITICAL `_bad_disk_count`. Two disks
-both merely predictive-failure (`WARNING`) is MAJOR
-(`storage.os_disk_bad_major_multiple` /
-`storage.data_disk_bad_large_major_multiple`); the `_critical` policies
-now require `_failed_disk_count GTE 1`. Same tiering `power.psu_failed_
-major`/`_critical` already used. Verified against the real UCS
-`predictive-failure` -> `WARNING` mapping end-to-end, not just a synthetic
-health string. 17 system-default policies now, up from 15.
+**Helm/env:** new `auth:` values block, `backend-auth-secret.yaml`
+(mirrors `collector-credentials-secret.yaml`'s `existingSecret` pattern),
+one more unconditional `envFrom` on the API Deployment, every new
+`INVENTORY_*` var in `.env.example`. `auth.enabled` defaults `false`
+everywhere, so no existing deployment's behavior changes.
 
-**Sites page (operator's request):** each site card now also shows
-Installed/Available counts (`SiteStats.by_openshift_state`, already
-computed backend-side — no backend change needed), linking to
-`/servers?site_id=<id>&openshift_state=<state>`. Deliberately not
-`InstallationBadge`'s red/green palette: the card already spends
-red/orange/yellow on health severity. Per-site vendor counts
-(`VendorBar`) already existed.
+**Attempted and abandoned:** a real local Samba AD DC for genuine
+`DOMAIN\username` LDAP-bind testing (plain OpenLDAP doesn't accept that
+bind format) — two runs of `docker.io/nowsci/samba-domain` crashed
+mid-provisioning with `Security context active token stack underflow!`,
+a known Samba ACL/xattr fault under rootless podman, not fixed by
+`--privileged`. Fell back to mocking `ldap3`/`httpx` directly (39 new
+backend tests) plus a hand-signed session cookie to preview the real
+frontend in both roles against the seeded dev stack.
 
 **Open:** none from this session.

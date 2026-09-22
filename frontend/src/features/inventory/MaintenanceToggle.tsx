@@ -3,8 +3,11 @@ import type { FormEvent } from "react";
 
 import maintenanceIcon from "@/assets/maintenance.svg";
 import { ApiError } from "@/api/client";
+import { useAuth } from "@/features/auth/useAuth";
 import { useToggleMaintenanceMutation } from "@/features/inventory/hooks";
 import type { ServerRow } from "@/types/server";
+
+const ADMIN_ONLY_TITLE = "Only admins can change maintenance";
 
 /**
  * One row's maintenance switch: entering maintenance asks why, leaving it
@@ -35,6 +38,11 @@ function errorMessage(error: unknown): string {
 }
 
 export function MaintenanceToggle({ server }: { server: ServerRow }) {
+  const { data: me } = useAuth();
+  // Undefined/ADMIN both read as admin — `AppLayout` has already resolved
+  // `/auth/me` by the time this renders, and auth-disabled deployments
+  // (this repo's own default) never see a `VIEWER` role at all.
+  const isAdmin = me?.role !== "VIEWER";
   const toggle = useToggleMaintenanceMutation();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
@@ -77,11 +85,15 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
     >
       <button
         type="button"
-        title={label}
-        aria-label={label}
+        title={isAdmin ? label : ADMIN_ONLY_TITLE}
+        aria-label={isAdmin ? label : ADMIN_ONLY_TITLE}
         aria-expanded={enabled ? undefined : asking}
+        aria-disabled={!isAdmin || undefined}
         disabled={toggle.isPending}
         onClick={() => {
+          // `aria-disabled`, not `disabled`, so a viewer still gets the
+          // hover tooltip — the no-op has to live in the handler instead.
+          if (!isAdmin) return;
           if (enabled) {
             toggle.mutate({ id: server.id, enable: false });
           } else {
@@ -89,6 +101,8 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
           }
         }}
         className={`inline-flex size-7 items-center justify-center rounded-md border text-xs transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)] disabled:cursor-not-allowed disabled:opacity-40 ${
+          !isAdmin ? "cursor-not-allowed opacity-40" : ""
+        } ${
           enabled
             ? "border-[var(--border-strong)] bg-[var(--tint-maintenance)] text-[var(--text-on-maintenance)]"
             : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"

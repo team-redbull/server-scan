@@ -39,6 +39,11 @@ deploy/secrets*.yaml
 *.swp
 .DS_Store
 
+# Local Claude Code plugin state (ruflo/claude-flow, memory tooling) —
+# not part of this repo's own build or runtime.
+.swarm/
+ruvector.db
+
 # Containers
 *.tar
 
