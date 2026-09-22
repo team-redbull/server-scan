@@ -58,15 +58,26 @@ frontend:
       memory: 128Mi
 
 # Where the connection strings come from when a database is NOT bundled
-# below: a pre-existing Secret with keys `mongo-uri` and `redis-uri`, which
-# this chart consumes but does not create. See deploy/README.md for why
-# externally provisioned is the default.
+# below. Two ways to get them there, picked per release:
+#
+# - Set mongoUri / redisUri here and this chart renders the db.secretName
+#   Secret itself (templates/db-secret.yaml) — nothing to create by hand.
+#   Plaintext in this values file, so it's the right choice only where the
+#   values file's own storage is already trusted for secrets (e.g. a
+#   private, air-gapped Git repo), not a public or shared one.
+# - Leave them blank and pre-provision a Secret named secretName yourself
+#   (a secrets operator, or `oc create secret`) with keys `mongo-uri` /
+#   `redis-uri` — this chart only consumes it, as before.
 #
 # Each database is resolved independently, so bundling one and pointing at
 # an operated instance for the other is a supported combination — only the
-# key for the non-bundled half is read from here.
+# key for the non-bundled half is read from here, and mongoUri/redisUri are
+# ignored for whichever half is bundled (mongodb.enabled/redis.enabled
+# below always win for that half).
 db:
   secretName: server-scan-db
+  mongoUri: ""
+  redisUri: ""
 
 # --- Bundled databases (both OFF by default) -------------------------------
 #
