@@ -298,9 +298,9 @@ describe("SitesOverviewPage", () => {
 
     // Tel Aviv: 42 total, 7 available -> 35 installed.
     expect(within(card("Tel Aviv")).getByText("35")).toBeInTheDocument();
-    expect(within(card("Tel Aviv")).getByText(/installed/i)).toBeInTheDocument();
+    expect(within(card("Tel Aviv")).getByText(/installed/)).toBeInTheDocument();
     expect(within(card("Tel Aviv")).getByText("7")).toBeInTheDocument();
-    expect(within(card("Tel Aviv")).getByText(/available/i)).toBeInTheDocument();
+    expect(within(card("Tel Aviv")).getByText(/available/)).toBeInTheDocument();
 
     // New York: 8 total, 2 available -> 6 installed.
     expect(within(card("New York City")).getByText("6")).toBeInTheDocument();
@@ -314,8 +314,8 @@ describe("SitesOverviewPage", () => {
       expect(screen.getByRole("heading", { name: "Tel Aviv" })).toBeInTheDocument();
     });
 
-    const installedLink = within(card("Tel Aviv")).getByText(/installed/i).closest('[role="link"]');
-    const availableLink = within(card("Tel Aviv")).getByText(/available/i).closest('[role="link"]');
+    const installedLink = within(card("Tel Aviv")).getByText(/installed/).closest('[role="link"]');
+    const availableLink = within(card("Tel Aviv")).getByText(/available/).closest('[role="link"]');
     expect(installedLink).toHaveAttribute("tabindex", "0");
     expect(availableLink).toHaveAttribute("tabindex", "0");
   });
@@ -329,7 +329,7 @@ describe("SitesOverviewPage", () => {
 
     // "Across all sites" already has its own dedicated Installed/Available
     // fleet cards elsewhere on the page; it must not duplicate them inline.
-    expect(within(card("Across all sites")).queryByText(/installed/i)).not.toBeInTheDocument();
+    expect(within(card("Across all sites")).queryByText(/installed/)).not.toBeInTheDocument();
   });
 
   it("shows the Unassigned card as soon as a hostname fails to parse", async () => {
