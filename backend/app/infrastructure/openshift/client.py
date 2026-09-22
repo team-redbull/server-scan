@@ -30,11 +30,6 @@ _API = "https://kubernetes.default.svc"
 # job keeps working when MCE moves the CRD from v1beta1 to v1.
 _AGENT_GROUP = "agent-install.openshift.io"
 
-# Nodes that count as fleet capacity. The label is the contract; a name
-# match (`grep compute`) is a display convention that breaks the moment
-# anyone names a node differently.
-_WORKER_SELECTOR = "node-role.kubernetes.io/worker"
-
 
 class ClusterUnreadableError(Exception):
     """The cluster could not be read, so nothing may be concluded from it.
@@ -151,9 +146,10 @@ class InClusterClient:
 
     async def worker_nodes(self, *, exclude_name_parts: tuple[str, ...]) -> list[dict[str, Any]]:
         """
-        Every worker node in this cluster, minus the excluded names.
+        Every node in this cluster, minus the excluded names.
 
-        Both filters apply, not either — see ADR-0024.
+        No label selector — name exclusion is the only filter (ADR-0024's
+        2026-09-22 update).
 
         Args:
             exclude_name_parts (tuple[str, ...]): Substrings that
@@ -165,7 +161,7 @@ class InClusterClient:
         Raises:
             ClusterUnreadableError: If the cluster could not be read.
         """
-        nodes = await self._list_all("/api/v1/nodes", {"labelSelector": _WORKER_SELECTOR})
+        nodes = await self._list_all("/api/v1/nodes")
         kept: list[dict[str, Any]] = []
         for node in nodes:
             name = str((node.get("metadata") or {}).get("name") or "").lower()

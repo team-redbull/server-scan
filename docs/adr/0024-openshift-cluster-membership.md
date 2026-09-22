@@ -250,3 +250,35 @@ both CronJobs' `jobTemplate.spec.ttlSecondsAfterFinished` — the same
 TTL-controller mechanism the server-scan chart's collector CronJobs already
 use, just shorter here to match the 15-minute schedule instead of the
 collectors' multi-hour one.
+
+## Update (2026-09-22): the worker label selector is gone; name exclusion is the only filter
+
+"Node selection: label *and* name, not either" above was deliberate, and
+its stated reason — a name match alone "breaks the moment anyone names a
+node differently" — held for as long as `node-role.kubernetes.io/worker`
+was reliably present. At the operator's request, after confirming it is
+**not** reliably present on every worker across their clusters: some
+worker nodes carry no `worker` role label at all, so the label selector
+was silently dropping real capacity in those clusters, with nothing to
+detect it — the exact "a truncated read looks like an empty cluster"
+failure mode this ADR otherwise goes out of its way to avoid, just
+approached from the other direction (a truncated *result*, not a failed
+read).
+
+`OpenShiftClient.worker_nodes()` now lists every node in the cluster with
+no `labelSelector` at all, and `exclude_name_parts` is the only filter
+left. This inverts the risk the original decision was written to avoid:
+before, a mis-named exclude term could only ever *under*-exclude (miss a
+node that should have been dropped, caught by the label). Now it can also
+*over*-include (a control-plane/infra/bootstrap node with no matching
+substring is counted as fleet capacity), with nothing to catch it — the
+label was the only thing making that direction safe.
+
+Mitigations, not a fix for the underlying risk: `master` joined the
+shipped default (`infra,control-plane,master` —
+`nodes.excludeNameParts`, `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS`,
+`Settings.openshift_exclude_name_parts`), since it is a common UPI
+control-plane name the old default never needed to cover. Every operator
+deploying this chart now needs to audit their own cluster's actual node
+names — there is no longer a structural guarantee that a wrongly-named
+control-plane node gets excluded.

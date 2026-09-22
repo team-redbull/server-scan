@@ -170,7 +170,7 @@ class Settings(BaseSettings):
 
     openshift_mce_name: str = ""
 
-    openshift_exclude_name_parts: str = "infra,control-plane"
+    openshift_exclude_name_parts: str = "infra,control-plane,master"
 
     openshift_request_timeout_seconds: float = 30.0
 
