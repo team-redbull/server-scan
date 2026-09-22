@@ -20,4 +20,4 @@ data:
   INVENTORY_CORS_ALLOWED_ORIGINS: {{ .Values.config.corsAllowedOrigins | quote }}
   INVENTORY_MAX_AVAILABLE_COUNT: {{ required "config.maxAvailableCount must be set" .Values.config.maxAvailableCount | quote }}
   INVENTORY_CAPACITY_ALIASES: {{ .Values.config.capacityAliases | quote }}
-  INVENTORY_MONGO_DB: {{ required "db.dbName must be set" .Values.db.dbName | quote }}
+  INVENTORY_MONGO_DB: {{ .Values.db.dbName | default "server-scan" | quote }}
