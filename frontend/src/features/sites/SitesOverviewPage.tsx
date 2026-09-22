@@ -170,40 +170,59 @@ function CountLink({ to, className, children }: { to: string; className: string;
   );
 }
 
-/** Installed vs available, per site. Deliberately not `InstallationBadge`'s
- * red/green palette: this card already spends red/orange/yellow on health
- * severity, and reusing them here would read as more alarms rather than
- * "in use vs free". */
-function InstalledAvailableCounts({
+/** Installed vs available, per site — the same bar layout as `VendorBar`,
+ * for the same reason: a row of bars scans faster than a row of pills.
+ * Percentages are against the card's own total, exactly like `VendorBar`,
+ * so the two blocks read on one shared scale. Deliberately not
+ * `InstallationBadge`'s red/green palette: this card already spends
+ * red/orange/yellow on health severity, and reusing them here would read
+ * as more alarms rather than "in use vs free". */
+function InstalledAvailableBar({
   byOpenshiftState,
+  total,
   to,
 }: {
   byOpenshiftState: Record<OpenShiftState, Breakdown>;
+  total: number;
   to: string;
 }) {
   const installed = byOpenshiftState.INSTALLED.total;
   const available = byOpenshiftState.AVAILABLE.total;
-  if (installed === 0 && available === 0) {
+  if (total === 0 || (installed === 0 && available === 0)) {
     return null;
   }
+  const rows: { state: OpenShiftState; label: string; count: number }[] = [
+    { state: "INSTALLED", label: "Installed", count: installed },
+    { state: "AVAILABLE", label: "Available", count: available },
+  ];
   return (
-    <div className="mt-3 flex items-center gap-x-3 text-xs text-[var(--text-secondary)]">
-      {installed > 0 && (
-        <CountLink
-          to={withOpenshiftFilter(to, "INSTALLED")}
-          className="cursor-pointer underline-offset-2 hover:underline"
-        >
-          <span className="tabular font-medium">{installed}</span> installed
-        </CountLink>
-      )}
-      {available > 0 && (
-        <CountLink
-          to={withOpenshiftFilter(to, "AVAILABLE")}
-          className="cursor-pointer underline-offset-2 hover:underline"
-        >
-          <span className="tabular font-medium">{available}</span> available
-        </CountLink>
-      )}
+    <div className="mt-4 space-y-1.5">
+      {rows.map((row) => {
+        const percent = Math.round((row.count / total) * 100);
+        return (
+          <CountLink
+            key={row.state}
+            to={withOpenshiftFilter(to, row.state)}
+            className="flex cursor-pointer items-center gap-2.5 text-xs hover:underline"
+          >
+            <span className="w-16 shrink-0 text-[var(--text-secondary)]">
+              {row.label}
+            </span>
+            <span
+              className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-sunken)]"
+              aria-hidden="true"
+            >
+              <span
+                className="block h-full rounded-full bg-[var(--border-strong)]"
+                style={{ width: `${percent}%` }}
+              />
+            </span>
+            <span className="tabular w-9 shrink-0 text-right text-[var(--text-secondary)]">
+              {row.count}
+            </span>
+          </CountLink>
+        );
+      })}
     </div>
   );
 }
@@ -291,8 +310,9 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
       </div>
 
       {card.byOpenshiftState && (
-        <InstalledAvailableCounts
+        <InstalledAvailableBar
           byOpenshiftState={card.byOpenshiftState}
+          total={stats.total}
           to={card.to}
         />
       )}

@@ -628,9 +628,12 @@ health string. 17 system-default policies now, up from 15.
 **Sites page (operator's request):** each site card now also shows
 Installed/Available counts (`SiteStats.by_openshift_state`, already
 computed backend-side — no backend change needed), linking to
-`/servers?site_id=<id>&openshift_state=<state>`. Deliberately not
-`InstallationBadge`'s red/green palette: the card already spends
-red/orange/yellow on health severity. Per-site vendor counts
-(`VendorBar`) already existed.
+`/servers?site_id=<id>&openshift_state=<state>`, as its own
+`InstalledAvailableBar` — the same label/bar/count row layout as
+`VendorBar` (operator's own follow-up: bars scan faster than pills), with
+percentages against the card's own total so the two blocks read on one
+shared scale. Deliberately not `InstallationBadge`'s red/green palette:
+the card already spends red/orange/yellow on health severity. Per-site
+vendor counts (`VendorBar`) already existed.
 
 **Open:** none from this session.
