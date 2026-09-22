@@ -17,7 +17,14 @@ backend:
     # the same image. `Always` only makes sense with a floating tag, which
     # is what the line above exists to avoid.
     pullPolicy: IfNotPresent
-  replicaCount: 2
+  # 3, not the 2 this shipped with since the first scaffold commit with
+  # no comment justifying it: 2 is only the floor for a zero-downtime
+  # rolling update (one replica keeps serving while the other updates).
+  # A 3rd buys tolerance for a node failure *during* a rollout without
+  # briefly dropping to zero capacity. There is still no
+  # PodDisruptionBudget or HorizontalPodAutoscaler in this chart, so this
+  # is a static floor, not an autoscaled one.
+  replicaCount: 3
   port: 8080
   resources:
     requests:
@@ -49,7 +56,8 @@ frontend:
     repository: ghcr.io/team-redbull/server-scan-frontend
     tag: ""
     pullPolicy: IfNotPresent
-  replicaCount: 2
+  # Same reasoning as backend.replicaCount above.
+  replicaCount: 3
   resources:
     requests:
       cpu: 10m
