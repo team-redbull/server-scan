@@ -5,7 +5,7 @@ import { UNASSIGNED_SITE_ID, vendorLabel } from "@/api/sites";
 import type { Breakdown, FleetSummary, SiteStats } from "@/api/sites";
 import { SEVERITY_GLYPH } from "@/components/severity";
 import { useSitesQuery } from "@/features/sites/hooks";
-import type { HealthSeverity } from "@/types/server";
+import type { HealthSeverity, OpenShiftState } from "@/types/server";
 
 /** The landing page: a fleet-wide row of cards above one card per site,
  * each a link that pre-filters the inventory list. */
@@ -17,6 +17,9 @@ interface CardSpec {
   subtitle: string;
   to: string;
   stats: Breakdown;
+  /** Only set for per-site cards — the fleet row already has its own
+   * dedicated Installed/Available cards. */
+  byOpenshiftState?: Record<OpenShiftState, Breakdown>;
 }
 
 /**
@@ -96,6 +99,7 @@ function siteCards(items: SiteStats[]): CardSpec[] {
         site.site_id === UNASSIGNED_SITE_ID ? "no site in hostname" : "servers",
       to: `/servers?site_id=${site.site_id}`,
       stats: site,
+      byOpenshiftState: site.by_openshift_state,
     }));
 }
 
@@ -137,6 +141,11 @@ function withHealthFilter(to: string, severity: HealthSeverity): string {
   return `${to}${to.includes("?") ? "&" : "?"}health_overall=${severity}`;
 }
 
+/** Same pattern as `withHealthFilter`, for `openshift_state`. */
+function withOpenshiftFilter(to: string, state: OpenShiftState): string {
+  return `${to}${to.includes("?") ? "&" : "?"}openshift_state=${state}`;
+}
+
 /** A drill-in count nested inside the card's `<Link>` — anchors cannot
  * nest, so this is a `role="link"` span that navigates itself. */
 function CountLink({ to, className, children }: { to: string; className: string; children: ReactNode }) {
@@ -158,6 +167,44 @@ function CountLink({ to, className, children }: { to: string; className: string;
     >
       {children}
     </span>
+  );
+}
+
+/** Installed vs available, per site. Deliberately not `InstallationBadge`'s
+ * red/green palette: this card already spends red/orange/yellow on health
+ * severity, and reusing them here would read as more alarms rather than
+ * "in use vs free". */
+function InstalledAvailableCounts({
+  byOpenshiftState,
+  to,
+}: {
+  byOpenshiftState: Record<OpenShiftState, Breakdown>;
+  to: string;
+}) {
+  const installed = byOpenshiftState.INSTALLED.total;
+  const available = byOpenshiftState.AVAILABLE.total;
+  if (installed === 0 && available === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-3 flex items-center gap-x-3 text-xs text-[var(--text-secondary)]">
+      {installed > 0 && (
+        <CountLink
+          to={withOpenshiftFilter(to, "INSTALLED")}
+          className="cursor-pointer underline-offset-2 hover:underline"
+        >
+          <span className="tabular font-medium">{installed}</span> installed
+        </CountLink>
+      )}
+      {available > 0 && (
+        <CountLink
+          to={withOpenshiftFilter(to, "AVAILABLE")}
+          className="cursor-pointer underline-offset-2 hover:underline"
+        >
+          <span className="tabular font-medium">{available}</span> available
+        </CountLink>
+      )}
+    </div>
   );
 }
 
@@ -242,6 +289,13 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
           <span className="text-[var(--text-muted)]">empty</span>
         )}
       </div>
+
+      {card.byOpenshiftState && (
+        <InstalledAvailableCounts
+          byOpenshiftState={card.byOpenshiftState}
+          to={card.to}
+        />
+      )}
 
       <VendorBar stats={stats} />
     </Link>

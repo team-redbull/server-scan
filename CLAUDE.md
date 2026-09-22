@@ -625,6 +625,12 @@ major`/`_critical` already used. Verified against the real UCS
 `predictive-failure` -> `WARNING` mapping end-to-end, not just a synthetic
 health string. 17 system-default policies now, up from 15.
 
-**Open:** the sites landing page needs a per-site breakdown by vendor
-(Dell/Cisco/HPE/standalone) plus INSTALLED/AVAILABLE counts — requested
-mid-session, not yet built.
+**Sites page (operator's request):** each site card now also shows
+Installed/Available counts (`SiteStats.by_openshift_state`, already
+computed backend-side — no backend change needed), linking to
+`/servers?site_id=<id>&openshift_state=<state>`. Deliberately not
+`InstallationBadge`'s red/green palette: the card already spends
+red/orange/yellow on health severity. Per-site vendor counts
+(`VendorBar`) already existed.
+
+**Open:** none from this session.
