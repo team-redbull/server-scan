@@ -226,3 +226,21 @@ cluster, so a log query on the CronJob finds the exact hosts. The exit
 code is unchanged: 3 (PARTIAL) whenever any host was unmatched. The job
 still reads the cluster through the Kubernetes API rather than shelling out
 to `oc` (Decision 2), so there is no `oc get nodes -o name` to add.
+
+## Update (2026-09-22): the chart can render its own `mongo-uri`/`cursor-secret` Secrets
+
+Consequence above said every cluster needs "a copy of the `mongo-uri` and
+`cursor-secret` Secrets," which meant provisioning them out of band —
+`oc create secret` or a secrets operator — before every release. At the
+operator's request, `db.mongoUri`/`db.cursorSecret` in values are now an
+alternative: when set, `templates/db-secret.yaml` renders both Secrets
+itself, so one `helm install`/`helm upgrade` (or one ArgoCD sync) is the
+whole deployment, values included.
+
+That is plaintext in the values file, which is why it is an option rather
+than the default (both stay `""`, so the pre-existing-Secret path is
+unchanged unless a release opts in). It is a reasonable choice only where
+the values file's own storage is already trusted for secrets — the
+operator's case is a private, air-gapped Git repo — and stops being one
+the moment that repo's access model changes or a secrets operator becomes
+available for the environment.

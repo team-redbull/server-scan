@@ -12,11 +12,25 @@ image:
 # Where the inventory lives. These jobs write to MongoDB directly, like
 # every collector — they never call the platform's API — so each cluster
 # needs network to it and a copy of these Secrets.
+#
+# Set mongoUri / cursorSecret below and this chart renders both Secrets
+# itself (db-secret.yaml) — nothing to create by hand. Leave them blank
+# and it falls back to consuming Secrets named secretName/cursorSecretName
+# that already exist in the namespace (provisioned by a secrets operator,
+# or `oc create secret`), same as before.
 db:
   secretName: server-scan-db
   mongoUriKey: mongo-uri
   cursorSecretName: server-scan-cursor
   cursorSecretKey: cursor-secret
+  # Plaintext in this values file. Accepted here because these values live
+  # in a private, air-gapped repo — the operator's own call, not this
+  # chart's default recommendation. A secrets operator (Vault, External
+  # Secrets, sealed-secrets) is still the better answer once one exists for
+  # this environment; leaving these blank and pre-creating the Secrets
+  # above is how to use one.
+  mongoUri: ""
+  cursorSecret: ""
 
 serviceAccount:
   name: openshift-membership

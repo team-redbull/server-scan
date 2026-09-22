@@ -20,6 +20,9 @@ The nodes job alone.
 nodes:
   enabled: true
   clusterName: ocp4-tlv
+db:
+  mongoUri: "mongodb://server-scan:...@mongo-host:27017/server-scan?authSource=server-scan"
+  cursorSecret: "..."
 ```
 
 ## An MCE hub
@@ -35,6 +38,9 @@ nodes:
 agents:
   enabled: true
   mceName: mce-tlv
+db:
+  mongoUri: "mongodb://server-scan:...@mongo-host:27017/server-scan?authSource=server-scan"
+  cursorSecret: "..."
 ```
 
 `agents.enabled` is off by default on purpose: a cluster with no Agent CRD
@@ -76,6 +82,22 @@ the code.
 - **Network** to the platform's MongoDB, plus the `mongo-uri` and
   `cursor-secret` Secrets (`db.*` names them). The jobs write directly,
   like every collector — they never call the platform's API.
+
+  Two ways to get those Secrets there, picked per release:
+
+  - **Set `db.mongoUri` / `db.cursorSecret` in values** (`db-secret.yaml`)
+    and this chart renders both Secrets itself — nothing to create by
+    hand, nothing outside `helm install`/`helm upgrade` or an ArgoCD sync.
+    That puts the connection string and the cursor-signing key in
+    plaintext in whatever holds this values file, so it's the right
+    choice only where that file's own storage is already trusted for
+    secrets (e.g. a private, air-gapped Git repo) — not a public or
+    shared one.
+  - **Leave them blank** and pre-provision Secrets named `db.secretName` /
+    `db.cursorSecretName` yourself (a secrets operator, or `oc create
+    secret`) — unchanged from before, and still the better choice once a
+    secrets operator (Vault, External Secrets, sealed-secrets) exists for
+    the environment.
 - The API image, pullable from this cluster.
 - Nothing else: RBAC ships with the chart, read-only on `nodes` and on
   `agent-install.openshift.io` agents, and only the rule a job enabled

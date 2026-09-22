@@ -383,11 +383,14 @@ cluster sets `nodes.enabled` + `nodes.clusterName`, an MCE hub also sets
 misconfigured release fails at template time instead of running a job
 that exits 2 every 15 minutes.
 
-Each cluster needs network to this platform's MongoDB and a copy of the
-`mongo-uri` and `cursor-secret` Secrets — the jobs write directly, like
-every collector here, and never call the API. That chart's own README has
-the values; `docs/adr/0024-openshift-cluster-membership.md` has the
-design.
+Each cluster needs network to this platform's MongoDB and the `mongo-uri`
+and `cursor-secret` Secrets — the jobs write directly, like every
+collector here, and never call the API. That chart can render both
+Secrets itself from `db.mongoUri`/`db.cursorSecret` in values (plaintext,
+so only where the values file's own storage is already trusted for
+secrets — e.g. a private, air-gapped Git repo), or consume ones
+provisioned elsewhere; that chart's own README has both paths and
+`docs/adr/0024-openshift-cluster-membership.md` has the design.
 
 `collectors.timeZone` (default `Asia/Jerusalem`) sets every CronJob's
 `spec.timeZone` (Kubernetes 1.27+), so a schedule like `"0 2 * * *"` fires
