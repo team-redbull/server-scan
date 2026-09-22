@@ -156,7 +156,7 @@ that reconcile is the only thing that can ever return a server to
 in one cluster cannot free another's machines.
 
 Deployed by ArgoCD, one Helm release per cluster, from
-`deploy/helm/openshift-membership` — a UPI cluster enables the nodes job,
+`deploy/helm/nodes-status` — a UPI cluster enables the nodes job,
 an MCE hub enables both. `docs/adr/0024-openshift-cluster-membership.md`
 has the design; the chart's own README has the values.
 
@@ -245,7 +245,7 @@ the reference), register it in `tools/run_collector.py`, and add a
 CronJob to `deploy/helm/server-scan` — nothing in the API, the
 classification engine, the health engine, or the frontend needs to
 change. (The membership jobs are the other chart,
-`deploy/helm/openshift-membership`, and do not go through this seam at
+`deploy/helm/nodes-status`, and do not go through this seam at
 all — they write `Server.openshift` directly.) `docs/adr/0009-ucs-
 manager-collector.md` is the detailed writeup of how the first provider
 was built and validated, and `docs/adr/0014-ucs-central-multi-domain-
@@ -603,7 +603,7 @@ tools/           operational CLIs: fake-data seeder, index/load verification,
                  the real-collector runner (tools/run_collector.py)
 scripts/         dev environment helpers
 deploy/          Helm charts: server-scan (API, frontend, per-vendor
-                 collector CronJobs) and openshift-membership (the two
+                 collector CronJobs) and nodes-status (the two
                  per-cluster jobs that report what each cluster is using)
 docs/            architecture notes, ADRs, cisco-collectors.md (the
                  verified implementation facts the Cisco collectors rest on),

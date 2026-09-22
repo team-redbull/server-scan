@@ -2,7 +2,7 @@
 
 Two Helm charts. `helm/server-scan` is the platform — API, frontend
 and the per-vendor collector CronJobs — and is what the rest of this
-document is about. `helm/openshift-membership` is the pair of jobs that
+document is about. `helm/nodes-status` is the pair of jobs that
 run *inside* every OpenShift cluster to report what it is using, one
 release per cluster; it has its own README, and the section below says
 why it is separate.
@@ -79,12 +79,23 @@ helm install si deploy/helm/server-scan \
 
 For whichever database is **not** bundled, the connection string arrives
 via a `Secret` (`db.secretName`, default `server-scan-db`, keys
-`mongo-uri` / `redis-uri`) that this chart consumes but does not create —
-provisioning it is a platform/GitOps concern, consistent with the "no
-credentials in source, credentials via secret refs" requirement. A
-bundled one is rendered into the chart's own `<release>-bundled-db` Secret
-instead, and the two names are deliberately different so bundling one
-database never collides with a `server-scan-db` an operator owns.
+`mongo-uri` / `redis-uri`). Two ways to get it there, picked per release:
+
+- **Set `db.mongoUri` / `db.redisUri` in values** and this chart renders
+  that Secret itself (`templates/db-secret.yaml`) — nothing to provision
+  outside `helm install`/`helm upgrade` or an ArgoCD sync. That's
+  plaintext in values, so it's the right call only where the values
+  file's own storage is already trusted for secrets (a private, air-gapped
+  Git repo, say) — not a public or shared one.
+- **Leave them blank** and provision the Secret yourself (a secrets
+  operator, or `oc create secret`) — this chart only consumes it, same as
+  before.
+
+A bundled database is rendered into the chart's own `<release>-bundled-db`
+Secret instead (and `mongoUri`/`redisUri` are ignored for that half —
+`mongodb.enabled`/`redis.enabled` always win); the two Secret names are
+deliberately different so bundling one database never collides with a
+`server-scan-db` an operator owns.
 
 **Set the bundled passwords explicitly.** Left blank, the Bitnami subchart
 generates one — and `helm template`, which is how Argo CD renders this
@@ -375,7 +386,7 @@ manager type, set in `collectors.<vendor>` in `values.yaml`. There are no
 
 ### The membership jobs are a different chart
 
-`deploy/helm/openshift-membership` is a **separate chart**, not part of
+`deploy/helm/nodes-status` is a **separate chart**, not part of
 this one, because its jobs run inside every OpenShift cluster rather than
 beside the API. One release per cluster, deployed by ArgoCD: a UPI
 cluster sets `nodes.enabled` + `nodes.clusterName`, an MCE hub also sets
@@ -544,7 +555,7 @@ CI does now build and publish both images to GHCR on every push to main
 *deploys* them: there is no CD/GitOps wiring and no automatic manifest
 update, tracked as pending work in `CLAUDE.md`.
 
-`deploy/helm/openshift-membership` is the exception in one respect: it is
+`deploy/helm/nodes-status` is the exception in one respect: it is
 written to be pointed at by an ArgoCD `Application` per cluster, so its
 per-cluster values are the only thing that differs between releases.
 

@@ -1,9 +1,9 @@
-{{- define "openshiftMembership.image" -}}
+{{- define "nodesStatus.image" -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end -}}
 
 {{- /* Both jobs write to MongoDB directly; Settings refuses to start without the cursor secret. */ -}}
-{{- define "openshiftMembership.dbEnv" -}}
+{{- define "nodesStatus.dbEnv" -}}
 - name: INVENTORY_MONGO_URI
   valueFrom:
     secretKeyRef:
@@ -16,7 +16,7 @@
       key: {{ .Values.db.cursorSecretKey }}
 {{- end -}}
 
-{{- define "openshiftMembership.securityContext" -}}
+{{- define "nodesStatus.securityContext" -}}
 allowPrivilegeEscalation: false
 capabilities:
   drop: ["ALL"]

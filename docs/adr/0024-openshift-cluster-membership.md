@@ -22,7 +22,7 @@ both `associated`. Only the cluster knows.
 ## Decision
 
 Two CronJobs, `tools/collect_openshift.py --source nodes|agents`, deployed
-**per cluster** by ArgoCD from `deploy/helm/openshift-membership`. Every
+**per cluster** by ArgoCD from `deploy/helm/nodes-status`. Every
 cluster runs the nodes job over its own worker nodes; an MCE hub also runs
 the agents job over its Agents.
 

@@ -30,7 +30,7 @@ spec:
           automountServiceAccountToken: true
           containers:
             - name: membership
-              image: {{ include "openshiftMembership.image" . | quote }}
+              image: {{ include "nodesStatus.image" . | quote }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               command: ["python3", "-m", "tools.collect_openshift", "--source", "agents"]
               env:
@@ -38,9 +38,9 @@ spec:
                   value: production
                 - name: INVENTORY_OPENSHIFT_MCE_NAME
                   value: {{ .Values.agents.mceName | quote }}
-                {{- include "openshiftMembership.dbEnv" . | nindent 16 }}
+                {{- include "nodesStatus.dbEnv" . | nindent 16 }}
               resources:
                 {{- toYaml .Values.agents.resources | nindent 16 }}
               securityContext:
-                {{- include "openshiftMembership.securityContext" . | nindent 16 }}
+                {{- include "nodesStatus.securityContext" . | nindent 16 }}
 {{- end }}

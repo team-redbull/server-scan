@@ -448,7 +448,7 @@ long form of every entry as of 2026-09-13 is
   successful read both refuse to write; `IngestService` carries the whole
   object forward. `AVAILABLE` is the default and the only state reached by
   absence. **These jobs are a separate chart**,
-  `deploy/helm/openshift-membership`, one release per cluster.
+  `deploy/helm/nodes-status`, one release per cluster.
 - **A server's site is parsed from its name** (`parse_site_code`), never
   configured per manager; an ambiguous name is `None` ("Unassigned").
   Matching is substring-within-a-token since 2026-09-09 (operator's call

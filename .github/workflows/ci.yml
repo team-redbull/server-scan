@@ -135,9 +135,9 @@ jobs:
       # lint job is worse than no lint job.
       #
       # `lint` only here. `helm template` is the step below, per chart with
-      # real values, because `openshift-membership` deliberately cannot
-      # render from its defaults — `nodes.clusterName` is `required`, which
-      # is the point of that value.
+      # real values, because `nodes-status` deliberately cannot render from
+      # its defaults — `nodes.clusterName` is `required`, which is the
+      # point of that value.
       - name: helm lint
         run: |
           set -euo pipefail
@@ -177,9 +177,9 @@ jobs:
             --set collectors.openmanage.enabled=true \
             --set collectors.oneview.enabled=true \
             --set collectors.fake.enabled=true > /dev/null
-          helm template ci-lint deploy/helm/openshift-membership \
+          helm template ci-lint deploy/helm/nodes-status \
             --set nodes.clusterName=ci-cluster > /dev/null
-          helm template ci-lint deploy/helm/openshift-membership \
+          helm template ci-lint deploy/helm/nodes-status \
             --set nodes.clusterName=ci-cluster \
             --set agents.enabled=true --set agents.mceName=ci-mce > /dev/null
 

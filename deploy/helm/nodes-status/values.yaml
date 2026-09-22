@@ -33,7 +33,7 @@ db:
   cursorSecret: ""
 
 serviceAccount:
-  name: openshift-membership
+  name: nodes-status
 
 nodes:
   enabled: true

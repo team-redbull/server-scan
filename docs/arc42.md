@@ -357,7 +357,7 @@ OpenShift namespace                        (chart: deploy/helm/server-scan)
 └── Redis    ─┘
 
 EVERY OpenShift cluster, its own namespace, its own Helm release
-  (deploy/helm/openshift-membership — a SEPARATE chart)
+  (deploy/helm/nodes-status — a SEPARATE chart)
 ├── CronJob  <release>-openshift-nodes    (every cluster; --source nodes)
 ├── CronJob  <release>-openshift-agents   (MCE hubs only; --source agents)
 │      the one workload here that mounts its ServiceAccount token: it

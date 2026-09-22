@@ -1,5 +1,5 @@
 apiVersion: v2
-name: openshift-membership
+name: nodes-status
 description: CronJobs that report which servers each OpenShift cluster is using
 type: application
 version: 0.1.0

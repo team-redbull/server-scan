@@ -99,7 +99,7 @@ spec:
             severity: warning
           annotations:
             summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ $silent }}s"
-            description: "Its servers stay INSTALLED forever and nothing else notices. Check the openshift-membership release in that cluster."
+            description: "Its servers stay INSTALLED forever and nothing else notices. Check the nodes-status release in that cluster."
         - alert: ServerScanCollectorRunPartial
           expr: server_scan:collector_last_run_partial:max == 1
           for: 5m

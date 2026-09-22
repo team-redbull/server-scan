@@ -1581,7 +1581,7 @@ Three things are worth carrying:
   genuinely emptied cluster — and acting on it would free everything.
 
 Deployment is one Helm release per cluster
-(`deploy/helm/openshift-membership`), separate from the platform's own
+(`deploy/helm/nodes-status`), separate from the platform's own
 chart because these run somewhere else entirely. Design and the field
 trim that took `OpenShiftLifecycle` to five fields:
 `docs/adr/0024-openshift-cluster-membership.md`.
@@ -1659,6 +1659,6 @@ air-gapped rather than depending on it.
 - `docs/adr/` — architecture decision records, added as decisions are made
   (not written speculatively ahead of the code).
 - `deploy/` — OpenShift and Helm deployment manifests, including
-  `deploy/helm/openshift-membership/README.md` for the per-cluster jobs.
+  `deploy/helm/nodes-status/README.md` for the per-cluster jobs.
 - `scripts/check_comment_density.py` — the CI gate behind CLAUDE.md's
   convention 8, with its baseline of pre-existing debt beside it.
