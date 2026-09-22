@@ -14,6 +14,8 @@
     secretKeyRef:
       name: {{ .Values.db.cursorSecretName }}
       key: {{ .Values.db.cursorSecretKey }}
+- name: INVENTORY_MONGO_DB
+  value: {{ required "db.dbName must be set" .Values.db.dbName | quote }}
 {{- end -}}
 
 {{- define "nodesStatus.securityContext" -}}

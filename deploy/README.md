@@ -97,6 +97,15 @@ Secret instead (and `mongoUri`/`redisUri` are ignored for that half —
 deliberately different so bundling one database never collides with a
 `server-scan-db` an operator owns.
 
+**`db.dbName` (default `server-scan`) is which database `INVENTORY_MONGO_URI`'s
+connection is actually used against.** The API selects it explicitly by
+name (`app.infrastructure.mongodb.client`) rather than reading it out of
+the URI's own path segment, so a URI whose path says something else is
+silently ignored — `db.dbName` is what matters. Set it to whatever
+database name your MongoDB instance actually uses for this app. The
+`nodes-status` chart has the same value, under the same name, and it must
+agree — both write into the same database.
+
 **Set the bundled passwords explicitly.** Left blank, the Bitnami subchart
 generates one — and `helm template`, which is how Argo CD renders this
 chart, has no `lookup`, so a generated password is re-minted on every sync

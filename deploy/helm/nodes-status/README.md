@@ -108,6 +108,11 @@ finished Jobs never pile up. Set to `0` to disable and rely on
     secret`) — unchanged from before, and still the better choice once a
     secrets operator (Vault, External Secrets, sealed-secrets) exists for
     the environment.
+
+  `db.dbName` (default `server-scan`) is which database the connection is
+  actually used against — read explicitly by name, never taken from the
+  URI's own path segment. **It must be the same value as the server-scan
+  chart's `db.dbName`**, since both write into the same database.
 - The API image, pullable from this cluster.
 - Nothing else: RBAC ships with the chart, read-only on `nodes` and on
   `agent-install.openshift.io` agents, and only the rule a job enabled

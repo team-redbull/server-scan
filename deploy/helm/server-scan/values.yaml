@@ -78,6 +78,13 @@ db:
   secretName: server-scan-db
   mongoUri: ""
   redisUri: ""
+  # The database INVENTORY_MONGO_URI's connection is used against — read
+  # explicitly by name (`app.infrastructure.mongodb.client`), never taken
+  # from the URI's own path segment, so this is the one value that
+  # actually selects it. Must match whatever database name your MongoDB
+  # instance actually has for this app; the nodes-status chart's db.dbName
+  # must be set to the same value, since both write into it.
+  dbName: server-scan
 
 # --- Bundled databases (both OFF by default) -------------------------------
 #

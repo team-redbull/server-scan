@@ -31,6 +31,11 @@ db:
   # above is how to use one.
   mongoUri: ""
   cursorSecret: ""
+  # The database mongoUri's connection is used against — read explicitly
+  # by name, never taken from the URI's own path segment. Must be the
+  # same value as the server-scan chart's db.dbName, since both write into
+  # the same database.
+  dbName: server-scan
 
 serviceAccount:
   name: nodes-status
