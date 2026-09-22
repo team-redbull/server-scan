@@ -38,6 +38,8 @@ spec:
                   value: production
                 - name: INVENTORY_OPENSHIFT_MCE_NAME
                   value: {{ .Values.agents.mceName | quote }}
+                - name: INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS
+                  value: {{ .Values.excludeNameParts | quote }}
                 {{- include "nodesStatus.dbEnv" . | nindent 16 }}
               resources:
                 {{- toYaml .Values.agents.resources | nindent 16 }}

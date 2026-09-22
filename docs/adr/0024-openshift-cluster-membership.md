@@ -275,10 +275,36 @@ substring is counted as fleet capacity), with nothing to catch it — the
 label was the only thing making that direction safe.
 
 Mitigations, not a fix for the underlying risk: `master` joined the
-shipped default (`infra,control-plane,master` —
-`nodes.excludeNameParts`, `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS`,
+shipped default (`infra,control-plane,master` — the chart's
+`excludeNameParts`, `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS`,
 `Settings.openshift_exclude_name_parts`), since it is a common UPI
 control-plane name the old default never needed to cover. Every operator
 deploying this chart now needs to audit their own cluster's actual node
 names — there is no longer a structural guarantee that a wrongly-named
 control-plane node gets excluded.
+
+## Update (2026-09-22): the same filter now applies to `agents` too
+
+`exclude_name_parts` was `nodes`-only: `agents()` took no such parameter,
+and `agent_observation` had no name-based exclusion at all — an Agent
+carrying an unwanted hostname (an MCE hub's own infra, say) had no way to
+be dropped the way a node could. At the operator's request, the same
+filter now applies to both.
+
+Rather than duplicate the substring check per source, or teach `client.py`
+about hostname resolution (its whole job is "make the API call, hand back
+plain dicts" — hostname semantics belong to `records.py`), the check moved
+out of `client.py` entirely: `records.name_excluded(hostname, parts)` is a
+pure function, and `tools.collect_openshift._observe` applies it once,
+uniformly, to `ClusterObservation.hostname` — the value already resolved
+per source (`node_observation`'s `metadata.name`, `agent_observation`'s
+`spec.hostname` falling back to `status.inventory.hostname`) — rather than
+to either source's raw field. `OpenShiftClient.worker_nodes()` and
+`agents()` are back to being plain listers with no filtering of their own.
+
+The chart's `excludeNameParts` moved from `nodes.excludeNameParts` to the
+top level, alongside `timeZone`/`jobTtlSeconds`, and both CronJob
+templates now set `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` from it —
+previously only the `nodes` CronJob set that variable at all, so `agents`
+silently ran on `Settings`' own hardcoded default regardless of what an
+operator configured.

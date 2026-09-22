@@ -14,6 +14,23 @@ from typing import Any
 from app.domain.enums import OpenShiftState
 
 
+def name_excluded(hostname: str, exclude_name_parts: tuple[str, ...]) -> bool:
+    """
+    Whether a hostname contains one of the excluded substrings.
+
+    The one filter for both `nodes` and `agents` (ADR-0024, 2026-09-22).
+
+    Args:
+        hostname (str): An already-`clean_hostname`-lowercased hostname.
+        exclude_name_parts (tuple[str, ...]): Case-insensitive substrings
+            that disqualify it.
+
+    Returns:
+        bool: True if any part matches.
+    """
+    return any(part and part in hostname for part in exclude_name_parts)
+
+
 def clean_hostname(raw: object) -> str | None:
     """
     Reduce a reported hostname to the form server names are stored in.

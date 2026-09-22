@@ -604,14 +604,22 @@ hand-maintained values.yaml, which doesn't sync from this repo) exposes
 `INVENTORY_MONGO_DB`, previously only settable via `.env`. `nodes-status`
 also gained `jobTtlSeconds` (default 1800) on both CronJobs.
 
-**Node selection (ADR-0024 update):** `OpenShiftClient.worker_nodes()`
-dropped the `node-role.kubernetes.io/worker` label selector entirely —
-some of the operator's worker nodes don't carry it, so the label was
-silently dropping real capacity. Every node is now listed and
-`exclude_name_parts` (default gained `master`) is the *only* filter —
-there is no longer a structural guarantee that a wrongly-named
-control-plane node is excluded; that's now on the operator's
-`nodes.excludeNameParts` per cluster.
+**Node/agent selection (ADR-0024 updates):** `OpenShiftClient.
+worker_nodes()` dropped the `node-role.kubernetes.io/worker` label
+selector entirely — some of the operator's worker nodes don't carry it,
+so the label was silently dropping real capacity. Name exclusion
+(default gained `master`) is now the *only* filter, and — operator's
+follow-up — applies identically to `agents`: the check moved out of
+`client.py` into a pure `records.name_excluded()`, applied once by
+`tools.collect_openshift._observe` to `ClusterObservation.hostname`
+(each source's already-resolved hostname, not its raw field) rather than
+duplicated per source. The chart's `excludeNameParts` moved from
+`nodes.excludeNameParts` to the top level, shared by both CronJobs, which
+also fixed a real gap: only the `nodes` CronJob was ever setting
+`INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` at all. There is no longer a
+structural guarantee that a wrongly-named control-plane node (or
+non-capacity Agent) is excluded; that's now entirely on the operator's
+`excludeNameParts` per cluster.
 
 **Health (operator's request):** two-or-more bad OS/data disks now split
 MAJOR/CRITICAL by whether one has *actually* failed, not just by count —

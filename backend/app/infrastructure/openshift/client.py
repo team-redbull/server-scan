@@ -144,37 +144,22 @@ class InClusterClient:
                 return items
             page_params["continue"] = str(token)
 
-    async def worker_nodes(self, *, exclude_name_parts: tuple[str, ...]) -> list[dict[str, Any]]:
+    async def worker_nodes(self) -> list[dict[str, Any]]:
         """
-        Every node in this cluster, minus the excluded names.
+        Every node in this cluster.
 
-        No label selector — name exclusion is the only filter (ADR-0024's
-        2026-09-22 update).
-
-        Args:
-            exclude_name_parts (tuple[str, ...]): Substrings that
-                disqualify a node, matched case-insensitively.
+        No label selector, no name filtering — both moved out of this
+        method entirely (ADR-0024's 2026-09-22 updates).
 
         Returns:
-            list[dict[str, Any]]: The `Node` resources that count.
+            list[dict[str, Any]]: Every `Node` resource.
 
         Raises:
             ClusterUnreadableError: If the cluster could not be read.
         """
         nodes = await self._list_all("/api/v1/nodes")
-        kept: list[dict[str, Any]] = []
-        for node in nodes:
-            name = str((node.get("metadata") or {}).get("name") or "").lower()
-            if any(part and part in name for part in exclude_name_parts):
-                continue
-            kept.append(node)
-        logger.info(
-            "openshift.nodes_listed",
-            listed=len(nodes),
-            kept=len(kept),
-            excluded=len(nodes) - len(kept),
-        )
-        return kept
+        logger.info("openshift.nodes_listed", listed=len(nodes))
+        return nodes
 
     async def agents(self) -> list[dict[str, Any]]:
         """

@@ -19,6 +19,7 @@ from app.domain.enums import OpenShiftState
 from app.infrastructure.openshift.records import (
     agent_observation,
     clean_hostname,
+    name_excluded,
     node_observation,
 )
 
@@ -140,6 +141,23 @@ class TestAgentState:
         assert observation.lifecycle_state is OpenShiftState.INSTALLED_TO_INVENTORY
         assert observation.cluster_name is None
         assert observation.mce_name == "mce-tlv"
+
+
+class TestNameExcluded:
+    """The one filter for both `nodes` and `agents` (ADR-0024, 2026-09-22)."""
+
+    def test_a_matching_substring_excludes(self) -> None:
+        assert name_excluded("ocp4-tlv-master-0", ("infra", "control-plane", "master"))
+
+    def test_no_matching_substring_keeps_it(self) -> None:
+        assert not name_excluded("ocp4-tlv-compute-01", ("infra", "control-plane", "master"))
+
+    def test_vcompute_does_not_also_exclude_compute(self) -> None:
+        """A term matches only when it is itself a substring of the name —
+        `compute` being a substring of `vcompute` does not run backwards.
+        """
+        assert name_excluded("ocp4-tlv-vcompute-01", ("vcompute",))
+        assert not name_excluded("ocp4-tlv-compute-01", ("vcompute",))
 
 
 class TestNodes:

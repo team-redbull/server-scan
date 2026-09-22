@@ -1,11 +1,13 @@
-"""`InClusterClient.worker_nodes` — no label selector, name exclusion only.
+"""`InClusterClient.worker_nodes`/`agents` — no label selector, no filter.
 
-ADR-0024's 2026-09-22 update: the `node-role.kubernetes.io/worker` label
+ADR-0024's 2026-09-22 updates: the `node-role.kubernetes.io/worker` label
 is not reliably present on every worker across this operator's clusters,
-so the label selector was dropped and `exclude_name_parts` is the only
-filter left. What matters here is that no `labelSelector` reaches the
-API at all, and that exclusion is still a plain substring match — a term
-like `vcompute` must not also drop a node merely named `compute-01`.
+so it was dropped, and name exclusion moved out of this module entirely —
+it is now one filter (`app.infrastructure.openshift.records.name_excluded`)
+applied uniformly to the resolved hostname `tools.collect_openshift._observe`
+builds, for both `nodes` and `agents`. This module's own job is just
+listing raw resources; `test_openshift_records.py` covers the filter, and
+`test_collect_openshift.py` covers it applying to both sources.
 """
 
 from __future__ import annotations
@@ -60,31 +62,9 @@ async def test_worker_nodes_sends_no_label_selector() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen_params.update(dict(request.url.params))
-        return _nodes_response(["compute-01"])
+        return _nodes_response(["compute-01", "master-0"])
 
-    nodes = await _client(handler).worker_nodes(exclude_name_parts=())
+    nodes = await _client(handler).worker_nodes()
 
     assert "labelSelector" not in seen_params
-    assert [n["metadata"]["name"] for n in nodes] == ["compute-01"]
-
-
-async def test_exclude_name_parts_is_a_substring_match_not_a_prefix_of_the_other() -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
-        return _nodes_response(
-            ["compute-01", "vcompute-01", "infra-01", "control-plane-01", "master-0"]
-        )
-
-    nodes = await _client(handler).worker_nodes(
-        exclude_name_parts=("infra", "control-plane", "master", "vcompute")
-    )
-
-    assert [n["metadata"]["name"] for n in nodes] == ["compute-01"]
-
-
-async def test_exclude_name_parts_matches_case_insensitively() -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
-        return _nodes_response(["Compute-01", "VCompute-01"])
-
-    nodes = await _client(handler).worker_nodes(exclude_name_parts=("vcompute",))
-
-    assert [n["metadata"]["name"] for n in nodes] == ["Compute-01"]
+    assert [n["metadata"]["name"] for n in nodes] == ["compute-01", "master-0"]

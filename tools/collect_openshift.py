@@ -52,6 +52,7 @@ from app.infrastructure.openshift.client import (
 from app.infrastructure.openshift.records import (
     ClusterObservation,
     agent_observation,
+    name_excluded,
     node_observation,
 )
 
@@ -109,11 +110,13 @@ async def _observe(
         source (str): `nodes` or `agents`.
         cluster_name (str): Cluster to record on node observations.
         mce_name (str): MCE to record on agent observations.
-        exclude_name_parts (tuple[str, ...]): Node-name substrings to drop.
+        exclude_name_parts (tuple[str, ...]): Hostname substrings to drop
+            — the one filter for both sources, applied to the resolved
+            hostname either ends up with (ADR-0024's 2026-09-22 update).
 
     Returns:
         list[ClusterObservation]: Every host this cluster reported, minus
-            the ones with no usable hostname.
+            the ones with no usable hostname and the excluded ones.
 
     Raises:
         ClusterUnreadableError: If the cluster could not be fully read.
@@ -121,12 +124,31 @@ async def _observe(
             see, so a truncated read would free real servers.
     """
     if source == "nodes":
-        nodes = await client.worker_nodes(exclude_name_parts=exclude_name_parts)
+        nodes = await client.worker_nodes()
         seen = [node_observation(node, cluster_name=cluster_name) for node in nodes]
     else:
         agents = await client.agents()
         seen = [agent_observation(agent, mce_name=mce_name) for agent in agents]
-    return [observation for observation in seen if observation is not None]
+
+    no_hostname = 0
+    excluded_by_name = 0
+    kept: list[ClusterObservation] = []
+    for observation in seen:
+        if observation is None:
+            no_hostname += 1
+        elif name_excluded(observation.hostname, exclude_name_parts):
+            excluded_by_name += 1
+        else:
+            kept.append(observation)
+    logger.info(
+        "openshift.hosts_observed",
+        source=source,
+        listed=len(seen),
+        kept=len(kept),
+        no_hostname=no_hostname,
+        excluded_by_name=excluded_by_name,
+    )
+    return kept
 
 
 def _report(summary: MembershipSummary, *, reported_by: str, dry_run: bool) -> int:
