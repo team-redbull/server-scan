@@ -308,3 +308,17 @@ templates now set `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` from it —
 previously only the `nodes` CronJob set that variable at all, so `agents`
 silently ran on `Settings`' own hardcoded default regardless of what an
 operator configured.
+
+## Update (2026-09-22): split back into `nodes.excludeNameParts` / `agents.excludeNameParts`
+
+The shared top-level value above lasted one request: the operator wanted
+the two lists independent again, since a substring right for a node name
+is not guaranteed right for an Agent's hostname (or vice versa) — the two
+sources come from different naming authorities (kubelet-registered node
+names vs. whatever set an Agent's requested/reported hostname). Both
+values still default to `infra,control-plane,master` and use the exact
+same `records.name_excluded()` matching rule; only where the value lives
+in `values.yaml`, and which CronJob's env var it feeds, changed back.
+`INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` is unaffected as a variable name
+— each CronJob still sets it from its own job's value, same as before the
+brief top-level detour.

@@ -47,6 +47,16 @@ nodes:
   # naming its own cluster, never another's. Templating fails without it
   # rather than deploying a job that exits 2 every 15 minutes.
   clusterName: ""
+  # The only filter (ADR-0024's 2026-09-22 update dropped the
+  # `node-role.kubernetes.io/worker` label selector, since it is not
+  # reliably present on every worker across this operator's clusters).
+  # Every node that is not real fleet capacity — control-plane/master,
+  # infra, bootstrap, this operator's own vcompute — must be named here or
+  # it is counted as one. Separate from `agents.excludeNameParts` below:
+  # same default, same matching rule (a case-insensitive substring of the
+  # node's own name), independently overridable since a term that is
+  # right for a node name is not guaranteed right for an Agent's hostname.
+  excludeNameParts: infra,control-plane,master
   schedule: "*/15 * * * *"
   backoffLimit: 1
   # Well under the schedule, so a hung run is killed before the next is
@@ -65,6 +75,13 @@ agents:
   enabled: false
   # Required when enabled. Same role as nodes.clusterName.
   mceName: ""
+  # Same filter and matching rule as nodes.excludeNameParts, applied to
+  # an Agent's resolved hostname instead — the requested `spec.hostname`,
+  # falling back to the reported `status.inventory.hostname` — never the
+  # Agent CR's own `metadata.name` (a UUID). Separate value on purpose:
+  # override per job when a term that is right for a node name would be
+  # wrong for an Agent's hostname, or vice versa.
+  excludeNameParts: infra,control-plane,master
   schedule: "*/15 * * * *"
   backoffLimit: 1
   activeDeadlineSeconds: 600
@@ -74,20 +91,6 @@ agents:
       memory: 128Mi
     limits:
       memory: 256Mi
-
-# The ONLY filter, for both jobs (ADR-0024's 2026-09-22 update dropped
-# the `node-role.kubernetes.io/worker` label selector, since it is not
-# reliably present on every worker across this operator's clusters, and
-# a later update applies the same one filter to `agents` too — an Agent's
-# resolved hostname, not its `metadata.name`). Every host that is not real
-# fleet capacity — control-plane/master, infra, bootstrap, and this
-# operator's own vcompute — must be named here or it is counted as one.
-# `master` is in the shipped default for exactly that reason: a common
-# UPI control-plane naming the old label-based filter never needed to
-# cover. Add per cluster rather than editing the code, and audit your own
-# node/Agent hostnames before relying on this — a name a substring here
-# does not catch is now silently included.
-excludeNameParts: infra,control-plane,master
 
 # Set on both CronJobs when non-empty; otherwise the cluster's own zone.
 timeZone: ""

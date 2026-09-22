@@ -68,31 +68,35 @@ Two refusals are built in, and both matter more than they look:
   with no workers is far more likely a broken selector, an RBAC change or
   a mid-upgrade blip than a genuinely emptied cluster.
 
-## Name-based exclusion — both jobs
+## Name-based exclusion — one filter, one value per job
 
-`excludeNameParts` (top-level, default `infra,control-plane,master`) is
-the **only** filter, for **both** `nodes` and `agents`: each job reads
-every node/Agent and drops the ones whose resolved hostname contains one
-of these substrings. There is no `node-role.kubernetes.io/worker` label
-selector any more (ADR-0024's 2026-09-22 updates): it was not reliably
-present on every worker across this operator's clusters, and a worker
-missing the label was silently never reported as capacity. For `agents`,
-"resolved hostname" means the requested (`spec.hostname`) or reported
+`nodes.excludeNameParts` / `agents.excludeNameParts` (each defaults to
+`infra,control-plane,master`) are the **only** filter, for `nodes` and
+`agents` respectively: each job reads every node/Agent and drops the
+ones whose resolved hostname contains one of its own list's substrings.
+There is no `node-role.kubernetes.io/worker` label selector any more
+(ADR-0024's 2026-09-22 updates): it was not reliably present on every
+worker across this operator's clusters, and a worker missing the label
+was silently never reported as capacity. For `agents`, "resolved
+hostname" means the requested (`spec.hostname`) or reported
 (`status.inventory.hostname`) hostname — the same value that names it on
 the server, not the Agent CR's own `metadata.name` (a UUID).
 
-**That means every host in your fleet that is not real capacity — a
-control-plane/master node, an infra node, an MCE hub's own bootstrap
-host, whatever else your naming convention uses — must be named here, or
-it is counted as one.** Audit your actual node/Agent hostnames before
-relying on this — `infra`/`control-plane`/`master` cover the common
-OpenShift conventions, but a differently-named one needs its own
-substring added. One list for both jobs, per cluster, rather than editing
-the code. Remember the match is a plain substring: a node called
-`compute-infra-01` is dropped by `infra` too, which is why a term needs
-to be specific enough not to also catch hosts you want kept (`vcompute`
-vs `compute` is exactly this: adding `vcompute` drops only names
-containing that whole substring, not every name containing `compute`).
+**Two separate values, same default, same matching rule** — a
+case-insensitive substring — **so a term you need for one job's names
+doesn't have to be added to the other's.** That means every host in your
+fleet that is not real capacity — a control-plane/master node, an infra
+node, an MCE hub's own bootstrap host, whatever else your naming
+convention uses — must be named in the matching job's list, or it is
+counted as one. Audit your actual node/Agent hostnames before relying on
+this — `infra`/`control-plane`/`master` cover the common OpenShift
+conventions, but a differently-named one needs its own substring added,
+per cluster, rather than editing the code. Remember the match is a plain
+substring: a node called `compute-infra-01` is dropped by `infra` too,
+which is why a term needs to be specific enough not to also catch hosts
+you want kept (`vcompute` vs `compute` is exactly this: adding `vcompute`
+drops only names containing that whole substring, not every name
+containing `compute`).
 
 ## Cleaning up finished runs
 

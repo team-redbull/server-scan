@@ -44,7 +44,7 @@ spec:
                 - name: INVENTORY_OPENSHIFT_CLUSTER_NAME
                   value: {{ .Values.nodes.clusterName | quote }}
                 - name: INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS
-                  value: {{ .Values.excludeNameParts | quote }}
+                  value: {{ .Values.nodes.excludeNameParts | quote }}
                 {{- include "nodesStatus.dbEnv" . | nindent 16 }}
               resources:
                 {{- toYaml .Values.nodes.resources | nindent 16 }}
