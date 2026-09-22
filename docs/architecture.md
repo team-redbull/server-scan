@@ -605,7 +605,7 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     useless signal; "nothing is up" is the one that means something, and
     it needs `links_known_count` beside it (ADR-0027).
 - **The system-default policies** (`app.domain.services.health.
-  health_policy_defaults`, fifteen as of 2026-09-17) are built, never
+  health_policy_defaults`, seventeen as of 2026-09-22) are built, never
   persisted, by that module; `bootstrap` seeds and re-syncs them.
   Everything except the two fabric policies is vendor-neutral by
   construction — each reads a fact off the normalized `Server`, never a
@@ -616,8 +616,12 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   | `connectivity.fabric_paths_down_warning` / `_critical` | exactly 1 / 2+ fabric paths down | WARNING / CRITICAL |
   | `power.psu_failed_major` | exactly 1 of 2+ fitted PSUs `DOWN` | MAJOR |
   | `power.psu_failed_critical` | 2+ PSUs `DOWN`, or a single-PSU server's only one is | CRITICAL |
-  | `storage.os_disk_bad_major` / `_critical` | exactly 1 / 2+ OS disks bad | MAJOR / CRITICAL |
-  | `storage.data_disk_bad_large_warning` / `_critical` | 10TB-named node, exactly 1 / 2+ data disks bad | WARNING / CRITICAL |
+  | `storage.os_disk_bad_major` | exactly 1 OS disk bad | MAJOR |
+  | `storage.os_disk_bad_major_multiple` | 2+ OS disks bad, **none actually failed** (predictive/WARNING only) | MAJOR |
+  | `storage.os_disk_bad_critical` | 2+ OS disks bad, **at least one actually failed** (CRITICAL) | CRITICAL |
+  | `storage.data_disk_bad_large_warning` | 10TB-named node, exactly 1 data disk bad | WARNING |
+  | `storage.data_disk_bad_large_major_multiple` | 10TB-named node, 2+ data disks bad, **none actually failed** | MAJOR |
+  | `storage.data_disk_bad_large_critical` | 10TB-named node, 2+ data disks bad, **at least one actually failed** | CRITICAL |
   | `storage.data_disk_bad_warning` | any other node, 1+ data disks bad | WARNING |
   | `storage.name_capacity_mismatch` | `-<N>tb`-named node whose storage was read, total more than 1.5 TB off `N` TB either way | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
@@ -649,11 +653,22 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     database seeded before that date keeps its "Failed drive present"
     policy until someone disables it.
   - One bad OS disk is MAJOR (the mirror is running unprotected; the next
-    failure takes the server down), two is CRITICAL (on the usual
-    two-disk mirror nothing is left). Data disks split by what the server
+    failure takes the server down). Data disks split by what the server
     is *for*, which only its name records: on a large-storage node a bad
     data disk escalates at two; elsewhere the local disks are incidental
     and one bad disk is a warning.
+  - **Two-or-more bad disks split MAJOR/CRITICAL by whether one has
+    actually failed, not just by count (2026-09-22, operator's request)**
+    — the same tiering `power.psu_failed_major`/`_critical` already uses.
+    `WARNING` on a drive means predictive failure (SMART/PFA), not a dead
+    disk; two disks both merely predicting failure is still MAJOR
+    (`storage.os_disk_bad_major_multiple` /
+    `storage.data_disk_bad_large_major_multiple`), reading
+    `storage.os_failed_disk_count`/`data_failed_disk_count` (CRITICAL-only
+    counts, alongside the existing WARNING-or-CRITICAL `_bad_disk_count`).
+    The moment even one of them is an actual CRITICAL failure, the
+    `_critical` policy takes over. A single bad disk is unaffected either
+    way — it was already MAJOR regardless of which severity it reported.
   - **`storage.name_capacity_mismatch` replaced two hardcoded, one-sided
     rules with one symmetric one, 2026-09-17** — a real 35TB-class server
     false-positived the old `name_5tb_oversized` rule, because that

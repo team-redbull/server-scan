@@ -8,6 +8,42 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-21 — BMC button on the server detail header; an MCE /
+hosted-cluster / UPI filter sidebar; the filter block above the table; a
+category nothing was read for is UNKNOWN.** Moved to
+`docs/notes/session-log.md`: the Redfish mid-run session re-login unit.
+
+**Built:** `BmcLink` (`components/`) is the one BMC anchor — icon-only in
+the table, labelled in `ServerDetailPage`'s header. `ClusterSidebar`
+filters by MCE, hosted clusters and UPI clusters, read off the polled rows
+(`rows.clusterFacets`), OR within a list and AND across, repeated URL
+params (ADR-0033's 2026-09-21 update has the semantics and measured
+widths). Search, the six selects and the Maintenance/Stale/Duplicate
+toggles are one block in the table's column, edge to edge with it.
+
+**Health (ADR-0027 update, backend):** a `-10tb` server with no storage
+read was CRITICAL because `storage.name_capacity_mismatch` compared a
+zero total with the name. `extract_facts` now emits `<category>.has_data`
+and `evaluate_health` skips a no-data category's policies, so the category
+is `UNKNOWN`; a server with only its BMC read is `UNKNOWN` overall, one
+category read is enough for a verdict. The mismatch policy also needs
+`storage.total_bytes GT 0`. Seeded: 10 unreachable OpenManage servers are
+now `UNKNOWN` overall. `/servers/available` already excluded `UNKNOWN`, so
+a reachable BMC-only server is no longer a candidate. Stored health
+updates on each server's next collection.
+
+**Also:** the OpenShift membership jobs now log each unmatched host as an
+`ERROR` (`openshift.host_not_in_inventory`); exit 3 as before (ADR-0024's
+update).
+
+**Open:** **Stale ghost records** (a profile reassigned, the old name
+lingers) — parked; the questions to settle (which vendor, whether an
+unreachable-but-listed server may be pruned, whether maintenance or
+`INSTALLED` servers are exempt, the window) are in the conversation that
+produced this entry.
+
+---
+
 **2026-09-17 — a Redfish session dying mid-run (not a rejected login)
 now re-establishes once instead of dropping the host.** Moved to
 `docs/notes/session-log.md`: the PSU MAJOR/CRITICAL split, the storage

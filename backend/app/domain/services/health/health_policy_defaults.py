@@ -159,17 +159,53 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    os_disk_major_multiple = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Multiple OS disks degraded (none failed outright)",
+        description=(
+            "Fires when two or more OS disks report WARNING (predictive "
+            "failure) but none has actually failed — still MAJOR, not "
+            "CRITICAL, until one of them really goes."
+        ),
+        policy_key="storage.os_disk_bad_major_multiple",
+        category="storage",
+        severity=HealthSeverity.MAJOR,
+        condition=Condition(
+            all_of=[
+                Condition(metric="storage.os_bad_disk_count", operator="GTE", value=2),
+                Condition(metric="storage.os_failed_disk_count", operator="EQ", value=0),
+            ]
+        ),
+        evidence=[
+            EvidenceField(key="bad", metric="storage.os_bad_disk_count"),
+            EvidenceField(key="total", metric="storage.os_disk_count"),
+        ],
+        message_template="{bad} of {total} OS disks degraded (predictive failure)",
+        scope=PolicyScope(),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     os_disk_critical = HealthPolicy(
         id=new_id("health_policy"),
         name="Multiple OS disks degraded or failed",
         description=(
-            "Fires when two or more OS disks report WARNING or CRITICAL. On "
-            "the usual two-disk boot mirror, nothing healthy is left."
+            "Fires when two or more OS disks report WARNING or CRITICAL and "
+            "at least one has actually failed. On the usual two-disk boot "
+            "mirror, nothing healthy is left."
         ),
         policy_key="storage.os_disk_bad_critical",
         category="storage",
         severity=HealthSeverity.CRITICAL,
-        condition=Condition(metric="storage.os_bad_disk_count", operator="GTE", value=2),
+        condition=Condition(
+            all_of=[
+                Condition(metric="storage.os_bad_disk_count", operator="GTE", value=2),
+                Condition(metric="storage.os_failed_disk_count", operator="GTE", value=1),
+            ]
+        ),
         evidence=[
             EvidenceField(key="bad", metric="storage.os_bad_disk_count"),
             EvidenceField(key="total", metric="storage.os_disk_count"),
@@ -209,12 +245,42 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    large_storage_data_major_multiple = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Multiple data disks degraded, none failed (large-storage server)",
+        description=(
+            "Fires when two or more non-OS disks report WARNING (predictive "
+            "failure) but none has actually failed, on a server whose name "
+            "carries the 10TB token — MAJOR, not CRITICAL, until one really "
+            "goes."
+        ),
+        policy_key="storage.data_disk_bad_large_major_multiple",
+        category="storage",
+        severity=HealthSeverity.MAJOR,
+        condition=Condition(
+            all_of=[
+                Condition(metric="server.name_has_10tb", operator="EQ", value=True),
+                Condition(metric="storage.data_bad_disk_count", operator="GTE", value=2),
+                Condition(metric="storage.data_failed_disk_count", operator="EQ", value=0),
+            ]
+        ),
+        evidence=[EvidenceField(key="bad", metric="storage.data_bad_disk_count")],
+        message_template="{bad} data disks degraded (predictive failure)",
+        scope=PolicyScope(),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     large_storage_data_critical = HealthPolicy(
         id=new_id("health_policy"),
-        name="Multiple data disks degraded (large-storage server)",
+        name="Multiple data disks degraded or failed (large-storage server)",
         description=(
-            "Fires when two or more non-OS disks are degraded or failed on a "
-            "server whose name carries the 10TB token."
+            "Fires when two or more non-OS disks are degraded or failed, and "
+            "at least one has actually failed, on a server whose name "
+            "carries the 10TB token."
         ),
         policy_key="storage.data_disk_bad_large_critical",
         category="storage",
@@ -223,6 +289,7 @@ def default_system_policies() -> list[HealthPolicy]:
             all_of=[
                 Condition(metric="server.name_has_10tb", operator="EQ", value=True),
                 Condition(metric="storage.data_bad_disk_count", operator="GTE", value=2),
+                Condition(metric="storage.data_failed_disk_count", operator="GTE", value=1),
             ]
         ),
         evidence=[EvidenceField(key="bad", metric="storage.data_bad_disk_count")],
@@ -439,8 +506,10 @@ def default_system_policies() -> list[HealthPolicy]:
         psu_failed_major,
         psu_failed_critical,
         os_disk_major,
+        os_disk_major_multiple,
         os_disk_critical,
         large_storage_data_warning,
+        large_storage_data_major_multiple,
         large_storage_data_critical,
         data_disk_warning,
         name_capacity_mismatch,

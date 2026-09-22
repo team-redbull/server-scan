@@ -130,8 +130,14 @@ def extract_facts(server: Server) -> dict[str, Any]:
         "storage.total_bytes": server.hardware.storage.total_bytes,
         "storage.os_disk_count": len(os_disks),
         "storage.os_bad_disk_count": sum(1 for d in os_disks if d.health in _NOT_GOOD),
+        "storage.os_failed_disk_count": sum(
+            1 for d in os_disks if d.health == HealthSeverity.CRITICAL.value
+        ),
         "storage.data_disk_count": len(data_disks),
         "storage.data_bad_disk_count": sum(1 for d in data_disks if d.health in _NOT_GOOD),
+        "storage.data_failed_disk_count": sum(
+            1 for d in data_disks if d.health == HealthSeverity.CRITICAL.value
+        ),
         **{
             fact: _has_name_token(server.name, token)
             for fact, token in _STORAGE_NAME_TOKENS.items()

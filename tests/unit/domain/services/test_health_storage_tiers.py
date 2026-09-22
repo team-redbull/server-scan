@@ -153,6 +153,92 @@ class TestOsDiskHealth:
         assert facts["storage.data_bad_disk_count"] == 1
 
 
+class TestOsDiskSeverityTiers:
+    """Two bad OS disks is MAJOR if both are only predictive failure
+    (WARNING), CRITICAL only once one has actually failed.
+    """
+
+    @staticmethod
+    def _storage_severity(drives: list[StorageDrive]) -> HealthSeverity:
+        state = evaluate_health(
+            extract_facts(_server(drives=drives)),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+        return state.categories["storage"].severity
+
+    def test_two_warning_os_disks_is_major_not_critical(self) -> None:
+        severity = self._storage_severity(
+            [
+                _drive(480 * _GB, HealthSeverity.WARNING.value),
+                _drive(480 * _GB, HealthSeverity.WARNING.value),
+                _drive(4 * _TB),
+            ]
+        )
+        assert severity == HealthSeverity.MAJOR
+
+    def test_two_bad_os_disks_with_one_actually_failed_is_critical(self) -> None:
+        severity = self._storage_severity(
+            [
+                _drive(480 * _GB, HealthSeverity.WARNING.value),
+                _drive(480 * _GB, HealthSeverity.CRITICAL.value),
+                _drive(4 * _TB),
+            ]
+        )
+        assert severity == HealthSeverity.CRITICAL
+
+    def test_two_failed_os_disks_is_critical(self) -> None:
+        severity = self._storage_severity(
+            [
+                _drive(480 * _GB, HealthSeverity.CRITICAL.value),
+                _drive(480 * _GB, HealthSeverity.CRITICAL.value),
+                _drive(4 * _TB),
+            ]
+        )
+        assert severity == HealthSeverity.CRITICAL
+
+
+class TestDataDiskSeverityTiersOnLargeStorageServer:
+    """The same MAJOR/CRITICAL split, on the 10TB-node data-disk policy."""
+
+    @staticmethod
+    def _storage_severity(drives: list[StorageDrive]) -> HealthSeverity:
+        state = evaluate_health(
+            extract_facts(_server(name="ocp4-nyc-10tb-01", drives=drives)),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+        return state.categories["storage"].severity
+
+    def test_two_warning_data_disks_is_major_not_critical(self) -> None:
+        severity = self._storage_severity(
+            [
+                _drive(480 * _GB),
+                _drive(480 * _GB),
+                _drive(4 * _TB, HealthSeverity.WARNING.value),
+                _drive(4 * _TB, HealthSeverity.WARNING.value),
+            ]
+        )
+        assert severity == HealthSeverity.MAJOR
+
+    def test_two_bad_data_disks_with_one_actually_failed_is_critical(self) -> None:
+        severity = self._storage_severity(
+            [
+                _drive(480 * _GB),
+                _drive(480 * _GB),
+                _drive(4 * _TB, HealthSeverity.WARNING.value),
+                _drive(4 * _TB, HealthSeverity.CRITICAL.value),
+            ]
+        )
+        assert severity == HealthSeverity.CRITICAL
+
+
 class TestLargeStorageName:
     """The 10TB build is recorded only in the server's name."""
 

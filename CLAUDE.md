@@ -586,36 +586,45 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-21 — BMC button on the server detail header; an MCE /
-hosted-cluster / UPI filter sidebar; the filter block above the table; a
-category nothing was read for is UNKNOWN.** Moved to
-`docs/notes/session-log.md`: the Redfish mid-run session re-login unit.
+**2026-09-22 — nodes-status chart (renamed from openshift-membership),
+its jobs now list every node with no worker-role selector, and a two-tier
+MAJOR/CRITICAL split for multiple bad OS/data disks.** Moved to
+`docs/notes/session-log.md`: the BMC button / cluster sidebar / filter
+block / has_data UNKNOWN unit.
 
-**Built:** `BmcLink` (`components/`) is the one BMC anchor — icon-only in
-the table, labelled in `ServerDetailPage`'s header. `ClusterSidebar`
-filters by MCE, hosted clusters and UPI clusters, read off the polled rows
-(`rows.clusterFacets`), OR within a list and AND across, repeated URL
-params (ADR-0033's 2026-09-21 update has the semantics and measured
-widths). Search, the six selects and the Maintenance/Stale/Duplicate
-toggles are one block in the table's column, edge to edge with it.
+**Deploy (operator's own air-gapped, private-repo environment; values in
+git accepted there):** `deploy/helm/openshift-membership` renamed to
+`deploy/helm/nodes-status` (path, Chart name, `openshiftMembership.*` ->
+`nodesStatus.*` helpers — breaking, update each cluster's ArgoCD
+Application). Both charts can now render their own Secrets from plaintext
+values instead of `oc create secret` (`db.mongoUri`/`db.redisUri`/
+`db.cursorSecret` -> `templates/db-secret.yaml`), and `db.dbName` (default
+`server-scan`, **not** `required()` — that broke redbull-platform's
+hand-maintained values.yaml, which doesn't sync from this repo) exposes
+`INVENTORY_MONGO_DB`, previously only settable via `.env`. `nodes-status`
+also gained `jobTtlSeconds` (default 1800) on both CronJobs.
 
-**Health (ADR-0027 update, backend):** a `-10tb` server with no storage
-read was CRITICAL because `storage.name_capacity_mismatch` compared a
-zero total with the name. `extract_facts` now emits `<category>.has_data`
-and `evaluate_health` skips a no-data category's policies, so the category
-is `UNKNOWN`; a server with only its BMC read is `UNKNOWN` overall, one
-category read is enough for a verdict. The mismatch policy also needs
-`storage.total_bytes GT 0`. Seeded: 10 unreachable OpenManage servers are
-now `UNKNOWN` overall. `/servers/available` already excluded `UNKNOWN`, so
-a reachable BMC-only server is no longer a candidate. Stored health
-updates on each server's next collection.
+**Node selection (ADR-0024 update):** `OpenShiftClient.worker_nodes()`
+dropped the `node-role.kubernetes.io/worker` label selector entirely —
+some of the operator's worker nodes don't carry it, so the label was
+silently dropping real capacity. Every node is now listed and
+`exclude_name_parts` (default gained `master`) is the *only* filter —
+there is no longer a structural guarantee that a wrongly-named
+control-plane node is excluded; that's now on the operator's
+`nodes.excludeNameParts` per cluster.
 
-**Also:** the OpenShift membership jobs now log each unmatched host as an
-`ERROR` (`openshift.host_not_in_inventory`); exit 3 as before (ADR-0024's
-update).
+**Health (operator's request):** two-or-more bad OS/data disks now split
+MAJOR/CRITICAL by whether one has *actually* failed, not just by count —
+`storage.os_failed_disk_count`/`data_failed_disk_count` (CRITICAL-only)
+alongside the existing WARNING-or-CRITICAL `_bad_disk_count`. Two disks
+both merely predictive-failure (`WARNING`) is MAJOR
+(`storage.os_disk_bad_major_multiple` /
+`storage.data_disk_bad_large_major_multiple`); the `_critical` policies
+now require `_failed_disk_count GTE 1`. Same tiering `power.psu_failed_
+major`/`_critical` already used. Verified against the real UCS
+`predictive-failure` -> `WARNING` mapping end-to-end, not just a synthetic
+health string. 17 system-default policies now, up from 15.
 
-**Open:** **Stale ghost records** (a profile reassigned, the old name
-lingers) — parked; the questions to settle (which vendor, whether an
-unreachable-but-listed server may be pruned, whether maintenance or
-`INSTALLED` servers are exempt, the window) are in the conversation that
-produced this entry.
+**Open:** the sites landing page needs a per-site breakdown by vendor
+(Dell/Cisco/HPE/standalone) plus INSTALLED/AVAILABLE counts — requested
+mid-session, not yet built.

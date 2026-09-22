@@ -251,6 +251,15 @@ def build_default_registry() -> MetricRegistry:
     )
     registry.register(
         MetricDef(
+            name="storage.os_failed_disk_count",
+            type=MetricType.INT,
+            category="storage",
+            description="OS disks reporting CRITICAL health specifically",
+            resolver=lambda f: _get(f, "storage.os_failed_disk_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
             name="storage.data_disk_count",
             type=MetricType.INT,
             category="storage",
@@ -265,6 +274,15 @@ def build_default_registry() -> MetricRegistry:
             category="storage",
             description="Non-OS drives reporting WARNING or CRITICAL health",
             resolver=lambda f: _get(f, "storage.data_bad_disk_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="storage.data_failed_disk_count",
+            type=MetricType.INT,
+            category="storage",
+            description="Non-OS drives reporting CRITICAL health specifically",
+            resolver=lambda f: _get(f, "storage.data_failed_disk_count", 0),
         )
     )
     registry.register(
