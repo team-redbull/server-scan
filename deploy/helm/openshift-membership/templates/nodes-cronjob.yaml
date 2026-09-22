@@ -20,6 +20,9 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
+      {{- if .Values.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.jobTtlSeconds }}
+      {{- end }}
       backoffLimit: {{ .Values.nodes.backoffLimit }}
       activeDeadlineSeconds: {{ .Values.nodes.activeDeadlineSeconds }}
       template:

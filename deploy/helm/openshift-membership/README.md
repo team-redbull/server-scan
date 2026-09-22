@@ -77,6 +77,16 @@ too, so the label alone keeps them, while names alone would misfire on a
 node called `compute-infra-01`. Add to it per cluster rather than editing
 the code.
 
+## Cleaning up finished runs
+
+`jobTtlSeconds` (default `1800`, 30 minutes) sets both CronJobs'
+`jobTemplate.spec.ttlSecondsAfterFinished` — same TTL-controller mechanism
+as the server-scan chart's `collectors.jobTtlSeconds`, just shorter here
+because these jobs run every 15 minutes rather than every few hours: long
+enough to check a run's logs before the next one lands, short enough that
+finished Jobs never pile up. Set to `0` to disable and rely on
+`successfulJobsHistoryLimit`/`failedJobsHistoryLimit` alone.
+
 ## What each cluster needs
 
 - **Network** to the platform's MongoDB, plus the `mongo-uri` and

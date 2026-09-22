@@ -244,3 +244,9 @@ the values file's own storage is already trusted for secrets — the
 operator's case is a private, air-gapped Git repo — and stops being one
 the moment that repo's access model changes or a secrets operator becomes
 available for the environment.
+
+Same request added `jobTtlSeconds` (default 1800, 30 minutes), applied to
+both CronJobs' `jobTemplate.spec.ttlSecondsAfterFinished` — the same
+TTL-controller mechanism the server-scan chart's collector CronJobs already
+use, just shorter here to match the 15-minute schedule instead of the
+collectors' multi-hour one.

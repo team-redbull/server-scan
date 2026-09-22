@@ -78,3 +78,14 @@ agents:
 
 # Set on both CronJobs when non-empty; otherwise the cluster's own zone.
 timeZone: ""
+
+# Applied to both CronJobs' `jobTemplate.spec.ttlSecondsAfterFinished` (the
+# TTL controller, GA since Kubernetes 1.23): a finished Job (and its Pod)
+# is deleted this many seconds after it completes, success or failure,
+# independent of `successfulJobsHistoryLimit`/`failedJobsHistoryLimit`
+# below — same mechanism as the server-scan chart's `collectors.
+# jobTtlSeconds`, just a shorter default here because these jobs run every
+# 15 minutes, not every few hours: 30 minutes is enough to check a run's
+# logs before the next one lands, without ever piling up finished Jobs.
+# Set to 0 to disable and rely on the count-based limits alone.
+jobTtlSeconds: 1800
