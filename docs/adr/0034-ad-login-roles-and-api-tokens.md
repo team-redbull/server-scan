@@ -69,6 +69,23 @@ injection shape as `app.infrastructure.openshift.client.InClusterClient`
 socket. `AuthService` itself depends on a `GroupMembershipLookup` Protocol,
 not the concrete class, for the same reason one layer up.
 
+**2026-09-23 — the four group/user lists need no API pod restart to
+change.** Reported live by the operator: `Settings` is process-lifetime
+(`@lru_cache` on `get_settings()`), and an env var change never reaches a
+running container anyway (Kubernetes only live-updates a *volume-mounted*
+ConfigMap file, never `envFrom`/`env`, without a restart). `AuthService.
+_list` now prefers `Settings.<field>_file` (a mounted path) over the
+static `Settings.<field>` when set, reading it fresh on every login —
+cheap, since `authenticate` runs once per login attempt, not per request.
+The chart mounts the whole `api-config` ConfigMap as a volume on the
+backend Deployment (`backend-deployment.yaml`, not the CronJobs — they
+never call `AuthService`) and points the four `INVENTORY_*_FILE` env vars
+at it; `deploy/README.md`'s "Configuration notes" has the full mechanism.
+Scoped to just these four values on purpose — `ldap.*`/`adApi.*` and the
+session/API-token secrets stay restart-required, since those are rarer,
+more consequential changes worth a controlled rollout rather than an
+in-place swap under live sessions.
+
 ### 3. Session: a stateless, HMAC-signed cookie, not a Redis session
 
 Decided with the operator directly. Redis here is explicitly cache-aside

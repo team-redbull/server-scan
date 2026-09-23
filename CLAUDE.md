@@ -650,10 +650,21 @@ default dict` first (converts the panic into `required`'s normal error for
 any future block too), and `redbull-platform`'s `values.yaml` got the
 `auth:` block by hand (`enabled: false`, unchanged behavior), pushed
 directly (`90e5eed`) — that job had never reached its commit step, so that
-cluster's image was stuck on 4.5.0 the whole time.
+cluster's image was stuck on 4.5.0 the whole time. Confirmed fixed: the
+next push's `Deploy (bump redbull-platform)` CI job went green
+(run 35840222696), the first success since 2026-09-22 22:02.
 
-**Open:** the operator also reported that changing `auth.adminGroups`/
-`viewerUsers`/etc. needs an API pod restart to take effect — `Settings` is
-process-lifetime (`@lru_cache` on `get_settings()`), and they asked about
-mounting config as a file instead so it could be edited without a
-restart. Not yet investigated — next thing to pick up.
+**Admin/viewer group and user lists no longer need an API pod restart
+(docs/adr/0034's 2026-09-23 update):** the operator reported that editing
+`auth.adminGroups`/`viewGroups`/`adminUsers`/`viewerUsers` and running
+`helm upgrade` had no effect until pods restarted — expected, since
+`envFrom`/`env` never live-update in a running container, only a
+volume-mounted file does. `AuthService._list` now prefers
+`Settings.<field>_file` (read fresh on every login) over the static,
+process-lifetime `Settings.<field>`; `backend-deployment.yaml` mounts the
+existing `api-config` ConfigMap as a volume at `/etc/server-scan/config`
+and points four new `INVENTORY_*_FILE` env vars at it — CronJobs untouched,
+they never call `AuthService`. Scoped to just these four values on
+purpose; `ldap.*`/`adApi.*`/secrets stay restart-required.
+
+**Open:** none from this session.

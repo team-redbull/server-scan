@@ -32,6 +32,19 @@ spec:
             - name: INVENTORY_ENVIRONMENT
               value: production
             {{- include "serverScan.dbEnv" . | nindent 12 }}
+            # A volume mount (below), not envFrom: kubelet keeps a mounted
+            # ConfigMap's files in sync with no pod restart, unlike env
+            # vars (deploy/README.md, "Configuration notes"). AuthService
+            # re-reads these on every login, so an admin/viewer group or
+            # user-list edit takes effect on the next login attempt.
+            - name: INVENTORY_ADMIN_GROUPS_FILE
+              value: /etc/server-scan/config/INVENTORY_ADMIN_GROUPS
+            - name: INVENTORY_VIEW_GROUPS_FILE
+              value: /etc/server-scan/config/INVENTORY_VIEW_GROUPS
+            - name: INVENTORY_ADMIN_USERS_FILE
+              value: /etc/server-scan/config/INVENTORY_ADMIN_USERS
+            - name: INVENTORY_VIEWER_USERS_FILE
+              value: /etc/server-scan/config/INVENTORY_VIEWER_USERS
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-api-config
@@ -47,6 +60,10 @@ spec:
             # unconditionally is safe.
             - secretRef:
                 name: {{ $auth.existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
+          volumeMounts:
+            - name: api-config
+              mountPath: /etc/server-scan/config
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health/live
@@ -70,3 +87,7 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
+      volumes:
+        - name: api-config
+          configMap:
+            name: {{ .Release.Name }}-api-config

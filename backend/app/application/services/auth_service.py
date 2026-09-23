@@ -14,6 +14,7 @@ Rules (docs/adr/0034, from the operator's own AD-integration spec):
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from app.config.settings import Settings
@@ -67,15 +68,37 @@ class AuthService:
             return None
 
         uname = username.strip().lower()
-        admin_users = split_csv_lower(self._settings.admin_users)
-        if uname in admin_users or await self._member_of_any(self._settings.admin_groups, uname):
+        admin_users = split_csv_lower(self._list("admin_users"))
+        if uname in admin_users or await self._member_of_any(self._list("admin_groups"), uname):
             return Role.ADMIN
 
-        viewer_users = split_csv_lower(self._settings.viewer_users)
-        if uname in viewer_users or await self._member_of_any(self._settings.view_groups, uname):
+        viewer_users = split_csv_lower(self._list("viewer_users"))
+        if uname in viewer_users or await self._member_of_any(self._list("view_groups"), uname):
             return Role.VIEWER
 
         return LoginResult.NO_PERMISSION
+
+    def _list(self, field: str) -> str:
+        """
+        Resolve one admin/viewer group-or-user CSV list, live file first.
+
+        Args:
+            field (str): `Settings` field name (`admin_groups`,
+                `view_groups`, `admin_users` or `viewer_users`).
+
+        Returns:
+            str: The mounted file's content if `<field>_file` is set and
+                readable, else the static `Settings` value — so an operator
+                can edit the ConfigMap and have the next login see it, with
+                no API pod restart (deploy/README.md, "Configuration notes").
+        """
+        file_path = getattr(self._settings, f"{field}_file")
+        if file_path:
+            try:
+                return Path(file_path).read_text()
+            except OSError:
+                pass
+        return getattr(self._settings, field)
 
     async def _member_of_any(self, groups_csv: str, uname: str) -> bool:
         """Check `uname` against each configured group, stopping at the first match."""

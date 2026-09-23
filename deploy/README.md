@@ -679,3 +679,19 @@ the settings module's comments) because each cost a session:
   case the 2026-09-23 AD-API-TLS-bypass feature needs to work. `required`
   has no such gotcha (it only checks for nil), which is the other reason
   the five booleans/ints above stay `required` rather than defaulted.
+
+- **`envFrom`/`env` never update in a running container; a volume-mounted
+  ConfigMap does.** Reported live 2026-09-23: editing `auth.adminGroups`/
+  `viewGroups`/`adminUsers`/`viewerUsers` and running `helm upgrade` had no
+  effect until the API pods were restarted — expected, since Kubernetes
+  only live-syncs a mounted ConfigMap *volume* (kubelet's periodic
+  symlink swap), never the env vars a Deployment already read at
+  container start. `backend-deployment.yaml` now also mounts the same
+  `<release>-api-config` ConfigMap as a volume at `/etc/server-scan/
+  config` and points four `INVENTORY_*_FILE` env vars at it;
+  `AuthService._list` (docs/adr/0034) reads the file fresh on every login
+  instead of the static env-sourced field, so a `helm upgrade` alone
+  (no restart) is enough for the very next login to see the change.
+  Scoped to just these four values — connection settings (`ldap.*`/
+  `adApi.*`) and the secrets stay restart-required by design (ADR-0034's
+  2026-09-23 update has the reasoning).

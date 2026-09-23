@@ -6,6 +6,8 @@ case-insensitive throughout, infra failures always propagate.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import app.application.services.auth_service as auth_service_module
@@ -141,3 +143,51 @@ class TestInfrastructureFailurePropagates:
         service = AuthService(_settings(), _DownAdApi())
         with pytest.raises(ServiceUnavailableError):
             await service.authenticate("jdoe", "x")
+
+
+class TestLiveFileOverridesTheStaticList:
+    """The mounted-ConfigMap-volume path (deploy/README.md, "Configuration
+    notes") — re-read on every login, so a changed group list needs no
+    API pod restart.
+    """
+
+    async def test_a_configured_file_is_preferred_over_the_static_field(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "admin-groups"
+        path.write_text("Admins-From-File")
+        settings = _settings(admin_groups="Admins-From-Env")
+        settings = settings.model_copy(update={"admin_groups_file": str(path)})
+        ad_api = _FakeAdApi({"admins-from-file": {"jdoe"}})
+        service = AuthService(settings, ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.ADMIN
+        assert ad_api.queried == ["admins-from-file"]
+
+    async def test_an_unset_file_field_falls_back_to_the_static_value(self) -> None:
+        settings = _settings(admin_groups="Admins")
+        ad_api = _FakeAdApi({"admins": {"jdoe"}})
+        service = AuthService(settings, ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.ADMIN
+        assert ad_api.queried == ["admins"]
+
+    async def test_a_missing_file_falls_back_to_the_static_value_rather_than_erroring(
+        self, tmp_path: Path
+    ) -> None:
+        settings = _settings(admin_groups="Admins")
+        settings = settings.model_copy(
+            update={"admin_groups_file": str(tmp_path / "does-not-exist")}
+        )
+        ad_api = _FakeAdApi({"admins": {"jdoe"}})
+        service = AuthService(settings, ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.ADMIN
+        assert ad_api.queried == ["admins"]
+
+    async def test_a_file_update_is_visible_on_the_very_next_login(self, tmp_path: Path) -> None:
+        path = tmp_path / "admin-users"
+        path.write_text("jdoe")
+        settings = _settings().model_copy(update={"admin_users_file": str(path)})
+        service = AuthService(settings, _FakeAdApi())
+        assert await service.authenticate("jdoe", "x") is Role.ADMIN
+
+        path.write_text("someone-else")
+        assert await service.authenticate("jdoe", "x") is LoginResult.NO_PERMISSION

@@ -200,6 +200,14 @@ class Settings(BaseSettings):
     admin_users: str = ""
     viewer_users: str = ""
 
+    # A live-mounted file (ConfigMap volume, not envFrom) holding the same
+    # CSV list, re-read on every login instead of once at startup — see
+    # deploy/README.md "Configuration notes". Blank falls back to the field above.
+    admin_groups_file: str = ""
+    view_groups_file: str = ""
+    admin_users_file: str = ""
+    viewer_users_file: str = ""
+
     session_secret: str = _INSECURE_DEV_SESSION_SECRET
     session_ttl_seconds: int = 28_800
 
