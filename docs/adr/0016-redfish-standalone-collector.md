@@ -1236,3 +1236,42 @@ operator's own hardware (2026-08-23 run); "measured" is this codebase.
   any system is mapped**, so a GPU-baseboard tray can be recognized and
   its metrics already in hand before deciding whether to merge it (the
   DGX/HGX update above).
+
+## Update (2026-09-23): the conformance gate was rejecting real Redfish
+
+16 HPE-labeled Apollo sx40 nodes failed collection with
+"does not answer /redfish/v1 with a conformant Redfish service root ...
+Pre-Redfish services such as HPE iLO 4 are out of scope" — every one of
+them fully reachable, logged into, and readable by plain `curl`. The BMC
+is not HPE hardware at all: `Chassis.Manufacturer` is `Supermicro`,
+`Managers[0].Model` is `ASPEED`, the system is an X11-generation
+Supermicro GPU tray (`PartNumber: SYS-1029GQ-TVRT-1-HPO1C`) wearing an
+HPE label — the fleet's first Supermicro-class BMC, exactly the class
+"What is still unproven" above flagged as untested. Its Redfish is old
+(`RedfishVersion: 1.0.1`) and unversioned in `@odata.type`
+(`#ServiceRoot.ServiceRoot` rather than `#ServiceRoot.v1_5_0.ServiceRoot`),
+but otherwise a normal, well-formed Redfish 1.0.1 service: session login
+succeeds, `Systems`/`Processors`/`Memory`/`EthernetInterfaces`/`Chassis`/
+`Power`/`Managers` all read cleanly, and `Storage`/`PCIeDevices` 503/404
+the same way an old-but-real firmware that predates their adoption would.
+
+`_assert_conformant` required `".v1_" in @odata.type` as a proxy for "not
+the iLO 4 dialect." The proxy was wrong: DSP0266 defines `RedfishVersion`
+as the field that identifies a Redfish service root; it does not require
+a caller to gate on `@odata.type`'s version segment, which is a detail of
+how a given implementation names its types, not a conformance signal.
+Genuine iLO 4's "HP RESTful API" dialect (this repo's own
+`test_a_non_conformant_service_fails_before_any_login` fixture) has no
+`RedfishVersion` key at all — it predates the term. The gate now checks
+only that `RedfishVersion` is present and a non-empty string; `@odata.type`
+is no longer part of the decision (still surfaced in the rejection message
+for diagnostics). This still correctly rejects the iLO 4 fixture, and now
+also collects this BMC and any other old-but-conformant one with the same
+shape. No change was needed anywhere past the gate: `_sessions_uri()`
+already separately verifies a login path exists, and every optional
+sub-resource fetch (`_drives`, `_psus`, `_pcie_gpus`, `_bmc_mac`,
+`_optional`) already degrades to `None`/skip on 404 or 503 rather than
+failing the host — that machinery predates this incident and needed no
+changes. Thermal, fan and `LogServices`/SEL data (where this BMC's
+firmware showed a scaling bug on inlet temperature) are not collected by
+this provider at all, so that defect never reaches the platform.

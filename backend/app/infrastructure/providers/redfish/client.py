@@ -236,7 +236,8 @@ class RedfishClient:
         """
         Reject a pre-Redfish service by shape, before any credential is sent.
 
-        HPE iLO 4 and any equally divergent BMC (ADR-0016, "What is still unproven").
+        Gates on `RedfishVersion` alone — see ADR-0016's 2026-09-23 update
+        for why `@odata.type`'s version segment is not part of this check.
 
         Args:
             root (dict[str, Any]): The service root payload.
@@ -244,8 +245,9 @@ class RedfishClient:
         Raises:
             RedfishProtocolError: If the payload is not conformant.
         """
-        odata_type = str(root.get("@odata.type", ""))
-        if "RedfishVersion" not in root or ".v1_" not in odata_type:
+        redfish_version = root.get("RedfishVersion")
+        if not isinstance(redfish_version, str) or not redfish_version.strip():
+            odata_type = str(root.get("@odata.type", ""))
             raise RedfishProtocolError(
                 f"{self._target.host} does not answer /redfish/v1 with a conformant Redfish "
                 f"service root (@odata.type={odata_type or 'missing'!r}, "

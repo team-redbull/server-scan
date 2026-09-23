@@ -844,6 +844,23 @@ class TestFailureModes:
         assert servers == []
         assert any("conformant" in e for e in provider.collection_errors)
 
+    async def test_an_old_but_conformant_unversioned_service_root_is_collected(self) -> None:
+        """An old-but-real Redfish service root must not be rejected as
+        pre-Redfish (ADR-0016, 2026-09-23 update).
+        """
+        resources = minimal_service()
+        resources["/redfish/v1/"] = {
+            **resources["/redfish/v1/"],
+            "@odata.type": "#ServiceRoot.ServiceRoot",
+            "RedfishVersion": "1.0.1",
+        }
+        with RedfishFixture(resources=resources) as fixture:
+            provider = _provider(fixture.port)
+            servers = await _collect(provider)
+
+        assert len(servers) == 1
+        assert provider.collection_errors == ()
+
     async def test_a_bmc_with_no_systems_is_reported(self) -> None:
         resources = minimal_service()
         resources["/redfish/v1/Systems"] = {
