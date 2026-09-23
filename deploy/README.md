@@ -641,3 +641,41 @@ the settings module's comments) because each cost a session:
   would break this chart's own out-of-the-box install. A future key with
   a legitimate blank default carries this same residual risk and needs
   its downstream `values.yaml` checked by hand when first introduced.
+
+- **A `required` value one level deeper than a whole new top-level
+  block is worse than dropped — it's a Go-template panic, not a clean
+  error.** ADR-0034 (2026-09-22) added the `auth:` block with five
+  `required` fields (`enabled`, `ldap.port`, `ldap.useSsl`,
+  `adApi.verifyTls`, `sessionTtlSeconds`) nested inside it. Because
+  `auth:` was entirely absent from `redbull-platform`'s hand-maintained
+  copy (same "only `templates/`/`files/` sync there" gap as above, just
+  one level higher), `.Values.auth.existingSecret` and every other
+  `.Values.auth.*` dot-chain wasn't a *missing key* on a real map — it
+  was a field access on a Go nil interface, which panics before
+  `required` ever runs: `nil pointer evaluating interface
+  {}.existingSecret`. That crashed `helm lint`/`helm template` in
+  "Deploy (bump redbull-platform)" for **every push to `main` from
+  2026-09-22 22:02 to 2026-09-23** (confirmed via `gh run list` —
+  `Deploy (bump redbull-platform)` red on all ten pushes in that window),
+  so that cluster's image was stuck on the pre-AD-login version the
+  whole time; the job's own commit step never ran because the render
+  step precedes it. Fixed two ways, both needed: **every template
+  reading `.Values.auth` (or its `ldap`/`adApi`/`apiTokens` children)
+  now guards the parent with `| default dict` first** (`backend-
+  configmap.yaml`, `backend-deployment.yaml`, `backend-auth-secret.yaml`,
+  all six collector CronJob templates), so a wholly-absent block now
+  fails with the same clean `required "auth.enabled must be set"`
+  message as any other missing required value instead of panicking —
+  this survives any *future* new top-level block the same way; **and**
+  the `auth:` block itself (`enabled: false`, matching every other
+  install's default) was added to `redbull-platform`'s `values.yaml` by
+  hand, 2026-09-23, because a nil-safe template still can't satisfy its
+  own `required` check — the guard changes the failure mode, not whether
+  the value has to actually be set. **`| default` is not always safe to
+  add for this** — confirmed live: Sprig's `default` treats an explicit
+  `false`/`0` as "empty" exactly like nil, so `.Values.auth.adApi.
+  verifyTls | default true` would silently force `true` even when a
+  consumer explicitly set `verifyTls: false`, which is precisely the
+  case the 2026-09-23 AD-API-TLS-bypass feature needs to work. `required`
+  has no such gotcha (it only checks for nil), which is the other reason
+  the five booleans/ints above stay `required` rather than defaulted.

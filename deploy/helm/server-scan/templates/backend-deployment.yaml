@@ -19,6 +19,7 @@ spec:
         app.kubernetes.io/part-of: server-scan
     spec:
       automountServiceAccountToken: false
+      {{- $auth := .Values.auth | default dict }}
       containers:
         - name: api
           image: {{ include "serverScan.apiImage" . | quote }}
@@ -45,7 +46,7 @@ spec:
             # different from the variable being unset, so mounting it
             # unconditionally is safe.
             - secretRef:
-                name: {{ .Values.auth.existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
+                name: {{ $auth.existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
           livenessProbe:
             httpGet:
               path: /health/live

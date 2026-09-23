@@ -627,4 +627,33 @@ one client-side download, no new endpoint. The "Export CSV" button sits in
 Duplicate), which puts it directly under the Health filter column at the
 row above — both of the operator's placement asks from one button, not two.
 
-**Open:** none from this session.
+**Collector CronJobs crashed with `auth.enabled` on (docs/adr/0034):** all
+six collector CronJob templates (`ucs-central`, `intersight`, `openmanage`,
+`oneview`, `redfish-standalone`, `fake`) mounted `<release>-collector-
+credentials` but not `<release>-auth-credentials`, so `INVENTORY_SESSION_
+SECRET` never reached them — `Settings`' fail-fast refused to start once
+`auth.enabled`+`INVENTORY_ENVIRONMENT=production` were both true, the
+same check `backend-deployment.yaml` already satisfied. Fixed by adding
+the same `auth.existingSecret`-or-default `secretRef` each CronJob now
+carries, reported live by the operator against a real OpenShift deploy.
+
+**`Deploy (bump redbull-platform)` had been red on every push since
+2026-09-22 22:02** (`gh run list` confirmed all ten), a `nil pointer
+evaluating interface {}.existingSecret` panic because `auth:` was wholly
+absent from `redbull-platform`'s hand-maintained `values.yaml` — one level
+above the already-documented "key missing from a downstream values.yaml"
+trap (`deploy/README.md`, "Configuration notes"), so `.Values.auth.*`
+panicked instead of failing `required`'s clean way. Fixed two ways, see
+that doc's new entry for the full reasoning: every template reading
+`.Values.auth`/`.ldap`/`.adApi`/`.apiTokens` now guards each with `|
+default dict` first (converts the panic into `required`'s normal error for
+any future block too), and `redbull-platform`'s `values.yaml` got the
+`auth:` block by hand (`enabled: false`, unchanged behavior), pushed
+directly (`90e5eed`) — that job had never reached its commit step, so that
+cluster's image was stuck on 4.5.0 the whole time.
+
+**Open:** the operator also reported that changing `auth.adminGroups`/
+`viewerUsers`/etc. needs an API pod restart to take effect — `Settings` is
+process-lifetime (`@lru_cache` on `get_settings()`), and they asked about
+mounting config as a file instead so it could be edited without a
+restart. Not yet investigated — next thing to pick up.
