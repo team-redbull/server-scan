@@ -8,6 +8,50 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-22 — AD login: admin/viewer roles, a stateless session cookie,
+and two API tokens (`docs/adr/0034-ad-login-roles-and-api-tokens.md`).**
+Moved to `docs/notes/session-log.md`: the nodes-status chart rename /
+node-agent selection / disk-severity tiering / sites-page counts unit.
+
+**Backend:** `Role` (`ADMIN`/`VIEWER`) on `app.domain.models.audit_event.
+Actor`; `app.domain.services.session` (stateless HMAC cookie, same scheme
+as `cursor.py`, its own secret); `app.infrastructure.ad.client`
+(`ldap_validate` + `AdApiClient`, constructor-injected `httpx.AsyncClient`
+like `InClusterClient`, so it's `MockTransport`-testable); `app.
+application.services.auth_service.AuthService` (credentials first, admin
+before viewer, a user's own list before its group list); new `POST /auth/
+login`, `POST /auth/logout`, `GET /auth/me`. `app.dependencies.
+get_current_actor` now resolves the dev bypass, a bearer API token, or the
+session cookie, in that order; `require_admin` gates the four mutation
+endpoints in `servers.py`. Every router except `health`/`auth`/`metrics`
+is mounted with `Depends(get_current_actor)` in `app.main`.
+
+**Frontend:** `AppLayout` gates the whole SPA on `GET /auth/me`;
+`MaintenanceToggle` shadows (not hides) for a viewer — `aria-disabled`,
+not `disabled`, because the tooltip needs the hover event a real disabled
+button suppresses. `LoginPage`'s visual design (wordmark, floating
+server-rack icons, red/black accent replacing the app's usual blue) was
+iterated live against the running dev server at the operator's direction.
+
+**Helm/env:** new `auth:` values block, `backend-auth-secret.yaml`
+(mirrors `collector-credentials-secret.yaml`'s `existingSecret` pattern),
+one more unconditional `envFrom` on the API Deployment, every new
+`INVENTORY_*` var in `.env.example`. `auth.enabled` defaults `false`
+everywhere, so no existing deployment's behavior changes.
+
+**Attempted and abandoned:** a real local Samba AD DC for genuine
+`DOMAIN\username` LDAP-bind testing (plain OpenLDAP doesn't accept that
+bind format) — two runs of `docker.io/nowsci/samba-domain` crashed
+mid-provisioning with `Security context active token stack underflow!`,
+a known Samba ACL/xattr fault under rootless podman, not fixed by
+`--privileged`. Fell back to mocking `ldap3`/`httpx` directly (39 new
+backend tests) plus a hand-signed session cookie to preview the real
+frontend in both roles against the seeded dev stack.
+
+**Open:** none from this session.
+
+---
+
 **2026-09-22 — nodes-status chart (renamed from openshift-membership),
 its jobs now list every node with no worker-role selector, and a two-tier
 MAJOR/CRITICAL split for multiple bad OS/data disks.** Moved to

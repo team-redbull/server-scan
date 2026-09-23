@@ -104,6 +104,7 @@ _ROW_PROJECTION: dict[str, int] = {
     "openshift.lifecycle_state": 1,
     "openshift.cluster_name": 1,
     "openshift.mce_name": 1,
+    "profile_template.name": 1,
     "last_seen_at": 1,
     "updated_at": 1,
     "reachable": 1,

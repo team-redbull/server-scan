@@ -59,7 +59,8 @@ export interface ConnectivityFacts {
 
 /** One inventory row — `GET /api/v1/servers/rows`, the whole fleet in one
  * response, filtered and sorted in the browser (ADR-0033). `serial`,
- * `bmc_host` and `macs` exist for search parity only and are never rendered. */
+ * `bmc_host`, `macs` and `profile_template_name` exist for search/CSV
+ * export parity and are not columns in the table itself. */
 export interface ServerRow {
   id: string;
   name: string;
@@ -73,6 +74,7 @@ export interface ServerRow {
   openshift_state: OpenShiftState;
   cluster_name: string | null;
   mce_name: string | null;
+  profile_template_name: string | null;
   last_seen_at: string | null;
   /** Unseen for longer than `INVENTORY_STALE_AFTER_SECONDS`, or never (ADR-0029). */
   stale: boolean;

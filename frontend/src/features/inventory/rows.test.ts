@@ -24,6 +24,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     openshift_state: "AVAILABLE",
     cluster_name: null,
     mce_name: null,
+    profile_template_name: null,
     last_seen_at: null,
     stale: false,
     reachable: true,

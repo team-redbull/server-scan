@@ -19,6 +19,7 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     openshift_state: "INSTALLED",
     cluster_name: "ocp4-tlv",
     mce_name: null,
+    profile_template_name: null,
     last_seen_at: "2026-08-12T10:00:00Z",
     stale: false,
     reachable: true,

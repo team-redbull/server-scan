@@ -88,8 +88,9 @@ endpoint and does everything else locally.
   `name`, `vendor`, `model`, `site_id`, `source_provider`,
   `installation_type`, `health` (overall only), `maintenance`
   (`enabled`, `reason`), `openshift_state`, `cluster_name`, `mce_name`,
-  `last_seen_at`, `stale`, `reachable`, and for search parity `serial`,
-  `bmc_host`, `macs`. It is built from a **Mongo projection**
+  `last_seen_at`, `stale`, `reachable`, and for search/CSV-export parity
+  `serial`, `bmc_host`, `macs`, `profile_template_name` (2026-09-23, the
+  inventory's CSV export). It is built from a **Mongo projection**
   (`MongoServerRepository.list_rows`) through `ServerRow.from_doc`,
   never `Server.model_validate` — the 618 ms row above is the whole
   reason this endpoint exists as a separate shape rather than

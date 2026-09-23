@@ -600,44 +600,31 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-22 — AD login: admin/viewer roles, a stateless session cookie,
-and two API tokens (`docs/adr/0034-ad-login-roles-and-api-tokens.md`).**
-Moved to `docs/notes/session-log.md`: the nodes-status chart rename /
-node-agent selection / disk-severity tiering / sites-page counts unit.
+**2026-09-23 — AD API insecure-TLS escape hatch, and an inventory CSV
+export.** Moved to `docs/notes/session-log.md`: the AD login / roles /
+session-cookie / API-tokens unit.
 
-**Backend:** `Role` (`ADMIN`/`VIEWER`) on `app.domain.models.audit_event.
-Actor`; `app.domain.services.session` (stateless HMAC cookie, same scheme
-as `cursor.py`, its own secret); `app.infrastructure.ad.client`
-(`ldap_validate` + `AdApiClient`, constructor-injected `httpx.AsyncClient`
-like `InClusterClient`, so it's `MockTransport`-testable); `app.
-application.services.auth_service.AuthService` (credentials first, admin
-before viewer, a user's own list before its group list); new `POST /auth/
-login`, `POST /auth/logout`, `GET /auth/me`. `app.dependencies.
-get_current_actor` now resolves the dev bypass, a bearer API token, or the
-session cookie, in that order; `require_admin` gates the four mutation
-endpoints in `servers.py`. Every router except `health`/`auth`/`metrics`
-is mounted with `Depends(get_current_actor)` in `app.main`.
+**AD API TLS (docs/adr/0034):** new `Settings.ad_api_verify_tls: bool =
+True`. `build_ad_api_http_client` (`app.infrastructure.ad.client`) now
+resolves `verify` as `False` when `ad_api_verify_tls` is false — overriding
+even a configured `ad_api_ca_bundle` — else the existing `ca_bundle or
+True`. `INVENTORY_AD_API_VERIFY_TLS` in `.env.example` and `auth.adApi.
+verifyTls` (`values.yaml` + `backend-configmap.yaml`), both default
+`true`; turning it off is an explicit, documented insecurity for a
+lab/self-signed AD API with no CA bundle obtainable, not a new default.
+`ldap_use_ssl` is untouched — this is the AD API leg only, not the LDAP
+bind.
 
-**Frontend:** `AppLayout` gates the whole SPA on `GET /auth/me`;
-`MaintenanceToggle` shadows (not hides) for a viewer — `aria-disabled`,
-not `disabled`, because the tooltip needs the hover event a real disabled
-button suppresses. `LoginPage`'s visual design (wordmark, floating
-server-rack icons, red/black accent replacing the app's usual blue) was
-iterated live against the running dev server at the operator's direction.
-
-**Helm/env:** new `auth:` values block, `backend-auth-secret.yaml`
-(mirrors `collector-credentials-secret.yaml`'s `existingSecret` pattern),
-one more unconditional `envFrom` on the API Deployment, every new
-`INVENTORY_*` var in `.env.example`. `auth.enabled` defaults `false`
-everywhere, so no existing deployment's behavior changes.
-
-**Attempted and abandoned:** a real local Samba AD DC for genuine
-`DOMAIN\username` LDAP-bind testing (plain OpenLDAP doesn't accept that
-bind format) — two runs of `docker.io/nowsci/samba-domain` crashed
-mid-provisioning with `Security context active token stack underflow!`,
-a known Samba ACL/xattr fault under rootless podman, not fixed by
-`--privileged`. Fell back to mocking `ldap3`/`httpx` directly (39 new
-backend tests) plus a hand-signed session cookie to preview the real
-frontend in both roles against the seeded dev stack.
+**CSV export:** `GET /servers/rows`'s `ServerRow` gained
+`profile_template_name` (`_ROW_PROJECTION`'s `profile_template.name`,
+`ServerRow.from_doc`) — the "SPT" the operator wanted in the export;
+untouched anywhere else. Frontend: `features/inventory/csvExport.ts`
+(`rowsToCsv`/`downloadCsv`, unit-tested) exports Name/BMC address/
+Installation/MCE/Cluster/Model/Serial/SPT/State for every row currently
+matching the inventory's filters — `matched`, not the paginated page — in
+one client-side download, no new endpoint. The "Export CSV" button sits in
+`InventoryPage`'s toggle row (`ml-auto`, same line as Maintenance/Stale/
+Duplicate), which puts it directly under the Health filter column at the
+row above — both of the operator's placement asks from one button, not two.
 
 **Open:** none from this session.

@@ -201,6 +201,7 @@ class ServerRow(BaseModel):
     openshift_state: OpenShiftState
     cluster_name: str | None
     mce_name: str | None
+    profile_template_name: str | None
     last_seen_at: datetime | None
     stale: bool
     reachable: bool
@@ -244,6 +245,7 @@ class ServerRow(BaseModel):
             ),
             cluster_name=(doc.get("openshift") or {}).get("cluster_name"),
             mce_name=(doc.get("openshift") or {}).get("mce_name"),
+            profile_template_name=(doc.get("profile_template") or {}).get("name"),
             last_seen_at=seen,
             stale=seen is None or seen < stale_before,
             reachable=doc.get("reachable", True),
