@@ -660,7 +660,7 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   | `storage.name_capacity_mismatch` | `-<N>tb`-named node whose storage was read, total more than 1.5 TB off `N` TB either way | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
   | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
-  | `network.single_link_up` | readable links ≥ 2, exactly one up | MAJOR |
+  | `network.single_link_up` | readable links ≥ 2, exactly one up | CRITICAL |
   | `gpu.failed` | a GPU reports CRITICAL or DOWN | CRITICAL |
   | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
 
@@ -725,6 +725,12 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
     the rest leave it at zero and the policy never fires.
   - `network.single_link_up` is `EQ 1`, not `LTE 1`: zero links up is
     `all_links_down`'s case, and a server must not report both.
+  - **`network.single_link_up` moved from MAJOR to CRITICAL, 2026-09-23**
+    (`docs/adr/0027`'s dated update) — operator's call: NICs are deployed
+    bonded, so one link up means the bond itself is down, the same as
+    every link being down, not merely degraded redundancy. No vendor
+    exception: a Cisco server with one real uplink beside real (not
+    `UNKNOWN`) failures reads CRITICAL too, same as Dell/HPE/standalone.
   - GPU ECC is WARNING at the *first* uncorrectable error, not a
     threshold: memory the card could not repair is a documented
     predictor of a failing accelerator, not routine noise. Only Redfish

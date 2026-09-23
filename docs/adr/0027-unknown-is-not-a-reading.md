@@ -210,3 +210,19 @@ Consequences and limits:
 - Seeded fleet (`--count 1000 --seed 42`): 10 servers, all the unreachable
   OpenManage ones with every hardware field unread, are now `UNKNOWN`
   overall; they read HEALTHY before.
+
+## Update (2026-09-23): `single_link_up` moves from MAJOR to CRITICAL
+
+Operator's call, prompted by Dell's bonded NICs: one link up is not the
+bond running with degraded redundancy, it is the bond down — the server
+cannot be installed on it. `network.single_link_up`'s severity changes
+from MAJOR to CRITICAL in `health_policy_defaults.py`, unscoped — no
+vendor exception. This ADR's own "Consequences" section above had noted
+"one real uplink beside one real dead link is still MAJOR" as a pinned,
+tested outcome of the metric fix; that pin moves to CRITICAL with this
+update (`test_one_up_of_two_real_readings_is_critical`), and the
+`links_known_count` gate itself — the actual subject of this ADR — is
+unchanged: a server with only one *readable* link state (the rest
+`UNKNOWN`) still does not satisfy `GTE 2` and still does not fire either
+network policy, for any vendor, including Cisco. `network.single_link_up`
+now reads the same severity as `network.all_links_down` everywhere.

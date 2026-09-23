@@ -8,6 +8,77 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-23 — AD API insecure-TLS escape hatch, and an inventory CSV
+export.** Moved to `docs/notes/session-log.md`: the AD login / roles /
+session-cookie / API-tokens unit.
+
+**AD API TLS (docs/adr/0034):** new `Settings.ad_api_verify_tls: bool =
+True`. `build_ad_api_http_client` (`app.infrastructure.ad.client`) now
+resolves `verify` as `False` when `ad_api_verify_tls` is false — overriding
+even a configured `ad_api_ca_bundle` — else the existing `ca_bundle or
+True`. `INVENTORY_AD_API_VERIFY_TLS` in `.env.example` and `auth.adApi.
+verifyTls` (`values.yaml` + `backend-configmap.yaml`), both default
+`true`; turning it off is an explicit, documented insecurity for a
+lab/self-signed AD API with no CA bundle obtainable, not a new default.
+`ldap_use_ssl` is untouched — this is the AD API leg only, not the LDAP
+bind.
+
+**CSV export:** `GET /servers/rows`'s `ServerRow` gained
+`profile_template_name` (`_ROW_PROJECTION`'s `profile_template.name`,
+`ServerRow.from_doc`) — the "SPT" the operator wanted in the export;
+untouched anywhere else. Frontend: `features/inventory/csvExport.ts`
+(`rowsToCsv`/`downloadCsv`, unit-tested) exports Name/BMC address/
+Installation/MCE/Cluster/Model/Serial/SPT/State for every row currently
+matching the inventory's filters — `matched`, not the paginated page — in
+one client-side download, no new endpoint. The "Export CSV" button sits in
+`InventoryPage`'s toggle row (`ml-auto`, same line as Maintenance/Stale/
+Duplicate), which puts it directly under the Health filter column at the
+row above — both of the operator's placement asks from one button, not two.
+
+**Collector CronJobs crashed with `auth.enabled` on (docs/adr/0034):** all
+six collector CronJob templates (`ucs-central`, `intersight`, `openmanage`,
+`oneview`, `redfish-standalone`, `fake`) mounted `<release>-collector-
+credentials` but not `<release>-auth-credentials`, so `INVENTORY_SESSION_
+SECRET` never reached them — `Settings`' fail-fast refused to start once
+`auth.enabled`+`INVENTORY_ENVIRONMENT=production` were both true, the
+same check `backend-deployment.yaml` already satisfied. Fixed by adding
+the same `auth.existingSecret`-or-default `secretRef` each CronJob now
+carries, reported live by the operator against a real OpenShift deploy.
+
+**`Deploy (bump redbull-platform)` had been red on every push since
+2026-09-22 22:02** (`gh run list` confirmed all ten), a `nil pointer
+evaluating interface {}.existingSecret` panic because `auth:` was wholly
+absent from `redbull-platform`'s hand-maintained `values.yaml` — one level
+above the already-documented "key missing from a downstream values.yaml"
+trap (`deploy/README.md`, "Configuration notes"), so `.Values.auth.*`
+panicked instead of failing `required`'s clean way. Fixed two ways, see
+that doc's new entry for the full reasoning: every template reading
+`.Values.auth`/`.ldap`/`.adApi`/`.apiTokens` now guards each with `|
+default dict` first (converts the panic into `required`'s normal error for
+any future block too), and `redbull-platform`'s `values.yaml` got the
+`auth:` block by hand (`enabled: false`, unchanged behavior), pushed
+directly (`90e5eed`) — that job had never reached its commit step, so that
+cluster's image was stuck on 4.5.0 the whole time. Confirmed fixed: the
+next push's `Deploy (bump redbull-platform)` CI job went green
+(run 35840222696), the first success since 2026-09-22 22:02.
+
+**Admin/viewer group and user lists no longer need an API pod restart
+(docs/adr/0034's 2026-09-23 update):** the operator reported that editing
+`auth.adminGroups`/`viewGroups`/`adminUsers`/`viewerUsers` and running
+`helm upgrade` had no effect until pods restarted — expected, since
+`envFrom`/`env` never live-update in a running container, only a
+volume-mounted file does. `AuthService._list` now prefers
+`Settings.<field>_file` (read fresh on every login) over the static,
+process-lifetime `Settings.<field>`; `backend-deployment.yaml` mounts the
+existing `api-config` ConfigMap as a volume at `/etc/server-scan/config`
+and points four new `INVENTORY_*_FILE` env vars at it — CronJobs untouched,
+they never call `AuthService`. Scoped to just these four values on
+purpose; `ldap.*`/`adApi.*`/secrets stay restart-required.
+
+**Open:** none from this session.
+
+---
+
 **2026-09-22 — AD login: admin/viewer roles, a stateless session cookie,
 and two API tokens (`docs/adr/0034-ad-login-roles-and-api-tokens.md`).**
 Moved to `docs/notes/session-log.md`: the nodes-status chart rename /

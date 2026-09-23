@@ -427,13 +427,14 @@ def default_system_policies() -> list[HealthPolicy]:
         id=new_id("health_policy"),
         name="Only one network link up",
         description=(
-            "Fires when exactly one interface is up. Network redundancy is "
-            "gone: the server is still reachable, and one more failure "
-            "disconnects it."
+            "Fires when exactly one interface is up. Treated the same as "
+            "every link being down: not enough to install or run the "
+            "server on, not just degraded redundancy (docs/adr/0027, "
+            "2026-09-23 update)."
         ),
         policy_key="network.single_link_up",
         category="network",
-        severity=HealthSeverity.MAJOR,
+        severity=HealthSeverity.CRITICAL,
         condition=Condition(
             all_of=[
                 Condition(metric="network.links_known_count", operator="GTE", value=2),

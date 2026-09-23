@@ -600,71 +600,42 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-23 — AD API insecure-TLS escape hatch, and an inventory CSV
-export.** Moved to `docs/notes/session-log.md`: the AD login / roles /
-session-cookie / API-tokens unit.
+**2026-09-24 — Redfish conformance gate false positive, and
+`network.single_link_up` moved to CRITICAL.** Moved to
+`docs/notes/session-log.md`: the AD API insecure-TLS / CSV export /
+collector-CronJob-auth-secret / config-hot-reload unit.
 
-**AD API TLS (docs/adr/0034):** new `Settings.ad_api_verify_tls: bool =
-True`. `build_ad_api_http_client` (`app.infrastructure.ad.client`) now
-resolves `verify` as `False` when `ad_api_verify_tls` is false — overriding
-even a configured `ad_api_ca_bundle` — else the existing `ca_bundle or
-True`. `INVENTORY_AD_API_VERIFY_TLS` in `.env.example` and `auth.adApi.
-verifyTls` (`values.yaml` + `backend-configmap.yaml`), both default
-`true`; turning it off is an explicit, documented insecurity for a
-lab/self-signed AD API with no CA bundle obtainable, not a new default.
-`ldap_use_ssl` is untouched — this is the AD API leg only, not the LDAP
-bind.
+**Redfish gate (docs/adr/0016's 2026-09-23 update):** 16 HPE-labeled
+Apollo sx40 nodes — actually a Supermicro/ASPEED BMC, the fleet's first —
+were rejected as "pre-Redfish, HPE iLO 4 out of scope" by
+`RedfishClient._assert_conformant`, though fully reachable and readable by
+`curl`: real, old (`RedfishVersion: 1.0.1`), unversioned-`@odata.type`
+Redfish, not the iLO 4 dialect. The gate required `".v1_" in @odata.type`
+as a proxy for "not iLO 4"; the proxy was wrong — DSP0266 defines
+`RedfishVersion` as the identifying field, and genuine iLO 4's "HP RESTful
+API" dialect has no such key at all (confirmed against this repo's own
+`test_a_non_conformant_service_fails_before_any_login` fixture). The gate
+now checks only that `RedfishVersion` is a non-empty string;
+`@odata.type`'s version segment is no longer part of the decision (still
+in the rejection message for diagnostics). Nothing else needed a change:
+`_sessions_uri()` already separately verifies a login path exists, and
+every optional sub-resource fetch (`_drives`, `_psus`, `_pcie_gpus`,
+`_bmc_mac`, `_optional`) already degrades to `None`/skip on 404/503 rather
+than failing the host. One new test,
+`test_an_old_but_conformant_unversioned_service_root_is_collected`; the
+real-iLO-4 rejection test is untouched and still passes.
 
-**CSV export:** `GET /servers/rows`'s `ServerRow` gained
-`profile_template_name` (`_ROW_PROJECTION`'s `profile_template.name`,
-`ServerRow.from_doc`) — the "SPT" the operator wanted in the export;
-untouched anywhere else. Frontend: `features/inventory/csvExport.ts`
-(`rowsToCsv`/`downloadCsv`, unit-tested) exports Name/BMC address/
-Installation/MCE/Cluster/Model/Serial/SPT/State for every row currently
-matching the inventory's filters — `matched`, not the paginated page — in
-one client-side download, no new endpoint. The "Export CSV" button sits in
-`InventoryPage`'s toggle row (`ml-auto`, same line as Maintenance/Stale/
-Duplicate), which puts it directly under the Health filter column at the
-row above — both of the operator's placement asks from one button, not two.
-
-**Collector CronJobs crashed with `auth.enabled` on (docs/adr/0034):** all
-six collector CronJob templates (`ucs-central`, `intersight`, `openmanage`,
-`oneview`, `redfish-standalone`, `fake`) mounted `<release>-collector-
-credentials` but not `<release>-auth-credentials`, so `INVENTORY_SESSION_
-SECRET` never reached them — `Settings`' fail-fast refused to start once
-`auth.enabled`+`INVENTORY_ENVIRONMENT=production` were both true, the
-same check `backend-deployment.yaml` already satisfied. Fixed by adding
-the same `auth.existingSecret`-or-default `secretRef` each CronJob now
-carries, reported live by the operator against a real OpenShift deploy.
-
-**`Deploy (bump redbull-platform)` had been red on every push since
-2026-09-22 22:02** (`gh run list` confirmed all ten), a `nil pointer
-evaluating interface {}.existingSecret` panic because `auth:` was wholly
-absent from `redbull-platform`'s hand-maintained `values.yaml` — one level
-above the already-documented "key missing from a downstream values.yaml"
-trap (`deploy/README.md`, "Configuration notes"), so `.Values.auth.*`
-panicked instead of failing `required`'s clean way. Fixed two ways, see
-that doc's new entry for the full reasoning: every template reading
-`.Values.auth`/`.ldap`/`.adApi`/`.apiTokens` now guards each with `|
-default dict` first (converts the panic into `required`'s normal error for
-any future block too), and `redbull-platform`'s `values.yaml` got the
-`auth:` block by hand (`enabled: false`, unchanged behavior), pushed
-directly (`90e5eed`) — that job had never reached its commit step, so that
-cluster's image was stuck on 4.5.0 the whole time. Confirmed fixed: the
-next push's `Deploy (bump redbull-platform)` CI job went green
-(run 35840222696), the first success since 2026-09-22 22:02.
-
-**Admin/viewer group and user lists no longer need an API pod restart
-(docs/adr/0034's 2026-09-23 update):** the operator reported that editing
-`auth.adminGroups`/`viewGroups`/`adminUsers`/`viewerUsers` and running
-`helm upgrade` had no effect until pods restarted — expected, since
-`envFrom`/`env` never live-update in a running container, only a
-volume-mounted file does. `AuthService._list` now prefers
-`Settings.<field>_file` (read fresh on every login) over the static,
-process-lifetime `Settings.<field>`; `backend-deployment.yaml` mounts the
-existing `api-config` ConfigMap as a volume at `/etc/server-scan/config`
-and points four new `INVENTORY_*_FILE` env vars at it — CronJobs untouched,
-they never call `AuthService`. Scoped to just these four values on
-purpose; `ldap.*`/`adApi.*`/secrets stay restart-required.
+**`network.single_link_up` (docs/adr/0027's 2026-09-23 update):**
+severity changed from MAJOR to CRITICAL in `health_policy_defaults.py`,
+unscoped — operator's call, prompted by Dell's bonded NICs: one link up
+is the bond down, not merely degraded redundancy, and the server cannot
+be installed on it. No vendor exception — a scoped Cisco-only override
+(`PolicyScope(vendor=...)`, ADR-0005's shadowing mechanism) was drafted
+and then explicitly rejected in favor of treating every vendor the same
+as `all_links_down` already does. The `links_known_count` gate ADR-0027
+exists for is unchanged: a server with only one *readable* link state
+still does not satisfy `GTE 2` and still does not fire, for any vendor.
+`test_one_up_of_two_real_readings_is_critical` (renamed/updated from
+`..._is_still_major`) pins it.
 
 **Open:** none from this session.

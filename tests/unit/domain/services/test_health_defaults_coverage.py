@@ -273,8 +273,9 @@ class TestUnknownIsNotAVerdict:
     def test_links_that_really_are_all_down_are_still_critical(self) -> None:
         assert self._network_severity(LinkState.DOWN, LinkState.DOWN) == HealthSeverity.CRITICAL
 
-    def test_one_up_of_two_real_readings_is_still_major(self) -> None:
-        assert self._network_severity(LinkState.UP, LinkState.DOWN) == HealthSeverity.MAJOR
+    def test_one_up_of_two_real_readings_is_critical(self) -> None:
+        """Treated the same as every link down (docs/adr/0027, 2026-09-23 update)."""
+        assert self._network_severity(LinkState.UP, LinkState.DOWN) == HealthSeverity.CRITICAL
 
     def test_no_other_fact_counts_unknown_as_a_failure(self) -> None:
         """The audit behind ADR-0027: every other health fact already
