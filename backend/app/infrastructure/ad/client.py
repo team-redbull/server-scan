@@ -137,14 +137,17 @@ def build_ad_api_http_client(settings: Settings) -> httpx.AsyncClient:
 
     Args:
         settings (Settings): Supplies `ad_api_url`/`ad_api_ca_bundle`/
-            `auth_request_timeout_seconds`.
+            `ad_api_verify_tls`/`auth_request_timeout_seconds`.
 
     Returns:
         httpx.AsyncClient: Not yet opened — use as an `async with` context
             (`app.api.v1.auth._auth_service` does, once per login request).
     """
+    verify: bool | str = (
+        False if not settings.ad_api_verify_tls else settings.ad_api_ca_bundle or True
+    )
     return httpx.AsyncClient(
         base_url=settings.ad_api_url.rstrip("/"),
         timeout=settings.auth_request_timeout_seconds,
-        verify=settings.ad_api_ca_bundle or True,
+        verify=verify,
     )

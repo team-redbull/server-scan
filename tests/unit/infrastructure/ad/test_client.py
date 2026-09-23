@@ -9,6 +9,7 @@ docs/adr/0034's "Local testing" section).
 
 from __future__ import annotations
 
+import ssl
 from collections.abc import Callable
 
 import httpx
@@ -18,7 +19,7 @@ from ldap3.core.exceptions import LDAPBindError, LDAPSocketOpenError
 from app.config.settings import Settings
 from app.errors import ServiceUnavailableError
 from app.infrastructure.ad import client as ad_client
-from app.infrastructure.ad.client import AdApiClient, ldap_validate
+from app.infrastructure.ad.client import AdApiClient, build_ad_api_http_client, ldap_validate
 
 pytestmark = pytest.mark.unit
 
@@ -147,3 +148,25 @@ class TestAdApiClient:
 
         with pytest.raises(ServiceUnavailableError):
             await _ad_api(_handler).group_members("g")
+
+
+def _ssl_verify_mode(client: httpx.AsyncClient) -> int:
+    return client._transport._pool._ssl_context.verify_mode  # ty: ignore[unresolved-attribute]
+
+
+class TestBuildAdApiHttpClient:
+    async def test_defaults_to_verifying_the_system_trust_store(self) -> None:
+        async with build_ad_api_http_client(_SETTINGS) as http:
+            assert _ssl_verify_mode(http) == ssl.CERT_REQUIRED
+
+    async def test_verify_tls_false_skips_certificate_verification(self) -> None:
+        settings = _SETTINGS.model_copy(update={"ad_api_verify_tls": False})
+        async with build_ad_api_http_client(settings) as http:
+            assert _ssl_verify_mode(http) == ssl.CERT_NONE
+
+    async def test_verify_tls_false_overrides_a_configured_ca_bundle(self) -> None:
+        # A blank/unset bundle plus verify_tls=False must still skip
+        # verification — the override is the escape hatch, not the bundle.
+        settings = _SETTINGS.model_copy(update={"ad_api_ca_bundle": "", "ad_api_verify_tls": False})
+        async with build_ad_api_http_client(settings) as http:
+            assert _ssl_verify_mode(http) == ssl.CERT_NONE

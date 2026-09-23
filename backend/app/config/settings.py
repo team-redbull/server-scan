@@ -189,6 +189,7 @@ class Settings(BaseSettings):
     ad_api_url: str = ""
     ad_api_client_id: SecretStr = SecretStr("")
     ad_api_ca_bundle: str = ""
+    ad_api_verify_tls: bool = True
     auth_request_timeout_seconds: float = 15.0
 
     # Comma-separated `sAMAccountName`/group lists, matched case-insensitively.

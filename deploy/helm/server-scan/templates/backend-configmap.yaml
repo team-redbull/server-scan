@@ -30,6 +30,7 @@ data:
   INVENTORY_LDAP_USE_SSL: {{ required "auth.ldap.useSsl must be set" .Values.auth.ldap.useSsl | quote }}
   INVENTORY_AD_API_URL: {{ .Values.auth.adApi.url | quote }}
   INVENTORY_AD_API_CA_BUNDLE: {{ .Values.auth.adApi.caBundle | quote }}
+  INVENTORY_AD_API_VERIFY_TLS: {{ required "auth.adApi.verifyTls must be set" .Values.auth.adApi.verifyTls | quote }}
   INVENTORY_ADMIN_GROUPS: {{ .Values.auth.adminGroups | quote }}
   INVENTORY_VIEW_GROUPS: {{ .Values.auth.viewGroups | quote }}
   INVENTORY_ADMIN_USERS: {{ .Values.auth.adminUsers | quote }}

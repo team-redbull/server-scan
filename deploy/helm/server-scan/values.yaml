@@ -901,6 +901,10 @@ auth:
     # A PEM CA bundle path, for an internal AD API behind a private CA.
     # Blank verifies against the pod's system trust store.
     caBundle: ""
+    # Set false to skip TLS certificate verification entirely against the
+    # AD API (a self-signed/untrusted cert with no CA bundle available).
+    # Insecure — prefer caBundle above whenever the CA can be obtained.
+    verifyTls: true
 
   # Comma-separated `sAMAccountName`s, matched case-insensitively. Admin is
   # checked before viewer, and a user's own list before its group list, so
