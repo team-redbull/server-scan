@@ -13,6 +13,7 @@ from typing import Protocol
 import structlog
 
 from app.domain.models.manager import Manager
+from app.domain.models.openshift import MembershipRun
 from app.domain.ports.repository import FleetSnapshot
 from app.observability import metrics
 from app.utils.timeutil import utcnow
@@ -29,6 +30,19 @@ class ManagerSource(Protocol):
 
         Returns:
             list[Manager]: All managers.
+        """
+        ...
+
+
+class MembershipRunSource(Protocol):
+    """The one repository method the membership run gauges need."""
+
+    async def list_all(self) -> list[MembershipRun]:
+        """
+        The most recent run of every membership job.
+
+        Returns:
+            list[MembershipRun]: One entry per `kind`/`reported_by` pair.
         """
         ...
 
@@ -64,13 +78,19 @@ def _epoch(iso: str | None) -> float | None:
     return datetime.fromisoformat(iso).timestamp()
 
 
-def apply_snapshot(snapshot: FleetSnapshot, managers: list[Manager]) -> None:
+def apply_snapshot(
+    snapshot: FleetSnapshot,
+    managers: list[Manager],
+    membership_runs: list[MembershipRun],
+) -> None:
     """
     Write one snapshot into the gauges, clearing label sets it no longer names.
 
     Args:
         snapshot (FleetSnapshot): What the server repository reported.
         managers (list[Manager]): Every manager, for the run gauges.
+        membership_runs (list[MembershipRun]): Every membership job's most
+            recent run, for the membership run gauges.
     """
     for gauge in (
         metrics.servers_total,
@@ -88,6 +108,12 @@ def apply_snapshot(snapshot: FleetSnapshot, managers: list[Manager]) -> None:
         metrics.cluster_servers_held,
         metrics.cluster_last_reported_timestamp,
         metrics.servers_by_health,
+        metrics.membership_last_run_timestamp,
+        metrics.membership_last_run_duration,
+        metrics.membership_last_run_observed,
+        metrics.membership_last_run_matched,
+        metrics.membership_last_run_unmatched,
+        metrics.membership_last_run_partial,
     ):
         gauge.clear()
 
@@ -131,6 +157,15 @@ def apply_snapshot(snapshot: FleetSnapshot, managers: list[Manager]) -> None:
         metrics.collector_last_run_collection_errors.labels(**labels).set(run.collection_errors)
         metrics.collector_last_run_partial.labels(**labels).set(int(run.partial))
 
+    for run in membership_runs:
+        labels = {"kind": run.kind, "reported_by": run.reported_by}
+        metrics.membership_last_run_timestamp.labels(**labels).set(run.finished_at.timestamp())
+        metrics.membership_last_run_duration.labels(**labels).set(run.duration_seconds)
+        metrics.membership_last_run_observed.labels(**labels).set(run.observed)
+        metrics.membership_last_run_matched.labels(**labels).set(run.matched)
+        metrics.membership_last_run_unmatched.labels(**labels).set(run.unmatched)
+        metrics.membership_last_run_partial.labels(**labels).set(int(run.partial))
+
 
 class FleetGaugeRefresher:
     """Throttles fleet-gauge refreshes so concurrent scrapes share one query."""
@@ -139,21 +174,25 @@ class FleetGaugeRefresher:
         self,
         repo: FleetSnapshotSource,
         managers: ManagerSource,
+        membership_runs: MembershipRunSource,
         *,
         stale_after_seconds: int,
         min_interval_seconds: float,
     ) -> None:
         """
-        Bind the refresher to its two sources and two knobs.
+        Bind the refresher to its three sources and two knobs.
 
         Args:
             repo (FleetSnapshotSource): Where the fleet snapshot is read from.
             managers (ManagerSource): Where the collectors' run records are.
+            membership_runs (MembershipRunSource): Where the membership
+                jobs' run records are.
             stale_after_seconds (int): Age past which a server is stale.
             min_interval_seconds (float): Shortest gap between two queries.
         """
         self._repo = repo
         self._managers = managers
+        self._membership_runs = membership_runs
         self._stale_after = timedelta(seconds=stale_after_seconds)
         self._min_interval = min_interval_seconds
         self._last_refresh: float | None = None
@@ -178,10 +217,11 @@ class FleetGaugeRefresher:
                     stale_before=utcnow() - self._stale_after
                 )
                 managers = await self._managers.list_all()
+                membership_runs = await self._membership_runs.list_all()
             except Exception as exc:
                 metrics.fleet_snapshot_failures_total.inc()
                 logger.warning("metrics.fleet_snapshot_failed", error=str(exc))
                 return False
-            apply_snapshot(snapshot, managers)
+            apply_snapshot(snapshot, managers, membership_runs)
             self._last_refresh = now
             return True

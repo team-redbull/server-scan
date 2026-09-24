@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import datetime
 
 import structlog
 
@@ -39,10 +40,12 @@ from app.application.services.openshift_membership import (
 )
 from app.config import get_settings
 from app.domain.models.audit_event import Actor, ActorType
+from app.domain.models.openshift import MembershipRun
 from app.infrastructure.logging import configure_logging
 from app.infrastructure.mongodb import MongoClientHolder
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
 from app.infrastructure.mongodb.indexes import ensure_indexes
+from app.infrastructure.mongodb.membership_run_repository import MongoMembershipRunRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.openshift.client import (
     ClusterUnreadableError,
@@ -55,6 +58,7 @@ from app.infrastructure.openshift.records import (
     name_excluded,
     node_observation,
 )
+from app.utils.timeutil import utcnow
 
 logger = structlog.get_logger(__name__)
 
@@ -151,6 +155,42 @@ async def _observe(
     return kept
 
 
+async def _record_run(
+    repo: MongoMembershipRunRepository,
+    *,
+    source: str,
+    reported_by: str,
+    started_at: datetime,
+    summary: MembershipSummary,
+) -> None:
+    """
+    Write this run's outcome for the fleet gauges (ADR-0029's 2026-09-24 update).
+
+    Never raises: the exit code must reflect the reconcile, not this write.
+
+    Args:
+        repo (MongoMembershipRunRepository): Where the record goes.
+        source (str): `nodes` or `agents` — this run's `MembershipRun.kind`.
+        reported_by (str): The cluster or MCE that reported.
+        started_at (datetime): When the run began.
+        summary (MembershipSummary): What `reconcile` returned.
+    """
+    run = MembershipRun(
+        kind=source,
+        reported_by=reported_by,
+        finished_at=utcnow(),
+        duration_seconds=(utcnow() - started_at).total_seconds(),
+        observed=summary.observed,
+        matched=summary.matched,
+        unmatched=len(summary.unmatched),
+        partial=bool(summary.unmatched),
+    )
+    try:
+        await repo.record_run(run)
+    except Exception as exc:
+        logger.warning("openshift.record_run_failed", reported_by=reported_by, error=str(exc))
+
+
 def _report(summary: MembershipSummary, *, reported_by: str, dry_run: bool) -> int:
     """
     Print what the run did and decide its exit code.
@@ -240,6 +280,7 @@ async def _run(*, source: str, cluster: str | None, mce_name: str | None, dry_ru
         if part.strip()
     )
 
+    started_at = utcnow()
     try:
         async with in_cluster_client(
             timeout_seconds=settings.openshift_request_timeout_seconds
@@ -291,6 +332,14 @@ async def _run(*, source: str, cluster: str | None, mce_name: str | None, dry_ru
             reported_by=reported_by,
             dry_run=dry_run,
         )
+        if not dry_run:
+            await _record_run(
+                MongoMembershipRunRepository(mongo),
+                source=source,
+                reported_by=reported_by,
+                started_at=started_at,
+                summary=summary,
+            )
     finally:
         await mongo.close()
 

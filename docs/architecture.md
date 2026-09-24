@@ -780,6 +780,15 @@ leaves the gauges at their last values and increments
 `server_scan_fleet_snapshot_failures_total`. The Helm chart ships a
 `ServiceMonitor` and a `PrometheusRule` for them, both opt-in.
 
+`openshift.last_reported_at` is only ever set on a *matched* hostname, so
+a membership job that runs correctly but matches nobody never sets it —
+invisible to `cluster_last_reported_timestamp_seconds`. ADR-0029's
+2026-09-24 update closes that: `tools.collect_openshift._record_run`
+writes a `MembershipRun` into a new `membership_runs` collection on every
+real run, read via a third source (`MembershipRunSource`, alongside
+`FleetSnapshotSource` and `ManagerSource`) and exported as
+`server_scan_membership_last_run_*`, present whatever the match rate was.
+
 ## Ingestion wires both engines together (slice 2 + 3 integration)
 
 `app.application.services.ingest.IngestService` classifies and

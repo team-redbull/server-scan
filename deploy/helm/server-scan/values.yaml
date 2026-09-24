@@ -322,6 +322,11 @@ metrics:
     # A collector or cluster that has not reported for this long fires
     # ServerScanCollectorSilent / ServerScanClusterSilent. Two cycles.
     silentForSeconds: 43200
+    # A `nodes`/`agents` membership job whose last real run left this many
+    # hostnames unmatched fires ServerScanMembershipUnmatched. 0 means any
+    # unmatched hostname is worth investigating (ADR-0029's 2026-09-24
+    # update) — raise it for an estate with a known, accepted gap.
+    membershipUnmatchedThreshold: 0
   # Turns on OpenShift's user-workload monitoring by writing the
   # `cluster-monitoring-config` ConfigMap into openshift-monitoring —
   # the only thing that makes the ServiceMonitor above get scraped. OFF

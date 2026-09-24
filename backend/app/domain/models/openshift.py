@@ -95,3 +95,28 @@ class OpenShiftLifecycle(BaseModel):
         if isinstance(value, str) and value not in OpenShiftState.__members__:
             return OpenShiftState.AVAILABLE
         return value
+
+
+class MembershipRun(BaseModel):
+    """What a membership job's most recent reconcile reported — ADR-0029's 2026-09-24 update.
+
+    Attributes:
+        kind (str): `nodes` or `agents` — which CronJob wrote this.
+        reported_by (str): The cluster name (`nodes`) or MCE name (`agents`).
+        finished_at (datetime): When the run finished.
+        duration_seconds (float): Wall-clock seconds the run took.
+        observed (int): Hostnames the run reported.
+        matched (int): Of those, resolved to a known server.
+        unmatched (int): Of those, matched no server — a hostname the
+            vendor collectors have never ingested.
+        partial (bool): Whether the run exited 3 (`unmatched > 0`).
+    """
+
+    kind: str
+    reported_by: str
+    finished_at: datetime
+    duration_seconds: float
+    observed: int
+    matched: int
+    unmatched: int
+    partial: bool

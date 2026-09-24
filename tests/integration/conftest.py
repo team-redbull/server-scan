@@ -29,6 +29,7 @@ _TEST_COLLECTIONS = (
     "servers",
     "sites",
     "managers",
+    "membership_runs",
     "classification_rules",
     "health_policies",
     "audit_events",

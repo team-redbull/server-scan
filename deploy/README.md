@@ -266,6 +266,14 @@ name — a real platform bug or an estate-side naming collision either way
 (docs/adr/0016's duplicate-server investigation); no alert ships on
 these yet, since a collision isn't inherently urgent.
 
+`server_scan_membership_last_run_*` (ADR-0029's 2026-09-24 update) carry
+each `nodes`/`agents` membership job's most recent run — observed,
+matched, unmatched hostnames, duration, and whether it exited PARTIAL —
+the same shape as the collector run gauges above, and written even when
+every hostname was unmatched, which `server_scan_cluster_last_reported_
+timestamp_seconds` cannot see since that gauge is only ever set on a
+match.
+
 The chart ships the two Prometheus Operator objects for them:
 
 ```yaml
@@ -274,9 +282,12 @@ metrics:
     enabled: true          # scrapes <release>-api's Service, path /metrics
   prometheusRule:
     enabled: true          # ServerScanCollectorSilent, ServerScanServersStale,
-                           # ServerScanClusterSilent, ServerScanFleetSnapshotFailing
+                           # ServerScanClusterSilent, ServerScanCollectorRunPartial,
+                           # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
+                           # ServerScanMembershipUnmatched
     staleServersThreshold: 10
     silentForSeconds: 43200
+    membershipUnmatchedThreshold: 0
 ```
 
 Both are **off by default** because they need the `monitoring.coreos.com`
@@ -363,9 +374,10 @@ first two — it has — and only the webhook catches it.
 API replica exports the same fleet-wide gauges, so the raw series come
 back once per pod. The `PrometheusRule` records one de-duplicated series
 per gauge — `server_scan:servers_stale:max`, `server_scan:servers:max`,
-`server_scan:servers_by_health:max`, and so on — plus two ages that need
-no arithmetic, `server_scan:collector_silent_seconds` and
-`server_scan:cluster_silent_seconds`. Type `server_scan:` in Observe →
+`server_scan:servers_by_health:max`, and so on — plus three ages that need
+no arithmetic, `server_scan:collector_silent_seconds`,
+`server_scan:cluster_silent_seconds` and
+`server_scan:membership_run_silent_seconds`. Type `server_scan:` in Observe →
 Metrics and autocomplete lists them. The alerts read these too; an alert
 on a raw series would fire once per replica.
 
@@ -376,7 +388,27 @@ not being read; `server_scan_servers_unreachable` on the same label says
 how many of those are a BMC that did not answer (the rest are rejected
 logins or hosts the manager dropped). `ServerScanClusterSilent` is the one
 that matters most for the membership jobs: without it a cluster that
-stopped reporting leaves its servers `INSTALLED` forever.
+stopped reporting leaves its servers `INSTALLED` forever. `ServerScan
+ClusterSilent` only sees a *matched* report, though — a job that runs
+successfully every time but never matches a single hostname (a broken
+node-naming convention, say) never sets that gauge at all, from day one,
+and an alert on an absent series never fires. `ServerScanMembershipRunSilent`
+closes that gap: it fires off the job's own run record, present the
+moment it completes its first real run whatever it matched.
+`ServerScanMembershipUnmatched` is the complementary alert for a job that
+*is* running fine but keeps reporting hosts the vendor collectors have
+never ingested — the newest pod's log lists which ones.
+
+**A ready-made Grafana dashboard** for all of the above lives at
+`deploy/grafana/server-scan-dashboard.json` — import it directly (Grafana
+→ Dashboards → New → Import → Upload JSON), point its `Prometheus`
+datasource variable at your instance, and it covers fleet totals, per-
+collector staleness/run health, the membership-job run gauges above, top
+firing health policies, and the API's own HTTP/Mongo/Redis metrics. It is
+not wired into the chart — nothing here deploys Grafana dashboards as
+Kubernetes objects yet (no `GrafanaDashboard` CR, for instance); it is a
+plain export to import by hand or via your own GitOps path for
+Grafana-managed dashboards.
 
 ## Collectors (CronJobs)
 

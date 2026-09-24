@@ -65,6 +65,7 @@ logger = structlog.get_logger(__name__)
 SERVERS_COLLECTION = "servers"
 SITES_COLLECTION = "sites"
 MANAGERS_COLLECTION = "managers"
+MEMBERSHIP_RUNS_COLLECTION = "membership_runs"
 CLASSIFICATION_RULES_COLLECTION = "classification_rules"
 HEALTH_POLICIES_COLLECTION = "health_policies"
 AUDIT_EVENTS_COLLECTION = "audit_events"

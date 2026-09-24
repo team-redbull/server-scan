@@ -13,7 +13,10 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from tools.collect_openshift import _observe
+from tools.collect_openshift import _observe, _record_run
+
+from app.application.services.openshift_membership import MembershipSummary
+from app.utils.timeutil import utcnow
 
 pytestmark = pytest.mark.unit
 
@@ -96,3 +99,66 @@ async def test_vcompute_does_not_also_exclude_compute_for_either_source() -> Non
 
     assert [o.hostname for o in nodes] == ["compute-01"]
     assert [o.hostname for o in agents] == ["compute-01"]
+
+
+class _FakeMembershipRunRepo:
+    """Records every `record_run` call without a database."""
+
+    def __init__(self) -> None:
+        self.runs: list[Any] = []
+
+    async def record_run(self, run: Any) -> None:
+        self.runs.append(run)
+
+
+async def test_record_run_writes_unmatched_and_partial() -> None:
+    """`partial` mirrors `_report`'s own exit-3 decision: any unmatched host."""
+    repo = _FakeMembershipRunRepo()
+    summary = MembershipSummary(observed=3, matched=2, claimed=1, freed=0, unmatched=["compute-99"])
+
+    await _record_run(
+        repo,  # ty: ignore[invalid-argument-type]
+        source="nodes",
+        reported_by="ocp4-tlv",
+        started_at=utcnow(),
+        summary=summary,
+    )
+
+    [run] = repo.runs
+    assert run.kind == "nodes"
+    assert run.reported_by == "ocp4-tlv"
+    assert run.observed == 3
+    assert run.matched == 2
+    assert run.unmatched == 1
+    assert run.partial is True
+
+
+async def test_record_run_is_not_partial_when_everything_matched() -> None:
+    repo = _FakeMembershipRunRepo()
+    summary = MembershipSummary(observed=1, matched=1, claimed=1, freed=0, unmatched=[])
+
+    await _record_run(
+        repo,  # ty: ignore[invalid-argument-type]
+        source="agents",
+        reported_by="mce-tlv",
+        started_at=utcnow(),
+        summary=summary,
+    )
+
+    assert repo.runs[0].partial is False
+
+
+async def test_record_run_never_raises_when_the_write_fails() -> None:
+    class _BrokenRepo:
+        async def record_run(self, run: Any) -> None:
+            raise RuntimeError("mongo down")
+
+    summary = MembershipSummary(observed=1, matched=1, claimed=1, freed=0, unmatched=[])
+
+    await _record_run(
+        _BrokenRepo(),  # ty: ignore[invalid-argument-type]
+        source="nodes",
+        reported_by="ocp4-tlv",
+        started_at=utcnow(),
+        summary=summary,
+    )

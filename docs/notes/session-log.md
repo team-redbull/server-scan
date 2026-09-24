@@ -8,6 +8,48 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-24 — Redfish conformance gate false positive, and
+`network.single_link_up` moved to CRITICAL.** Moved to
+`docs/notes/session-log.md`: the AD API insecure-TLS / CSV export /
+collector-CronJob-auth-secret / config-hot-reload unit.
+
+**Redfish gate (docs/adr/0016's 2026-09-23 update):** 16 HPE-labeled
+Apollo sx40 nodes — actually a Supermicro/ASPEED BMC, the fleet's first —
+were rejected as "pre-Redfish, HPE iLO 4 out of scope" by
+`RedfishClient._assert_conformant`, though fully reachable and readable by
+`curl`: real, old (`RedfishVersion: 1.0.1`), unversioned-`@odata.type`
+Redfish, not the iLO 4 dialect. The gate required `".v1_" in @odata.type`
+as a proxy for "not iLO 4"; the proxy was wrong — DSP0266 defines
+`RedfishVersion` as the identifying field, and genuine iLO 4's "HP RESTful
+API" dialect has no such key at all (confirmed against this repo's own
+`test_a_non_conformant_service_fails_before_any_login` fixture). The gate
+now checks only that `RedfishVersion` is a non-empty string;
+`@odata.type`'s version segment is no longer part of the decision (still
+in the rejection message for diagnostics). Nothing else needed a change:
+`_sessions_uri()` already separately verifies a login path exists, and
+every optional sub-resource fetch (`_drives`, `_psus`, `_pcie_gpus`,
+`_bmc_mac`, `_optional`) already degrades to `None`/skip on 404/503 rather
+than failing the host. One new test,
+`test_an_old_but_conformant_unversioned_service_root_is_collected`; the
+real-iLO-4 rejection test is untouched and still passes.
+
+**`network.single_link_up` (docs/adr/0027's 2026-09-23 update):**
+severity changed from MAJOR to CRITICAL in `health_policy_defaults.py`,
+unscoped — operator's call, prompted by Dell's bonded NICs: one link up
+is the bond down, not merely degraded redundancy, and the server cannot
+be installed on it. No vendor exception — a scoped Cisco-only override
+(`PolicyScope(vendor=...)`, ADR-0005's shadowing mechanism) was drafted
+and then explicitly rejected in favor of treating every vendor the same
+as `all_links_down` already does. The `links_known_count` gate ADR-0027
+exists for is unchanged: a server with only one *readable* link state
+still does not satisfy `GTE 2` and still does not fire, for any vendor.
+`test_one_up_of_two_real_readings_is_critical` (renamed/updated from
+`..._is_still_major`) pins it.
+
+**Open:** none from this session.
+
+---
+
 **2026-09-23 — AD API insecure-TLS escape hatch, and an inventory CSV
 export.** Moved to `docs/notes/session-log.md`: the AD login / roles /
 session-cookie / API-tokens unit.

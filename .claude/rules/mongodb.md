@@ -76,6 +76,12 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   in the same `$facet` pipeline — `$group` by `name`, `$match` on
   `count > 1` — deliberately unlabeled like `servers_in_maintenance`,
   since a name collision has no dimension worth breaking out yet.
+  **`membership_runs`** (2026-09-24) is a separate collection, not part of
+  `fleet_snapshot`'s `$facet` — one small document per `kind:reported_by`
+  (`MongoMembershipRunRepository`, keyed that way so a `nodes` cluster and
+  an `agents` MCE sharing a name cannot collide), `$set` on every real
+  `tools.collect_openshift` run, read via a plain `list_all()` the same
+  way `ManagerSource` is.
 - **`Manager` carries only what is read**: five never-written fields and
   an index on one were removed 2026-09-13; the index is in
   `RETIRED_INDEXES`.

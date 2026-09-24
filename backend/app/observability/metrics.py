@@ -127,3 +127,36 @@ fleet_snapshot_failures_total = Counter(
     "server_scan_fleet_snapshot_failures_total",
     "Fleet gauge refreshes that failed, leaving the previous values in place",
 )
+
+# From `MembershipRun` documents the `nodes`/`agents` CronJobs write on
+# every real run — see ADR-0029's 2026-09-24 update.
+membership_last_run_timestamp = Gauge(
+    "server_scan_membership_last_run_timestamp_seconds",
+    "Unix time a cluster/MCE membership job's most recent run finished",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_duration = Gauge(
+    "server_scan_membership_last_run_duration_seconds",
+    "Wall-clock seconds the most recent membership run took",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_observed = Gauge(
+    "server_scan_membership_last_run_observed",
+    "Hostnames the most recent membership run reported",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_matched = Gauge(
+    "server_scan_membership_last_run_matched",
+    "Of those, resolved to a known server",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_unmatched = Gauge(
+    "server_scan_membership_last_run_unmatched",
+    "Of those, matched no server in the inventory",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_partial = Gauge(
+    "server_scan_membership_last_run_partial",
+    "1 if the most recent membership run exited PARTIAL (unmatched > 0)",
+    labelnames=("kind", "reported_by"),
+)

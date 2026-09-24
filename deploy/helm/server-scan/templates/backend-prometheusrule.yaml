@@ -11,6 +11,7 @@ only OpenShift's PrometheusRule admission webhook rejected, at sync time.
 */ -}}
 {{- $stale := required "metrics.prometheusRule.staleServersThreshold must be set — check the values file's nesting" .Values.metrics.prometheusRule.staleServersThreshold }}
 {{- $silent := required "metrics.prometheusRule.silentForSeconds must be set — check the values file's nesting" .Values.metrics.prometheusRule.silentForSeconds }}
+{{- $membershipUnmatched := required "metrics.prometheusRule.membershipUnmatchedThreshold must be set — check the values file's nesting" .Values.metrics.prometheusRule.membershipUnmatchedThreshold }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -68,11 +69,25 @@ spec:
           expr: max by (namespace) (server_scan_duplicate_name_groups)
         - record: server_scan:duplicate_name_servers:max
           expr: max by (namespace) (server_scan_duplicate_name_servers)
+        - record: server_scan:membership_last_run_timestamp_seconds:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_timestamp_seconds)
+        - record: server_scan:membership_last_run_duration_seconds:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_duration_seconds)
+        - record: server_scan:membership_last_run_observed:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_observed)
+        - record: server_scan:membership_last_run_matched:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_matched)
+        - record: server_scan:membership_last_run_unmatched:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_unmatched)
+        - record: server_scan:membership_last_run_partial:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_partial)
         # Age in seconds, so a dashboard needs no arithmetic.
         - record: server_scan:collector_silent_seconds
           expr: time() - max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)
         - record: server_scan:cluster_silent_seconds
           expr: time() - max by (namespace, cluster) (server_scan_cluster_last_reported_timestamp_seconds)
+        - record: server_scan:membership_run_silent_seconds
+          expr: time() - max by (namespace, kind, reported_by) (server_scan_membership_last_run_timestamp_seconds)
 
     - name: server-scan.fleet
       rules:
@@ -116,4 +131,20 @@ spec:
           annotations:
             summary: "The API cannot compute its fleet gauges"
             description: "Every server_scan_* gauge is frozen at its last good value. Almost always MongoDB — check mongo_ping_failures_total."
+        - alert: ServerScanMembershipRunSilent
+          expr: server_scan:membership_run_silent_seconds > {{ $silent }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The {{ "{{ $labels.kind }}" }} membership job for {{ "{{ $labels.reported_by }}" }} has not completed a run for over {{ $silent }}s"
+            description: "Its CronJob is failing, suspended, or never ran — and it has never reported a single matched hostname either, or ServerScanClusterSilent would already have fired. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
+        - alert: ServerScanMembershipUnmatched
+          expr: server_scan:membership_last_run_unmatched:max > {{ $membershipUnmatched }}
+          for: 60m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ "{{ $value }}" }} hostname(s) the {{ "{{ $labels.kind }}" }} job for {{ "{{ $labels.reported_by }}" }} reports have no matching server"
+            description: "The job itself is running fine (see ServerScanMembershipRunSilent for that), but it is reporting hosts the vendor collectors have never ingested — a naming mismatch, a not-yet-collected server, or a host that should be in INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS. The newest pod's log lists the hostnames."
 {{- end }}

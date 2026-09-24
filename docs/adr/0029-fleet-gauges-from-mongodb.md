@@ -211,3 +211,68 @@ the same day — no product meaning change, just three consistent labels)
 whole polled fleet (`rows.ts`'s `nameCounts`, computed before other
 filters narrow the set, or a collision split by an unrelated filter
 would look unique). No new endpoint, per ADR-0033.
+
+## Update (2026-09-24): a membership job that only matches unmatched hosts had no gauge at all
+
+**The gap.** `server_scan_cluster_last_reported_timestamp_seconds` is
+only ever set on a *matched* observation
+(`OpenShiftMembershipService._apply` writes `openshift.last_reported_at`
+only for a server it found). A `nodes`/`agents` job that runs
+successfully on schedule but matches zero hostnames — a broken naming
+convention, an inventory the vendor collectors have not caught up to yet
+— never sets that gauge, from its very first run. `ServerScanClusterSilent`
+alerts on `time() - max(...)`, and a PromQL range query over a series
+that has never once existed returns no data, so the alert never fires.
+The job can be dead for months and look identical to one that never ran.
+
+Separately, nothing exported *how many* hostnames a healthy run left
+unmatched at all — only the CronJob's own stdout and an ERROR log line
+per host (`openshift.host_not_in_inventory`), neither of which Prometheus
+ever sees, because the job's pod exits before anything could scrape it.
+
+**Decision: the same `Manager.last_run` pattern this ADR already uses for
+the vendor collectors, applied to the membership jobs.** `tools.
+collect_openshift._record_run` writes a `MembershipRun` (`kind`,
+`reported_by`, `observed`, `matched`, `unmatched`, `duration_seconds`,
+`partial`) into a new `membership_runs` collection at the end of every
+real (non-`--dry-run`) run, exactly where `tools.run_collector._record_run`
+already writes `Manager.last_run`. `FleetGaugeRefresher` reads it
+alongside `Manager.list_all()` and exports
+`server_scan_membership_last_run_{timestamp_seconds,duration_seconds,
+observed,matched,unmatched,partial}`, labelled `kind`/`reported_by` so a
+`nodes` cluster and an `agents` MCE sharing a name never collide.
+
+This is not the "collector-side push" this ADR's own "Alternatives
+rejected" section dismisses — that section is about using a heartbeat as
+the *only* signal for total collector silence, which still cannot report
+a run that never happened at all (a job that never once deploys
+successfully writes nothing, exactly as before; that residual blind spot
+is what `kube_job_status_failed` from kube-state-metrics is for, not this
+gauge). `unmatched`/`observed`/`matched` are counts no independently-derived
+query can produce — an unmatched hostname has no `Server` document to
+`$group` by — so a run record is the only way to export them, the same
+reasoning that already justifies `Manager.last_run`.
+
+Two new alerts, both off by default with the rest of `prometheusRule`:
+
+| Alert | Fires on | Reads |
+|---|---|---|
+| `ServerScanMembershipRunSilent` | `server_scan:membership_run_silent_seconds > silentForSeconds` | The job itself has not completed a real run recently — independent of match rate |
+| `ServerScanMembershipUnmatched` | `server_scan:membership_last_run_unmatched:max > membershipUnmatchedThreshold` (default 0) | The job is running fine but is reporting hosts no vendor collector has ingested |
+
+`ServerScanClusterSilent` is unchanged and still worth keeping: it is the
+per-*server* view (a cluster that stops reporting some, not all, of what
+it held), where `ServerScanMembershipRunSilent` is the per-*job* view.
+
+## Alternatives rejected (2026-09-24 update)
+
+**Prometheus Pushgateway.** A new service to deploy and operate in an
+air-gapped cluster for one job type, when the existing "write to Mongo,
+read on the API's own scrape" mechanism already does the job with zero
+new infrastructure.
+
+**Relying on `kube_job_status_failed` alone (kube-state-metrics).** Free
+where already deployed, but it only sees a hard crash (exit 1 or 2). This
+job's unmatched-hostname case is a legitimate exit 3 — the reconcile
+completed correctly — so a generic Job-failure metric would never fire on
+it at all.

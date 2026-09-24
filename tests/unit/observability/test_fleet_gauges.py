@@ -11,6 +11,7 @@ from prometheus_client import REGISTRY
 from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager, ManagerRun
+from app.domain.models.openshift import MembershipRun
 from app.domain.ports.repository import ClusterSnapshotRow, FleetSnapshot, ProviderSnapshotRow
 from app.observability import metrics
 from app.observability.fleet_gauges import FleetGaugeRefresher, apply_snapshot
@@ -84,6 +85,17 @@ RUN = ManagerRun(
     partial=False,
 )
 
+MEMBERSHIP_RUN = MembershipRun(
+    kind="nodes",
+    reported_by="hc-tlv-01",
+    finished_at=datetime(2026, 9, 24, 12, 0, tzinfo=UTC),
+    duration_seconds=5.0,
+    observed=50,
+    matched=48,
+    unmatched=2,
+    partial=True,
+)
+
 
 class _Managers:
     """A manager source stub."""
@@ -105,6 +117,28 @@ class _Managers:
             list[Manager]: The managers.
         """
         return self.managers
+
+
+class _MembershipRuns:
+    """A membership run source stub."""
+
+    def __init__(self, runs: list[MembershipRun]) -> None:
+        """
+        Serve a fixed list.
+
+        Args:
+            runs (list[MembershipRun]): What `list_all` returns.
+        """
+        self.runs = runs
+
+    async def list_all(self) -> list[MembershipRun]:
+        """
+        Return the fixed list.
+
+        Returns:
+            list[MembershipRun]: The runs.
+        """
+        return self.runs
 
 
 class _Repo:
@@ -154,7 +188,7 @@ def _value(name: str, **labels: str) -> float | None:
 
 
 def test_apply_snapshot_sets_every_gauge() -> None:
-    apply_snapshot(_snapshot(), [_manager(RUN)])
+    apply_snapshot(_snapshot(), [_manager(RUN)], [MEMBERSHIP_RUN])
 
     assert _value("server_scan_servers", source_provider="OPENMANAGE") == 10
     assert _value("server_scan_servers_stale", source_provider="OPENMANAGE") == 3
@@ -180,17 +214,32 @@ def test_apply_snapshot_sets_every_gauge() -> None:
     assert _value(
         "server_scan_collector_last_run_timestamp_seconds", source_provider="OPENMANAGE"
     ) == pytest.approx(RUN.finished_at.timestamp())
+    assert (
+        _value("server_scan_membership_last_run_unmatched", kind="nodes", reported_by="hc-tlv-01")
+        == 2
+    )
+    assert (
+        _value("server_scan_membership_last_run_partial", kind="nodes", reported_by="hc-tlv-01")
+        == 1
+    )
+    assert _value(
+        "server_scan_membership_last_run_timestamp_seconds", kind="nodes", reported_by="hc-tlv-01"
+    ) == pytest.approx(MEMBERSHIP_RUN.finished_at.timestamp())
 
 
 def test_apply_snapshot_drops_label_sets_that_vanished() -> None:
     """A retired collector or cluster must not keep reporting its last count."""
-    apply_snapshot(_snapshot(), [_manager(RUN)])
-    apply_snapshot(_snapshot(by_provider=[], by_cluster=[], by_health={}, by_policy={}), [])
+    apply_snapshot(_snapshot(), [_manager(RUN)], [MEMBERSHIP_RUN])
+    apply_snapshot(_snapshot(by_provider=[], by_cluster=[], by_health={}, by_policy={}), [], [])
 
     assert _value("server_scan_servers", source_provider="OPENMANAGE") is None
     assert _value("server_scan_cluster_servers_held", cluster="hc-tlv-01") is None
     assert _value("server_scan_policy_active", policy_key="power.failed_psu") is None
     assert _value("server_scan_collector_last_run_partial", source_provider="OPENMANAGE") is None
+    assert (
+        _value("server_scan_membership_last_run_unmatched", kind="nodes", reported_by="hc-tlv-01")
+        is None
+    )
 
 
 def test_a_never_seen_collector_has_no_timestamp_sample() -> None:
@@ -198,7 +247,7 @@ def test_a_never_seen_collector_has_no_timestamp_sample() -> None:
     row = ProviderSnapshotRow(
         source_provider="ONEVIEW", total=1, stale=1, unreachable=0, partial=0, last_seen_at=None
     )
-    apply_snapshot(_snapshot(by_provider=[row]), [_manager(None)])
+    apply_snapshot(_snapshot(by_provider=[row]), [_manager(None)], [])
 
     assert _value("server_scan_servers_stale", source_provider="ONEVIEW") == 1
     assert (
@@ -215,7 +264,11 @@ def test_a_never_seen_collector_has_no_timestamp_sample() -> None:
 async def test_refresher_queries_once_per_interval() -> None:
     repo = _Repo(_snapshot())
     refresher = FleetGaugeRefresher(
-        repo, _Managers([]), stale_after_seconds=60, min_interval_seconds=3600
+        repo,
+        _Managers([]),
+        _MembershipRuns([]),
+        stale_after_seconds=60,
+        min_interval_seconds=3600,
     )
 
     assert await refresher.maybe_refresh() is True
@@ -225,11 +278,12 @@ async def test_refresher_queries_once_per_interval() -> None:
 
 
 async def test_refresher_keeps_old_values_when_the_query_fails() -> None:
-    apply_snapshot(_snapshot(), [])
+    apply_snapshot(_snapshot(), [], [])
     before = metrics.fleet_snapshot_failures_total._value.get()
     refresher = FleetGaugeRefresher(
         _Repo(RuntimeError("mongo down")),
         _Managers([]),
+        _MembershipRuns([]),
         stale_after_seconds=60,
         min_interval_seconds=0,
     )
