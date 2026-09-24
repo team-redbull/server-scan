@@ -257,12 +257,29 @@ Two new alerts, both off by default with the rest of `prometheusRule`:
 
 | Alert | Fires on | Reads |
 |---|---|---|
-| `ServerScanMembershipRunSilent` | `server_scan:membership_run_silent_seconds > silentForSeconds` | The job itself has not completed a real run recently — independent of match rate |
+| `ServerScanMembershipRunSilent` | `server_scan:membership_run_silent_seconds > membershipSilentForSeconds` | The job itself has not completed a real run recently — independent of match rate |
 | `ServerScanMembershipUnmatched` | `server_scan:membership_last_run_unmatched:max > membershipUnmatchedThreshold` (default 0) | The job is running fine but is reporting hosts no vendor collector has ingested |
 
-`ServerScanClusterSilent` is unchanged and still worth keeping: it is the
-per-*server* view (a cluster that stops reporting some, not all, of what
-it held), where `ServerScanMembershipRunSilent` is the per-*job* view.
+`ServerScanClusterSilent`'s alert and semantics are unchanged — it is
+still the per-*server* view (a cluster that stops reporting some, not
+all, of what it held), where `ServerScanMembershipRunSilent` is the
+per-*job* view — but **its threshold moved off `silentForSeconds` onto
+the new `membershipSilentForSeconds` in the same pass**, for the reason
+below.
+
+**A shared threshold does not fit both cadences.** `silentForSeconds`
+already existed, sized against the vendor collectors'
+`collectors.*.schedule` (default every 6h; 43200s = 2 cycles). Reusing it
+for `ServerScanMembershipRunSilent` (and, latently, for the pre-existing
+`ServerScanClusterSilent`) tolerated 43200s of silence on a `nodes-status`
+job that runs every **15 minutes** by default
+(`nodes.schedule`/`agents.schedule`) — 48 missed runs before either
+alert fired. Caught before it shipped quietly wrong, on the operator's
+own estate where both jobs really do run every 15 minutes. Split into a
+second required value, `metrics.prometheusRule.membershipSilentForSeconds`
+(default 1800s = 2 of the 15-minute cycles), used by both
+`ServerScanClusterSilent` and `ServerScanMembershipRunSilent`;
+`silentForSeconds` now backs `ServerScanCollectorSilent` alone.
 
 ## Alternatives rejected (2026-09-24 update)
 

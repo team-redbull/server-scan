@@ -286,9 +286,23 @@ metrics:
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched
     staleServersThreshold: 10
-    silentForSeconds: 43200
+    silentForSeconds: 43200            # vendor collectors only — 2x their 6h schedule
+    membershipSilentForSeconds: 1800   # nodes-status jobs only — 2x their 15min schedule
     membershipUnmatchedThreshold: 0
 ```
+
+**`silentForSeconds` and `membershipSilentForSeconds` are two separate
+values on purpose.** The vendor collectors (`collectors.*.schedule`,
+default every 6h) and the `nodes-status` membership jobs
+(`nodes.schedule`/`agents.schedule`, default every 15min) run on very
+different cadences, and a single shared threshold cannot fit both: sized
+for the collectors (12h) it tolerates 48 missed membership-job runs
+before `ServerScanClusterSilent`/`ServerScanMembershipRunSilent` fire —
+this bit a real deploy (a `helm template` failure was the easy half of
+it; the threshold mismatch was the part worth catching before it shipped
+quietly wrong). Change the collector one if you change
+`collectors.*.schedule`; change the membership one if you change
+`nodes.schedule`/`agents.schedule` in the separate `nodes-status` chart.
 
 Both are **off by default** because they need the `monitoring.coreos.com`
 CRDs, which vanilla Kubernetes lacks. On OpenShift the CRDs always exist —

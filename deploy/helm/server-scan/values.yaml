@@ -319,9 +319,21 @@ metrics:
     # `server_scan_servers_stale` above this per collector fires
     # ServerScanServersStale. 0 alerts on the first stale server.
     staleServersThreshold: 10
-    # A collector or cluster that has not reported for this long fires
-    # ServerScanCollectorSilent / ServerScanClusterSilent. Two cycles.
+    # A collector that has not reported for this long fires
+    # ServerScanCollectorSilent. Two of the shared 6-hour collector
+    # cycles (`collectors.*.schedule`) — match it if you change those.
+    # NOT used for the membership jobs, which run on their own, much
+    # tighter schedule; see membershipSilentForSeconds below.
     silentForSeconds: 43200
+    # A `nodes`/`agents` membership job that has not completed a run for
+    # this long fires ServerScanMembershipRunSilent; a cluster that has
+    # not had a server matched for this long fires ServerScanClusterSilent.
+    # Two of `deploy/helm/nodes-status`'s default 15-minute
+    # `nodes.schedule`/`agents.schedule` cycles — match it if you change
+    # those (ADR-0029's 2026-09-24 update; this used to share
+    # silentForSeconds above, which meant 12h of silence on a job that
+    # runs every 15 minutes before anything fired).
+    membershipSilentForSeconds: 1800
     # A `nodes`/`agents` membership job whose last real run left this many
     # hostnames unmatched fires ServerScanMembershipUnmatched. 0 means any
     # unmatched hostname is worth investigating (ADR-0029's 2026-09-24

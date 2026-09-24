@@ -240,11 +240,11 @@
 
     {
       "id": 17, "type": "timeseries", "title": "Membership run silence age",
-      "description": "server_scan:membership_run_silent_seconds — time() - max(membership_last_run_timestamp_seconds), per kind/reported_by. Fires ServerScanMembershipRunSilent (ADR-0029's 2026-09-24 update) independent of match rate — this is what catches a job that runs but matches zero hostnames, which cluster_last_reported_timestamp_seconds below cannot see at all.",
+      "description": "server_scan:membership_run_silent_seconds — time() - max(membership_last_run_timestamp_seconds), per kind/reported_by. Fires ServerScanMembershipRunSilent above membershipSilentForSeconds (default 1800s = two 15-min nodes-status cycles) independent of match rate — this is what catches a job that runs but matches zero hostnames, which cluster_last_reported_timestamp_seconds below cannot see at all.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
       "targets": [{ "expr": "server_scan:membership_run_silent_seconds{namespace=~\"$namespace\"}", "legendFormat": "{{kind}} / {{reported_by}}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } }, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 43200 }] } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } }, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1800 }] } }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } }
     },
     {
@@ -297,11 +297,11 @@
     },
     {
       "id": 22, "type": "timeseries", "title": "Cluster report silence age (per-server view)",
-      "description": "server_scan:cluster_silent_seconds — driven by openshift.last_reported_at, only ever set on a matched hostname. Fires ServerScanClusterSilent. See panel 17 for the per-job view that also catches a 0%-match run.",
+      "description": "server_scan:cluster_silent_seconds — driven by openshift.last_reported_at, only ever set on a matched hostname. Fires ServerScanClusterSilent above membershipSilentForSeconds (default 1800s). See panel 17 for the per-job view that also catches a 0%-match run.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 55 },
       "targets": [{ "expr": "server_scan:cluster_silent_seconds{namespace=~\"$namespace\", cluster=~\"$cluster\"}", "legendFormat": "{{cluster}}", "refId": "A" }],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } }, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 43200 }] } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } }, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1800 }] } }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } }
     },
     {

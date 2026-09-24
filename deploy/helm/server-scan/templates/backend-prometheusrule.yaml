@@ -1,7 +1,13 @@
 {{- if .Values.metrics.prometheusRule.enabled }}
 {{- /*
 The alerts ADR-0029 exists for. Thresholds are values so an estate on a
-different collector cadence tunes them without editing this file.
+different collector or membership-job cadence tunes them without editing
+this file — the two silence thresholds are deliberately separate
+(silentForSeconds for the 6h-cadence vendor collectors,
+membershipSilentForSeconds for the 15min-cadence nodes-status jobs), not
+one shared value, or a deployment on the default schedules tolerates
+either 48 missed membership-job runs or 2 missed collector runs, never
+both correctly.
 
 `required`, because Helm renders a missing value as an empty string with
 no warning: a values file that mis-nests these keys once produced
@@ -11,6 +17,7 @@ only OpenShift's PrometheusRule admission webhook rejected, at sync time.
 */ -}}
 {{- $stale := required "metrics.prometheusRule.staleServersThreshold must be set — check the values file's nesting" .Values.metrics.prometheusRule.staleServersThreshold }}
 {{- $silent := required "metrics.prometheusRule.silentForSeconds must be set — check the values file's nesting" .Values.metrics.prometheusRule.silentForSeconds }}
+{{- $membershipSilent := required "metrics.prometheusRule.membershipSilentForSeconds must be set — check the values file's nesting" .Values.metrics.prometheusRule.membershipSilentForSeconds }}
 {{- $membershipUnmatched := required "metrics.prometheusRule.membershipUnmatchedThreshold must be set — check the values file's nesting" .Values.metrics.prometheusRule.membershipUnmatchedThreshold }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -108,12 +115,12 @@ spec:
             summary: "{{ "{{ $value }}" }} {{ "{{ $labels.source_provider }}" }} servers not collected within INVENTORY_STALE_AFTER_SECONDS"
             description: "The collector is running but these servers are not being read — dead BMCs, rejected logins, or hosts dropped from the manager. `server_scan:servers_unreachable:max` says how many are the first kind."
         - alert: ServerScanClusterSilent
-          expr: server_scan:cluster_silent_seconds > {{ $silent }}
+          expr: server_scan:cluster_silent_seconds > {{ $membershipSilent }}
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ $silent }}s"
+            summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ $membershipSilent }}s"
             description: "Its servers stay INSTALLED forever and nothing else notices. Check the nodes-status release in that cluster."
         - alert: ServerScanCollectorRunPartial
           expr: server_scan:collector_last_run_partial:max == 1
@@ -132,12 +139,12 @@ spec:
             summary: "The API cannot compute its fleet gauges"
             description: "Every server_scan_* gauge is frozen at its last good value. Almost always MongoDB — check mongo_ping_failures_total."
         - alert: ServerScanMembershipRunSilent
-          expr: server_scan:membership_run_silent_seconds > {{ $silent }}
+          expr: server_scan:membership_run_silent_seconds > {{ $membershipSilent }}
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "The {{ "{{ $labels.kind }}" }} membership job for {{ "{{ $labels.reported_by }}" }} has not completed a run for over {{ $silent }}s"
+            summary: "The {{ "{{ $labels.kind }}" }} membership job for {{ "{{ $labels.reported_by }}" }} has not completed a run for over {{ $membershipSilent }}s"
             description: "Its CronJob is failing, suspended, or never ran — and it has never reported a single matched hostname either, or ServerScanClusterSilent would already have fired. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
         - alert: ServerScanMembershipUnmatched
           expr: server_scan:membership_last_run_unmatched:max > {{ $membershipUnmatched }}

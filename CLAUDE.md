@@ -645,4 +645,32 @@ staleness/run health, the new membership-job gauges, top firing health
 policies, and API/Mongo/Redis metrics. A plain importable export, not
 wired into the chart — no `GrafanaDashboard` CR exists here.
 
-**Open:** none from this session.
+**Two follow-up fixes, same session, both from the first push's CI run:**
+
+1. **CI's `Deploy (bump redbull-platform)` job failed** — `helm template`
+   against the gitops repo's hand-maintained
+   `gitops/charts/server-scan/values.yaml` rejected the new `required`
+   `membershipUnmatchedThreshold`/`membershipSilentForSeconds` (below)
+   because that file is a separate copy this chart's own CI only
+   `rsync`s `templates/`/`files/` into, never `values.yaml` — the exact
+   same class of gap as the auth-block miss earlier this week. Fixed by
+   editing and pushing `team-redbull/redbull-platform` directly, the
+   established precedent for this failure mode. **Any `required` value
+   this chart adds needs the same manual add to that repo's
+   `values.yaml`, every time** — nothing automates it.
+2. **`silentForSeconds` was one shared threshold for two very different
+   cadences** — the operator pointed out their `nodes-status` jobs run
+   every 15 minutes while the vendor collectors run every 6 hours (the
+   platform's own defaults, not just this estate's config:
+   `nodes.schedule`/`agents.schedule` vs `collectors.*.schedule`).
+   43200s (sized for 6h collectors) meant `ServerScanClusterSilent` and
+   the new `ServerScanMembershipRunSilent` would each tolerate 48 missed
+   membership-job runs before firing. Split into a second `required`
+   value, `metrics.prometheusRule.membershipSilentForSeconds` (default
+   1800s = 2 of the 15-minute cycles), used by both those alerts;
+   `silentForSeconds` now backs `ServerScanCollectorSilent` alone. See
+   ADR-0029's 2026-09-24 update for the full reasoning.
+
+**Open:** confirm the pushed `redbull-platform` commit's own CI (helm
+lint/template against the corrected values.yaml) actually goes green —
+not yet observed at the time this entry was written.
