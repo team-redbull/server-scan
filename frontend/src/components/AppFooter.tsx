@@ -3,7 +3,7 @@
 export function AppFooter() {
   return (
     <footer className="mx-auto max-w-7xl px-8 pt-6 pb-10 text-base text-[var(--text-secondary)]">
-      © Tomer Karniol
+      © Tomer Karniol & Roi Blum
     </footer>
   );
 }
