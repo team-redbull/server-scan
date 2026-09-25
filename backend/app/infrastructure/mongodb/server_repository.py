@@ -295,6 +295,23 @@ class MongoServerRepository:
             items=items, next_cursor=next_cursor, has_more=has_more, total_count=total_count
         )
 
+    async def find_ids(self, filters: dict[str, object], *, limit: int = 10) -> list[str]:
+        """
+        The ids of servers matching whitelisted filters, capped at `limit`.
+
+        Projects `_id` alone rather than reading documents: the callers only
+        need to name the matches back to a user.
+
+        Args:
+            filters (dict[str, object]): Mongo-keyed filters.
+            limit (int): Most ids to return.
+
+        Returns:
+            list[str]: Matching server ids.
+        """
+        cursor = self._collection.find(filters, {"_id": 1}).limit(limit)
+        return [str(doc["_id"]) for doc in await cursor.to_list(length=limit)]
+
     async def find_one_by_name(
         self, name_normalized: str, *, filters: dict[str, object]
     ) -> Server | None:

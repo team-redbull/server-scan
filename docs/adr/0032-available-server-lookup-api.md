@@ -370,3 +370,138 @@ disambiguating `UCS_CENTRAL` from `INTERSIGHT` within `vendor=cisco`, the
 fake-provider-backed live-recheck-downgrades-a-candidate integration
 scenario, `count` validation/clamping/randomness, and route ordering
 against `/servers/{server_id}`.
+
+## Update (2026-09-25): what a BMH caller actually needs to trust the answer
+
+Building the `install-server` Temporal workflow against this endpoint — the
+replacement for `bmh-generator-operator` that Decision 1's 2026-09-13 update
+anticipated — surfaced four defects, each confirmed against a running
+instance. All four are fixed; the endpoint's shape is otherwise unchanged.
+
+### 1. `HEALTHY` is not evidence that a server can be installed
+
+`GET /servers/available` returned servers with **no NIC MACs at all** — 38 of
+371 assignable servers (10.2%) on a 2,500-server instance. Such a server cannot
+become a `BareMetalHost`: `spec.bootMACAddress` is required and there is
+nothing to put in it.
+
+They were not merely included, they were drawn **first**, because they read
+`HEALTHY`. That is the health engine working as designed and is worth stating
+plainly, because it is counter-intuitive: `overall` is the worst category by
+`HEALTH_SEVERITY_RANK`, `UNKNOWN` ranks *below* `HEALTHY` (0 < 1), and a
+category with no data read is `UNKNOWN` and skipped (ADR-0027's 2026-09-21
+update). A server whose NIC read failed therefore has no network facts to fail
+a policy on and comes out `HEALTHY` overall. **The less that was read, the
+healthier a server looks.**
+
+The platform already knows: such a server carries `identity.nic_macs` in
+`unread_fields`. The selection gate simply never consulted it — the "`None`
+means could not read this run" rule was honoured in storage and dropped at the
+one place a caller acts on it.
+
+`?min_nic_macs=` now folds two clauses into the assignability filter and into
+`server_still_qualifies`, which must agree or a candidate the query returned
+would be rejected on every draw:
+
+```python
+f"identity.nic_macs.{min_nic_macs - 1}": {"$exists": True},   # at least N
+"unread_fields": {"$ne": "identity.nic_macs"},                # and actually read
+```
+
+Both halves are load-bearing. The length test alone passes a server whose NIC
+read failed and whose MACs were carried forward from an earlier run; the
+`unread_fields` test alone passes one that genuinely has too few.
+
+**It is opt-in — the default of `0` imposes nothing.** Excluding MAC-less
+servers by default is arguably the right behaviour, since this endpoint exists
+to serve BMH creation and such a server can never be used for it. It is
+deliberately not the default yet: that would change what every existing caller
+receives, silently, and the change is worth making on its own once
+`install-server` is the only caller rather than bundled into the change that
+introduced the parameter. `install-server` passes `2`.
+
+### 2. `?health=` — the tier fill was not what a provisioning caller wanted
+
+The fill is best-first across `HEALTHY` → `WARNING` → `MAJOR`, so a caller that
+installs only on `HEALTHY` hardware was handed a `WARNING` server whenever no
+`HEALTHY` one was free — and paid a live recheck, against a vendor manager, for
+a candidate it then discarded. `?health=` restricts the draw to one tier.
+`CRITICAL`/`UNKNOWN` remain rejected outright (400), as they are never
+assignable.
+
+This does not change the default: without `?health=` the endpoint fills exactly
+as before. The platform's position that `WARNING` and `MAJOR` hardware is
+provisionable is unchanged — the parameter lets a caller be stricter than the
+platform, not the reverse.
+
+### 3. `?name=` returned an arbitrary server, not "exactly one"
+
+Decision 1 says *"Exactly one server must match, or 404."* The implementation
+was `find_one` with **no sort**, which returns an arbitrary document when
+several match — and several do: on the same instance, 2,500 documents carried
+only 1,454 distinct names, 548 names belonging to more than one document. That
+is not a seeding artifact. Correlation is on `(vendor, serial_normalized)`
+(ADR-0011/0016), so one hostname legitimately spans several documents whenever a
+machine is re-serialled, moved between vendors, or seen by two collectors.
+
+Observed: `?name=ocp4-bat-yam-compute-02` matched three documents, `find_one`
+returned the `INSTALLED`/`CRITICAL` one, and the endpoint answered **404 "no
+longer available"** — while two assignable servers of that exact name sat in the
+collection.
+
+Now counted first: more than one match raises `AvailableServerNameAmbiguousError`
+(409, `AVAILABLE_SERVER_NAME_AMBIGUOUS`) listing the matching ids in `details`,
+so the caller narrows with `vendor`/`source_provider` rather than being handed a
+machine it never chose. This makes the stated contract real; it does not change
+it.
+
+### 4. A filtered-out result blamed the pattern
+
+`lookup_by_pattern` folded `extra_filters` into `base_filters` before the first
+count, so `?pattern=ocp-dell&vendor=hp` answered *"no server name matches
+'ocp-dell'"* — sending whoever reads it to debug a pattern that was fine. The
+name clause is now counted alone first, and the filtered set second, so the
+message names whichever emptied the result.
+
+### `link_state` and `speed_mbps` on `AvailableInterface`
+
+Bonding needs to know which ports are up, so `AvailableInterface` now carries
+`link_state` (and `speed_mbps`, for asserting members match). This is the one
+addition to the item since the 2026-09-13 update's "do not grow it back into a
+full detail" — justified because without it the projection cannot answer the
+question it exists to serve.
+
+**How unevenly vendors report it is the caller's problem, and it is real.**
+Dell (OpenManage) and `REDFISH_STANDALONE` report a true Redfish `LinkStatus`.
+UCS gained a usable vNIC signal on 2026-09-14 (`operability`), with no genuine
+`DOWN` yet observed in production. Intersight vNICs usually report `OperState`
+empty. **HPE OneView reports `UNKNOWN` unconditionally** — `portMap` carries no
+link state at all, so nothing is being lost in translation and none can be
+synthesised (docs/hpe-collectors.md). A caller requiring strictly-`UP` members
+can therefore never select an HPE server. That is a data gap, not an API one;
+exposing the field lets the caller see it and fail explicitly rather than
+silently never choosing those servers.
+
+### Related, and deliberately still open
+
+**Physical-port distinctness is not expressible for every vendor.** A bond needs
+two *ports*, not two interfaces: two NPAR partitions of one port are two MACs on
+one wire. `dell_port_nics` already reduces `network.interfaces` to one entry per
+physical port and rewrites `location` to `controller/port/partition`, and
+OneView reads only `physicalPorts`. But `location` is `None` for every Cisco and
+HPE server, and Cisco's interfaces are vNICs rather than ports at all. A caller
+can group by `location` where it parses and fall back to `name`; nothing better
+exists in the stored data today.
+
+**`identity.nic_macs` is not the same set as `network.interfaces[].mac`.** For
+Dell, `dell_port_nics` reduces the interfaces and deliberately leaves the MAC
+list whole (`# nic_macs stays whole on purpose`), so a 4-port NPAR'd card
+reports 4 interfaces and 16 MACs. A caller selecting bond members must read
+`interfaces`, not `nic_macs`. `?min_nic_macs=` filters on `nic_macs` because it
+is a cheap floor, not because it is the right list to select from.
+
+**Still no reservation.** Decision 3's "no reservation/lock" stands, and
+`install-server` works around it by keying its workflow id on the target, which
+serialises installs per (InfraEnv, MCE). Installing several servers into one
+InfraEnv concurrently needs a real short-TTL reservation here; that is its own
+ADR.

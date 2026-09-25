@@ -68,6 +68,7 @@ class ErrorCode:
     AVAILABLE_COUNT_TOO_LARGE = "AVAILABLE_COUNT_TOO_LARGE"
     AVAILABLE_LOOKUP_CONFLICTING_PARAMS = "AVAILABLE_LOOKUP_CONFLICTING_PARAMS"
     AVAILABLE_SERVER_NOT_FOUND = "AVAILABLE_SERVER_NOT_FOUND"
+    AVAILABLE_SERVER_NAME_AMBIGUOUS = "AVAILABLE_SERVER_NAME_AMBIGUOUS"
 
 
 def _slug(code: str) -> str:
@@ -309,6 +310,17 @@ class AvailableCountTooLargeError(AppError):
 
     status_code = 422
     code = ErrorCode.AVAILABLE_COUNT_TOO_LARGE
+
+
+class AvailableServerNameAmbiguousError(AppError):
+    """409: `GET /servers/available?name=` matched more than one server.
+
+    Names are not unique (correlation is on `(vendor, serial_normalized)`) —
+    ADR-0032's 2026-09-25 update.
+    """
+
+    status_code = 409
+    code = ErrorCode.AVAILABLE_SERVER_NAME_AMBIGUOUS
 
 
 class AvailableLookupConflictingParamsError(AppError):
