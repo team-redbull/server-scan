@@ -139,13 +139,17 @@ def server_still_qualifies(
         bool: `True` when it is `AVAILABLE`, not in maintenance, reachable, at
             an acceptable health tier, and carrying enough freshly-read MACs.
     """
+    # Gated on the caller asking, so this admits exactly what the draw
+    # returned — ADR-0032's 2026-09-26 update.
+    if min_nic_macs >= 1 and (
+        len(server.identity.nic_macs) < min_nic_macs or "identity.nic_macs" in server.unread_fields
+    ):
+        return False
     return (
         server.openshift.lifecycle_state == OpenShiftState.AVAILABLE
         and not server.maintenance.enabled
         and server.reachable
         and server.health.overall in tiers
-        and len(server.identity.nic_macs) >= min_nic_macs
-        and "identity.nic_macs" not in server.unread_fields
     )
 
 

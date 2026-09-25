@@ -501,7 +501,55 @@ reports 4 interfaces and 16 MACs. A caller selecting bond members must read
 is a cheap floor, not because it is the right list to select from.
 
 **Still no reservation.** Decision 3's "no reservation/lock" stands, and
-`install-server` works around it by keying its workflow id on the target, which
-serialises installs per (InfraEnv, MCE). Installing several servers into one
-InfraEnv concurrently needs a real short-TTL reservation here; that is its own
-ADR.
+`install-server` works around it in two places: its workflow id keys on the
+CANDIDATE POOL (`^ocp-<infraEnv>`), which serialises concurrent draws from one
+pool, and it skips any candidate that already has a BareMetalHost, which covers
+the sequential case an id cannot — a second run started before any cluster has
+reported the node, while this endpoint still calls that machine unclaimed.
+Installing several servers from one pool concurrently needs a real short-TTL
+reservation here; that is its own ADR.
+
+## Update (2026-09-26): `min_nic_macs=0` really does mean "impose nothing"
+
+The 2026-09-25 update above said `?min_nic_macs=` defaults to `0` so that
+existing callers are unaffected. The first implementation did not honour that.
+`nic_mac_filters(0)` correctly returned `{}`, but `server_still_qualifies`
+applied its `"identity.nic_macs" not in unread_fields` clause unconditionally —
+so the Mongo draw admitted a server whose NIC read had failed and the
+post-recheck predicate then rejected it.
+
+Two consequences, neither visible in a unit test that exercised only one side:
+
+* **The default narrowed.** A server whose NIC MACs were unread stopped being
+  returned at all, which is exactly the behaviour change the opt-in default was
+  chosen to avoid.
+* **Every draw wasted a replacement round.** `_fill_from_tiers` re-drew and
+  re-discarded the same servers until `_MAX_REPLACEMENT_ROUNDS_PER_TIER` was
+  spent, then returned short.
+
+Both clauses are now gated on `min_nic_macs >= 1`, so the predicate admits
+exactly what the filters drew. The invariant worth stating plainly: **the Mongo
+filter and the post-recheck predicate must agree clause for clause**, because a
+candidate the query returns and the predicate rejects is drawn and discarded on
+every round. `test_the_default_draw_and_this_predicate_admit_the_same_servers`
+pins it.
+
+### What the gate is worth, measured on a real fleet
+
+Against the 200-server fleet in the `cluster-2qsc5` sandbox, `?pattern=^ocp-`:
+
+| Query | Returned |
+|---|---|
+| `health=HEALTHY` | 4 |
+| `health=HEALTHY&min_nic_macs=2` | **1** |
+
+Three of the four servers that read `HEALTHY` and `AVAILABLE` carry
+`identity.nic_macs` in `unread_fields` and have **zero** MACs and **zero**
+interfaces. Their NIC read failed, so their network category has no data, its
+policies are skipped, and — since `UNKNOWN` ranks below `HEALTHY` and the
+rollup is `max()` (ADR-0027) — the failure never reaches the overall verdict.
+
+So 75% of what this endpoint calls healthy and assignable cannot be installed
+at all, and the health tiers cannot express that. That is the measurement
+behind `?min_nic_macs=`: it is not a refinement of the health filter, it is the
+only gate that speaks to installability.

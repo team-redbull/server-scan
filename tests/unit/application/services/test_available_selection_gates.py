@@ -84,6 +84,13 @@ class TestServerStillQualifies:
         assert server_still_qualifies(macless)
         assert not server_still_qualifies(macless, min_nic_macs=1)
 
+    def test_the_default_draw_and_this_predicate_admit_the_same_servers(self) -> None:
+        # A disagreement here silently narrows the endpoint's default and
+        # burns a replacement round per draw — ADR-0032's 2026-09-26 update.
+        unread = _server(nic_macs=[], unread_fields=["identity.nic_macs"])
+        assert nic_mac_filters(0) == {}
+        assert server_still_qualifies(unread)
+
     def test_carried_forward_macs_are_rejected_when_the_read_failed(self) -> None:
         # The count alone is satisfied; only unread_fields reveals that the
         # values came from an earlier run rather than this one.
