@@ -21,7 +21,11 @@ def test_round_trip() -> None:
 def test_tampered_signature_is_rejected() -> None:
     token = encode_session(username="jdoe", role=Role.ADMIN, secret=SECRET, ttl_seconds=3600)
     payload_b64, signature_b64 = token.split(".", 1)
-    tampered = f"{payload_b64}.{signature_b64[:-1]}{'A' if signature_b64[-1] != 'A' else 'B'}"
+    # The digest's *last* base64 char has 2 unchecked padding bits, so an
+    # 'A'/'B' swap there can decode to identical bytes ~6% of the time
+    # (flaky). The first char has no such ambiguity.
+    tampered_char = "B" if signature_b64[0] != "B" else "C"
+    tampered = f"{payload_b64}.{tampered_char}{signature_b64[1:]}"
     assert decode_session(tampered, secret=SECRET) is None
 
 
