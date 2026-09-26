@@ -15,6 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
+from pydantic import TypeAdapter
+
 from app.application.services.ingest import IngestService
 from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState
 from app.domain.models.server import Server
@@ -128,8 +130,7 @@ def unreserved_filters(now: datetime) -> dict[str, object]:
     """
     The Mongo clause excluding servers currently reserved for an install.
 
-    `$nor`, NOT `$or`: overwriting the `$or` this merges beside would widen a
-    draw to the whole fleet — ADR-0035, decision 7.
+    `$nor` not `$or`, and the cutoff as an ISO STRING — ADR-0035, decision 7.
 
     Args:
         now (datetime): The instant expiry is judged against.
@@ -138,10 +139,17 @@ def unreserved_filters(now: datetime) -> dict[str, object]:
         dict[str, object]: A clause to merge into an assignability filter. Owns
             the `$nor` key, which nothing else in this module uses.
     """
+    # Documents store datetimes as ISO STRINGS (`model_dump(mode="json")`), and
+    # a `datetime` compared against one matches NOTHING — different BSON types.
+    # `fleet_snapshot` converts its cutoff the same way.
+    cutoff = TypeAdapter(datetime).dump_python(now, mode="json")
     return {
         "$nor": [
             {"reservation.holder": {"$ne": None}, "reservation.expires_at": None},
-            {"reservation.holder": {"$ne": None}, "reservation.expires_at": {"$gt": now}},
+            {
+                "reservation.holder": {"$ne": None},
+                "reservation.expires_at": {"$gt": cutoff},
+            },
         ]
     }
 
