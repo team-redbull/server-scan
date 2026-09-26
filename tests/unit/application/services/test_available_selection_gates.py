@@ -4,10 +4,13 @@
 the same conditions after a live recheck. They must agree: a candidate the query
 returned but the predicate rejects is drawn and discarded on every round.
 
-Why a MAC gate exists at all, given the health tiers already filter: a server
-whose NIC read failed has no network facts to fail a policy on, so its network
+Why either gate exists, given the health tiers already filter: a server whose
+NIC read failed has no network facts to fail a policy on, so its network
 category is `UNKNOWN`, which ranks below `HEALTHY` and never lowers the rollup —
 it reads `HEALTHY` overall. ADR-0032's 2026-09-25 update has the measurements.
+The network-category gate closes that directly by reading `health.network`
+rather than `health.overall`; the MAC gate remains a separate, cruder check on
+`identity.nic_macs`, which is a different list (NPAR-unreduced).
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ def _server(
     nic_macs: list[str] | None = None,
     unread_fields: list[str] | None = None,
     health: HealthSeverity = HealthSeverity.HEALTHY,
+    network: HealthSeverity = HealthSeverity.HEALTHY,
     lifecycle: OpenShiftState = OpenShiftState.AVAILABLE,
     reachable: bool = True,
     maintenance: bool = False,
@@ -46,7 +50,7 @@ def _server(
         name="ocp-dell-r650-tlv-64c-1024gb-DEL0000485",
         name_normalized="ocp-dell-r650-tlv-64c-1024gb-del0000485",
         identity=Identity(vendor=Vendor.DELL, nic_macs=nic_macs or []),
-        health=Health(overall=health),
+        health=Health(overall=health, network=network),
         openshift=OpenShiftLifecycle(lifecycle_state=lifecycle),
         maintenance=Maintenance(enabled=maintenance),
         reachable=reachable,
@@ -126,3 +130,42 @@ class TestServerStillQualifies:
         )
         assert not server_still_qualifies(_server(nic_macs=macs, reachable=False))
         assert not server_still_qualifies(_server(nic_macs=macs, maintenance=True))
+
+
+class TestNetworkCategoryGate:
+    """`health.overall` cannot express "the links were actually read"."""
+
+    def test_an_unread_network_category_is_rejected_though_overall_is_healthy(
+        self,
+    ) -> None:
+        """The hole this closes, and the reason it cannot live in the tiers.
+
+        OneView carries no link state and most Intersight vNICs report none,
+        so those servers roll up HEALTHY off their other categories.
+        """
+        server = _server(
+            nic_macs=["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"],
+            health=HealthSeverity.HEALTHY,
+            network=HealthSeverity.UNKNOWN,
+        )
+        assert server.health.overall is HealthSeverity.HEALTHY
+        assert not server_still_qualifies(server)
+
+    def test_a_failing_network_category_is_rejected(self) -> None:
+        assert not server_still_qualifies(
+            _server(network=HealthSeverity.CRITICAL, health=HealthSeverity.CRITICAL)
+        )
+
+    def test_a_read_and_passing_network_category_qualifies(self) -> None:
+        assert server_still_qualifies(_server(network=HealthSeverity.HEALTHY))
+
+    def test_a_widened_tier_does_not_widen_the_network_requirement(self) -> None:
+        """`?health=` picks how bad the ROLLUP may be. A WARNING server with a
+        good network is installable; an unread network is not, at any tier.
+        """
+        assert server_still_qualifies(
+            _server(health=HealthSeverity.WARNING, network=HealthSeverity.HEALTHY)
+        )
+        assert not server_still_qualifies(
+            _server(health=HealthSeverity.WARNING, network=HealthSeverity.UNKNOWN)
+        )

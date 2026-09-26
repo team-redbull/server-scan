@@ -32,6 +32,11 @@ SELECTABLE_TIERS: tuple[HealthSeverity, ...] = (
 
 _SELECTABLE_VALUES = [tier.value for tier in SELECTABLE_TIERS]
 
+# `health.overall` cannot carry this: UNKNOWN ranks BELOW HEALTHY and never
+# raises a max(), so a server whose links were never read rolls up HEALTHY off
+# its other categories — docs/adr/0032, 2026-09-26 update.
+REQUIRED_NETWORK_HEALTH = HealthSeverity.HEALTHY
+
 # Bounds worst-case cost when candidates keep failing their live recheck —
 # ADR-0032, "candidate ranking".
 _MAX_REPLACEMENT_ROUNDS_PER_TIER = 3
@@ -137,7 +142,8 @@ def server_still_qualifies(
 
     Returns:
         bool: `True` when it is `AVAILABLE`, not in maintenance, reachable, at
-            an acceptable health tier, and carrying enough freshly-read MACs.
+            an acceptable health tier, carrying enough freshly-read MACs, and
+            with its network category read and passing.
     """
     # Gated on the caller asking, so this admits exactly what the draw
     # returned — ADR-0032's 2026-09-26 update.
@@ -150,6 +156,10 @@ def server_still_qualifies(
         and not server.maintenance.enabled
         and server.reachable
         and server.health.overall in tiers
+        # Ungated, unlike min_nic_macs: every caller of this endpoint is
+        # creating a BareMetalHost, and none of them can bond a NIC nothing
+        # read. `?health=` widens the tier, never this.
+        and server.health.network == REQUIRED_NETWORK_HEALTH
     )
 
 
@@ -297,6 +307,7 @@ class AvailableServersService:
             "openshift.lifecycle_state": OpenShiftState.AVAILABLE.value,
             "maintenance.enabled": False,
             "reachable": True,
+            "health.network": REQUIRED_NETWORK_HEALTH.value,
             **nic_mac_filters(min_nic_macs),
         }
         pre_recheck_count = await self._repo.count(
@@ -311,7 +322,8 @@ class AvailableServersService:
                 f"{'/'.join(tier.value for tier in tiers)} with at least "
                 f"{min_nic_macs} readable NIC MAC(s): every match is unreachable, "
                 "in maintenance, already claimed by a cluster, at a worse health "
-                "tier, or had its NIC MACs unread this collection run"
+                "tier, had its NIC MACs unread this collection run, or is not "
+                "HEALTHY in the network category (two link-up NICs, actually read)"
             )
 
         selected = await self._fill_from_tiers(

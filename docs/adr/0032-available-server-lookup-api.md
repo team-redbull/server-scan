@@ -553,3 +553,43 @@ So 75% of what this endpoint calls healthy and assignable cannot be installed
 at all, and the health tiers cannot express that. That is the measurement
 behind `?min_nic_macs=`: it is not a refinement of the health filter, it is the
 only gate that speaks to installability.
+
+## Update (2026-09-26): the draw requires the NETWORK category, not just the rollup
+
+The 2026-09-25 update added `?min_nic_macs=` because `HEALTHY` was not
+evidence a server could be installed. It was the right diagnosis and the
+wrong instrument: it counted `identity.nic_macs`, which is a proxy for
+"somebody read some NICs", when the thing the caller actually needs is
+"two links were observed UP on two ports".
+
+Two changes make the rollup say that directly. In the health engine
+(`fix: require two observed uplinks`), `network.single_link_up` lost its
+`links_known_count >= 2` floor, so a single-port server now fails it, and
+`network.has_data` now requires a readable link state, so a server whose
+links were never read returns `UNKNOWN` instead of `HEALTHY`. Together
+those give a clean derivation:
+
+> `health.network == HEALTHY` ⟹ the category was evaluated (so at least one
+> link state was readable) and neither policy fired ⟹ `links_up_count` is
+> neither 0 (`all_links_down`) nor 1 (`single_link_up`) ⟹ **at least two
+> links were observed UP.**
+
+So this endpoint now filters on `health.network`, in the Mongo draw and in
+`server_still_qualifies` alike. It is ungated, unlike `?min_nic_macs=`:
+every caller here is creating a BareMetalHost, and none of them can bond a
+NIC nothing read. `?health=` still chooses how bad the *rollup* may be — a
+WARNING server with a good network is installable — but it never widens
+the network requirement.
+
+**Why `health.overall` could not have carried this.** `overall` is a
+`max()` over the categories and `UNKNOWN` ranks *below* `HEALTHY`
+(ADR-0027), so an unread category is invisible to it: a OneView server is
+`network: UNKNOWN`, `storage: HEALTHY`, and rolls up `HEALTHY`. No tier
+filter on `overall` can exclude it, because there is nothing in `overall`
+to see.
+
+**`?min_nic_macs=` is now redundant for a BMH caller** and stays only
+because it is not the same check: `identity.nic_macs` is the whole,
+NPAR-unreduced list, and a caller that wants "N MACs were read this run"
+for some other purpose can still ask. install-server no longer needs to
+send it.
