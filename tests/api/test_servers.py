@@ -574,6 +574,7 @@ async def test_rows_returns_every_server_as_a_flat_row(
         "installation_type",
         "health",
         "maintenance",
+        "reservation",
         "openshift_state",
         "cluster_name",
         "mce_name",
@@ -589,6 +590,16 @@ async def test_rows_returns_every_server_as_a_flat_row(
     assert rows[seen.id]["site_id"] == "tlv"
     assert rows[seen.id]["health"] == "CRITICAL"
     assert rows[seen.id]["maintenance"] == {"enabled": False, "reason": None}
+    # An unreserved server reports the lock as not held, with nothing attributed.
+    # `held` is computed per request rather than stored, so an expired lock reads
+    # as free everywhere at once.
+    assert rows[seen.id]["reservation"] == {
+        "held": False,
+        "holder": None,
+        "mce_cluster": None,
+        "infra_env": None,
+        "expires_at": None,
+    }
     assert rows[seen.id]["bmc_host"] == "10.0.0.9"
     assert rows[seen.id]["macs"] == ["aa:bb:cc:dd:ee:01"]
     assert rows[seen.id]["stale"] is False

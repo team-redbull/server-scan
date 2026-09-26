@@ -16,6 +16,7 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     installation_type: "UPI",
     health: "HEALTHY",
     maintenance: { enabled: false, reason: null },
+    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
     openshift_state: "INSTALLED",
     cluster_name: "ocp4-tlv",
     mce_name: null,

@@ -509,6 +509,19 @@ reported the node, while this endpoint still calls that machine unclaimed.
 Installing several servers from one pool concurrently needs a real short-TTL
 reservation here; that is its own ADR.
 
+**Superseded on 2026-09-27 by ADR-0035.** That reservation now exists: a
+`reservation` sub-document, `POST`/`DELETE /servers/{id}/reservation`, and an
+`unreserved_filters()` clause in the draw. Decision 3's "no reservation/lock"
+therefore no longer describes this endpoint — the draw still does not RESERVE
+what it hands out (a caller locks the candidate it chose, afterwards), but it
+does now EXCLUDE what somebody else has locked. Read decision 3 as "the draw
+takes no lock", not "no lock exists".
+
+The workaround above also turned out to be weaker than it reads: the
+BareMetalHost probe runs against the MCE's OWN API server, so a machine already
+installed into one MCE is invisible to another's probe. That is the case
+ADR-0035 exists for.
+
 ## Update (2026-09-26): `min_nic_macs=0` really does mean "impose nothing"
 
 The 2026-09-25 update above said `?min_nic_macs=` defaults to `0` so that

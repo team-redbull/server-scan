@@ -11,6 +11,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import type { SortableField } from "@/features/inventory/sorting";
 import { BmcLink } from "@/components/BmcLink";
 import { InstallationBadge } from "@/components/InstallationBadge";
+import { ReservationBadge } from "@/components/ReservationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
 import { StateBadge } from "@/components/StateBadge";
 import type { HealthSeverity, OpenShiftState } from "@/types/server";
@@ -23,6 +24,11 @@ import type { ServerRow } from "@/types/server";
  * host read; the maintenance switch is the rightmost column and, with
  * BMC, one of only two cells whose click does not open the server. Rows
  * animate nothing — only the background responds to hover.
+ *
+ * Installation carries two things: the lifecycle state the collectors
+ * observed, and — only while a lock is held — which MCE is installing the
+ * server (ADR-0035). The second sits under the first rather than replacing
+ * it, because a server mid-install is still `AVAILABLE` to the collectors.
  */
 
 /** A left edge on the rows that need attention, nothing on the rest. */
@@ -76,10 +82,21 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
     },
     enableSorting: false,
   }),
+  // Accessor stays on the FIELD: returning the row would sort by object
+  // identity. The reservation is read from `row.original` instead, so what is
+  // rendered changes without changing what is sorted.
   columnHelper.accessor("openshift_state", {
     id: "openshift_state",
     header: "Installation",
-    cell: (info) => <InstallationBadge state={info.getValue<OpenShiftState>()} />,
+    // UNDER the state badge, not replacing it — a mid-install server is still
+    // AVAILABLE to the collectors. ReservationBadge renders nothing when no
+    // lock is held, so unaffected rows cost no height. ADR-0035, decision 6.
+    cell: (info) => (
+      <div className="inline-flex flex-col items-center gap-1">
+        <InstallationBadge state={info.getValue<OpenShiftState>()} />
+        <ReservationBadge reservation={info.row.original.reservation} />
+      </div>
+    ),
     enableSorting: true,
   }),
   ...(withMce

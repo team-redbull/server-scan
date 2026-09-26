@@ -17,6 +17,8 @@ export interface RowFilters {
   openshift_state?: string;
   health?: string;
   maintenance?: true;
+  /** Only servers an install currently holds a lock on (ADR-0035). */
+  reserved?: true;
   stale?: true;
   duplicate?: true;
   /** Selected MCEs (OR within); ANDed with every other filter. */
@@ -108,6 +110,7 @@ export function filterRows(
         row.openshift_state === filters.openshift_state) &&
       (!filters.health || row.health === filters.health) &&
       (!filters.maintenance || row.maintenance.enabled) &&
+      (!filters.reserved || row.reservation.held) &&
       (!filters.stale || row.stale) &&
       (!filters.mce?.length ||
         (row.mce_name !== null && filters.mce.includes(row.mce_name))) &&
@@ -143,6 +146,9 @@ export function searchRows(rows: ServerRow[], query: string): ServerRow[] {
     if (row.site_id?.toLowerCase().includes(q)) return true;
     if (row.installation_type.toLowerCase().includes(q)) return true;
     if (row.bmc_host?.toLowerCase().includes(q)) return true;
+    // The MCE an install is headed for, so searching that cluster finds the
+    // machines going to it — not only the ones already installed there.
+    if (row.reservation.mce_cluster?.toLowerCase().includes(q)) return true;
     return row.macs.some(
       (mac) =>
         mac.includes(q) ||

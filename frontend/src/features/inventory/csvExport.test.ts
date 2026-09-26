@@ -14,6 +14,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     installation_type: "UPI",
     health: "HEALTHY",
     maintenance: { enabled: false, reason: null },
+    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
     openshift_state: "AVAILABLE",
     cluster_name: null,
     mce_name: null,
@@ -32,7 +33,7 @@ describe("rowsToCsv", () => {
   it("writes the header row in the documented column order", () => {
     const [header] = rowsToCsv([]).split("\r\n");
     expect(header).toBe(
-      "Name,BMC address,Installation,MCE,Cluster,Model,Serial,SPT,State",
+      "Name,BMC address,Installation,Installing to,MCE,Cluster,Model,Serial,SPT,State",
     );
   });
 
@@ -53,9 +54,9 @@ describe("rowsToCsv", () => {
     ]);
     const [, first, second] = csv.split("\r\n");
     expect(first).toBe(
-      "srv-a,10.0.0.9,INSTALLED,mce-1,ocp4-tlv,PowerEdge R760,SN001,gold-template,CRITICAL",
+      "srv-a,10.0.0.9,INSTALLED,,mce-1,ocp4-tlv,PowerEdge R760,SN001,gold-template,CRITICAL",
     );
-    expect(second).toBe("srv-b,,AVAILABLE,,,R760,SN1,,HEALTHY");
+    expect(second).toBe("srv-b,,AVAILABLE,,,,R760,SN1,,HEALTHY");
   });
 
   it("quotes a field containing a comma and doubles embedded quotes", () => {

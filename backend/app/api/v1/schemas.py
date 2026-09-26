@@ -45,8 +45,10 @@ from app.domain.models.health import Health, decode_retired_severity
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
+from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileTemplate, Server
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
+from app.utils.timeutil import utcnow
 
 
 class ConnectivitySummary(BaseModel):
@@ -188,6 +190,39 @@ class MaintenanceFlag(BaseModel):
     reason: str | None
 
 
+class ReservationFlag(BaseModel):
+    """One inventory row's view of the install lock.
+
+    Whether it is held, and WHERE it is going — `mce_cluster` is why this
+    reaches the row at all. ADR-0035, decision 6.
+    """
+
+    held: bool = False
+    holder: str | None = None
+    mce_cluster: str | None = None
+    infra_env: str | None = None
+    expires_at: datetime | None = None
+
+
+def _reservation_flag(reservation: dict[str, Any]) -> ReservationFlag:
+    """One projected reservation as a row flag, expiry judged against now.
+
+    Why `held` is computed and not stored, and why a null expiry is checked
+    rather than compared: docs/adr/0035-install-reservation-lock.md, decisions 6 and 7.
+    """
+    holder = reservation.get("holder")
+    if holder is None:
+        return ReservationFlag()
+    expires_at = _OPTIONAL_DATETIME.validate_python(reservation.get("expires_at"))
+    return ReservationFlag(
+        held=expires_at is None or utcnow() < expires_at,
+        holder=holder,
+        mce_cluster=reservation.get("mce_cluster"),
+        infra_env=reservation.get("infra_env"),
+        expires_at=expires_at,
+    )
+
+
 class ServerRow(BaseModel):
     """
     One flat inventory row for `GET /servers/rows` (ADR-0033).
@@ -205,6 +240,7 @@ class ServerRow(BaseModel):
     installation_type: InstallationType
     health: HealthSeverity
     maintenance: MaintenanceFlag
+    reservation: ReservationFlag = Field(default_factory=ReservationFlag)
     openshift_state: OpenShiftState
     cluster_name: str | None
     mce_name: str | None
@@ -247,6 +283,7 @@ class ServerRow(BaseModel):
                 enabled=(doc.get("maintenance") or {}).get("enabled", False),
                 reason=(doc.get("maintenance") or {}).get("reason"),
             ),
+            reservation=_reservation_flag(doc.get("reservation") or {}),
             openshift_state=(doc.get("openshift") or {}).get(
                 "lifecycle_state", OpenShiftState.AVAILABLE
             ),
@@ -312,6 +349,7 @@ class ServerDetail(BaseModel):
     classification: Classification
     health: Health
     maintenance: Maintenance
+    reservation: Reservation
     openshift: OpenShiftLifecycle
     site_id: str | None
     manager_id: str | None
@@ -368,6 +406,7 @@ class ServerDetail(BaseModel):
             classification=server.classification,
             health=server.health,
             maintenance=server.maintenance,
+            reservation=server.reservation,
             openshift=server.openshift,
             site_id=server.site_id,
             manager_id=server.manager_id,

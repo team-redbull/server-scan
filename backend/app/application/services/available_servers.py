@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.application.services.ingest import IngestService
 from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState
@@ -22,6 +23,7 @@ from app.domain.ports.provider import ServerIdentity, ServerInventoryProvider
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.normalize import normalize_text
 from app.domain.value_objects.capacity_aliases import CapacityAliasCatalog
+from app.utils.timeutil import utcnow
 
 # Best to worst; never CRITICAL, and UNKNOWN (never evaluated) is excluded too (ADR-0027).
 SELECTABLE_TIERS: tuple[HealthSeverity, ...] = (
@@ -122,6 +124,28 @@ def nic_mac_filters(min_nic_macs: int) -> dict[str, object]:
     }
 
 
+def unreserved_filters(now: datetime) -> dict[str, object]:
+    """
+    The Mongo clause excluding servers currently reserved for an install.
+
+    `$nor`, NOT `$or`: overwriting the `$or` this merges beside would widen a
+    draw to the whole fleet — ADR-0035, decision 7.
+
+    Args:
+        now (datetime): The instant expiry is judged against.
+
+    Returns:
+        dict[str, object]: A clause to merge into an assignability filter. Owns
+            the `$nor` key, which nothing else in this module uses.
+    """
+    return {
+        "$nor": [
+            {"reservation.holder": {"$ne": None}, "reservation.expires_at": None},
+            {"reservation.holder": {"$ne": None}, "reservation.expires_at": {"$gt": now}},
+        ]
+    }
+
+
 def server_still_qualifies(
     server: Server,
     *,
@@ -160,6 +184,10 @@ def server_still_qualifies(
         # creating a BareMetalHost, and none of them can bond a NIC nothing
         # read. `?health=` widens the tier, never this.
         and server.health.network == REQUIRED_NETWORK_HEALTH
+        # Agrees with unreserved_filters, as ADR-0032 requires of every clause
+        # here: a machine another run is installing is not assignable, however
+        # healthy it looks.
+        and not server.reservation.is_live()
     )
 
 
@@ -309,6 +337,7 @@ class AvailableServersService:
             "reachable": True,
             "health.network": REQUIRED_NETWORK_HEALTH.value,
             **nic_mac_filters(min_nic_macs),
+            **unreserved_filters(utcnow()),
         }
         pre_recheck_count = await self._repo.count(
             {
@@ -321,9 +350,10 @@ class AvailableServersService:
                 f"no server matching {pattern!r} is assignable at health "
                 f"{'/'.join(tier.value for tier in tiers)} with at least "
                 f"{min_nic_macs} readable NIC MAC(s): every match is unreachable, "
-                "in maintenance, already claimed by a cluster, at a worse health "
-                "tier, had its NIC MACs unread this collection run, or is not "
-                "HEALTHY in the network category (two link-up NICs, actually read)"
+                "in maintenance, already claimed by a cluster, RESERVED by an "
+                "install in progress, at a worse health tier, had its NIC MACs "
+                "unread this collection run, or is not HEALTHY in the network "
+                "category (two link-up NICs, actually read)"
             )
 
         selected = await self._fill_from_tiers(

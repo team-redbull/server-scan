@@ -43,6 +43,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       gpu: "UNKNOWN",
     },
     maintenance: { enabled: false, reason: null },
+    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
     unread_fields: [],
     nic_os_names: {},
     openshift: {
@@ -276,5 +277,29 @@ describe("OverviewTab collection status", () => {
     render(<OverviewTab server={server} />);
 
     expect(screen.getByText("Unreachable")).toBeInTheDocument();
+  });
+
+  it("says which MCE is installing the server, when one is", () => {
+    // The detail page spells the target out in full; the inventory row has to
+    // fit a table cell and shows the cluster alone.
+    render(
+      <OverviewTab
+        server={makeServer({
+          reservation: {
+            held: true,
+            holder: "install-server",
+            mce_cluster: "ocp4-mce-alpha",
+            infra_env: "dell-r650-tlv-64c-1024gb",
+            expires_at: "2026-09-27T12:00:00Z",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("Installing to ocp4-mce-alpha")).toBeInTheDocument();
+  });
+
+  it("shows no install lock on a server nobody is installing", () => {
+    render(<OverviewTab server={makeServer()} />);
+    expect(screen.queryByText(/Installing to/)).not.toBeInTheDocument();
   });
 });

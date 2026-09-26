@@ -50,6 +50,21 @@ export interface MaintenanceState {
   reason: string | null;
 }
 
+/** One row's view of the install lock — see ADR-0035.
+ *
+ * `held` is computed by the API against the request's clock, not stored, so an
+ * expired lock reads as free without the browser having to compare anything.
+ * `mce_cluster` is the field worth showing: two MCEs drawing from one InfraEnv
+ * pool is the case the lock exists for, so "reserved" without the cluster
+ * answers half the question. */
+export interface ReservationState {
+  held: boolean;
+  holder: string | null;
+  mce_cluster: string | null;
+  infra_env: string | null;
+  expires_at: string | null;
+}
+
 export interface ConnectivityFacts {
   fabric_paths_total: number;
   fabric_paths_up: number;
@@ -71,6 +86,7 @@ export interface ServerRow {
   installation_type: InstallationType;
   health: HealthSeverity;
   maintenance: MaintenanceState;
+  reservation: ReservationState;
   openshift_state: OpenShiftState;
   cluster_name: string | null;
   mce_name: string | null;
@@ -238,6 +254,7 @@ export interface ServerDetail {
   classification: Classification;
   health: HealthSummary;
   maintenance: MaintenanceState;
+  reservation: ReservationState;
   site_id: SiteCode | null;
   manager_id: string | null;
   source_provider: string | null;

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
+import { ReservationBadge } from "@/components/ReservationBadge";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
 import { inferredGpuModel } from "@/lib/gpuModel";
 import type { HealthSummary, ServerDetail } from "@/types/server";
@@ -112,7 +113,8 @@ function ModelValue({ server }: { server: ServerDetail }) {
 }
 
 /** OpenShift's own report, shown beside Classification and never falling
- * back to it: the two disagreeing is how a misnamed server is noticed. */
+ * back to it: the two disagreeing is how a misnamed server is noticed. Carries
+ * the install lock too, when one is held — ADR-0035. */
 function OpenShiftValue({ server }: { server: ServerDetail }) {
   const { lifecycle_state, cluster_name, mce_name } = server.openshift;
 
@@ -121,6 +123,9 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
       <div className="flex flex-wrap items-center gap-2">
         <InstallationBadge state={lifecycle_state} full />
         {cluster_name && <span className="font-medium">{cluster_name}</span>}
+        {/* Beside the state, not instead of it: a mid-install server is still
+            AVAILABLE to the collectors. Renders nothing unless a lock is held. */}
+        <ReservationBadge reservation={server.reservation} full />
       </div>
       <span className="text-xs text-[var(--text-secondary)]">
         {mce_name ? `MCE ${mce_name}` : "—"}

@@ -101,6 +101,13 @@ _ROW_PROJECTION: dict[str, int] = {
     "health.overall": 1,
     "maintenance.enabled": 1,
     "maintenance.reason": 1,
+    # The install lock. Projected into the inventory row rather than left to
+    # the detail page, because "which MCE is installing this?" is a question
+    # asked OF THE FLEET — scanning rows for the machine that is stuck.
+    "reservation.holder": 1,
+    "reservation.mce_cluster": 1,
+    "reservation.infra_env": 1,
+    "reservation.expires_at": 1,
     "openshift.lifecycle_state": 1,
     "openshift.cluster_name": 1,
     "openshift.mce_name": 1,
