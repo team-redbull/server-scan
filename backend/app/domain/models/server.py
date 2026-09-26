@@ -25,6 +25,7 @@ from app.domain.models.health import Health
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
+from app.domain.models.reservation import Reservation
 
 
 class Identity(BaseModel):
@@ -69,6 +70,7 @@ class Server(BaseModel):
     classification: Classification = Field(default_factory=Classification)
     health: Health = Field(default_factory=Health)
     maintenance: Maintenance = Field(default_factory=Maintenance)
+    reservation: Reservation = Field(default_factory=Reservation)
     openshift: OpenShiftLifecycle = Field(default_factory=OpenShiftLifecycle)
 
     # A plain `str`, not an enum, so a document outlives a site rename (ADR-0018).

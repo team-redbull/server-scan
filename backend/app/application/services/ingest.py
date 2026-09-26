@@ -14,10 +14,13 @@ pretending to solve a problem outside this module's scope.
 Field ownership: every field this module writes directly is
 ingestion-owned (identity, hardware, network, connectivity, name/model,
 `source_provider`, `last_seen_at`). It never touches `tags` beyond what
-the provider reports, and never touches `maintenance`/`openshift` at all
-(those belong to their own future engines) — those two are always carried
-forward verbatim from the existing document on update, never reset to
-zero. `classification` and `health` are the one exception: when
+the provider reports, and never touches
+`maintenance`/`openshift`/`reservation` at all (those belong to their own
+engines) — those three are always carried forward verbatim from the
+existing document on update, never reset to zero. `reservation` is the one
+where forgetting that is not a lost setting but a correctness bug: it is an
+install lock, so wiping it mid-install hands the same machine to a second
+cluster. `classification` and `health` are the one exception: when
 `classification_service`/`health_service` are supplied (see
 `IngestService.__init__`), this module calls them itself, right after
 building the rest of the document and before computing `search_tokens`
@@ -68,6 +71,7 @@ from app.domain.models.maintenance import Maintenance
 from app.domain.models.manager import Manager
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.openshift import OpenShiftLifecycle
+from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileTemplate, Server
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
@@ -851,6 +855,10 @@ class IngestService:
             classification=existing.classification if existing is not None else Classification(),
             health=existing.health if existing is not None else Health(),
             maintenance=existing.maintenance if existing is not None else Maintenance(),
+            # Carried forward for the same reason maintenance is, and with
+            # more at stake: a wiped reservation does not lose a setting, it
+            # hands a machine that is mid-install to a second cluster.
+            reservation=existing.reservation if existing is not None else Reservation(),
             openshift=existing.openshift if existing is not None else OpenShiftLifecycle(),
         )
 

@@ -41,6 +41,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.api.v1.maintenance_schemas import MaintenanceEnableRequest
+from app.api.v1.reservation_schemas import (
+    ReleaseServerRequest,
+    ReserveServerRequest,
+)
 from app.api.v1.schemas import (
     AvailableServerItem,
     AvailableServersResponse,
@@ -62,6 +66,7 @@ from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService
 from app.application.services.maintenance_service import MaintenanceService
 from app.application.services.pipeline import classification_from_result, health_from_state
+from app.application.services.reservation_service import ReservationService
 from app.config import Settings, get_settings
 from app.dependencies import (
     get_mongo_holder,
@@ -263,6 +268,23 @@ async def _maintenance_service(
         MaintenanceService: A service bound to those dependencies.
     """
     return MaintenanceService(server_repo=server_repo, audit=audit)
+
+
+async def _reservation_service(
+    server_repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+    audit: Annotated[AuditService, Depends(_audit_service)],
+) -> ReservationService:
+    """
+    Build the reservation service for one request.
+
+    Args:
+        server_repo (MongoServerRepository): The server repository.
+        audit (AuditService): Records the reserve/release audit event.
+
+    Returns:
+        ReservationService: A service bound to those dependencies.
+    """
+    return ReservationService(server_repo=server_repo, audit=audit)
 
 
 async def _ingest_service(
@@ -966,6 +988,104 @@ async def disable_maintenance(
         NotFoundError: No server has that ID.
     """
     server = await service.disable(server_id, actor=actor, request_id=request_id)
+    await _invalidate_detail_cache(server_id, cache)
+    await _invalidate_list_cache(cache)
+    return ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )
+
+
+@router.post("/servers/{server_id}/reservation", response_model=ServerDetail)
+async def reserve_server(
+    server_id: str,
+    payload: ReserveServerRequest,
+    service: Annotated[ReservationService, Depends(_reservation_service)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    actor: Annotated[Actor, Depends(require_admin)],
+    request_id: Annotated[str | None, Depends(get_request_id)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ServerDetail:
+    """
+    Take the install lock on a server, so no other run can draw it.
+
+    Closes the window in which two MCEs draw one machine, and is idempotent for
+    the same `workflow_id` — docs/adr/0035-install-reservation-lock.md.
+
+    Args:
+        server_id (str): The server to lock.
+        payload (ReserveServerRequest): Who is taking it, for which MCE and
+            InfraEnv, and for how long.
+        service (ReservationService): Applies the lock.
+        cache (CacheClient): Cache-aside to invalidate on write.
+        actor (Actor): The actor to attribute the audit event to.
+        request_id (str | None): The current request's ID, for the audit event.
+        settings (Settings): Supplies the NIC OS-name mapping.
+
+    Returns:
+        ServerDetail: The server, now reserved.
+
+    Raises:
+        NotFoundError: No server has that ID.
+        ConflictError: Another holder has a live lock on it, or won the race.
+    """
+    server = await service.reserve(
+        server_id,
+        holder=payload.holder,
+        mce_cluster=payload.mce_cluster,
+        infra_env=payload.infra_env,
+        namespace=payload.namespace,
+        workflow_id=payload.workflow_id,
+        ttl=timedelta(seconds=payload.ttl_seconds),
+        actor=actor,
+        request_id=request_id,
+    )
+    await _invalidate_detail_cache(server_id, cache)
+    await _invalidate_list_cache(cache)
+    return ServerDetail.from_server(
+        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+    )
+
+
+@router.delete("/servers/{server_id}/reservation", response_model=ServerDetail)
+async def release_server(
+    server_id: str,
+    service: Annotated[ReservationService, Depends(_reservation_service)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    actor: Annotated[Actor, Depends(require_admin)],
+    request_id: Annotated[str | None, Depends(get_request_id)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    payload: ReleaseServerRequest | None = None,
+) -> ServerDetail:
+    """
+    Release the install lock, returning the server to the pool.
+
+    A release of an unheld server succeeds; with `holder`, another holder's lock
+    is refused rather than stolen — ADR-0035, "Consequences".
+
+    Args:
+        server_id (str): The server to release.
+        service (ReservationService): Applies the release.
+        cache (CacheClient): Cache-aside to invalidate on write.
+        actor (Actor): The actor to attribute the audit event to.
+        request_id (str | None): The current request's ID, for the audit event.
+        settings (Settings): Supplies the NIC OS-name mapping.
+        payload (ReleaseServerRequest | None): Who is releasing, if anyone.
+
+    Returns:
+        ServerDetail: The server, with no reservation.
+
+    Raises:
+        NotFoundError: No server has that ID.
+        ConflictError: A live lock belongs to a different holder.
+    """
+    body = payload or ReleaseServerRequest()
+    server = await service.release(
+        server_id,
+        holder=body.holder,
+        workflow_id=body.workflow_id,
+        actor=actor,
+        request_id=request_id,
+    )
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
     return ServerDetail.from_server(

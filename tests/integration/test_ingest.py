@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from app.application.services.ingest import IngestService
 from app.domain.enums import Vendor
+from app.domain.models.reservation import Reservation
 from app.domain.value_objects.site import site_catalog
 from app.infrastructure.mongodb import MongoClientHolder
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
@@ -20,6 +23,7 @@ from app.infrastructure.providers.fake.generator import (
     list_sites,
 )
 from app.infrastructure.providers.fake.provider import fake_providers
+from app.utils.timeutil import utcnow
 
 SITES = site_catalog("")
 
@@ -134,6 +138,41 @@ async def test_reingest_same_seed_updates_not_duplicates(mongo_holder: MongoClie
 
     server_repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
     assert await server_repo.count({}) == 20
+
+
+async def test_reingest_carries_a_live_reservation_forward(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A collection run must not wipe an install lock.
+
+    Ingest rebuilds every document, so a wiped reservation hands a machine that
+    is mid-install back to the pool — ADR-0035, decision 2.
+    """
+    service = _service(mongo_holder)
+    await _ingest_all(service, seed=41, count=3)
+    server_repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+
+    (server_id,) = await server_repo.find_ids({}, limit=1)
+    target = await server_repo.get_by_id(server_id)
+    assert target is not None
+    target.reservation = Reservation(
+        holder="install-server",
+        mce_cluster="ocp4-mce-alpha",
+        infra_env="dell-r650-tlv-64c-1024gb",
+        workflow_id="install-server-dell-r650-tlv-64c-1024gb",
+        created_at=utcnow(),
+        expires_at=utcnow() + timedelta(hours=2),
+    )
+    await server_repo.upsert(target)
+
+    # The same seed, so the same machines are re-ingested and updated in place.
+    await _ingest_all(service, seed=41, count=3)
+
+    after = await server_repo.get_by_id(target.id)
+    assert after is not None
+    assert after.reservation.is_live() is True
+    assert after.reservation.mce_cluster == "ocp4-mce-alpha"
+    assert after.reservation.workflow_id == "install-server-dell-r650-tlv-64c-1024gb"
 
 
 async def test_ingested_sites_and_managers_are_upserted(mongo_holder: MongoClientHolder) -> None:
