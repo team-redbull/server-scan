@@ -21,6 +21,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     installation_type: "UPI",
     health: "HEALTHY",
     maintenance: { enabled: false, reason: null },
+    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
     openshift_state: "AVAILABLE",
     cluster_name: null,
     mce_name: null,
@@ -272,5 +273,55 @@ describe("clusterFacets", () => {
       hosted: [],
       upi: [],
     });
+  });
+});
+
+describe("the install lock", () => {
+  const RESERVED = row({
+    name: "srv-installing",
+    reservation: {
+      held: true,
+      holder: "install-server",
+      mce_cluster: "ocp4-mce-alpha",
+      infra_env: "dell-r650-tlv-64c-1024gb",
+      expires_at: "2026-09-27T12:00:00Z",
+    },
+  });
+  const FLEET_WITH_LOCK = [...FLEET, RESERVED];
+
+  it("filters to only the servers an install is holding", () => {
+    // "What is installing right now" should be one click, not a scan of the
+    // whole fleet for a badge.
+    expect(
+      filterRows(FLEET_WITH_LOCK, { reserved: true }).map((r) => r.name),
+    ).toEqual(["srv-installing"]);
+  });
+
+  it("leaves every row alone when the filter is off", () => {
+    expect(filterRows(FLEET_WITH_LOCK, {})).toHaveLength(FLEET_WITH_LOCK.length);
+  });
+
+  it("finds a server by the MCE it is being installed TO", () => {
+    // Not the MCE it already lives in — searching a cluster should surface the
+    // machines heading there, which is how a stuck install gets chased down.
+    expect(
+      filterRows(FLEET_WITH_LOCK, { search: "ocp4-mce-alpha" }).map((r) => r.name),
+    ).toEqual(["srv-installing"]);
+  });
+
+  it("does not match an expired lock's MCE", () => {
+    // `held` is computed by the API against its own clock, so the browser
+    // filters on it rather than comparing dates itself.
+    const expired = row({
+      name: "srv-was-installing",
+      reservation: {
+        held: false,
+        holder: "install-server",
+        mce_cluster: "ocp4-mce-beta",
+        infra_env: "x",
+        expires_at: "2020-01-01T00:00:00Z",
+      },
+    });
+    expect(filterRows([expired], { reserved: true })).toEqual([]);
   });
 });

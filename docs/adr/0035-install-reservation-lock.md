@@ -135,6 +135,19 @@ so the fleet list must answer it without opening each server. With
 expired lock reads as free everywhere at once; a row still claiming an
 install days later would send someone looking for a run that ended.
 
+In the UI that lands as a badge **under** the Installation badge, never
+replacing it — `openshift.lifecycle_state` is a reading, and a server
+mid-install is still genuinely `AVAILABLE` to the collectors, so
+overwriting it would make an intent look like an observation. The badge
+renders nothing when no lock is held, so the uncommon state costs the
+other rows no height. It carries the cluster; holder, InfraEnv and expiry
+live on the hover, where width is free. Alongside it: a `reserved` filter
+so "what is installing now" is one click rather than a scan, the target
+MCE added to row search so searching a cluster finds machines *heading*
+there and not only those already in it, an `Installing to` CSV column
+kept separate from `MCE` (where a server already lives), and the same
+badge spelled out in full on the detail page.
+
 ### 7. The draw excludes live reservations with `$nor`, not `$or`
 
 `unreserved_filters()` is merged into a filter that **already carries an

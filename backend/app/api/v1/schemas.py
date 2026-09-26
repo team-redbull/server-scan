@@ -45,6 +45,7 @@ from app.domain.models.health import Health, decode_retired_severity
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
+from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileTemplate, Server
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
 from app.utils.timeutil import utcnow
@@ -348,6 +349,7 @@ class ServerDetail(BaseModel):
     classification: Classification
     health: Health
     maintenance: Maintenance
+    reservation: Reservation
     openshift: OpenShiftLifecycle
     site_id: str | None
     manager_id: str | None
@@ -404,6 +406,7 @@ class ServerDetail(BaseModel):
             classification=server.classification,
             health=server.health,
             maintenance=server.maintenance,
+            reservation=server.reservation,
             openshift=server.openshift,
             site_id=server.site_id,
             manager_id=server.manager_id,
