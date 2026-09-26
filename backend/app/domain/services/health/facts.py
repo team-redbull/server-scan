@@ -151,7 +151,10 @@ def extract_facts(server: Server) -> dict[str, Any]:
         "cpu.has_data": server.hardware.cpu.sockets > 0,
         "memory.has_data": server.hardware.memory.total_bytes > 0 or bool(dimms),
         "storage.has_data": bool(drives) or server.hardware.storage.total_bytes > 0,
-        "network.has_data": bool(link_states),
+        # A readable state, not merely an interface: a collector listing NICs
+        # it reports UNKNOWN for has read NOTHING about the network —
+        # docs/architecture.md, "Health policy engine".
+        "network.has_data": any(state != "UNKNOWN" for state in link_states),
         "connectivity.has_data": any(
             (
                 server.connectivity.facts.fabric_paths_total,

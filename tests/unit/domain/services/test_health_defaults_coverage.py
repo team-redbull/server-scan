@@ -176,8 +176,8 @@ class TestCoverageAcrossVendors:
 
 class TestNoFalseAlarms:
     def test_unused_nics_do_not_trip_the_link_check(self) -> None:
-        """A server with one uplink and three unused ports is healthy. This
-        is why the fact counts links UP rather than links down.
+        """The fact counts links UP, not links down, so idle ports do not
+        read as failures. The verdict is separate: one link up is CRITICAL.
         """
         server = _server(
             network=NetworkInfo(
@@ -262,8 +262,8 @@ class TestUnknownIsNotAVerdict:
         of vNICs, which used to read as "no link is up" and marked nearly
         every Cisco server CRITICAL.
         """
-        assert self._network_severity(LinkState.UNKNOWN, LinkState.UNKNOWN) != (
-            HealthSeverity.CRITICAL
+        assert self._network_severity(LinkState.UNKNOWN, LinkState.UNKNOWN) == (
+            HealthSeverity.UNKNOWN
         )
 
     def test_one_up_link_beside_unknowns_is_not_major(self) -> None:
@@ -370,3 +370,45 @@ class TestEveryPolicyCategoryReachesOverall:
         assert state.categories["gpu"].severity == HealthSeverity.CRITICAL
         assert state.overall == HealthSeverity.CRITICAL
         assert health_from_state(state).gpu == HealthSeverity.CRITICAL
+
+
+class TestTwoUplinksAreRequired:
+    """Two bonded uplinks are a platform requirement, so one is not a smaller
+    working server — it is a server that cannot join the fabric."""
+
+    @staticmethod
+    def _network_severity(*states: LinkState) -> HealthSeverity:
+        """
+        Run the seeded defaults over a server with just these link states.
+
+        Args:
+            states (LinkState): One per interface, in order.
+
+        Returns:
+            HealthSeverity: The rolled-up `network` category severity.
+        """
+        return TestUnknownIsNotAVerdict._network_severity(*states)
+
+    def test_two_up_links_are_healthy(self) -> None:
+        assert self._network_severity(LinkState.UP, LinkState.UP) == HealthSeverity.HEALTHY
+
+    def test_a_server_with_only_one_port_is_critical(self) -> None:
+        """The gap this closes. The old condition required two READABLE links
+        before it would judge anything, so a machine presenting a single port
+        was the one shape that passed by having too few NICs to fail.
+        """
+        assert self._network_severity(LinkState.UP) == HealthSeverity.CRITICAL
+
+    def test_one_up_beside_an_unreadable_port_is_critical(self) -> None:
+        """Two uplinks must be OBSERVED, not assumed. The second port may well
+        be up, but nothing read it, so the server is not certified — the
+        install path needs two MACs it can actually bond.
+        """
+        assert self._network_severity(LinkState.UP, LinkState.UNKNOWN) == HealthSeverity.CRITICAL
+
+    def test_a_third_spare_port_does_not_change_a_good_pair(self) -> None:
+        """Two up is the requirement, not the maximum."""
+        assert (
+            self._network_severity(LinkState.UP, LinkState.UP, LinkState.DOWN)
+            == HealthSeverity.HEALTHY
+        )
