@@ -159,7 +159,22 @@ the entire fleet.
 That is not hypothetical. The first implementation did exactly that, and it
 was caught by two capacity-alias integration tests rather than by review.
 
-Two BSON details are handled explicitly:
+**The cutoff is compared as an ISO STRING.** Documents are written with
+`model_dump(by_alias=True, mode="json")`, so every datetime in them is a
+string, not a BSON date — and a `datetime` compared against a string matches
+*nothing*, because BSON orders the two as different types. The first version
+compared a raw `datetime`, which made this filter match no document at all:
+the lock was recorded, displayed, and enforced only by the post-recheck
+predicate in Python. It reached production that way, because the test asserted
+the reserved server was absent from the results, and it was — just for the
+wrong reason. `fleet_snapshot` converts its own cutoff the same way; this
+follows it.
+
+The test that catches it asserts the endpoint answers **404**, which happens
+only when the pre-recheck COUNT is zero. A 200 with an empty list is the
+signature of a filter that matched nothing.
+
+Two further BSON details are handled explicitly:
 
 - **null sorts below every date**, so a bare `expires_at <= now` matches a
   document whose expiry is `null` — a lock meant to be held indefinitely

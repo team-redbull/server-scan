@@ -217,6 +217,39 @@ async def test_a_reserved_server_is_not_drawn(
     assert held.id not in drawn
 
 
+async def test_the_mongo_filter_excludes_it_not_just_the_recheck(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """The exclusion must happen in the QUERY, and a 404 is how you can tell.
+
+    A 200 with an empty list means the filter matched nothing and the recheck
+    predicate did the work — which is what happened in production. ADR-0035.
+    """
+    client, repo = app_context
+    await repo.upsert(
+        _installable_server(
+            20,
+            reservation=Reservation(
+                holder="install-server",
+                mce_cluster=MCE_A,
+                infra_env=INFRA_ENV,
+                created_at=utcnow(),
+                expires_at=utcnow() + timedelta(hours=2),
+            ),
+        )
+    )
+
+    resp = await client.get(
+        "/api/v1/servers/available",
+        params={"pattern": f"^ocp-{INFRA_ENV}", "count": 5, "min_nic_macs": 2},
+    )
+
+    assert resp.status_code == 404, (
+        f"expected the draw to be empty AT THE QUERY, got {resp.status_code} with {resp.text[:200]}"
+    )
+    assert "RESERVED" in resp.text
+
+
 async def test_an_expired_reservation_does_not_withhold_the_server(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
