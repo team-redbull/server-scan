@@ -211,6 +211,19 @@ class ServerRepository(Protocol):
         """
         ...
 
+    async def find_ids(self, filters: dict[str, object], *, limit: int = 10) -> list[str]:
+        """
+        The ids of servers matching whitelisted filters, capped at `limit`.
+
+        Args:
+            filters (dict[str, object]): Mongo-keyed filters.
+            limit (int): Most ids to return.
+
+        Returns:
+            list[str]: Matching server ids.
+        """
+        ...
+
     async def find_one_by_name(
         self, name_normalized: str, *, filters: dict[str, object]
     ) -> Server | None:

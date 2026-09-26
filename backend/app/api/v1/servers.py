@@ -52,6 +52,8 @@ from app.api.v1.schemas import (
 )
 from app.application.services.audit_service import AuditService
 from app.application.services.available_servers import (
+    SELECTABLE_TIERS,
+    AmbiguousServerNameError,
     AvailableServersNotFoundError,
     AvailableServersService,
 )
@@ -67,7 +69,7 @@ from app.dependencies import (
     get_request_id,
     require_admin,
 )
-from app.domain.enums import ManagerType, Vendor
+from app.domain.enums import HealthSeverity, ManagerType, Vendor
 from app.domain.models.audit_event import Actor, EventType
 from app.domain.ports.regex_engine import RegexEngine
 from app.domain.services.classification import ClassifiableServer
@@ -81,6 +83,7 @@ from app.domain.value_objects.site import site_catalog
 from app.errors import (
     AvailableCountTooLargeError,
     AvailableLookupConflictingParamsError,
+    AvailableServerNameAmbiguousError,
     AvailableServerNotFoundError,
     NotFoundError,
     PageSizeTooLargeError,
@@ -556,6 +559,8 @@ async def available_servers(
     count: int | None = Query(default=None, ge=1),
     vendor: Vendor | None = Query(default=None),
     source_provider: ManagerType | None = Query(default=None),
+    health: HealthSeverity | None = Query(default=None),
+    min_nic_macs: int = Query(default=0, ge=0, le=16),
 ) -> AvailableServersResponse:
     """
     Find one or more assignable, live-verified servers for a BMH-creation caller.
@@ -572,6 +577,16 @@ async def available_servers(
         count (int | None): Pattern mode only; how many servers to return.
         vendor (Vendor | None): Restrict to one vendor.
         source_provider (ManagerType | None): Restrict to one collector.
+        health (HealthSeverity | None): Restrict to exactly this tier instead
+            of filling `HEALTHY` then `WARNING` then `MAJOR`. A caller that
+            only provisions on `HEALTHY` hardware would otherwise be handed —
+            and pay a live recheck for — a `WARNING` server whenever no
+            `HEALTHY` one is free.
+        min_nic_macs (int): Require this many NIC MACs, read this collection
+            run. A BMH caller should pass at least 1 — a server with none
+            cannot become a `BareMetalHost`, which has no `bootMACAddress`
+            without one — and 2 for a bonded NMState configuration. Opt-in
+            (default 0) so the endpoint's existing behaviour is unchanged.
 
     Returns:
         AvailableServersResponse: Always list-shaped, `name` mode returning
@@ -581,6 +596,7 @@ async def available_servers(
         AvailableLookupConflictingParamsError: Neither or both of `name`/
             `pattern` were given, or `count` was given with `name`.
         AvailableCountTooLargeError: `count` exceeds `settings.max_available_count`.
+        AvailableServerNameAmbiguousError: `name` matched several servers.
         AvailableServerNotFoundError: Nothing could be returned at all —
             see `AvailableServersNotFoundError`'s reason in the detail.
     """
@@ -602,10 +618,23 @@ async def available_servers(
         }
     )
     nic_names = nic_name_catalog(settings.nic_os_names)
+    if health is not None and health not in SELECTABLE_TIERS:
+        raise AvailableLookupConflictingParamsError(
+            "health must be one of "
+            f"{', '.join(tier.value for tier in SELECTABLE_TIERS)}; "
+            f"{health.value} is never assignable."
+        )
+    # One tier when the caller named one, otherwise the full best-first fill.
+    tiers = (health,) if health is not None else SELECTABLE_TIERS
 
     try:
         if name is not None:
-            result = await service.lookup_by_name(name, extra_filters=extra_filters)
+            result = await service.lookup_by_name(
+                name,
+                extra_filters=extra_filters,
+                tiers=tiers,
+                min_nic_macs=min_nic_macs,
+            )
             results = [result]
             mode, requested = "name", 1
         else:
@@ -620,10 +649,21 @@ async def available_servers(
                 )
             assert pattern is not None  # narrowed by the xor check above
             outcome = await service.lookup_by_pattern(
-                pattern, count=effective_count, extra_filters=extra_filters
+                pattern,
+                count=effective_count,
+                extra_filters=extra_filters,
+                tiers=tiers,
+                min_nic_macs=min_nic_macs,
             )
             results = outcome.items
             mode, requested = "pattern", outcome.requested
+    except AmbiguousServerNameError as exc:
+        raise AvailableServerNameAmbiguousError(
+            f"{exc.name!r} matches {len(exc.server_ids)} servers. Server names are "
+            "not unique — correlation is on (vendor, serial). Narrow the lookup "
+            "with `vendor`/`source_provider`.",
+            details={"name": exc.name, "server_ids": exc.server_ids},
+        ) from exc
     except AvailableServersNotFoundError as exc:
         raise AvailableServerNotFoundError(exc.reason) from exc
 

@@ -30,7 +30,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from app.domain.enums import HealthSeverity, InstallationType, ManagerType, OpenShiftState, Vendor
+from app.domain.enums import (
+    HealthSeverity,
+    InstallationType,
+    LinkState,
+    ManagerType,
+    OpenShiftState,
+    Vendor,
+)
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import Hardware
@@ -380,12 +387,18 @@ class ServerDetail(BaseModel):
 
 
 class AvailableInterface(BaseModel):
-    """One NIC as a BMH/NMState generator needs it: hardware name, MAC, placement, OS name."""
+    """One NIC as a BMH/NMState generator needs it: name, MAC, placement, link state.
+
+    `link_state` is what lets a caller bond only up ports — ADR-0032's
+    2026-09-25 update, which also records how unevenly vendors report it.
+    """
 
     name: str
     mac: str | None
     location: str | None
     os_name: str | None
+    link_state: LinkState
+    speed_mbps: int | None
 
 
 def bmc_vendor_for(vendor: Vendor, source_provider: str | None) -> str | None:
@@ -462,6 +475,8 @@ class AvailableServerItem(BaseModel):
                     mac=interface.mac,
                     location=interface.location,
                     os_name=os_names.get(interface.name),
+                    link_state=interface.link_state,
+                    speed_mbps=interface.speed_mbps,
                 )
                 for interface in server.network.interfaces
             ],
