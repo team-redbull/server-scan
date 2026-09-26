@@ -36,6 +36,9 @@ def _make_server(
     *,
     name: str | None = None,
     health: HealthSeverity = HealthSeverity.HEALTHY,
+    # The draw requires the network category to have been READ and passed, so
+    # a fixture leaving it UNKNOWN is excluded — ADR-0032, 2026-09-26 update.
+    network_health: HealthSeverity = HealthSeverity.HEALTHY,
     vendor: Vendor = Vendor.STANDALONE,
     source_provider: str | None = None,
     bmc_host: str | None = None,
@@ -58,7 +61,7 @@ def _make_server(
             bmc=BmcInfo(host=bmc_host, host_is_ip=bmc_host is not None),
             interfaces=list(interfaces),
         ),
-        health=Health(overall=health),
+        health=Health(overall=health, network=network_health),
         source_provider=source_provider,
         created_at=now,
         updated_at=now,
@@ -115,6 +118,43 @@ async def test_name_mode_no_match_is_404(
 
     assert resp.status_code == 404
     assert resp.json()["code"] == "AVAILABLE_SERVER_NOT_FOUND"
+
+
+async def test_a_server_whose_network_was_never_read_is_not_drawn(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """The hole `health.overall` cannot close.
+
+    `UNKNOWN` never raises a `max()` — ADR-0032, 2026-09-26 update.
+    """
+    client, repo = app_context
+    await repo.upsert(
+        _make_server(
+            0,
+            name="ocp-avail-unread-net",
+            health=HealthSeverity.HEALTHY,
+            network_health=HealthSeverity.UNKNOWN,
+        )
+    )
+
+    resp = await client.get("/api/v1/servers/available", params={"pattern": "ocp-avail-unread-net"})
+
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "AVAILABLE_SERVER_NOT_FOUND"
+
+
+async def test_a_server_whose_network_was_read_and_passed_is_drawn(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(
+        _make_server(0, name="ocp-avail-good-net", network_health=HealthSeverity.HEALTHY)
+    )
+
+    resp = await client.get("/api/v1/servers/available", params={"pattern": "ocp-avail-good-net"})
+
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["name"] == "ocp-avail-good-net"
 
 
 async def test_pattern_mode_defaults_count_to_one(

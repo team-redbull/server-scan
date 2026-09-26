@@ -67,6 +67,9 @@ def _server(
     *,
     name: str | None = None,
     health: HealthSeverity = HealthSeverity.HEALTHY,
+    # The draw requires the network category to have been READ and passed, so
+    # a fixture leaving it UNKNOWN is excluded — ADR-0032, 2026-09-26 update.
+    network_health: HealthSeverity = HealthSeverity.HEALTHY,
     reachable: bool = True,
     maintenance: bool = False,
     lifecycle_state: OpenShiftState = OpenShiftState.AVAILABLE,
@@ -87,7 +90,7 @@ def _server(
         ),
         manager_id=_MANAGER_ID,
         source_provider=ManagerType.REDFISH_STANDALONE.value,
-        health=Health(overall=health),
+        health=Health(overall=health, network=network_health),
         maintenance=Maintenance(enabled=maintenance),
         openshift=OpenShiftLifecycle(lifecycle_state=lifecycle_state),
         reachable=reachable,
