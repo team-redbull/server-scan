@@ -660,10 +660,34 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   | `storage.name_capacity_mismatch` | `-<N>tb`-named node whose storage was read, total more than 1.5 TB off `N` TB either way | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
   | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
-  | `network.single_link_up` | readable links ≥ 2, exactly one up | CRITICAL |
+  | `network.single_link_up` | exactly one link up, however many were readable | CRITICAL |
   | `gpu.failed` | a GPU reports CRITICAL or DOWN | CRITICAL |
   | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
 
+  - **Two uplinks are a platform requirement, not a preference
+    (2026-09-26, operator's call).** Hosts join the fabric over an 802.3ad
+    `bond0` and the switch ports are configured for it, so a server that
+    cannot present two bonded uplinks cannot run — `network.single_link_up`
+    therefore fires on *any* server with exactly one link up, including one
+    that only has a single port. Its condition previously required
+    `links_known_count >= 2`, which made a single-port machine the one shape
+    that passed by having too few NICs to fail. `EQ 1` rather than `< 2`
+    keeps it disjoint from `network.all_links_down`, which owns the zero
+    case; a server with one link up beside unreadable ones is CRITICAL too,
+    because the second uplink has to be *observed*, not assumed.
+  - **`network.has_data` requires a readable link state, not just an
+    interface (2026-09-26).** OneView's portMap carries no link state and
+    most Intersight vNICs report none, so those servers arrive with
+    interfaces present and every state `UNKNOWN`. That counted as data, so
+    both network policies ran, neither could fire (each needs a readable
+    link) and the category returned **HEALTHY from zero readings** — the
+    exact thing ADR-0027 exists to prevent, and enough on its own to make
+    `overall` HEALTHY, since `UNKNOWN` ranks below it and cannot raise the
+    rollup. Such a server now reads `network: UNKNOWN`. Note what this does
+    **not** do: `UNKNOWN` still cannot lower `overall`, so a
+    `?health=HEALTHY` draw can still return one of these servers. Keeping
+    unbondable hardware out of an install pool is a job for an eligibility
+    filter on `/servers/available`, not for the health rollup.
   - The two fabric policies use **different** `policy_key`s with mutually
     exclusive conditions (`EQ 1` / `GTE 2`): a shared key would make them
     compete for one winner (ADR-0005), and they are meant to coexist.

@@ -143,6 +143,19 @@ def test_links_known_count_excludes_unknown_link_states() -> None:
     assert facts["network.links_up_count"] == 1
 
 
+def test_network_has_no_data_when_no_link_state_could_be_read() -> None:
+    """Listing NICs is not reading them.
+
+    Every state UNKNOWN is a verdict from zero readings — ADR-0027.
+    """
+    assert _with_links(LinkState.UNKNOWN, LinkState.UNKNOWN)["network.has_data"] is False
+
+
+def test_network_has_data_when_even_one_link_state_was_read() -> None:
+    """One readable state is enough to judge the category on."""
+    assert _with_links(LinkState.UP, LinkState.UNKNOWN)["network.has_data"] is True
+
+
 def test_links_known_count_is_zero_when_nothing_could_be_read() -> None:
     facts = _with_links(LinkState.UNKNOWN, LinkState.UNKNOWN)
 

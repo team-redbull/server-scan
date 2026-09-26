@@ -430,17 +430,18 @@ def default_system_policies() -> list[HealthPolicy]:
             "Fires when exactly one interface is up. Treated the same as "
             "every link being down: not enough to install or run the "
             "server on, not just degraded redundancy (docs/adr/0027, "
-            "2026-09-23 update)."
+            "2026-09-23 update). A server presenting only ONE port counts "
+            "too — two bonded uplinks are a platform requirement, so one "
+            "port that happens to be up is a server that cannot meet it, "
+            "not a smaller server that is fine."
         ),
         policy_key="network.single_link_up",
         category="network",
         severity=HealthSeverity.CRITICAL,
-        condition=Condition(
-            all_of=[
-                Condition(metric="network.links_known_count", operator="GTE", value=2),
-                Condition(metric="network.links_up_count", operator="EQ", value=1),
-            ]
-        ),
+        # No floor on links_known_count: requiring two let a single-port server
+        # pass by having too few NICs to fail. EQ 1 keeps this disjoint from
+        # network.all_links_down — docs/architecture.md, "Health policy engine".
+        condition=Condition(metric="network.links_up_count", operator="EQ", value=1),
         evidence=[
             EvidenceField(key="up", metric="network.links_up_count"),
             EvidenceField(key="interfaces", metric="network.links_known_count"),
