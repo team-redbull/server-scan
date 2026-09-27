@@ -21,6 +21,9 @@ export interface RowFilters {
   reserved?: true;
   stale?: true;
   duplicate?: true;
+  /** Installed in OpenShift under a hostname the vendor manager no longer
+   * reports (ADR-0036) — `ServerRow.openshift_reported_name` is set. */
+  nameMismatch?: true;
   /** Selected MCEs (OR within); ANDed with every other filter. */
   mce?: string[];
   /** Selected clusters, hosted and UPI alike (OR within). */
@@ -112,6 +115,7 @@ export function filterRows(
       (!filters.maintenance || row.maintenance.enabled) &&
       (!filters.reserved || row.reservation.held) &&
       (!filters.stale || row.stale) &&
+      (!filters.nameMismatch || row.openshift_reported_name !== null) &&
       (!filters.mce?.length ||
         (row.mce_name !== null && filters.mce.includes(row.mce_name))) &&
       (!filters.cluster?.length ||

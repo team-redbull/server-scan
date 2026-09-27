@@ -30,6 +30,11 @@ from app.utils.timeutil import utcnow
 # "available" filter and the sites page's Available card have data.
 _AVAILABLE_SHARE = 0.2
 
+# Seeded share of INSTALLED servers whose vendor-manager name has since
+# drifted from what OpenShift reports (ADR-0036), so the UI's mismatch chip
+# and filter have data against a fleet with no real cluster to point at.
+_NAME_MISMATCH_SHARE = 0.02
+
 
 def _mce_for(site_id: str | None) -> str:
     """
@@ -42,6 +47,26 @@ def _mce_for(site_id: str | None) -> str:
         str: The MCE's name.
     """
     return f"mce-{site_id or 'unassigned'}"
+
+
+def _reported_name(rng: random.Random, server: Server) -> str | None:
+    """
+    Occasionally simulate an installed server renamed in its vendor manager since (ADR-0036).
+
+    Args:
+        rng (random.Random): The server's own deterministic generator.
+        server (Server): The server being installed this draw.
+
+    Returns:
+        str | None: A hostname differing from `server.name`, for about 2%
+            of installed servers; `None` for the rest — the common case,
+            where the vendor name and the cluster's report still agree.
+    """
+    tokens = server.name.split("-")
+    if rng.random() >= _NAME_MISMATCH_SHARE or len(tokens) < 2:
+        return None
+    tokens[1] = f"renamed{rng.randint(1, 9)}"
+    return "-".join(tokens).lower()
 
 
 def openshift_for(server: Server) -> OpenShiftLifecycle:
@@ -80,6 +105,7 @@ def openshift_for(server: Server) -> OpenShiftLifecycle:
             mce_name=mce,
             last_reported_at=now,
             reported_by_agent_id=mce,
+            reported_name=_reported_name(rng, server),
         )
 
     # A hub's own nodes are cluster nodes like any other, so both are
@@ -93,6 +119,7 @@ def openshift_for(server: Server) -> OpenShiftLifecycle:
             cluster_name=cluster,
             last_reported_at=now,
             reported_by_agent_id=cluster,
+            reported_name=_reported_name(rng, server),
         )
 
     # Registered to an MCE and bound to nothing. `cluster_name` stays None
@@ -103,4 +130,5 @@ def openshift_for(server: Server) -> OpenShiftLifecycle:
         mce_name=mce,
         last_reported_at=now,
         reported_by_agent_id=mce,
+        reported_name=_reported_name(rng, server),
     )

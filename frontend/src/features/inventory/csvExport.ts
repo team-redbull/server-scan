@@ -3,6 +3,7 @@ import type { ServerRow } from "@/types/server";
 /** Column order, header text, and value accessor for the inventory CSV export. */
 const COLUMNS: { header: string; value: (row: ServerRow) => string }[] = [
   { header: "Name", value: (r) => r.name },
+  { header: "Vendor", value: (r) => r.vendor },
   { header: "BMC address", value: (r) => r.bmc_host ?? "" },
   { header: "Installation", value: (r) => r.openshift_state },
   // Separate from "MCE", which is where a server ALREADY lives. This is where
@@ -10,6 +11,7 @@ const COLUMNS: { header: string; value: (row: ServerRow) => string }[] = [
   { header: "Installing to", value: (r) => (r.reservation.held ? (r.reservation.mce_cluster ?? "") : "") },
   { header: "MCE", value: (r) => r.mce_name ?? "" },
   { header: "Cluster", value: (r) => r.cluster_name ?? "" },
+  { header: "OpenShift reported name", value: (r) => r.openshift_reported_name ?? "" },
   { header: "Model", value: (r) => r.model ?? "" },
   { header: "Serial", value: (r) => r.serial ?? "" },
   { header: "SPT", value: (r) => r.profile_template_name ?? "" },

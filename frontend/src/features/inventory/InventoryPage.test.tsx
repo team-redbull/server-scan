@@ -21,6 +21,7 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     openshift_state: "INSTALLED",
     cluster_name: "ocp4-tlv",
     mce_name: null,
+    openshift_reported_name: null,
     profile_template_name: null,
     last_seen_at: "2026-08-12T10:00:00Z",
     stale: false,
@@ -289,6 +290,36 @@ describe("InventoryPage", () => {
     expect(screen.getAllByText("ocp4-five-compute-06")).toHaveLength(2);
     expect(screen.queryByText("ocp4-five-compute-07")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^Duplicate \(2\)/)).toBeChecked();
+  });
+
+  it("keeps only rows OpenShift reports under a different name when Name mismatch is ticked (ADR-0036)", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({
+            id: "srv_renamed",
+            name: "ocp-toto-compute-01",
+            openshift_reported_name: "ocp-tomer-compute-01",
+          }),
+          makeServer({ id: "srv_agrees", name: "ocp-tlv-compute-02" }),
+        ]),
+      ),
+    );
+
+    const { router } = renderInventoryPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("ocp-toto-compute-01")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText(/^Name mismatch/));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("name_mismatch=true");
+    });
+    expect(screen.getByText("ocp-toto-compute-01")).toBeInTheDocument();
+    expect(screen.queryByText("ocp-tlv-compute-02")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Name mismatch \(1\)/)).toBeChecked();
   });
 
   it("searches by substring across name, serial, BMC host and MAC", async () => {

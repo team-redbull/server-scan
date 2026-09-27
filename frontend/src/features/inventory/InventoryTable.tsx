@@ -138,6 +138,7 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
           maintenance={row.maintenance}
           stale={row.stale}
           lastSeenAt={row.last_seen_at}
+          reportedName={row.openshift_reported_name}
         />
       );
     },

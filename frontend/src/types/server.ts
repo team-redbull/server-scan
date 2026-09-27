@@ -90,6 +90,9 @@ export interface ServerRow {
   openshift_state: OpenShiftState;
   cluster_name: string | null;
   mce_name: string | null;
+  /** Set only when OpenShift reports a hostname that differs from `name` —
+   * a vendor-side rename after install (ADR-0036). */
+  openshift_reported_name: string | null;
   profile_template_name: string | null;
   last_seen_at: string | null;
   /** Unseen for longer than `INVENTORY_STALE_AFTER_SECONDS`, or never (ADR-0029). */
@@ -292,4 +295,7 @@ export interface OpenShiftLifecycle {
   /** Nothing reports a removal; a stale membership is only visible here. */
   last_reported_at: string | null;
   reported_by_agent_id: string | null;
+  /** Set only when it differs from `Server.name` — a vendor-side rename
+   * after install (ADR-0036). */
+  reported_name: string | null;
 }

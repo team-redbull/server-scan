@@ -52,6 +52,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       cluster_name: null,
       last_reported_at: null,
       reported_by_agent_id: null,
+      reported_name: null,
     },
     tags: [],
     created_at: "2026-08-13T10:00:00Z",
@@ -195,6 +196,27 @@ describe("OverviewTab OpenShift membership", () => {
 
     expect(screen.getByText("UNCLASSIFIED")).toBeInTheDocument();
     expect(screen.getByText("Installed")).toBeInTheDocument();
+  });
+
+  it("flags a name reported by OpenShift that differs from the inventory name", () => {
+    // ADR-0036: a vendor-side rename after install must not hide as silently freed.
+    const server = makeServer();
+    server.openshift = {
+      ...server.openshift,
+      lifecycle_state: "INSTALLED",
+      cluster_name: "ocp4-tlv",
+      reported_name: "ocp-tomer-compute-01",
+    };
+
+    render(<OverviewTab server={server} />);
+
+    expect(screen.getByText("Name mismatch")).toBeInTheDocument();
+    expect(screen.getByText("ocp-tomer-compute-01")).toBeInTheDocument();
+  });
+
+  it("shows no mismatch chip when the reported name agrees", () => {
+    render(<OverviewTab server={makeServer()} />);
+    expect(screen.queryByText("Name mismatch")).not.toBeInTheDocument();
   });
 });
 

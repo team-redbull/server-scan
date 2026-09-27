@@ -25,6 +25,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     openshift_state: "AVAILABLE",
     cluster_name: null,
     mce_name: null,
+    openshift_reported_name: null,
     profile_template_name: null,
     last_seen_at: null,
     stale: false,
@@ -98,6 +99,16 @@ describe("filterRows", () => {
 
   it("finds nothing when no name repeats", () => {
     expect(filterRows(FLEET, { duplicate: true })).toHaveLength(0);
+  });
+
+  it("keeps only rows OpenShift reports under a different name (ADR-0036)", () => {
+    const fleet = [
+      row({ name: "ocp-toto-compute-01", openshift_reported_name: "ocp-tomer-compute-01" }),
+      row({ name: "ocp-tlv-compute-02", openshift_reported_name: null }),
+    ];
+    expect(
+      filterRows(fleet, { nameMismatch: true }).map((r) => r.name),
+    ).toEqual(["ocp-toto-compute-01"]);
   });
 });
 

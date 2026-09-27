@@ -69,6 +69,7 @@ export function InventoryPage() {
   const maintenanceOnly = searchParams.get("maintenance") === "true";
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
+  const nameMismatchOnly = searchParams.get("name_mismatch") === "true";
   const sortParam = searchParams.get("sort") ?? "";
   const sortField: SortableField = isSortableField(sortParam)
     ? sortParam
@@ -95,6 +96,7 @@ export function InventoryPage() {
     if (maintenanceOnly) next.maintenance = true;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
+    if (nameMismatchOnly) next.nameMismatch = true;
     if (mceSel.length) next.mce = mceSel;
     if (clusterSel.length) next.cluster = clusterSel;
     return next;
@@ -109,6 +111,7 @@ export function InventoryPage() {
     maintenanceOnly,
     staleOnly,
     duplicateOnly,
+    nameMismatchOnly,
     mceSel,
     clusterSel,
   ]);
@@ -255,6 +258,8 @@ export function InventoryPage() {
   if (staleOnly) activeFilters.push({ key: "stale", label: "Stale" });
   if (duplicateOnly)
     activeFilters.push({ key: "duplicate", label: "Duplicate" });
+  if (nameMismatchOnly)
+    activeFilters.push({ key: "name_mismatch", label: "Name mismatch" });
 
   function clearFilters() {
     updateFilters({
@@ -268,6 +273,7 @@ export function InventoryPage() {
       maintenance: null,
       stale: null,
       duplicate: null,
+      name_mismatch: null,
       mce: null,
       cluster: null,
     });
@@ -512,6 +518,22 @@ export function InventoryPage() {
                     }}
                   />
                   Duplicate{duplicateOnly && facets ? ` (${facets.total})` : ""}
+                </label>
+
+                <label
+                  className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+                  title="Installed in OpenShift under a hostname the vendor manager no longer reports — a rename after install"
+                >
+                  <input
+                    type="checkbox"
+                    checked={nameMismatchOnly}
+                    onChange={(e) => {
+                      updateFilters({
+                        name_mismatch: e.target.checked ? "true" : null,
+                      });
+                    }}
+                  />
+                  Name mismatch{nameMismatchOnly && facets ? ` (${facets.total})` : ""}
                 </label>
 
                 <button

@@ -116,7 +116,7 @@ function ModelValue({ server }: { server: ServerDetail }) {
  * back to it: the two disagreeing is how a misnamed server is noticed. Carries
  * the install lock too, when one is held — ADR-0035. */
 function OpenShiftValue({ server }: { server: ServerDetail }) {
-  const { lifecycle_state, cluster_name, mce_name } = server.openshift;
+  const { lifecycle_state, cluster_name, mce_name, reported_name } = server.openshift;
 
   return (
     <div className="flex flex-col gap-1">
@@ -130,6 +130,15 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
       <span className="text-xs text-[var(--text-secondary)]">
         {mce_name ? `MCE ${mce_name}` : "—"}
       </span>
+      {/* A vendor-side rename after install (ADR-0036): the hardware is the
+          same server, but the name it was installed under has since changed. */}
+      {reported_name && (
+        <span className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+          <Badge tone="warning">Name mismatch</Badge>
+          Installed in OpenShift as <span className="font-medium">{reported_name}</span> — the
+          inventory name differs
+        </span>
+      )}
     </div>
   );
 }

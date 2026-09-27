@@ -3,12 +3,13 @@ import { formatAge, formatTimestamp } from "@/lib/datetime";
 import type { HealthSeverity, MaintenanceState } from "@/types/server";
 
 /**
- * Health severity plus two chips shown alongside rather than replacing it:
+ * Health severity plus chips shown alongside rather than replacing it:
  * maintenance ("critical, and someone is on it" and "in maintenance,
- * otherwise fine" must not render the same) and stale (a HEALTHY badge on
+ * otherwise fine" must not render the same), stale (a HEALTHY badge on
  * a server nothing has reached for 14 hours is a claim about the past, and
- * the chip says so — ADR-0029). Both hues sit outside the severity set so
- * neither reads as an extra severity.
+ * the chip says so — ADR-0029), and a name mismatch (OpenShift reports this
+ * server under a hostname the vendor manager no longer uses — ADR-0036).
+ * Every hue sits outside the severity set so none reads as an extra severity.
  */
 
 interface SeverityStyle {
@@ -50,6 +51,7 @@ export function StateBadge({
   maintenance,
   stale = false,
   lastSeenAt = null,
+  reportedName = null,
 }: {
   severity: HealthSeverity;
   maintenance: MaintenanceState;
@@ -57,6 +59,8 @@ export function StateBadge({
   stale?: boolean;
   /** Gives the chip its age (`20h`); null means never collected. */
   lastSeenAt?: string | null;
+  /** `ServerRow.openshift_reported_name`; non-null renders the chip (ADR-0036). */
+  reportedName?: string | null;
 }) {
   const style = SEVERITIES[severity];
 
@@ -91,6 +95,14 @@ export function StateBadge({
           className="inline-flex items-center rounded-full bg-[var(--tint-unknown)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-unknown)]"
         >
           Stale{lastSeenAt ? ` ${formatAge(lastSeenAt)}` : ""}
+        </span>
+      )}
+      {reportedName && (
+        <span
+          title={`OpenShift reports this node as "${reportedName}"`}
+          className="inline-flex items-center rounded-full bg-[var(--tint-warning)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-warning)]"
+        >
+          Name mismatch
         </span>
       )}
     </span>

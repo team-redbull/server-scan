@@ -160,6 +160,35 @@ def test_membership_is_not_forced_to_agree_with_the_classification() -> None:
     assert state.lifecycle_state is OpenShiftState.INSTALLED
 
 
+def test_a_name_mismatch_is_occasionally_seeded() -> None:
+    """ADR-0036: the UI's mismatch chip and its filter need seeded data
+    even though this fleet has no real cluster reporting a different name.
+    """
+    servers = [
+        _server(f"ocp4-prod-tlv-compute-{i:04d}", server_id=f"srv_mismatch_{i}") for i in range(400)
+    ]
+    states = [openshift_for(server) for server in servers]
+    mismatched = [
+        (server, state)
+        for server, state in zip(servers, states, strict=True)
+        if state.lifecycle_state is not OpenShiftState.AVAILABLE and state.reported_name
+    ]
+
+    assert mismatched, "no mismatch seeded across 400 draws"
+    assert all(state.reported_name != server.name for server, state in mismatched)
+
+
+def test_a_single_token_name_never_gets_a_mismatch() -> None:
+    """The mismatch substitutes a hyphen-separated token; a bare hostname
+    has none to swap, so it is left untouched rather than mangled.
+    """
+    states = [openshift_for(_server("soloname", server_id=f"srv_solo_{i}")) for i in range(200)]
+    installed = [s for s in states if s.lifecycle_state is not OpenShiftState.AVAILABLE]
+
+    assert installed, "no installed draw across 200 ids"
+    assert all(s.reported_name is None for s in installed)
+
+
 def test_every_state_is_reachable_for_every_installation_type() -> None:
     """Convention 10: a seeded fleet where only junk-named servers are ever
     free is the opposite of the real one, and would make the Available
