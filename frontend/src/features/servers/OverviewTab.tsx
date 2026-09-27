@@ -134,7 +134,7 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
           same server, but the name it was installed under has since changed. */}
       {reported_name && (
         <span className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          Installed as <Badge tone="warning">Name mismatch</Badge>{" "}
+          <Badge tone="warning">Name mismatch</Badge> Installed as{" "}
           <span className="font-medium">{reported_name}</span>
         </span>
       )}
