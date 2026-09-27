@@ -30,13 +30,23 @@ the Agent's own inventory for an agent — and matches on
 `identity.serial_normalized` instead. A resolved match keeps the server
 `INSTALLED` and records what the cluster actually called it
 (`OpenShiftLifecycle.reported_name`) rather than freeing it as absent.
-When the serial itself cannot be read this run, the observation is left
-unmatched **and** the whole run's free-on-absence pass is skipped — an
-unreadable node might be exactly the server this cluster still holds, and
-guessing wrong in either direction is worse than waiting for a clean run.
-With no `SerialReader` configured at all, a duplicate hostname keeps the
-arbitrary first-by-name pick this service always made, so a cluster with
-no key mounted sees no behaviour change from this feature.
+
+**When a serial cannot be read, protection is scoped to what is actually
+ambiguous, not the whole run (2026-09-27 correction).** An earlier version
+of this fallback skipped the *entire* cluster's free-on-absence pass on any
+single unreadable serial — one permanently unreachable node then blocked
+every other server's release forever, which is itself a correctness
+failure the same way a stale claim is. A duplicate name's candidates are
+known (`_find_by_hostname` already found them); an unreadable serial for
+one leaves *only those specific candidates* unfreeable this run, while
+every other server in scope is freed normally. A plain miss (zero
+candidates) has no specific server to protect — there is nothing to
+narrow the risk to, and indefinitely freezing the whole cluster to guard
+an unidentifiable single machine is a worse trade than accepting that
+narrow, already-rare residual risk. With no `SerialReader` configured at
+all, a duplicate hostname keeps the arbitrary first-by-name pick this
+service always made, so a cluster with no key mounted sees no behaviour
+change from this feature.
 """
 
 from __future__ import annotations
@@ -96,8 +106,10 @@ class MembershipSummary:
             (ADR-0036) — a renamed or duplicate-named server.
         unresolved (list[str]): Hostnames that missed by name and whose
             hardware serial could not be read this run — a subset of
-            `unmatched`. Non-empty, this also skips the free-on-absence
-            pass for the whole run.
+            `unmatched`. For a duplicate name, its specific candidates are
+            held back from freeing this run (2026-09-27 correction); a
+            plain miss protects nothing else, since there is no candidate
+            to narrow the risk to.
     """
 
     observed: int = 0
@@ -165,9 +177,12 @@ class OpenShiftMembershipService:
         """
         summary = MembershipSummary(observed=len(observations))
         seen_ids: set[str] = set()
+        protected_ids: set[str] = set()
 
         for observation in observations:
-            server, reported_name = await self._resolve(observation, reported_by, summary)
+            server, reported_name = await self._resolve(
+                observation, reported_by, summary, protected_ids
+            )
             if server is None:
                 continue
             summary.matched += 1
@@ -177,19 +192,22 @@ class OpenShiftMembershipService:
             ):
                 summary.claimed += 1
 
-        if summary.unresolved:
-            # Deferred, not lost — see the module docstring.
+        if protected_ids:
+            # Deferred, not lost — see the module docstring's 2026-09-27
+            # correction. Only these specific candidates are held back;
+            # every other server in scope is still freed normally below.
             logger.warning(
-                "openshift.free_skipped_unresolved",
+                "openshift.free_partially_protected",
                 reported_by=reported_by,
                 unresolved=len(summary.unresolved),
+                protected=len(protected_ids),
             )
-        else:
-            for server in await self._claimed_by(scope):
-                if server.id in seen_ids:
-                    continue
-                if await self._free(server, dry_run=dry_run):
-                    summary.freed += 1
+
+        for server in await self._claimed_by(scope):
+            if server.id in seen_ids or server.id in protected_ids:
+                continue
+            if await self._free(server, dry_run=dry_run):
+                summary.freed += 1
 
         logger.info(
             "openshift.reconciled",
@@ -210,6 +228,7 @@ class OpenShiftMembershipService:
         observation: ClusterObservation,
         reported_by: str,
         summary: MembershipSummary,
+        protected_ids: set[str],
     ) -> tuple[Server | None, str | None]:
         """
         Resolve one observation to a server, falling back to its hardware serial.
@@ -220,6 +239,9 @@ class OpenShiftMembershipService:
             summary (MembershipSummary): Updated in place with `unmatched`/
                 `unresolved` on a miss, and `matched_by_serial` on a serial
                 match — the caller still owns `matched`/`claimed`.
+            protected_ids (set[str]): Updated in place with a duplicate's
+                candidate ids when its serial cannot be read — the only
+                servers a failed read exempts from this run's freeing.
 
         Returns:
             tuple[Server | None, str | None]: The matched server (or
@@ -254,11 +276,15 @@ class OpenShiftMembershipService:
         if serial is None:
             summary.unmatched.append(observation.hostname)
             summary.unresolved.append(observation.hostname)
+            # A miss has no candidate to protect — there is nothing to
+            # narrow the risk to, so nothing else in scope is held back.
+            protected_ids.update(candidate.id for candidate in candidates)
             logger.error(
                 "openshift.serial_unreadable",
                 hostname=observation.hostname,
                 reported_by=reported_by,
                 duplicate=bool(candidates),
+                protected=len(candidates),
             )
             return None, None
 

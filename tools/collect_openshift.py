@@ -225,7 +225,8 @@ def _report(summary: MembershipSummary, *, reported_by: str, dry_run: bool) -> i
     if summary.unresolved:
         print(
             f"  of which unresolved (serial unreadable) : {len(summary.unresolved)} "
-            "— freeing was skipped this run"
+            "— a duplicate name's candidates are held back from freeing this run; "
+            "a plain miss does not hold back anything else"
         )
 
     # The match rate is the number to look at on a first run: a Dell

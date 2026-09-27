@@ -15,6 +15,12 @@ pure Python, native `asyncio`, and needs no on-disk `HOME`.
 Host keys are not verified (`known_hosts=None`), matching the operator's
 own existing tooling for these nodes. Accepted risk on the internal node
 network — see ADR-0036.
+
+`errors="replace"` on the connection (2026-09-27): asyncssh decodes command
+output as UTF-8 with `errors="strict"` by default, and a `UnicodeDecodeError`
+on garbled BMC output is a `ValueError`, not one of the exceptions `read()`
+catches — left uncaught, it would crash the whole reconcile run over one
+node's corrupted serial instead of just failing that one read.
 """
 
 from __future__ import annotations
@@ -85,6 +91,11 @@ class SshSerialReader:
                     client_keys=[self._key_file],
                     known_hosts=None,
                     connect_timeout=self._timeout,
+                    # Never raise UnicodeDecodeError on garbled BMC output
+                    # (asyncssh defaults to errors="strict") — see the
+                    # module docstring.
+                    encoding="utf-8",
+                    errors="replace",
                 ) as conn:
                     result = await conn.run(_SERIAL_COMMAND, check=False, timeout=self._timeout)
             except (asyncssh.Error, OSError, TimeoutError) as exc:

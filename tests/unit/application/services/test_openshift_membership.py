@@ -483,12 +483,17 @@ class TestSerialFallback:
         assert written_by_name["SN-WRONG"] is OpenShiftState.AVAILABLE
 
     async def test_duplicate_hostname_with_unreadable_serial_claims_neither(self) -> None:
+        """The ambiguous pair is held back; an unrelated server is freed
+        normally in the same run (2026-09-27 correction: scoped, not
+        cluster-wide).
+        """
         already_installed = OpenShiftLifecycle(
             lifecycle_state=OpenShiftState.INSTALLED, cluster_name="ocp4-tlv"
         )
         first = _server("dup", openshift=already_installed, serial="SN-A")
         second = _server("dup", openshift=already_installed, serial="SN-B")
-        repo = FakeRepo([first, second])
+        unrelated = _server("unrelated-worker-03", openshift=already_installed)
+        repo = FakeRepo([first, second, unrelated])
         reader = FakeSerialReader({})
         summary = await _service(repo, FakeAudit(), serial_reader=reader).reconcile(
             [_seen("dup", address="10.0.0.5")],
@@ -498,7 +503,9 @@ class TestSerialFallback:
 
         assert summary.unmatched == ["dup"]
         assert summary.unresolved == ["dup"]
-        assert repo.written == []
+        assert summary.freed == 1
+        assert repo.written == [unrelated]
+        assert unrelated.openshift.lifecycle_state is OpenShiftState.AVAILABLE
 
     async def test_duplicate_hostname_with_no_reader_keeps_first_by_name_pick(self) -> None:
         first = _server("dup", serial="SN-A")
@@ -514,14 +521,18 @@ class TestSerialFallback:
         assert summary.matched_by_serial == 0
         assert len(repo.written) == 1
 
-    async def test_unreadable_serial_skips_freeing_for_the_whole_run(self) -> None:
-        renamed = _server(
+    async def test_a_miss_with_unreadable_serial_does_not_block_freeing_elsewhere(self) -> None:
+        """2026-09-27 correction: one permanently-unreachable node used to
+        freeze the *entire* cluster's freeing indefinitely. A miss has no
+        candidate to protect, so it protects nothing else.
+        """
+        unrelated = _server(
             "elsewhere",
             openshift=OpenShiftLifecycle(
                 lifecycle_state=OpenShiftState.INSTALLED, cluster_name="ocp4-tlv"
             ),
         )
-        repo = FakeRepo([renamed])
+        repo = FakeRepo([unrelated])
         reader = FakeSerialReader({})
         summary = await _service(repo, FakeAudit(), serial_reader=reader).reconcile(
             [_seen("ocp-tomer-compute-01", address="10.0.0.5")],
@@ -530,8 +541,9 @@ class TestSerialFallback:
         )
 
         assert summary.unresolved == ["ocp-tomer-compute-01"]
-        assert summary.freed == 0
-        assert repo.written == []
+        assert summary.freed == 1
+        assert repo.written[0].name == "elsewhere"
+        assert repo.written[0].openshift.lifecycle_state is OpenShiftState.AVAILABLE
 
     async def test_ambiguous_serial_match_stays_unmatched(self) -> None:
         one = _server("srv-1", serial="SN-DUP")
@@ -592,3 +604,34 @@ class TestSerialFallback:
 
         assert summary.claimed == 1
         assert repo.written[0].openshift.reported_name == "ocp-tomer-compute-01"
+
+    async def test_an_unrelated_down_node_does_not_block_a_duplicate_from_self_healing(
+        self,
+    ) -> None:
+        """The reported incident: an unrelated down node used to block
+        freeing for the whole cluster (ADR-0036's 2026-09-27 update).
+        """
+        wrong_hp = _server(
+            "ocp-tomer-compute-06",
+            serial="HP-SERIAL",
+            openshift=OpenShiftLifecycle(
+                lifecycle_state=OpenShiftState.INSTALLED, cluster_name="ocp4-tlv"
+            ),
+        )
+        right_cisco = _server("ocp-tomer-compute-06", serial="CISCO-SERIAL")
+        repo = FakeRepo([wrong_hp, right_cisco])
+        reader = FakeSerialReader({"10.0.0.6": "CISCO-SERIAL"})  # compute-80 stays unanswered
+        summary = await _service(repo, FakeAudit(), serial_reader=reader).reconcile(
+            [
+                _seen("ocp-tomer-compute-06", address="10.0.0.6"),
+                _seen("compute-80", address="10.0.0.80"),
+            ],
+            scope={"openshift.cluster_name": "ocp4-tlv"},
+            reported_by="ocp4-tlv",
+        )
+
+        assert summary.matched_by_serial == 1
+        assert summary.unresolved == ["compute-80"]
+        written_by_serial = {s.identity.serial: s.openshift.lifecycle_state for s in repo.written}
+        assert written_by_serial["CISCO-SERIAL"] is OpenShiftState.INSTALLED
+        assert written_by_serial["HP-SERIAL"] is OpenShiftState.AVAILABLE

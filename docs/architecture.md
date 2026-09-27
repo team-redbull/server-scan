@@ -1686,10 +1686,11 @@ straight from the Agent CR's own inventory for an agent — and matches on
 `identity.serial_normalized`. A resolved match stays `INSTALLED` and
 records what the cluster actually called it
 (`OpenShiftLifecycle.reported_name`) rather than being freed as absent;
-an unreadable serial skips the whole run's free-on-absence pass rather
-than risk freeing the very server it could not identify. Full mechanism
-and the alternatives it ruled out (BareMetalHost, `oc debug`, the UCS
-service-profile UUID): `docs/adr/0036-openshift-membership-serial-fallback.md`.
+an unreadable serial holds back only its own ambiguous candidates from
+freeing, not the whole run (2026-09-27 correction, after one permanently
+unreachable node was found blocking release of an entire cluster). Full
+mechanism and the alternatives it ruled out (BareMetalHost, `oc debug`,
+the UCS service-profile UUID): `docs/adr/0036-openshift-membership-serial-fallback.md`.
 
 ### CI supply chain
 

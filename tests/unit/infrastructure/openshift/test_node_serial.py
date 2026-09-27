@@ -69,7 +69,7 @@ async def ssh_server(
     """
     listeners: list[asyncssh.SSHAcceptor] = []
 
-    async def start(handler: ProcessHandler) -> _Server:
+    async def start(handler: ProcessHandler, *, encoding: str | None = "utf-8") -> _Server:
         client_key = asyncssh.generate_private_key("ssh-ed25519")
         key_path = tmp_path / f"id_test_{len(listeners)}"
         client_key.write_private_key(str(key_path))
@@ -84,6 +84,7 @@ async def ssh_server(
             server_host_keys=[host_key],
             authorized_client_keys=str(authorized_keys_path),
             process_factory=handler,
+            encoding=encoding,
         )
         listeners.append(listener)
         return _Server(listener.get_port(), str(key_path))
@@ -95,7 +96,7 @@ async def ssh_server(
         await listener.wait_closed()
 
 
-StartServer = Callable[[ProcessHandler], Awaitable[_Server]]
+StartServer = Callable[..., Awaitable[_Server]]
 
 
 class TestSshSerialReader:
@@ -138,6 +139,21 @@ class TestSshSerialReader:
         server = await ssh_server(handler)
 
         assert await server.reader(connect_timeout=0.2).read("127.0.0.1") is None
+
+    async def test_a_non_utf8_byte_in_the_output_does_not_crash(
+        self, ssh_server: StartServer
+    ) -> None:
+        """asyncssh decodes as UTF-8 with errors="strict" by default; a
+        garbled BMC value must not raise UnicodeDecodeError out of read().
+        """
+
+        async def handler(process: asyncssh.SSHServerProcess) -> None:
+            process.stdout.write(b"SN\xffGARBLED\n")
+            process.exit(0)
+
+        server = await ssh_server(handler, encoding=None)
+
+        assert await server.reader().read("127.0.0.1") == "SN�GARBLED"
 
     async def test_an_unreachable_port_is_unreadable_not_raised(self) -> None:
         reader = SshSerialReader(key_file="/nonexistent/key", port=1, connect_timeout=0.5)

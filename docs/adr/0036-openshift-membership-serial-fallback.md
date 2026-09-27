@@ -138,18 +138,17 @@ shared key already grants. A future session wanting to close this needs a
 provisioning), which is genuinely new operational state, not a code
 change.
 
-### 5. An unresolved serial skips freeing for the whole run
+### 5. An unresolved serial protects only its own candidates from freeing
 
-If any observation's serial cannot be read this run (SSH failure,
-timeout, placeholder value), that hostname is left unmatched **and** the
-free-on-absence pass (ADR-0024) is skipped entirely for the run —
-recorded as `MembershipSummary.unresolved`/`MembershipRun.unresolved`.
-Rationale: the unreadable node might be exactly the server this cluster
-still holds under a different name; freeing servers this run could
-recreate the very bug this ADR fixes on a transient SSH hiccup. Nothing
-is lost — the next clean run reconciles normally — but a persistently
-unreachable node means the fleet's free-on-absence guarantee is
-effectively suspended for that cluster until it is fixed.
+If an observation's serial cannot be read this run (SSH failure, timeout,
+placeholder value), that hostname is left unmatched, recorded as
+`MembershipSummary.unresolved`/`MembershipRun.unresolved`. For a
+**duplicate name**, its specific hostname candidates (already known —
+`_find_by_hostname` found them) are held back from this run's
+free-on-absence pass (ADR-0024) and nothing else in scope is affected. A
+**plain miss** has no candidate to hold back at all; it protects nothing
+beyond itself. See the 2026-09-27 update below for why this is scoped
+rather than blanket.
 
 ### 6. `OpenShiftLifecycle.reported_name`
 
@@ -187,3 +186,57 @@ this field existed decodes unchanged (no stored-shape migration needed).
   update.
 - Agents were already unaffected by any of the SSH machinery above; only
   the nodes path gained a dependency on a reachable, key-authorized node.
+
+## Update (2026-09-27): scope the freeze to what's actually ambiguous
+
+Decision 5's original blanket rule shipped a real correctness failure of
+its own, hit within hours of deploying: a UPI cluster had one node
+(`compute-80`) that was `NotReady` and never answered SSH at all. Every
+15-minute run therefore had one unresolved observation, which — under the
+original rule — skipped the **entire** cluster's free-on-absence pass,
+every run, indefinitely. Separately, that same cluster had a genuine
+duplicate name (`ocp-tomer-compute-06` / `ocp-tomer-compute-6`, one HP one
+Cisco) that a pre-ADR-0036 run had already claimed onto the wrong physical
+machine. The fallback now correctly re-resolves that duplicate to the
+right (Cisco) server on every run — but because `compute-80`'s unrelated
+failure blocked all freeing, the stale wrong (HP) claim could never be
+released. Two machines both showed `INSTALLED` for the same node name,
+and would have stayed that way for as long as `compute-80` stayed broken
+— a `NotReady` node with nothing to do with either duplicate candidate.
+
+**The blast radius was wrong, not the caution.** The actual risk Decision
+5 protects against is narrow and identifiable: for a *duplicate* name, the
+serial fallback already knows the small set of candidate servers a failed
+read leaves ambiguous — freeing either one on a guess is the risk. For a
+*miss* (zero hostname candidates), there is no candidate at all: the
+unreadable node's true identity, if any, could in principle be any server
+in the whole fleet, not specifically one of the servers this cluster
+already claims. Freezing every other server in scope to guard against an
+unidentifiable single machine trades a rare, narrow risk (wrongly freeing
+one server, only if a rename and an SSH failure happen to coincide on the
+very same node in the very same run) for a guaranteed, unbounded one
+(freeing never works at all, for the whole cluster, for as long as any one
+node stays broken).
+
+**Fix:** `_resolve` now takes a `protected_ids: set[str]` accumulator.
+A duplicate whose serial can't be read adds its own candidates' ids to it;
+a miss adds nothing. `reconcile`'s free-on-absence pass skips a server if
+its id is in `seen_ids` **or** `protected_ids` — everything else in scope
+is freed normally regardless of what else was unresolved that run.
+`MembershipSummary.unresolved` still records every unresolved hostname (for
+`_report` and the Prometheus gauges), it just no longer gates freeing by
+itself. Options considered and rejected: requiring N consecutive absent
+runs before freeing anything (a real per-server state machine — new stored
+fields, a schema migration, and materially more to test — for a case
+Decision 5's original blast radius, not its intent, actually caused);
+excluding a long-`NotReady` node from observations entirely (does not
+generalize — a node can be `Ready` and still fail SSH, e.g. a firewall
+change or a rotated key, and the fix needed to cover that too).
+
+**Residual, accepted risk:** a miss whose true physical server happens to
+already be `INSTALLED` for this exact cluster under some other name, on a
+run where that same node also fails to answer SSH, is freed rather than
+protected. This requires a rename and an SSH outage to land on the same
+node in the same run — narrower than the bug this ADR originally fixed,
+and self-corrects the next time SSH succeeds (the fallback re-resolves it
+by serial and re-claims it).

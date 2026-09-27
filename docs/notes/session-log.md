@@ -8,6 +8,70 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-27 — OpenShift membership gets a hardware-serial fallback, and
+the UI flags a name mismatch.** Moved to `docs/notes/session-log.md`: the
+membership-job run gauges / Grafana dashboard unit.
+
+**The bug this closes:** a server renamed in its vendor manager (UCS/OME/
+OneView) after being installed keeps the same `Server` document (ingest
+correlates on `(vendor, serial_normalized)`) but its OpenShift-reported
+hostname stops matching `Server.name` — the reconcile then frees it as
+absent (ADR-0024), so an actually-installed server looked `AVAILABLE` and
+`GET /servers/available` could hand it out. Same arbitrary-pick problem
+existed for two servers sharing one name.
+
+**Fix (ADR-0036):** `OpenShiftMembershipService._find_by_hostname` now
+asks for up to two candidates. Exactly one is unchanged. Zero or two-plus
+falls back to the machine's real hardware serial — `SshSerialReader`
+(new, `app.infrastructure.openshift.node_serial`, `asyncssh` not the
+`ssh` binary, because the image has no `openssh-clients`, runs under an
+arbitrary non-root UID with no passwd entry, and its root filesystem is
+read-only) over SSH to the node's `InternalIP` for a plain `Node`
+(`sudo cat /sys/class/dmi/id/product_serial`, RHCOS `core`'s default
+passwordless sudo), or straight off `status.inventory.systemVendor.
+serialNumber` for an Agent (no SSH needed there at all) — and matches on
+`identity.serial_normalized`. A resolved match stays `INSTALLED` and
+records the cluster's conflicting hostname on the new
+`OpenShiftLifecycle.reported_name`. Rejected alternatives, with real
+reasons each is a dead end for this estate: `BareMetalHost` (doesn't exist
+on this operator's UPI clusters), `oc debug node/` (can't schedule on a
+`NotReady` node — precisely the case that matters), `Node.status.
+nodeInfo.systemUUID`/`identity.system_uuid` (a live UCS domain already
+proved two real servers can share one, ADR-0016's 2026-09-09 update — see
+full reasoning in ADR-0036).
+
+**New:** `asyncssh==2.24.0` dependency (exports regenerated); four
+`INVENTORY_OPENSHIFT_SSH_*` settings (empty key file disables the whole
+fallback); `MembershipRun.matched_by_serial`/`.unresolved` and their
+Prometheus gauges; `FleetSnapshot.openshift_name_mismatches` /
+`server_scan_openshift_name_mismatch_servers`; `ServerRow.
+openshift_reported_name`. `PLACEHOLDER_SERIALS`/`is_placeholder_serial`
+moved out of Redfish's `mapping.py` into `app.domain.services.normalize`
+as a shared source of truth, since the SSH fallback needed the same
+placeholder-BIOS-value check Redfish already had. `backend/app/
+infrastructure/providers/fake/openshift.py` seeds ~2% of installed
+servers with a mismatch (convention 10) so a fleet with no real cluster
+still shows the UI's chip/filter.
+
+**Helm and frontend work landed in the same session, as parallel units**
+— see their own commits for the nodes-status chart's SSH-key Secret and
+the inventory UI's mismatch chip/filter/detail line.
+
+**Same-day correction, hit in production within hours (see CLAUDE.md's
+current "Where to continue" entry for the fix): the original "any
+unresolved serial skips freeing for the whole run" rule was too blunt** —
+one permanently-unreachable node blocked release of the whole cluster's
+servers indefinitely, including a genuine duplicate-name pair the
+fallback was otherwise correctly resolving every run. ADR-0036's
+2026-09-27 update has the full incident and the scoped fix.
+
+**Known gap, recorded in ADR-0036, not fixed:** a rename *onto* another
+server's exact existing name still hostname-matches the wrong one, since
+the serial fallback only triggers on a miss or a duplicate, never on an
+already-unique match.
+
+---
+
 **2026-09-24 — Membership-job run gauges, closing the "100% unmatched"
 blind spot, plus a Grafana dashboard.** Moved to
 `docs/notes/session-log.md`: the Redfish conformance gate / `network.
