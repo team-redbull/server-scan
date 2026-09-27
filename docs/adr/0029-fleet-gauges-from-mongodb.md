@@ -293,3 +293,22 @@ where already deployed, but it only sees a hard crash (exit 1 or 2). This
 job's unmatched-hostname case is a legitimate exit 3 — the reconcile
 completed correctly — so a generic Job-failure metric would never fire on
 it at all.
+
+## Update (2026-09-27): three more gauges, from ADR-0036's serial fallback
+
+`MembershipRun` gained `matched_by_serial`/`unresolved`
+(ADR-0036 — a hostname resolved via a node's SSH-read hardware serial or
+an Agent's own inventory, rather than a unique name match). Exported the
+same way as the fields above:
+`server_scan_membership_last_run_matched_by_serial`/`_unresolved`, same
+`kind`/`reported_by` labels, set in the same loop over
+`membership_runs.list_all()`.
+
+Separately, `fleet_snapshot`'s `$facet` gained `openshift_name_mismatches`
+— `$match` on `openshift.reported_name: {$type: "string"}`, `$count` —
+next to `duplicate_names`, exported as the unlabeled
+`server_scan_openshift_name_mismatch_servers`, matching the
+`duplicate_name_groups`/`_servers` precedent from the 2026-09-16 update
+above: a mismatch count has no dimension worth breaking out yet either.
+No new alert — this is a "worth an operator's attention" gauge, the same
+role `duplicate_name_*` already plays, not a job-health signal.

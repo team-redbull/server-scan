@@ -68,6 +68,27 @@ nodes:
       memory: 128Mi
     limits:
       memory: 256Mi
+  # Serial fallback for a name that no longer uniquely matches a server —
+  # a vendor-side rename, or two servers sharing a name (ADR-0036). Nodes
+  # only: an Agent already carries its own hardware serial, no SSH needed.
+  # Fully optional and off by default — this chart has no CI-pinned copy
+  # of a hand-maintained gitops values.yaml, but a `required` value here
+  # would still break every existing per-cluster ArgoCD Application the
+  # moment this chart version rolls out.
+  ssh:
+    enabled: false
+    # An externally provisioned Secret always wins over the chart's own
+    # (see ssh-secret.yaml) — same pattern as db.secretName above.
+    existingSecret: ""
+    # NEVER commit a real key here — `tests/unit/test_no_committed_secrets.py`
+    # guards against exactly that. Set it out-of-band:
+    #   helm upgrade ... --set-file nodes.ssh.privateKey=/path/to/id_rsa
+    # or provision `existingSecret` yourself and leave this blank.
+    privateKey: ""
+    secretKey: id_rsa
+    user: core
+    connectTimeoutSeconds: 10
+    concurrency: 10
 
 agents:
   # Off by default: a cluster with no Agent CRD would run this every 15

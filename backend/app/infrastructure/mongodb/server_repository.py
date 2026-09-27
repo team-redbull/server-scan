@@ -111,6 +111,7 @@ _ROW_PROJECTION: dict[str, int] = {
     "openshift.lifecycle_state": 1,
     "openshift.cluster_name": 1,
     "openshift.mce_name": 1,
+    "openshift.reported_name": 1,
     "profile_template.name": 1,
     "last_seen_at": 1,
     "updated_at": 1,
@@ -461,6 +462,10 @@ class MongoServerRepository:
                         {"$group": {"_id": "$name", "count": {"$sum": 1}}},
                         {"$match": {"count": {"$gt": 1}}},
                     ],
+                    "openshift_name_mismatches": [
+                        {"$match": {"openshift.reported_name": {"$type": "string"}}},
+                        {"$count": "count"},
+                    ],
                 }
             }
         ]
@@ -498,6 +503,9 @@ class MongoServerRepository:
             duplicate_name_groups=len(result.get("duplicate_names", [])),
             duplicate_name_servers=sum(
                 int(row["count"]) for row in result.get("duplicate_names", [])
+            ),
+            openshift_name_mismatches=int(
+                next(iter(result.get("openshift_name_mismatches", [])), {}).get("count", 0)
             ),
         )
 

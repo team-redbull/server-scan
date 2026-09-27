@@ -48,6 +48,7 @@ def _snapshot(**overrides: Any) -> FleetSnapshot:
         "in_maintenance": 2,
         "duplicate_name_groups": 1,
         "duplicate_name_servers": 2,
+        "openshift_name_mismatches": 1,
     }
     base.update(overrides)
     return FleetSnapshot(**base)
@@ -94,6 +95,8 @@ MEMBERSHIP_RUN = MembershipRun(
     matched=48,
     unmatched=2,
     partial=True,
+    matched_by_serial=3,
+    unresolved=1,
 )
 
 
@@ -200,6 +203,7 @@ def test_apply_snapshot_sets_every_gauge() -> None:
     assert _value("server_scan_servers_in_maintenance") == 2
     assert _value("server_scan_duplicate_name_groups") == 1
     assert _value("server_scan_duplicate_name_servers") == 2
+    assert _value("server_scan_openshift_name_mismatch_servers") == 1
     assert _value("server_scan_servers_partial", source_provider="OPENMANAGE") == 2
     assert _value("server_scan_policy_active", policy_key="power.failed_psu") == 3
     assert (
@@ -225,6 +229,18 @@ def test_apply_snapshot_sets_every_gauge() -> None:
     assert _value(
         "server_scan_membership_last_run_timestamp_seconds", kind="nodes", reported_by="hc-tlv-01"
     ) == pytest.approx(MEMBERSHIP_RUN.finished_at.timestamp())
+    assert (
+        _value(
+            "server_scan_membership_last_run_matched_by_serial",
+            kind="nodes",
+            reported_by="hc-tlv-01",
+        )
+        == 3
+    )
+    assert (
+        _value("server_scan_membership_last_run_unresolved", kind="nodes", reported_by="hc-tlv-01")
+        == 1
+    )
 
 
 def test_apply_snapshot_drops_label_sets_that_vanished() -> None:

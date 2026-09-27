@@ -60,6 +60,12 @@ dependencies = [
     # credential check. Pure-Python (no system `libldap` build dependency,
     # unlike `python-ldap`), which matters for an air-gapped wheel mirror.
     "ldap3==2.9.1",
+    # OpenShift membership's serial fallback (docs/adr/0035): the API image
+    # has no `openssh-clients` and runs as an arbitrary non-root UID with a
+    # read-only root filesystem, both of which break shelling out to the
+    # `ssh` binary. asyncssh is pure Python, needs no on-disk HOME, and its
+    # only hard dependency, `cryptography`, is already pinned above.
+    "asyncssh==2.24.0",
 ]
 
 [dependency-groups]

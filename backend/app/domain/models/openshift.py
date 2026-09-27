@@ -41,6 +41,14 @@ read that makes it work across vendors.
 
 Five fields, and the five an earlier shape carried that were dropped:
 `docs/adr/0024-openshift-cluster-membership.md`.
+
+**`reported_name` (ADR-0036) is the one exception to hostname-only
+correlation.** A vendor-side rename (UCS/OME/OneView) changes `Server.name`
+but not the hardware, so the hostname the cluster reports stops matching
+the server it names. When that happens the reconcile falls back to the
+machine's hardware serial and sets `reported_name` to what the cluster
+actually reported, so the server stays `INSTALLED` instead of being freed
+as absent. `None` means the two agree.
 """
 
 from __future__ import annotations
@@ -72,6 +80,9 @@ class OpenShiftLifecycle(BaseModel):
             stale.
         reported_by_agent_id (str | None): Which job instance wrote this,
             for tracing a wrong value back to the cluster that reported it.
+        reported_name (str | None): The hostname OpenShift reported, set
+            only when it differs from `Server.name` (ADR-0036). `None`
+            means the cluster's name and the inventory's agree.
     """
 
     lifecycle_state: OpenShiftState = OpenShiftState.AVAILABLE
@@ -79,6 +90,7 @@ class OpenShiftLifecycle(BaseModel):
     mce_name: str | None = None
     last_reported_at: datetime | None = None
     reported_by_agent_id: str | None = None
+    reported_name: str | None = None
 
     @field_validator("lifecycle_state", mode="before")
     @classmethod
@@ -108,8 +120,16 @@ class MembershipRun(BaseModel):
         observed (int): Hostnames the run reported.
         matched (int): Of those, resolved to a known server.
         unmatched (int): Of those, matched no server — a hostname the
-            vendor collectors have never ingested.
+            vendor collectors have never ingested, or whose hardware serial
+            could not be resolved either (ADR-0036).
         partial (bool): Whether the run exited 3 (`unmatched > 0`).
+        matched_by_serial (int): Of `matched`, resolved via the serial
+            fallback rather than a unique hostname match (ADR-0036).
+        unresolved (int): Hostnames that missed by name and whose serial
+            could not be read this run (SSH failure, timeout, or a
+            placeholder BIOS value) — a subset of `unmatched`. A non-zero
+            count also skips freeing this run, since the ambiguous host
+            might be the very server this cluster still holds.
     """
 
     kind: str
@@ -120,3 +140,5 @@ class MembershipRun(BaseModel):
     matched: int
     unmatched: int
     partial: bool
+    matched_by_serial: int = 0
+    unresolved: int = 0

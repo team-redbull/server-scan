@@ -85,3 +85,8 @@ Loaded only when a storage-side file is open. Each item names its ADR.
 - **`Manager` carries only what is read**: five never-written fields and
   an index on one were removed 2026-09-13; the index is in
   `RETIRED_INDEXES`.
+- **`OpenShiftLifecycle.reported_name` and `MembershipRun.matched_by_serial`/
+  `.unresolved`** (ADR-0036, 2026-09-27) all default (`None`/`0`), so a
+  document or run record written before this field existed decodes
+  unchanged — the same "narrowing/extending a persisted shape needs a
+  default, not a migration" rule this file already states above.

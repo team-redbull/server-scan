@@ -197,6 +197,7 @@ async def test_fleet_snapshot_on_an_empty_fleet(mongo_holder: MongoClientHolder)
     assert snapshot.in_maintenance == 0
     assert snapshot.duplicate_name_groups == 0
     assert snapshot.duplicate_name_servers == 0
+    assert snapshot.openshift_name_mismatches == 0
 
 
 async def test_fleet_snapshot_counts_duplicate_names(mongo_holder: MongoClientHolder) -> None:
@@ -237,6 +238,24 @@ async def test_fleet_snapshot_counts_duplicate_names(mongo_holder: MongoClientHo
     snapshot = await repo.fleet_snapshot(stale_before=utcnow() - timedelta(hours=12))
     assert snapshot.duplicate_name_groups == 2
     assert snapshot.duplicate_name_servers == 4
+
+
+async def test_fleet_snapshot_counts_openshift_name_mismatches(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """ADR-0036: a server installed under a different name than the vendor
+    manager now reports for it.
+    """
+    repo = MongoServerRepository(mongo_holder, cursor_secret="t")
+    mismatched = _server(
+        "ocp-toto-compute-01", provider="UCS_CENTRAL", seen_ago=timedelta(0), cluster="ocp4-tlv"
+    )
+    mismatched.openshift.reported_name = "ocp-tomer-compute-01"
+    await repo.upsert(mismatched)
+    await repo.upsert(_server("ocp4-tlv-compute-02", provider="UCS_CENTRAL", seen_ago=timedelta(0)))
+
+    snapshot = await repo.fleet_snapshot(stale_before=utcnow() - timedelta(hours=12))
+    assert snapshot.openshift_name_mismatches == 1
 
 
 async def test_fleet_snapshot_reads_documents_written_before_the_new_fields(

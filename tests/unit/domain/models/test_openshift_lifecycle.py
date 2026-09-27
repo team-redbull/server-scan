@@ -25,3 +25,14 @@ def test_a_current_state_is_untouched(current: OpenShiftState) -> None:
     state = OpenShiftLifecycle.model_validate({"lifecycle_state": current.value})
 
     assert state.lifecycle_state is current
+
+
+def test_a_document_written_before_reported_name_existed_still_loads() -> None:
+    """ADR-0036 added `reported_name` after this shape had already shipped;
+    a pre-existing document simply has no such key at all.
+    """
+    state = OpenShiftLifecycle.model_validate(
+        {"lifecycle_state": "INSTALLED", "cluster_name": "ocp4-tlv"}
+    )
+
+    assert state.reported_name is None

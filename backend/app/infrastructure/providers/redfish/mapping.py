@@ -26,6 +26,7 @@ from typing import Any
 
 from app.domain.enums import HealthSeverity, MediaType, Vendor
 from app.domain.ports.provider import ProviderNic, ProviderServer
+from app.domain.services.normalize import is_placeholder_serial
 
 _MIB = 1024**2
 _GIB = 1024**3
@@ -43,22 +44,6 @@ _HEALTH: dict[str, str] = {
     "Warning": HealthSeverity.WARNING.value,
     "Critical": HealthSeverity.CRITICAL.value,
 }
-
-# SMBIOS placeholders, treated as no serial at all (ADR-0016, 2026-09-13 update).
-_PLACEHOLDER_SERIALS = frozenset(
-    {
-        "",
-        "0123456789",
-        "default string",
-        "to be filled by o.e.m.",
-        "to be filled by o.e.m",
-        "not specified",
-        "none",
-        "n/a",
-        "unknown",
-        "system serial number",
-    }
-)
 
 
 def vendor_from_manufacturer(manufacturer: object) -> Vendor:
@@ -100,7 +85,7 @@ def _clean_serial(raw: object) -> str | None:
     if not isinstance(raw, str):
         return None
     text = raw.strip()
-    return None if text.lower() in _PLACEHOLDER_SERIALS else text
+    return None if is_placeholder_serial(text) else text
 
 
 def _dell_serial(system: dict[str, Any]) -> str | None:

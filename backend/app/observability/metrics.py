@@ -123,6 +123,10 @@ duplicate_name_servers = Gauge(
     "server_scan_duplicate_name_servers",
     "Servers whose name is shared by another server's document",
 )
+openshift_name_mismatch_servers = Gauge(
+    "server_scan_openshift_name_mismatch_servers",
+    "Servers installed in OpenShift under a different name than the vendor manager now reports",
+)
 fleet_snapshot_failures_total = Counter(
     "server_scan_fleet_snapshot_failures_total",
     "Fleet gauge refreshes that failed, leaving the previous values in place",
@@ -158,5 +162,15 @@ membership_last_run_unmatched = Gauge(
 membership_last_run_partial = Gauge(
     "server_scan_membership_last_run_partial",
     "1 if the most recent membership run exited PARTIAL (unmatched > 0)",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_matched_by_serial = Gauge(
+    "server_scan_membership_last_run_matched_by_serial",
+    "Of matched, resolved via the hardware-serial fallback, not a unique hostname (ADR-0036)",
+    labelnames=("kind", "reported_by"),
+)
+membership_last_run_unresolved = Gauge(
+    "server_scan_membership_last_run_unresolved",
+    "Hostnames whose hardware serial could not be read this run — freeing was skipped (ADR-0036)",
     labelnames=("kind", "reported_by"),
 )

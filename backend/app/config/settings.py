@@ -175,6 +175,14 @@ class Settings(BaseSettings):
 
     openshift_request_timeout_seconds: float = 30.0
 
+    # Serial fallback for a hostname that no longer uniquely names a server
+    # (docs/adr/0035). Empty disables it — the reconcile then behaves exactly
+    # as it did before this setting existed.
+    openshift_ssh_key_file: str = ""
+    openshift_ssh_user: str = "core"
+    openshift_ssh_connect_timeout_seconds: float = 10.0
+    openshift_ssh_concurrency: int = 10
+
     # --- AD login (docs/adr/0034) ---
     # Off by default: auto-admin until an operator points this at a real AD.
     auth_enabled: bool = False

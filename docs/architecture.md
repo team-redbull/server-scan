@@ -1674,6 +1674,23 @@ chart because these run somewhere else entirely. Design and the field
 trim that took `OpenShiftLifecycle` to five fields:
 `docs/adr/0024-openshift-cluster-membership.md`.
 
+**Hostname correlation has one fallback: the machine's own hardware
+serial.** A server renamed in its vendor manager after being installed
+keeps the same `Server` document (ingest correlates on
+`(vendor, serial_normalized)`) but stops matching the hostname OpenShift
+still reports — and the same arbitrary-pick problem shows up when two
+servers happen to share a name. Whenever a reported hostname is not a
+*unique* match, `OpenShiftMembershipService` resolves the real hardware
+serial instead — over SSH (`SshSerialReader`, `asyncssh`) for a node,
+straight from the Agent CR's own inventory for an agent — and matches on
+`identity.serial_normalized`. A resolved match stays `INSTALLED` and
+records what the cluster actually called it
+(`OpenShiftLifecycle.reported_name`) rather than being freed as absent;
+an unreadable serial skips the whole run's free-on-absence pass rather
+than risk freeing the very server it could not identify. Full mechanism
+and the alternatives it ruled out (BareMetalHost, `oc debug`, the UCS
+service-profile UUID): `docs/adr/0036-openshift-membership-serial-fallback.md`.
+
 ### CI supply chain
 
 Every GitHub Action is pinned to a commit SHA rather than a tag, because

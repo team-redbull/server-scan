@@ -13,9 +13,11 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from tools.collect_openshift import _observe, _record_run
+from tools.collect_openshift import _build_serial_reader, _observe, _record_run
 
 from app.application.services.openshift_membership import MembershipSummary
+from app.config import Settings
+from app.infrastructure.openshift.node_serial import SshSerialReader
 from app.utils.timeutil import utcnow
 
 pytestmark = pytest.mark.unit
@@ -162,3 +164,59 @@ async def test_record_run_never_raises_when_the_write_fails() -> None:
         started_at=utcnow(),
         summary=summary,
     )
+
+
+async def test_record_run_carries_the_serial_fallback_counts() -> None:
+    """ADR-0036: a renamed or duplicate-named server, and one this run
+    could not resolve at all, are both worth seeing in the fleet gauges.
+    """
+    repo = _FakeMembershipRunRepo()
+    summary = MembershipSummary(
+        observed=3,
+        matched=2,
+        claimed=1,
+        freed=0,
+        unmatched=["compute-99"],
+        matched_by_serial=1,
+        unresolved=["compute-99"],
+    )
+
+    await _record_run(
+        repo,  # ty: ignore[invalid-argument-type]
+        source="nodes",
+        reported_by="ocp4-tlv",
+        started_at=utcnow(),
+        summary=summary,
+    )
+
+    [run] = repo.runs
+    assert run.matched_by_serial == 1
+    assert run.unresolved == 1
+
+
+class TestBuildSerialReader:
+    """The SSH fallback is opt-in, and only for `--source nodes` (ADR-0036)."""
+
+    def test_no_key_file_means_no_reader(self) -> None:
+        settings = Settings(_env_file=None)
+        assert _build_serial_reader("nodes", settings) is None
+
+    def test_agents_never_get_a_reader(self) -> None:
+        """An Agent already carries its own hardware serial; SSH is only
+        for a plain `Node`, which has nothing but a name and an IP.
+        """
+        settings = Settings(_env_file=None, openshift_ssh_key_file="/etc/nodes-ssh/id_rsa")
+        assert _build_serial_reader("agents", settings) is None
+
+    def test_a_configured_key_file_builds_a_reader_for_nodes(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            openshift_ssh_key_file="/etc/nodes-ssh/id_rsa",
+            openshift_ssh_user="core",
+            openshift_ssh_connect_timeout_seconds=5.0,
+            openshift_ssh_concurrency=4,
+        )
+
+        reader = _build_serial_reader("nodes", settings)
+
+        assert isinstance(reader, SshSerialReader)

@@ -322,3 +322,23 @@ in `values.yaml`, and which CronJob's env var it feeds, changed back.
 `INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS` is unaffected as a variable name
 — each CronJob still sets it from its own job's value, same as before the
 brief top-level detour.
+
+## Update (2026-09-27): `reported_name` — hostname correlation gets a serial fallback
+
+"Decision 3" above dropped a `node_name` field on the reasoning that "it
+is the server's name, which is what the hostname correlation just
+proved." That reasoning holds only while the hostname match is unique and
+correct — a vendor-side rename breaks exactly that assumption, and the
+reconcile then frees a still-installed server as absent, having never
+seen the name it is now reported under.
+
+`OpenShiftLifecycle` gains a sixth field, `reported_name`: the hostname
+the cluster actually reported, set only when it differs from the matched
+`Server.name`. This is not `node_name` revived — `node_name` would have
+just restated the server's own name; `reported_name` exists specifically
+to hold the cluster's *conflicting* claim, the one case the original
+five-field shape had no way to represent. See ADR-0036 for the full
+mechanism: when a hostname is not a unique match (a miss, or two servers
+sharing it), the service falls back to the machine's hardware serial
+(SSH for a node, the Agent CR's own inventory for an agent) rather than
+freeing the server or guessing between duplicates.

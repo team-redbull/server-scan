@@ -8,6 +8,77 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-24 — Membership-job run gauges, closing the "100% unmatched"
+blind spot, plus a Grafana dashboard.** Moved to
+`docs/notes/session-log.md`: the Redfish conformance gate / `network.
+single_link_up`-to-CRITICAL unit.
+
+**Membership run gauges (ADR-0029's 2026-09-24 update):** the nodes-status/
+agents-status CronJobs are fire-and-forget — nothing scrapes a pod that
+exits after one run — and `server_scan_cluster_last_reported_timestamp_
+seconds` is only ever set on a *matched* hostname, so a job that runs
+correctly every time but matches nobody (broken naming convention, an
+inventory the vendor collectors have not caught up to) never sets that
+gauge at all and `ServerScanClusterSilent` silently never fires — a
+series that has never existed produces no alert. Fixed the same way the
+vendor collectors already solve this: `tools.collect_openshift._record_run`
+now writes a `MembershipRun` (`app.domain.models.openshift`) into a new
+`membership_runs` collection (`MongoMembershipRunRepository`, keyed
+`kind:reported_by`) at the end of every real run; `FleetGaugeRefresher`
+reads it via a third `MembershipRunSource` alongside `ManagerSource` and
+exports `server_scan_membership_last_run_{timestamp_seconds,
+duration_seconds,observed,matched,unmatched,partial}`. Two new alerts,
+both off by default: `ServerScanMembershipRunSilent` (the job itself has
+gone quiet, independent of match rate) and `ServerScanMembershipUnmatched`
+(`membershipUnmatchedThreshold`, default 0 — the job is fine but is
+reporting hosts nothing has ingested). `ServerScanClusterSilent` is
+unchanged and still the per-*server* view; the new alert is the per-*job*
+view. Considered and rejected: a Prometheus Pushgateway (new infra for one
+job type) and relying on `kube_job_status_failed` alone (only sees a hard
+crash — this job's unmatched case is a legitimate exit 3, not a failure).
+New integration test `tests/integration/test_membership_run_repository.py`;
+`tests/integration/conftest.py`'s `_TEST_COLLECTIONS` needed
+`membership_runs` added or the new tests polluted each other.
+
+**Grafana dashboard:** `deploy/grafana/server-scan-dashboard.json`, new —
+a full dashboard built from the metrics above plus everything already in
+`metrics.py`/`backend-prometheusrule.yaml`: fleet totals, per-collector
+staleness/run health, the new membership-job gauges, top firing health
+policies, and API/Mongo/Redis metrics. A plain importable export, not
+wired into the chart — no `GrafanaDashboard` CR exists here.
+
+**Two follow-up fixes, same session, both from the first push's CI run:**
+
+1. **CI's `Deploy (bump redbull-platform)` job failed** — `helm template`
+   against the gitops repo's hand-maintained
+   `gitops/charts/server-scan/values.yaml` rejected the new `required`
+   `membershipUnmatchedThreshold`/`membershipSilentForSeconds` (below)
+   because that file is a separate copy this chart's own CI only
+   `rsync`s `templates/`/`files/` into, never `values.yaml` — the exact
+   same class of gap as the auth-block miss earlier this week. Fixed by
+   editing and pushing `team-redbull/redbull-platform` directly, the
+   established precedent for this failure mode. **Any `required` value
+   this chart adds needs the same manual add to that repo's
+   `values.yaml`, every time** — nothing automates it.
+2. **`silentForSeconds` was one shared threshold for two very different
+   cadences** — the operator pointed out their `nodes-status` jobs run
+   every 15 minutes while the vendor collectors run every 6 hours (the
+   platform's own defaults, not just this estate's config:
+   `nodes.schedule`/`agents.schedule` vs `collectors.*.schedule`).
+   43200s (sized for 6h collectors) meant `ServerScanClusterSilent` and
+   the new `ServerScanMembershipRunSilent` would each tolerate 48 missed
+   membership-job runs before firing. Split into a second `required`
+   value, `metrics.prometheusRule.membershipSilentForSeconds` (default
+   1800s = 2 of the 15-minute cycles), used by both those alerts;
+   `silentForSeconds` now backs `ServerScanCollectorSilent` alone. See
+   ADR-0029's 2026-09-24 update for the full reasoning.
+
+**Open:** confirm the pushed `redbull-platform` commit's own CI (helm
+lint/template against the corrected values.yaml) actually goes green —
+not yet observed at the time this entry was written.
+
+---
+
 **2026-09-24 — Redfish conformance gate false positive, and
 `network.single_link_up` moved to CRITICAL.** Moved to
 `docs/notes/session-log.md`: the AD API insecure-TLS / CSV export /

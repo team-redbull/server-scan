@@ -63,12 +63,40 @@ class ClusterObservation:
         lifecycle_state (OpenShiftState): What this observation claims.
         cluster_name (str | None): The cluster holding it, if any.
         mce_name (str | None): The reporting MCE, on the agents path only.
+        address (str | None): The node's `InternalIP`, on the nodes path
+            only (ADR-0036) — where the SSH serial fallback connects when
+            the hostname does not uniquely match a server.
+        serial (str | None): The hardware serial, on the agents path only
+            (ADR-0036) — read from the Agent's own inventory, no SSH
+            needed. `None` when the Agent hasn't reported it yet.
     """
 
     hostname: str
     lifecycle_state: OpenShiftState
     cluster_name: str | None = None
     mce_name: str | None = None
+    address: str | None = None
+    serial: str | None = None
+
+
+def node_internal_ip(node: dict[str, Any]) -> str | None:
+    """
+    Read a `Node`'s `InternalIP`, for the SSH serial fallback (ADR-0036).
+
+    Args:
+        node (dict[str, Any]): A `Node` resource.
+
+    Returns:
+        str | None: The first `InternalIP` address, or `None` if the node
+            reports none (not yet registered, or a malformed status).
+    """
+    addresses = (node.get("status") or {}).get("addresses") or []
+    for entry in addresses:
+        if isinstance(entry, dict) and entry.get("type") == "InternalIP":
+            address = entry.get("address")
+            if isinstance(address, str) and address:
+                return address
+    return None
 
 
 def node_observation(node: dict[str, Any], *, cluster_name: str) -> ClusterObservation | None:
@@ -92,6 +120,7 @@ def node_observation(node: dict[str, Any], *, cluster_name: str) -> ClusterObser
         hostname=hostname,
         lifecycle_state=OpenShiftState.INSTALLED,
         cluster_name=cluster_name,
+        address=node_internal_ip(node),
     )
 
 
@@ -120,6 +149,8 @@ def agent_observation(agent: dict[str, Any], *, mce_name: str) -> ClusterObserva
     if hostname is None:
         return None
 
+    serial = _opt_str((inventory.get("systemVendor") or {}).get("serialNumber"))
+
     cluster = spec.get("clusterDeploymentName") or {}
     cluster_name = cluster.get("name") if isinstance(cluster, dict) else None
 
@@ -129,6 +160,7 @@ def agent_observation(agent: dict[str, Any], *, mce_name: str) -> ClusterObserva
             lifecycle_state=OpenShiftState.INSTALLED,
             cluster_name=str(cluster_name),
             mce_name=mce_name,
+            serial=serial,
         )
 
     # Registered to the MCE, bound to nothing: the spare pool cluster
@@ -138,4 +170,18 @@ def agent_observation(agent: dict[str, Any], *, mce_name: str) -> ClusterObserva
         hostname=hostname,
         lifecycle_state=OpenShiftState.INSTALLED_TO_INVENTORY,
         mce_name=mce_name,
+        serial=serial,
     )
+
+
+def _opt_str(value: object) -> str | None:
+    """
+    Read a value as a non-empty string, or `None`.
+
+    Args:
+        value (object): A raw value from a Kubernetes resource.
+
+    Returns:
+        str | None: `value` if it is a non-empty string, else `None`.
+    """
+    return value if isinstance(value, str) and value else None

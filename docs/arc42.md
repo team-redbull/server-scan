@@ -520,6 +520,8 @@ of it.
 | 0032 | `GET /servers/available` — Mongo-side ranking plus a per-candidate live recheck via a new `get_one()` on every provider; the API pod now holds the same manager credentials the CronJobs do |
 | 0033 | The inventory page filters, sorts, searches and pages in the browser from one polled, ETagged `GET /servers/rows`; the real fleet (2.5k, 5k at most) fits in a tab, and the measurements say so |
 | 0034 | AD login: admin/viewer roles from four admin/view group and user lists, a stateless HMAC-signed session cookie (not Redis), `auth.enabled=false` auto-admits every caller, and two static API tokens for machine callers like the BMH generator |
+| 0035 | A short-TTL install reservation, so two MCEs cannot draw the same server from `GET /servers/available` |
+| 0036 | OpenShift membership falls back to the hardware serial (SSH for a node, an Agent's own inventory) when a hostname is not a unique match — a vendor-side rename or a duplicate name |
 
 ---
 
@@ -581,6 +583,7 @@ go stale — treat its date as load-bearing.
 | Manual dependency maintenance | Dependabot was deliberately removed (ADR-0013), making pin currency and CVE checks a standing quarterly chore. |
 | **OneView's GPU field mapping is still unverified** | Validated against a live appliance 2026-09-07 (821 servers) — core count and profile paging both confirmed correct, and a real storage-mapping bug was found and fixed the same day — but that estate has no GPU-bearing HPE server, so the GPU product-name-matching rules (ADR-0022, "GPU matching") remain built against realistic spellings, not observed ones. Demoted from High: every other headline unknown that ADR listed is now settled. |
 | **Intersight's `get_one()` owner-relation filters are unverified** | `ComputeBlade.Moid eq '...'`-style nested-property `$filter`s (ADR-0032) mirror the relation shape the fleet-wide join already parses from full rows, but have never been exercised as a filter expression against a live tenant. Affects only `GET /servers/available`'s live recheck for Intersight-sourced servers — the bulk collector's own join is untouched and unaffected. |
+| A new SSH credential and network path for the nodes-status job | ADR-0036: a private key shared across every node in a cluster, mounted into the nodes-status CronJob pod, with host-key verification deliberately off (matching the operator's own existing tooling). Scoped to the internal node network these jobs already run on; a spoofed node can at worst report a wrong `openshift.reported_name`, not execute anything with a different credential than the shared key already grants. |
 
 ### Low / accepted
 

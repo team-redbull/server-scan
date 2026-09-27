@@ -37,8 +37,9 @@ from app.application.services.audit_service import AuditService
 from app.application.services.openshift_membership import (
     MembershipSummary,
     OpenShiftMembershipService,
+    SerialReader,
 )
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.domain.models.audit_event import Actor, ActorType
 from app.domain.models.openshift import MembershipRun
 from app.infrastructure.logging import configure_logging
@@ -52,6 +53,7 @@ from app.infrastructure.openshift.client import (
     InClusterClient,
     in_cluster_client,
 )
+from app.infrastructure.openshift.node_serial import SshSerialReader
 from app.infrastructure.openshift.records import (
     ClusterObservation,
     agent_observation,
@@ -184,6 +186,8 @@ async def _record_run(
         matched=summary.matched,
         unmatched=len(summary.unmatched),
         partial=bool(summary.unmatched),
+        matched_by_serial=summary.matched_by_serial,
+        unresolved=len(summary.unresolved),
     )
     try:
         await repo.record_run(run)
@@ -210,12 +214,19 @@ def _report(summary: MembershipSummary, *, reported_by: str, dry_run: bool) -> i
     print(f"\n=== {reported_by} ===")
     print(f"  reported by cluster : {summary.observed}")
     print(f"  matched a server    : {summary.matched}")
+    print(f"    matched by serial : {summary.matched_by_serial} (renamed or duplicate-named)")
     print(f"  {prefix}claim/update      : {summary.claimed}")
     print(f"  {prefix}free              : {summary.freed}")
 
     if not summary.unmatched:
         print("  unmatched hostnames : none")
         return 0
+
+    if summary.unresolved:
+        print(
+            f"  of which unresolved (serial unreadable) : {len(summary.unresolved)} "
+            "— freeing was skipped this run"
+        )
 
     # The match rate is the number to look at on a first run: a Dell
     # server whose requested hostname was never set reports a MAC-derived
@@ -227,6 +238,30 @@ def _report(summary: MembershipSummary, *, reported_by: str, dry_run: bool) -> i
     if len(summary.unmatched) > 50:
         print(f"    … and {len(summary.unmatched) - 50} more")
     return 3
+
+
+def _build_serial_reader(source: str, settings: Settings) -> SerialReader | None:
+    """
+    Build the SSH serial fallback (ADR-0036), if this run can use one.
+
+    Args:
+        source (str): `nodes` or `agents`. Only `nodes` needs SSH — an
+            Agent already carries its own hardware serial in its status.
+        settings (Settings): The application settings.
+
+    Returns:
+        SerialReader | None: A reader, or `None` when the source is
+            `agents` or no key file is configured — the reconcile then
+            behaves exactly as it did before this feature existed.
+    """
+    if source != "nodes" or not settings.openshift_ssh_key_file:
+        return None
+    return SshSerialReader(
+        key_file=settings.openshift_ssh_key_file,
+        user=settings.openshift_ssh_user,
+        connect_timeout=settings.openshift_ssh_connect_timeout_seconds,
+        concurrency=settings.openshift_ssh_concurrency,
+    )
 
 
 async def _run(*, source: str, cluster: str | None, mce_name: str | None, dry_run: bool) -> int:
@@ -325,6 +360,7 @@ async def _run(*, source: str, cluster: str | None, mce_name: str | None, dry_ru
             server_repo=MongoServerRepository(mongo, cursor_secret=settings.cursor_secret),
             audit=AuditService(repo=MongoAuditEventRepository(mongo)),
             actor=Actor(type=ActorType.SYSTEM, id=f"openshift:{reported_by}"),
+            serial_reader=_build_serial_reader(source, settings),
         )
         summary = await service.reconcile(
             observations,

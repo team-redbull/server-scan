@@ -45,9 +45,35 @@ spec:
                   value: {{ .Values.nodes.clusterName | quote }}
                 - name: INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS
                   value: {{ .Values.nodes.excludeNameParts | quote }}
+                {{- if .Values.nodes.ssh.enabled }}
+                - name: INVENTORY_OPENSHIFT_SSH_KEY_FILE
+                  value: /etc/nodes-ssh/{{ .Values.nodes.ssh.secretKey }}
+                - name: INVENTORY_OPENSHIFT_SSH_USER
+                  value: {{ .Values.nodes.ssh.user | quote }}
+                - name: INVENTORY_OPENSHIFT_SSH_CONNECT_TIMEOUT_SECONDS
+                  value: {{ .Values.nodes.ssh.connectTimeoutSeconds | quote }}
+                - name: INVENTORY_OPENSHIFT_SSH_CONCURRENCY
+                  value: {{ .Values.nodes.ssh.concurrency | quote }}
+                {{- end }}
                 {{- include "nodesStatus.dbEnv" . | nindent 16 }}
+              {{- if .Values.nodes.ssh.enabled }}
+              volumeMounts:
+                - name: nodes-ssh
+                  mountPath: /etc/nodes-ssh
+                  readOnly: true
+              {{- end }}
               resources:
                 {{- toYaml .Values.nodes.resources | nindent 16 }}
               securityContext:
                 {{- include "nodesStatus.securityContext" . | nindent 16 }}
+          {{- if .Values.nodes.ssh.enabled }}
+          volumes:
+            - name: nodes-ssh
+              secret:
+                # An externally provisioned Secret always wins; the
+                # chart's own ssh.privateKey is the opt-in fallback. See
+                # ssh-secret.yaml.
+                secretName: {{ .Values.nodes.ssh.existingSecret | default (printf "%s-nodes-ssh" .Release.Name) }}
+                defaultMode: 0400
+          {{- end }}
 {{- end }}

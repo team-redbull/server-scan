@@ -114,6 +114,8 @@ def apply_snapshot(
         metrics.membership_last_run_matched,
         metrics.membership_last_run_unmatched,
         metrics.membership_last_run_partial,
+        metrics.membership_last_run_matched_by_serial,
+        metrics.membership_last_run_unresolved,
     ):
         gauge.clear()
 
@@ -144,6 +146,7 @@ def apply_snapshot(
     metrics.servers_in_maintenance.set(snapshot.in_maintenance)
     metrics.duplicate_name_groups.set(snapshot.duplicate_name_groups)
     metrics.duplicate_name_servers.set(snapshot.duplicate_name_servers)
+    metrics.openshift_name_mismatch_servers.set(snapshot.openshift_name_mismatches)
 
     for manager in managers:
         run = manager.last_run
@@ -165,6 +168,8 @@ def apply_snapshot(
         metrics.membership_last_run_matched.labels(**labels).set(run.matched)
         metrics.membership_last_run_unmatched.labels(**labels).set(run.unmatched)
         metrics.membership_last_run_partial.labels(**labels).set(int(run.partial))
+        metrics.membership_last_run_matched_by_serial.labels(**labels).set(run.matched_by_serial)
+        metrics.membership_last_run_unresolved.labels(**labels).set(run.unresolved)
 
 
 class FleetGaugeRefresher:

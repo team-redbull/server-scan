@@ -458,6 +458,19 @@ secrets — e.g. a private, air-gapped Git repo), or consume ones
 provisioned elsewhere; that chart's own README has both paths and
 `docs/adr/0024-openshift-cluster-membership.md` has the design.
 
+**`nodes.ssh`** (off by default) is the hardware-serial fallback for a
+node whose hostname no longer uniquely matches a server — a vendor-side
+rename, or two servers sharing a name (ADR-0036). Nodes only: an Agent
+already carries its own hardware serial in its inventory, so the agents
+job never needs this. Enabling it mounts an SSH private key (chart-rendered
+from `nodes.ssh.privateKey`, or an `existingSecret` you provision — never
+commit a real key to `values.yaml`) and needs the pod to reach every
+node's `InternalIP` on port 22; there is no `NetworkPolicy` in either
+chart today restricting that. Host keys are **not** verified — matching
+the operator's own existing SSH tooling for these nodes, an accepted risk
+on the internal node network, not a default this platform recommends
+for anything reachable from outside it.
+
 `collectors.timeZone` (default `Asia/Jerusalem`) sets every CronJob's
 `spec.timeZone` (Kubernetes 1.27+), so a schedule like `"0 2 * * *"` fires
 at 2am local time, DST included, rather than 2am on whatever timezone the

@@ -139,6 +139,44 @@ finished Jobs never pile up. Set to `0` to disable and rely on
   `agent-install.openshift.io` agents, and only the rule a job enabled
   here actually needs.
 
+## Serial fallback for a renamed or duplicate-named node (ADR-0036)
+
+A vendor-side rename (UCS/OME/OneView) changes a server's name in the
+inventory but not its hardware, so the `nodes` job's hostname match can
+miss it — or, when two servers share a name, land on the wrong one. Set
+`nodes.ssh.enabled: true` to fall back to the machine's real hardware
+serial over SSH whenever the hostname is not a unique match:
+
+```yaml
+nodes:
+  ssh:
+    enabled: true
+    # Never commit a real key. Set out-of-band instead:
+    #   helm upgrade ... --set-file nodes.ssh.privateKey=/path/to/id_rsa
+    # or provision nodes.ssh.existingSecret yourself and leave this blank.
+    privateKey: ""
+```
+
+Nodes only — an Agent already reports its own hardware serial in its
+inventory, so the `agents` job never needs SSH. Two things this needs
+that nothing else in this chart does:
+
+- **Network reachability from the pod to every node's `InternalIP` on
+  port 22.** Neither chart in this repo ships a `NetworkPolicy`, so
+  nothing here restricts that traffic by default.
+- **Host keys are not verified** (no equivalent of `StrictHostKeyChecking`)
+  — the same posture as the operator's own existing SSH tooling for these
+  nodes. Accepted as a risk on the internal node network this platform
+  already trusts for MongoDB traffic, not a recommendation for anything
+  reachable from outside it.
+
+The SSH user is `nodes.ssh.user` (default `core`, RHCOS's default user
+with passwordless `sudo`) and the command run is fixed: `sudo cat
+/sys/class/dmi/id/product_serial`. A node that cannot be reached is left
+unmatched for that run rather than guessed at, and the whole run's
+free-on-absence pass is skipped whenever any host's serial could not be
+read — see the ADR for why.
+
 ## Check before trusting a run
 
 ```bash

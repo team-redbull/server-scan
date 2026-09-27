@@ -105,6 +105,9 @@ class FleetSnapshot:
             collision, docs/adr/0016's duplicate-server update.
         duplicate_name_servers (int): Servers whose `name` is one of
             those groups — always >= 2x `duplicate_name_groups`.
+        openshift_name_mismatches (int): Servers with a recorded
+            `openshift.reported_name` — installed under a different name
+            than the vendor manager now reports (ADR-0036).
     """
 
     by_provider: list[ProviderSnapshotRow]
@@ -114,6 +117,7 @@ class FleetSnapshot:
     in_maintenance: int
     duplicate_name_groups: int
     duplicate_name_servers: int
+    openshift_name_mismatches: int
 
 
 class ServerRepository(Protocol):
