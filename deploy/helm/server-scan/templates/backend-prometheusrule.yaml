@@ -76,6 +76,8 @@ spec:
           expr: max by (namespace) (server_scan_duplicate_name_groups)
         - record: server_scan:duplicate_name_servers:max
           expr: max by (namespace) (server_scan_duplicate_name_servers)
+        - record: server_scan:openshift_name_mismatch_servers:max
+          expr: max by (namespace) (server_scan_openshift_name_mismatch_servers)
         - record: server_scan:membership_last_run_timestamp_seconds:max
           expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_timestamp_seconds)
         - record: server_scan:membership_last_run_duration_seconds:max
@@ -88,6 +90,10 @@ spec:
           expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_unmatched)
         - record: server_scan:membership_last_run_partial:max
           expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_partial)
+        - record: server_scan:membership_last_run_matched_by_serial:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_matched_by_serial)
+        - record: server_scan:membership_last_run_unresolved:max
+          expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_unresolved)
         # Age in seconds, so a dashboard needs no arithmetic.
         - record: server_scan:collector_silent_seconds
           expr: time() - max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)

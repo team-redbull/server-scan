@@ -312,3 +312,13 @@ next to `duplicate_names`, exported as the unlabeled
 above: a mismatch count has no dimension worth breaking out yet either.
 No new alert — this is a "worth an operator's attention" gauge, the same
 role `duplicate_name_*` already plays, not a job-health signal.
+
+All three gauges got a `max by (...)` recording rule in
+`backend-prometheusrule.yaml`, matching every other gauge here
+(`server_scan:openshift_name_mismatch_servers:max`,
+`server_scan:membership_last_run_matched_by_serial:max`,
+`server_scan:membership_last_run_unresolved:max`), plus two Grafana
+additions: the "Membership run summary" table gained a "Matched by
+serial"/"Unresolved" column pair, and a new "OpenShift name mismatches"
+row at the bottom of `server-scan-dashboard.json` shows the fleet-wide
+count.

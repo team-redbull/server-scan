@@ -266,14 +266,17 @@
         { "expr": "server_scan:membership_last_run_matched:max{namespace=~\"$namespace\"}", "legendFormat": "Matched", "refId": "B", "format": "table", "instant": true },
         { "expr": "server_scan:membership_last_run_unmatched:max{namespace=~\"$namespace\"}", "legendFormat": "Unmatched", "refId": "C", "format": "table", "instant": true },
         { "expr": "server_scan:membership_last_run_duration_seconds:max{namespace=~\"$namespace\"}", "legendFormat": "Duration (s)", "refId": "D", "format": "table", "instant": true },
-        { "expr": "server_scan:membership_last_run_partial:max{namespace=~\"$namespace\"}", "legendFormat": "Partial", "refId": "E", "format": "table", "instant": true }
+        { "expr": "server_scan:membership_last_run_partial:max{namespace=~\"$namespace\"}", "legendFormat": "Partial", "refId": "E", "format": "table", "instant": true },
+        { "expr": "server_scan:membership_last_run_matched_by_serial:max{namespace=~\"$namespace\"}", "legendFormat": "Matched by serial", "refId": "F", "format": "table", "instant": true },
+        { "expr": "server_scan:membership_last_run_unresolved:max{namespace=~\"$namespace\"}", "legendFormat": "Unresolved", "refId": "G", "format": "table", "instant": true }
       ],
       "transformations": [
         { "id": "merge", "options": {} },
-        { "id": "organize", "options": { "excludeByName": { "Time": true }, "indexByName": {}, "renameByName": { "Value #A": "Observed", "Value #B": "Matched", "Value #C": "Unmatched", "Value #D": "Duration (s)", "Value #E": "Partial" } } }
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "indexByName": {}, "renameByName": { "Value #A": "Observed", "Value #B": "Matched", "Value #C": "Unmatched", "Value #D": "Duration (s)", "Value #E": "Partial", "Value #F": "Matched by serial", "Value #G": "Unresolved" } } }
       ],
       "fieldConfig": { "defaults": {}, "overrides": [
         { "matcher": { "id": "byName", "options": "Unmatched" }, "properties": [{ "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] },
+        { "matcher": { "id": "byName", "options": "Unresolved" }, "properties": [{ "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] } }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] },
         { "matcher": { "id": "byName", "options": "Partial" }, "properties": [{ "id": "mappings", "value": [{ "type": "value", "options": { "0": { "text": "OK" }, "1": { "text": "PARTIAL" } } }] }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] }
       ] },
       "options": { "showHeader": true }
@@ -387,6 +390,17 @@
         { "matcher": { "id": "byName", "options": "alertstate" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "mappings", "value": [{ "type": "value", "options": { "firing": { "color": "red" }, "pending": { "color": "orange" } } }] }] }
       ] },
       "options": { "showHeader": true }
+    },
+
+    { "id": 106, "type": "row", "title": "OpenShift name mismatches (ADR-0036)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 98 }, "collapsed": false, "panels": [] },
+    {
+      "id": 107, "type": "stat", "title": "Servers installed under a different name",
+      "description": "server_scan:openshift_name_mismatch_servers:max — servers whose OpenShift-reported hostname differs from their current inventory name (a vendor-manager rename after install). See docs/adr/0036.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 99 },
+      "targets": [{ "expr": "server_scan:openshift_name_mismatch_servers:max{namespace=~\"$namespace\"}", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
     }
   ]
 }
