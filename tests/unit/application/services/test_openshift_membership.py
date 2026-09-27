@@ -453,6 +453,35 @@ class TestSerialFallback:
         assert repo.written[0].identity.serial == "SN-RIGHT"
         assert repo.written[0].openshift.reported_name is None
 
+    async def test_a_previously_wrong_duplicate_is_freed_the_same_run_the_right_one_is_claimed(
+        self,
+    ) -> None:
+        """Self-healing: a wrong pre-existing claim from before this
+        fallback existed is freed the same run the right server is
+        claimed, with no separate cleanup pass needed.
+        """
+        already_wrong = _server(
+            "ocp-tomer-compute-01",
+            serial="SN-WRONG",
+            openshift=OpenShiftLifecycle(
+                lifecycle_state=OpenShiftState.INSTALLED, cluster_name="ocp4-tlv"
+            ),
+        )
+        right = _server("ocp-tomer-compute-01", serial="SN-RIGHT")
+        repo = FakeRepo([already_wrong, right])
+        reader = FakeSerialReader({"10.0.0.5": "SN-RIGHT"})
+        summary = await _service(repo, FakeAudit(), serial_reader=reader).reconcile(
+            [_seen("ocp-tomer-compute-01", address="10.0.0.5")],
+            scope={"openshift.cluster_name": "ocp4-tlv"},
+            reported_by="ocp4-tlv",
+        )
+
+        assert summary.matched_by_serial == 1
+        assert summary.freed == 1
+        written_by_name = {s.identity.serial: s.openshift.lifecycle_state for s in repo.written}
+        assert written_by_name["SN-RIGHT"] is OpenShiftState.INSTALLED
+        assert written_by_name["SN-WRONG"] is OpenShiftState.AVAILABLE
+
     async def test_duplicate_hostname_with_unreadable_serial_claims_neither(self) -> None:
         already_installed = OpenShiftLifecycle(
             lifecycle_state=OpenShiftState.INSTALLED, cluster_name="ocp4-tlv"
