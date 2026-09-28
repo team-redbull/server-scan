@@ -2,18 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/redbull-logo.svg" />
+    <link rel="icon" type="image/svg+xml" href="/icons/app-icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- 192/512 PNGs + display: standalone, so "Add to Home Screen" / desktop
+         "Create shortcut" gets the app icon instead of a generic fallback. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Before the stylesheet parses, the browser paints its own default
          canvas. Without this that first frame is white, which is the
          light flash dark-only mode exists to remove. -->
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0e0f12" />
     <style>
       html {
         background: oklch(0.17 0.006 260);
       }
     </style>
-    <title>Server Inventory</title>
+    <title>Server Scan</title>
   </head>
   <body>
     <div id="root"></div>
