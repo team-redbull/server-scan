@@ -23,11 +23,19 @@ one cluster to run alongside jobs that see others.
 **The hardware-serial fallback (ADR-0036).** A vendor-side rename changes
 `Server.name` but not the hardware, so a hostname match can miss a server
 that is still very much installed — or, when two servers happen to share a
-name, land on the wrong one. Whenever the hostname is not a *unique* match
-(a miss, or 2+ servers sharing it), this service resolves the machine's
-real hardware serial — over SSH for a node (`SerialReader`), straight from
-the Agent's own inventory for an agent — and matches on
-`identity.serial_normalized` instead. A resolved match keeps the server
+name, land on the wrong one. For a **node**, whose serial costs an SSH
+round trip (`SerialReader`), this only runs when the hostname is not a
+*unique* match (a miss, or 2+ servers sharing it) — bounding the fan-out.
+An **agent** already carries its serial for free on the same CR read
+(`records.agent_observation`), so it is resolved by serial *first,
+always* — even when the hostname looks unique, closing half of the "known
+gap" below for the one source verifying costs nothing (2026-09-28,
+`_resolve_agent`). Its `matched_by_serial` only counts a genuine name
+disagreement (`_name_mismatch`), not every match — unlike a node, where
+reaching the fallback at all already means the hostname missed or was a
+duplicate, an agent resolves by serial routinely, so counting every one
+would track ordinary traffic instead of an anomaly. Either path matches on
+`identity.serial_normalized`. A resolved match keeps the server
 `INSTALLED` and records what the cluster actually called it
 (`OpenShiftLifecycle.reported_name`) rather than freeing it as absent.
 
@@ -249,6 +257,9 @@ class OpenShiftMembershipService:
                 observation's hostname when it differs from the matched
                 server's own name, else `None`.
         """
+        if observation.serial:
+            return await self._resolve_agent(observation, observation.serial, reported_by, summary)
+
         candidates = await self._find_by_hostname(observation.hostname)
         if len(candidates) == 1:
             return candidates[0], None
@@ -311,6 +322,78 @@ class OpenShiftMembershipService:
                 reported_by=reported_by,
             )
         return server, reported_name
+
+    async def _resolve_agent(
+        self,
+        observation: ClusterObservation,
+        serial: str,
+        reported_by: str,
+        summary: MembershipSummary,
+    ) -> tuple[Server | None, str | None]:
+        """
+        Resolve an Agent by its own reported serial, always — see the module docstring.
+
+        Args:
+            observation (ClusterObservation): What the MCE reported.
+            serial (str): `observation.serial`, already known non-empty.
+            reported_by (str): The reporting MCE, for logging.
+            summary (MembershipSummary): Updated in place on a miss.
+
+        Returns:
+            tuple[Server | None, str | None]: The matched server (or
+                `None`), and the `reported_name` to record.
+        """
+        server = await self._find_by_serial(serial)
+        if server is not None:
+            return server, self._name_mismatch(observation, server, reported_by, summary)
+
+        # This exact serial matches nothing yet (freshly reported, or an
+        # ambiguous cross-vendor collision) — a *unique* hostname is still
+        # a safe fallback; a miss or a duplicate is not guessed at.
+        candidates = await self._find_by_hostname(observation.hostname)
+        if len(candidates) == 1:
+            return candidates[0], None
+        summary.unmatched.append(observation.hostname)
+        logger.error(
+            "openshift.host_not_in_inventory",
+            hostname=observation.hostname,
+            reported_by=reported_by,
+            serial_checked=True,
+        )
+        return None, None
+
+    def _name_mismatch(
+        self,
+        observation: ClusterObservation,
+        server: Server,
+        reported_by: str,
+        summary: MembershipSummary,
+    ) -> str | None:
+        """
+        The `reported_name` for an agent's serial match — see the module docstring.
+
+        Args:
+            observation (ClusterObservation): What the cluster reported.
+            server (Server): The server the serial resolved to.
+            reported_by (str): The reporting MCE, for logging.
+            summary (MembershipSummary): `matched_by_serial` incremented
+                only when the names actually disagree (unlike the node
+                path, where reaching it at all is already the anomaly).
+
+        Returns:
+            str | None: The observation's hostname, when it differs from
+                `server`'s own name; else `None`.
+        """
+        if observation.hostname == server.name_normalized:
+            return None
+        summary.matched_by_serial += 1
+        logger.warning(
+            "openshift.name_mismatch",
+            hostname=observation.hostname,
+            server_name=server.name,
+            reported_by=reported_by,
+        )
+        return observation.hostname
 
     async def _resolve_serial(self, observation: ClusterObservation) -> tuple[bool, str | None]:
         """

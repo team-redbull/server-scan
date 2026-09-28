@@ -635,3 +635,75 @@ class TestSerialFallback:
         written_by_serial = {s.identity.serial: s.openshift.lifecycle_state for s in repo.written}
         assert written_by_serial["CISCO-SERIAL"] is OpenShiftState.INSTALLED
         assert written_by_serial["HP-SERIAL"] is OpenShiftState.AVAILABLE
+
+
+class TestAgentAlwaysResolvesBySerial:
+    """2026-09-28: an Agent's free serial is authoritative even over a
+    unique-looking hostname — closing half of ADR-0036's "known gap."
+    """
+
+    async def test_a_unique_but_wrong_hostname_match_is_overridden_by_serial(self) -> None:
+        """The exact case a hostname-first design can never catch: the name
+        genuinely is unique in the fleet, but it belongs to the wrong
+        physical machine — only the serial can prove that.
+        """
+        looks_right_by_name = _server("ocp-tomer-compute-01", serial="SN-WRONG")
+        actually_this_one = _server("ocp-toto-compute-01", serial="SN-RIGHT")
+        repo = FakeRepo([looks_right_by_name, actually_this_one])
+        await _service(repo, FakeAudit()).reconcile(
+            [_seen("ocp-tomer-compute-01", serial="SN-RIGHT")],
+            scope={"openshift.cluster_name": "ocp4-tlv"},
+            reported_by="ocp4-tlv",
+        )
+
+        assert len(repo.written) == 1
+        assert repo.written[0].identity.serial == "SN-RIGHT"
+        assert repo.written[0].openshift.reported_name == "ocp-tomer-compute-01"
+
+    async def test_agreement_between_name_and_serial_does_not_count_as_a_mismatch(self) -> None:
+        """The routine case: an agent resolves by serial every time, but
+        `matched_by_serial` must not fire on ordinary traffic — only on a
+        genuine name disagreement.
+        """
+        server = _server("ocp-tomer-compute-01", serial="SN123")
+        repo = FakeRepo([server])
+        summary = await _service(repo, FakeAudit()).reconcile(
+            [_seen("ocp-tomer-compute-01", serial="SN123")],
+            scope={"openshift.cluster_name": "ocp4-tlv"},
+            reported_by="ocp4-tlv",
+        )
+
+        assert summary.matched == 1
+        assert summary.matched_by_serial == 0
+        assert repo.written[0].openshift.reported_name is None
+
+    async def test_an_unmatched_serial_falls_back_to_a_unique_hostname(self) -> None:
+        """A brand-new agent whose serial is not yet in inventory must not
+        be stranded when its hostname is otherwise unambiguous.
+        """
+        server = _server("ocp-tomer-compute-01", serial="SN-OLD")
+        repo = FakeRepo([server])
+        summary = await _service(repo, FakeAudit()).reconcile(
+            [_seen("ocp-tomer-compute-01", serial="SN-NEVER-SEEN")],
+            scope={"openshift.cluster_name": "ocp4-tlv"},
+            reported_by="ocp4-tlv",
+        )
+
+        assert summary.matched == 1
+        assert repo.written[0].name == "ocp-tomer-compute-01"
+
+    async def test_an_unmatched_serial_and_a_duplicate_hostname_is_not_guessed_at(self) -> None:
+        """No safe fallback exists here: the serial found nothing, and the
+        name does not narrow it to one machine either.
+        """
+        first = _server("dup", serial="SN-A")
+        second = _server("dup", serial="SN-B")
+        repo = FakeRepo([first, second])
+        summary = await _service(repo, FakeAudit()).reconcile(
+            [_seen("dup", serial="SN-NEVER-SEEN")],
+            scope={"openshift.cluster_name": "ocp4-tlv"},
+            reported_by="ocp4-tlv",
+        )
+
+        assert summary.unmatched == ["dup"]
+        assert repo.written == []
