@@ -11,7 +11,7 @@ export function StatusPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-8">
-      <h1 className="text-2xl font-semibold">Server Inventory Platform</h1>
+      <h1 className="text-2xl font-semibold">Server Scan</h1>
       <p className="mt-2 text-sm text-gray-500">
         Phase 1 skeleton — inventory table lands in the next slice.
       </p>

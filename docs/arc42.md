@@ -1,4 +1,4 @@
-# Server Inventory Platform — architecture (arc42)
+# Server Scan — architecture (arc42)
 
 Follows the [arc42](https://arc42.org) template. Written 2026-08-30
 against commit `e570fa8`.
@@ -77,7 +77,7 @@ sense against them.
 ```
    Cisco UCS Central ─┐                                    ┌─ Operator (browser)
    Cisco Intersight ──┤                                    │
-   Dell OpenManage ───┼──▶  Server Inventory Platform  ────┤
+   Dell OpenManage ───┼──▶  Server Scan                ────┤
    HPE OneView ───────┤         (this system)              └─ Prometheus (scrape)
    Standalone BMCs ───┘
    (Redfish)

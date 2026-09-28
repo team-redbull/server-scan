@@ -1,4 +1,4 @@
-# Server Inventory — Frontend
+# Server Scan — Frontend
 
 Vite + React 19 + TypeScript (strict) SPA for the inventory platform. See
 the repo root `README.md` for the full local-dev workflow and `docs/` for

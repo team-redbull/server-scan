@@ -1,5 +1,5 @@
 {
-  "title": "Server Inventory Platform — Fleet & Collectors",
+  "title": "Server Scan — Fleet & Collectors",
   "uid": "server-scan-fleet",
   "description": "Fleet health, vendor collectors and OpenShift membership jobs for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml (ADR-0029). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
   "tags": ["server-scan", "fleet", "adr-0029"],

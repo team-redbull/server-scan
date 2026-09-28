@@ -1,4 +1,4 @@
-# Server Inventory Platform
+# Server Scan
 
 A production-grade, air-gapped bare-metal server inventory platform:
 MongoDB-backed inventory, a FastAPI REST API, a React admin UI, Redis

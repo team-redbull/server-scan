@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Server Inventory \u2014 Runtime Architecture",
+    "title": "Server Scan \u2014 Runtime Architecture",
     "output": "runtime-architecture.html",
     "quality_profile": "showcase",
     "repository": {
