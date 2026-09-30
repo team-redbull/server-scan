@@ -127,6 +127,11 @@ openshift_name_mismatch_servers = Gauge(
     "server_scan_openshift_name_mismatch_servers",
     "Servers installed in OpenShift under a different name than the vendor manager now reports",
 )
+servers_pruned_24h = Gauge(
+    "server_scan_servers_pruned_24h",
+    "Servers deleted by the prune tool in the last 24h, from audit events",
+    labelnames=("source_provider",),
+)
 fleet_snapshot_failures_total = Counter(
     "server_scan_fleet_snapshot_failures_total",
     "Fleet gauge refreshes that failed, leaving the previous values in place",

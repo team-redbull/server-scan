@@ -322,3 +322,22 @@ additions: the "Membership run summary" table gained a "Matched by
 serial"/"Unresolved" column pair, and a new "OpenShift name mismatches"
 row at the bottom of `server-scan-dashboard.json` shows the fleet-wide
 count.
+
+## Update (2026-09-30): pruned-server gauge and fleet-size panels
+
+`server_scan_servers{source_provider}` already is the fleet total (sum it;
+recorded as `server_scan:servers:max`), so no new total gauge was added.
+New: `server_scan_servers_pruned_24h{source_provider}`, servers deleted by
+the prune tool in the trailing 24h. It is derived from MongoDB audit
+events (`event_type` `SERVER_PRUNED`, grouped by `data.source_provider`,
+`MongoAuditEventRepository.count_by_provider_since`) because the prune job
+is short-lived and an in-process counter would be lost. The refresher takes
+it as an optional `pruned=` source; a failed audit query is covered by the
+same `fleet_snapshot_failures_total` path. Recording rule
+`server_scan:servers_pruned_24h:max`.
+
+Dashboard: a "Total servers (and by collector)" time series, a "Servers
+pruned" bar panel and a text panel. Prometheus labels carry no server
+names (cardinality), so which servers were pruned is answered by
+`GET /api/v1/events?event_type=SERVER_PRUNED` (already filterable) and the
+`server.pruned` log line; there is no Loki datasource in this repo's setup.

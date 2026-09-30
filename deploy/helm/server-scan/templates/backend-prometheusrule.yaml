@@ -42,6 +42,8 @@ spec:
       rules:
         - record: server_scan:servers:max
           expr: max by (namespace, source_provider) (server_scan_servers)
+        - record: server_scan:servers_pruned_24h:max
+          expr: max by (namespace, source_provider) (server_scan_servers_pruned_24h)
         - record: server_scan:servers_stale:max
           expr: max by (namespace, source_provider) (server_scan_servers_stale)
         - record: server_scan:servers_unreachable:max

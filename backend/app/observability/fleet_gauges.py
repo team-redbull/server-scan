@@ -20,6 +20,8 @@ from app.utils.timeutil import utcnow
 
 logger = structlog.get_logger(__name__)
 
+PRUNED_EVENT_TYPE = "SERVER_PRUNED"
+
 
 class ManagerSource(Protocol):
     """The one repository method the run gauges need."""
@@ -43,6 +45,23 @@ class MembershipRunSource(Protocol):
 
         Returns:
             list[MembershipRun]: One entry per `kind`/`reported_by` pair.
+        """
+        ...
+
+
+class PrunedSource(Protocol):
+    """The one audit-repository method the pruned gauge needs."""
+
+    async def count_by_provider_since(self, event_type: str, since: datetime) -> dict[str, int]:
+        """
+        Count audit events of one type since a cutoff, per provider.
+
+        Args:
+            event_type (str): The audit `event_type`.
+            since (datetime): Inclusive lower bound on `created_at`.
+
+        Returns:
+            dict[str, int]: Count per `source_provider`.
         """
         ...
 
@@ -82,6 +101,7 @@ def apply_snapshot(
     snapshot: FleetSnapshot,
     managers: list[Manager],
     membership_runs: list[MembershipRun],
+    pruned: dict[str, int] | None = None,
 ) -> None:
     """
     Write one snapshot into the gauges, clearing label sets it no longer names.
@@ -91,6 +111,8 @@ def apply_snapshot(
         managers (list[Manager]): Every manager, for the run gauges.
         membership_runs (list[MembershipRun]): Every membership job's most
             recent run, for the membership run gauges.
+        pruned (dict[str, int] | None): Servers pruned in the last 24h per
+            provider; `None` leaves the pruned gauge untouched.
     """
     for gauge in (
         metrics.servers_total,
@@ -118,6 +140,11 @@ def apply_snapshot(
         metrics.membership_last_run_unresolved,
     ):
         gauge.clear()
+
+    if pruned is not None:
+        metrics.servers_pruned_24h.clear()
+        for provider, count in pruned.items():
+            metrics.servers_pruned_24h.labels(source_provider=provider).set(count)
 
     for row in snapshot.by_provider:
         provider = row.source_provider or "unknown"
@@ -181,6 +208,7 @@ class FleetGaugeRefresher:
         managers: ManagerSource,
         membership_runs: MembershipRunSource,
         *,
+        pruned: PrunedSource | None = None,
         stale_after_seconds: int,
         min_interval_seconds: float,
     ) -> None:
@@ -192,12 +220,15 @@ class FleetGaugeRefresher:
             managers (ManagerSource): Where the collectors' run records are.
             membership_runs (MembershipRunSource): Where the membership
                 jobs' run records are.
+            pruned (PrunedSource | None): Audit source for the pruned gauge;
+                `None` disables it.
             stale_after_seconds (int): Age past which a server is stale.
             min_interval_seconds (float): Shortest gap between two queries.
         """
         self._repo = repo
         self._managers = managers
         self._membership_runs = membership_runs
+        self._pruned = pruned
         self._stale_after = timedelta(seconds=stale_after_seconds)
         self._min_interval = min_interval_seconds
         self._last_refresh: float | None = None
@@ -223,10 +254,17 @@ class FleetGaugeRefresher:
                 )
                 managers = await self._managers.list_all()
                 membership_runs = await self._membership_runs.list_all()
+                pruned = (
+                    await self._pruned.count_by_provider_since(
+                        PRUNED_EVENT_TYPE, utcnow() - timedelta(hours=24)
+                    )
+                    if self._pruned
+                    else None
+                )
             except Exception as exc:
                 metrics.fleet_snapshot_failures_total.inc()
                 logger.warning("metrics.fleet_snapshot_failed", error=str(exc))
                 return False
-            apply_snapshot(snapshot, managers, membership_runs)
+            apply_snapshot(snapshot, managers, membership_runs, pruned)
             self._last_refresh = now
             return True

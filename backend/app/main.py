@@ -42,6 +42,7 @@ from app.domain.value_objects.site import site_catalog
 from app.exception_handlers import register_exception_handlers
 from app.infrastructure.logging import configure_logging
 from app.infrastructure.mongodb import MongoClientHolder
+from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
 from app.infrastructure.mongodb.classification_rule_repository import (
     MongoClassificationRuleRepository,
 )
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         MongoServerRepository(mongo, cursor_secret=settings.cursor_secret),
         MongoManagerRepository(mongo),
         MongoMembershipRunRepository(mongo),
+        pruned=MongoAuditEventRepository(mongo),
         stale_after_seconds=settings.stale_after_seconds,
         min_interval_seconds=settings.metrics_fleet_refresh_seconds,
     )

@@ -56,6 +56,19 @@ def list_cache_patterns() -> tuple[str, ...]:
     return (f"si:{_NAMESPACE_VERSION}:list:*", rows_key())
 
 
+def server_cache_patterns(server_id: str) -> tuple[str, ...]:
+    """
+    The globs matching one server's cached detail payloads and revision pointer.
+
+    Args:
+        server_id (str): The server's id.
+
+    Returns:
+        tuple[str, ...]: `SCAN MATCH` patterns.
+    """
+    return (f"si:{_NAMESPACE_VERSION}:srv:{server_id}:*",)
+
+
 def rows_key() -> str:
     """
     The one key holding the whole-fleet rows body (`GET /servers/rows`).

@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from pydantic import TypeAdapter
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.domain.models.audit_event import AuditEvent
@@ -180,3 +181,22 @@ class MongoAuditEventRepository:
             _encode_cursor(docs[-1]["created_at"], docs[-1]["_id"]) if has_more and docs else None
         )
         return AuditEventPage(items=items, next_cursor=next_cursor, has_more=has_more)
+
+    async def count_by_provider_since(self, event_type: str, since: datetime) -> dict[str, int]:
+        """
+        Count events of one type since a cutoff, grouped by `data.source_provider`.
+
+        Args:
+            event_type (str): The `event_type` to count.
+            since (datetime): Inclusive lower bound on `created_at`.
+
+        Returns:
+            dict[str, int]: Count per provider; events without one land under `unknown`.
+        """
+        cutoff = TypeAdapter(datetime).dump_python(since, mode="json")
+        pipeline = [
+            {"$match": {"event_type": event_type, "created_at": {"$gte": cutoff}}},
+            {"$group": {"_id": "$data.source_provider", "n": {"$sum": 1}}},
+        ]
+        cursor = await self._collection.aggregate(pipeline)
+        return {(row["_id"] or "unknown"): row["n"] async for row in cursor}

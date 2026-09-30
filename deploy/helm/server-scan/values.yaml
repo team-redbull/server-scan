@@ -325,7 +325,7 @@ metrics:
     # NOT used for the membership jobs, which run on their own, much
     # tighter schedule; see membershipSilentForSeconds below.
     silentForSeconds: 43200
-    # A `nodes`/`agents` membership job that has not completed a run for
+    # A `nodes-status` job (`nodes`/`agents`) that has not completed a run for
     # this long fires ServerScanMembershipRunSilent; a cluster that has
     # not had a server matched for this long fires ServerScanClusterSilent.
     # Two of `deploy/helm/nodes-status`'s default 15-minute
@@ -334,7 +334,7 @@ metrics:
     # silentForSeconds above, which meant 12h of silence on a job that
     # runs every 15 minutes before anything fired).
     membershipSilentForSeconds: 1800
-    # A `nodes`/`agents` membership job whose last real run left this many
+    # A `nodes-status` job (`nodes`/`agents`) whose last real run left this many
     # hostnames unmatched fires ServerScanMembershipUnmatched. 0 means any
     # unmatched hostname is worth investigating (ADR-0029's 2026-09-24
     # update) — raise it for an estate with a known, accepted gap.
@@ -453,6 +453,30 @@ collectors:
         memory: 256Mi
       limits:
         memory: 1Gi
+
+  # Deletes servers no manager has listed for `afterSeconds` (docs/adr/0037).
+  # Off by default. Even when enabled it only REPORTS until `apply` is true,
+  # so the first rollout shows what it would delete in the job logs.
+  prune:
+    enabled: false
+    apply: false
+    suspend: false
+    # 03:00, 09:00, 15:00, 21:00: three hours after each 6-hourly collector
+    # sweep, so every manager's last run is recent when the guard checks it.
+    schedule: "0 3,9,15,21 * * *"
+    afterSeconds: 86400
+    # Most of one collector's servers a single pass may delete.
+    maxFraction: 0.2
+    # A manager whose last run is older than this blocks its own pruning.
+    maxRunAgeSeconds: 21600
+    backoffLimit: 0
+    activeDeadlineSeconds: 600
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
 
   # Cisco UCS Manager — a login, and deliberately no endpoint.
   #

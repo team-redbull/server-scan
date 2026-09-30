@@ -267,7 +267,7 @@ name — a real platform bug or an estate-side naming collision either way
 these yet, since a collision isn't inherently urgent.
 
 `server_scan_membership_last_run_*` (ADR-0029's 2026-09-24 update) carry
-each `nodes`/`agents` membership job's most recent run — observed,
+each `nodes-status` job (`nodes`/`agents`)'s most recent run — observed,
 matched, unmatched hostnames, duration, and whether it exited PARTIAL —
 the same shape as the collector run gauges above, and written even when
 every hostname was unmatched, which `server_scan_cluster_last_reported_
@@ -439,7 +439,7 @@ A collector's entire connection config is one endpoint and one login per
 manager type, set in `collectors.<vendor>` in `values.yaml`. There are no
 `Manager` documents to create first and no credentials volume to mount.
 
-### The membership jobs are a different chart
+### The `nodes-status` jobs are a different chart
 
 `deploy/helm/nodes-status` is a **separate chart**, not part of
 this one, because its jobs run inside every OpenShift cluster rather than
@@ -551,13 +551,23 @@ complete, `1` the manager failed outright (`FAILED (see logs)`), `2` not
 configured — the message names the `INVENTORY_*` variables to set, and
 is checked before any connection is opened, so a half-configured Secret
 never reads as a fleet of bad passwords — and `3` PARTIAL, some servers
-written but not the whole fleet. A BMC that did not answer or rejected
-the login is printed and logged at ERROR but exits `0`, not `3` — on a
-real fleet those happen every run, and PARTIAL had stopped meaning
-anything (ADR-0016's 2026-09-10 updates). TLS failures, a per-host time
-budget exceeded and anything unrecognized still exit `3`. Each run also
+written but not the whole fleet. On `OPENMANAGE` and `REDFISH_STANDALONE`
+every failed host is logged at ERROR and written as a stub server with an
+`unreachable_reason`; only a plain unreachable host or a rejected login
+exits `0` (ADR-0016's 2026-09-10 updates), a TLS, budget or protocol failure
+still exits `3`.
+Each run also
 writes its outcome onto the `Manager` document, which is what the
 `server_scan_collector_last_run_*` gauges above read.
+
+Pruning servers a manager stopped listing (`python -m tools.prune_servers`,
+ADR-0037) is the `collectors.prune` CronJob, **off by default**
+(`collectors.prune.enabled`). Even when enabled it only reports until
+`collectors.prune.apply` is true, so the first rollout shows in the job logs
+what it would delete. It runs at 03/09/15/21h, three hours after each
+6-hourly collector sweep; `afterSeconds` (24 h), `maxFraction` (0.2) and
+`maxRunAgeSeconds` (6 h) are its guards. By hand: dry-run by default,
+`--apply` to delete.
 
 `collectors.fake` is the sixth CronJob and the one that reaches no vendor
 at all: it runs `tools/seed_inventory.py`, for a cluster with no UCS,

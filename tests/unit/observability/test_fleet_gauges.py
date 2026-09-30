@@ -307,3 +307,15 @@ async def test_refresher_keeps_old_values_when_the_query_fails() -> None:
     assert await refresher.maybe_refresh() is False
     assert _value("server_scan_servers", source_provider="OPENMANAGE") == 10
     assert metrics.fleet_snapshot_failures_total._value.get() == before + 1
+
+
+def test_pruned_gauge_follows_the_audit_counts_and_clears() -> None:
+    """Providers with no prunes drop out; `None` leaves the gauge alone."""
+    apply_snapshot(_snapshot(), [], [], {"ONEVIEW": 2})
+    assert _value("server_scan_servers_pruned_24h", source_provider="ONEVIEW") == 2
+
+    apply_snapshot(_snapshot(), [], [], None)
+    assert _value("server_scan_servers_pruned_24h", source_provider="ONEVIEW") == 2
+
+    apply_snapshot(_snapshot(), [], [], {})
+    assert _value("server_scan_servers_pruned_24h", source_provider="ONEVIEW") is None

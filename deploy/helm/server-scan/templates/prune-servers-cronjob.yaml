@@ -1,0 +1,67 @@
+{{- if .Values.collectors.prune.enabled }}
+{{- $pr := .Values.collectors.prune }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-prune-servers
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-prune-servers
+    app.kubernetes.io/component: maintenance
+    app.kubernetes.io/part-of: server-scan
+spec:
+  schedule: {{ $pr.schedule | quote }}
+  {{- with .Values.collectors.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ $pr.suspend }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if .Values.collectors.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.collectors.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $pr.backoffLimit }}
+      activeDeadlineSeconds: {{ $pr.activeDeadlineSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: prune
+              image: {{ include "serverScan.apiImage" . | quote }}
+              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              command:
+                - python3
+                - -m
+                - tools.prune_servers
+              env:
+                - name: INVENTORY_ENVIRONMENT
+                  value: production
+                # Dry-run unless `apply` is true (docs/adr/0037 decision 6).
+                - name: INVENTORY_PRUNE_ENABLED
+                  value: {{ $pr.apply | quote }}
+                - name: INVENTORY_PRUNE_AFTER_SECONDS
+                  value: {{ $pr.afterSeconds | quote }}
+                - name: INVENTORY_PRUNE_MAX_FRACTION
+                  value: {{ $pr.maxFraction | quote }}
+                - name: INVENTORY_PRUNE_MAX_RUN_AGE_SECONDS
+                  value: {{ $pr.maxRunAgeSeconds | quote }}
+                {{- include "serverScan.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ .Release.Name }}-api-config
+                - secretRef:
+                    name: {{ (.Values.auth | default dict).existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
+              resources:
+                {{- toYaml $pr.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+{{- end }}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -45,7 +46,7 @@ async def test_events_are_never_updatable_or_deletable_via_this_repository() -> 
     `update`/`delete` at all, so adding one fails here before code review.
     """
     public_methods = {name for name in dir(MongoAuditEventRepository) if not name.startswith("_")}
-    assert public_methods == {"record", "list_page"}
+    assert public_methods == {"record", "list_page", "count_by_provider_since"}
 
 
 async def test_list_page_filters_by_event_type(mongo_holder: MongoClientHolder) -> None:
@@ -115,3 +116,18 @@ async def test_server_scoped_query_uses_index_not_collection_scan(
     explain_str = json.dumps(explain)
     assert "COLLSCAN" not in explain_str
     assert "IXSCAN" in explain_str
+
+
+async def test_count_by_provider_since_groups_by_data_provider(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    repo = MongoAuditEventRepository(mongo_holder)
+    for provider in ("ONEVIEW", "ONEVIEW", None):
+        event = _event(event_type=EventType.SERVER_DELETED)
+        event.data = {"source_provider": provider} if provider else {}
+        await repo.record(event)
+
+    counts = await repo.count_by_provider_since(
+        EventType.SERVER_DELETED.value, datetime(2000, 1, 1, tzinfo=UTC)
+    )
+    assert counts == {"ONEVIEW": 2, "unknown": 1}

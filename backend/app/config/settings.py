@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     stale_after_seconds: int = 43200
     metrics_fleet_refresh_seconds: float = 30.0
 
+    # --- Pruning (tools/prune_servers.py, ADR-0037) ---
+    prune_enabled: bool = False
+    prune_after_seconds: int = 86400
+    prune_max_fraction: float = 0.2
+    prune_max_run_age_seconds: int = 21600
+
     # --- Collectors (tools/run_collector.py, not the API process) ---
     ucs_manager_username: str = ""
     ucs_manager_password: SecretStr = SecretStr("")
