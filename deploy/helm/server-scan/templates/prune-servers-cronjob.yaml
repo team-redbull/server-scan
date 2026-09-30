@@ -1,5 +1,6 @@
-{{- if .Values.collectors.prune.enabled }}
-{{- $pr := .Values.collectors.prune }}
+{{- /* The platform repo's hand-maintained values.yaml may not have `collectors.prune`; every read below tolerates that. */ -}}
+{{- $pr := .Values.collectors.prune | default dict }}
+{{- if $pr.enabled }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -9,11 +10,11 @@ metadata:
     app.kubernetes.io/component: maintenance
     app.kubernetes.io/part-of: server-scan
 spec:
-  schedule: {{ $pr.schedule | quote }}
+  schedule: {{ $pr.schedule | default "0 3,9,15,21 * * *" | quote }}
   {{- with .Values.collectors.timeZone }}
   timeZone: {{ . | quote }}
   {{- end }}
-  suspend: {{ $pr.suspend }}
+  suspend: {{ $pr.suspend | default false }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
@@ -22,8 +23,8 @@ spec:
       {{- if .Values.collectors.jobTtlSeconds }}
       ttlSecondsAfterFinished: {{ .Values.collectors.jobTtlSeconds }}
       {{- end }}
-      backoffLimit: {{ $pr.backoffLimit }}
-      activeDeadlineSeconds: {{ $pr.activeDeadlineSeconds }}
+      backoffLimit: {{ $pr.backoffLimit | default 0 }}
+      activeDeadlineSeconds: {{ $pr.activeDeadlineSeconds | default 600 }}
       template:
         spec:
           restartPolicy: Never
@@ -41,13 +42,13 @@ spec:
                   value: production
                 # Dry-run unless `apply` is true (docs/adr/0037 decision 6).
                 - name: INVENTORY_PRUNE_ENABLED
-                  value: {{ $pr.apply | quote }}
+                  value: {{ $pr.apply | default false | quote }}
                 - name: INVENTORY_PRUNE_AFTER_SECONDS
-                  value: {{ $pr.afterSeconds | quote }}
+                  value: {{ $pr.afterSeconds | default 86400 | quote }}
                 - name: INVENTORY_PRUNE_MAX_FRACTION
-                  value: {{ $pr.maxFraction | quote }}
+                  value: {{ $pr.maxFraction | default 0.2 | quote }}
                 - name: INVENTORY_PRUNE_MAX_RUN_AGE_SECONDS
-                  value: {{ $pr.maxRunAgeSeconds | quote }}
+                  value: {{ $pr.maxRunAgeSeconds | default 21600 | quote }}
                 {{- include "serverScan.dbEnv" . | nindent 16 }}
               envFrom:
                 - configMapRef:
@@ -55,7 +56,7 @@ spec:
                 - secretRef:
                     name: {{ (.Values.auth | default dict).existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
               resources:
-                {{- toYaml $pr.resources | nindent 16 }}
+                {{- toYaml ($pr.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 16 }}
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

@@ -28,6 +28,11 @@ commit is the whole picture** — the gate is not "CI"; E2E and pytest run only
 there or separately. After every push to `main`, watch CI to the end and
 report the result; a push publishes a release only if CI is green.
 
+The `deploy render` step clones team-redbull/redbull-platform and renders our
+templates against ITS values.yaml, like CI's Deploy job. A failure there means a
+template reads a `.Values` key the platform values do not have: give it a
+`default` (and add the key to the platform values when it should be set).
+
 If `ruff format --check` fails, run `uv run ruff format .` and re-run —
 never hand-fix formatting. If comment density fails, fix the file it
 names; never touch `scripts/comment-density-baseline.txt` by hand.

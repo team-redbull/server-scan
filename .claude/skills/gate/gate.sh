@@ -18,6 +18,24 @@ if [ $# -gt 0 ]; then
 fi
 
 status=0
+# CI's deploy job renders THIS repo's templates with the platform repo's own
+# hand-maintained values.yaml (only templates/ and files/ are synced), so a new
+# value a template reads must already be tolerated there. Same steps, locally.
+deploy_render() {
+  local work chart status=0
+  work=$(mktemp -d)
+  gh repo clone team-redbull/redbull-platform "$work/gitops" -- --depth 1 --quiet || status=1
+  chart="$work/gitops/gitops/charts/server-scan"
+  if [ "$status" = 0 ]; then
+    rsync -a --delete deploy/helm/server-scan/templates/ "$chart/templates/" &&
+      rsync -a --delete deploy/helm/server-scan/files/ "$chart/files/" &&
+      (cd "$chart" && helm lint . && helm template server-scan . -n server-scan > /dev/null) ||
+      status=1
+  fi
+  rm -rf "$work"
+  return $status
+}
+
 step() {
   local name=$1; shift
   echo "==> $name"
@@ -54,6 +72,7 @@ if [ "$want_helm" = 1 ]; then
       --set collectors.ucsCentral.enabled=true --set collectors.intersight.enabled=true \
       --set collectors.openmanage.enabled=true --set collectors.oneview.enabled=true \
       --set collectors.fake.enabled=true > /dev/null'
+  step "deploy render (templates + redbull-platform values)" deploy_render
   step "helm template nodes-status" \
     sh -c 'helm template ci-lint deploy/helm/nodes-status --set nodes.clusterName=ci-cluster > /dev/null && \
       helm template ci-lint deploy/helm/nodes-status --set nodes.clusterName=ci-cluster \

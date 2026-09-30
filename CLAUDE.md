@@ -115,7 +115,11 @@ is a real mistake, not a style preference.
    red on 2026-09-30 (urllib3 2.7.0, undici). `/gate` runs them now (network
    needed). **After every push to `main`, run `gh run watch` (or `gh run list`)
    on the pushed commit and report the CI result before calling the work done**;
-   a red CI also blocks the release (publish and deploy are skipped).
+   a red CI also blocks the release (publish and deploy are skipped). **The Deploy
+   job renders our templates with redbull-platform's own values.yaml** (it syncs
+   only `templates/` and `files/`), so a template must tolerate a new `.Values`
+   key being absent there (`default`), and `/gate` runs that render (`deploy
+   render`, needs `gh` access to team-redbull/redbull-platform).
    (add `cd frontend && npm run lint && npm run typecheck && npm run build`
    for any frontend change). If `ruff format --check` fails, run
    `uv run ruff format .` and re-verify — don't hand-fix formatting.
