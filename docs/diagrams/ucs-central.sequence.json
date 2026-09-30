@@ -253,7 +253,8 @@
       "items": [
         "One unreachable or slow domain is logged and skipped; the fleet run continues",
         "Domains stream with asyncio.as_completed, so a run killed by activeDeadlineSeconds keeps what finished \u2014 ADR-0014, 2026-09-02",
-        "Cancel and drain on early close so every domain still logs out \u2014 docs/cisco-collectors.md, Sessions"
+        "Cancel and drain on early close so every domain still logs out \u2014 docs/cisco-collectors.md, Sessions",
+        "Cisco BMCs sit behind fabric interconnects and are not probed; Central and each domain report their own state (ADR-0037)"
       ]
     }
   ]

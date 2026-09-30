@@ -197,7 +197,7 @@
       "id": "healtheval",
       "type": "backend",
       "label": "Health Policy Engine",
-      "sublabel": "policy_key families",
+      "sublabel": "policy_key \u00b7 bmc category",
       "pos": [
         630,
         390
@@ -292,7 +292,7 @@
     {
       "id": "openshift",
       "type": "backend",
-      "label": "OpenShift Membership Jobs",
+      "label": "nodes-status Jobs",
       "sublabel": "nodes + agents per cluster",
       "pos": [
         630,
@@ -307,6 +307,48 @@
           "path": "docs/adr/0024-openshift-cluster-membership.md",
           "label": "ADR-0024"
         }
+      ]
+    },
+    {
+      "id": "prune",
+      "type": "backend",
+      "label": "Prune CronJob",
+      "sublabel": "off by default",
+      "pos": [
+        880,
+        390
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "ad",
+      "type": "security",
+      "label": "Active Directory",
+      "sublabel": "LDAP + group API",
+      "pos": [
+        1130,
+        520
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "prom",
+      "type": "cloud",
+      "label": "Prometheus + Grafana",
+      "sublabel": "gauges from MongoDB",
+      "pos": [
+        880,
+        130
+      ],
+      "size": [
+        160,
+        66
       ]
     }
   ],
@@ -334,7 +376,8 @@
         "mongo",
         "redis",
         "api",
-        "ui"
+        "ui",
+        "prune"
       ],
       "pad": 40
     }
@@ -420,7 +463,8 @@
       "from": "api",
       "to": "redis",
       "label": "cache-aside",
-      "variant": "dashed"
+      "variant": "dashed",
+      "labelDx": -60
     },
     {
       "id": "serve",
@@ -443,7 +487,34 @@
       "from": "openshift",
       "to": "mongo",
       "label": "reconcile openshift",
-      "variant": "emphasis"
+      "variant": "emphasis",
+      "labelDy": -20
+    },
+    {
+      "id": "prune-delete",
+      "from": "prune",
+      "to": "mongo",
+      "label": "guarded delete",
+      "variant": "dashed"
+    },
+    {
+      "id": "login",
+      "from": "api",
+      "to": "ad",
+      "label": "bind + groups",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "right",
+      "labelDy": 57
+    },
+    {
+      "id": "scrape",
+      "from": "prom",
+      "to": "api",
+      "label": "scrape",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "top"
     }
   ],
   "cards": [
@@ -453,7 +524,7 @@
       "items": [
         "Vendor \u2192 collector \u2192 ingest \u2192 MongoDB \u2192 API \u2192 UI.",
         "Classify and health-evaluate happen inside that one upsert.",
-        "A second write path bypasses ingest entirely: per-cluster jobs reconcile OpenShift membership straight into MongoDB (ADR-0024)."
+        "A second write path bypasses ingest entirely: per-cluster nodes-status jobs reconcile OpenShift membership straight into MongoDB (ADR-0024, ADR-0036)"
       ]
     },
     {
@@ -461,7 +532,7 @@
       "title": "Trust boundaries",
       "items": [
         "Collectors initiate every vendor call and are strictly read-only.",
-        "No API authentication yet \u2014 deferred, and the release gate."
+        "Optional AD login (sessions, API tokens for machines), off by default (ADR-0034)"
       ]
     },
     {
@@ -486,6 +557,15 @@
       "items": [
         "The browser loads the whole fleet once, as flat rows, and filters/sorts/searches locally.",
         "Polled every 30s; an unchanged fleet is a 304, not a re-download."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Pruning and observability",
+      "items": [
+        "The prune CronJob is report-only by default; it deletes servers a manager stopped listing for 24h, each audited SERVER_PRUNED (ADR-0037)",
+        "Fleet gauges, incl. server_scan_servers_pruned_24h, are derived from MongoDB on each scrape (ADR-0029)",
+        "The bmc health category marks a dead BMC; Cisco BMCs are not probed"
       ]
     }
   ]

@@ -204,7 +204,8 @@
       "items": [
         "Each child MO names its owner, so every table is listed once fleet-wide at $top=1000 and joined by Moid (ADR-0017)",
         "~120 requests for 10,000 servers; the Redfish collector needs ~250,000",
-        "Controllers, cards and CPUs also join via ComputeBoard: 0 of 37 controllers named a blade or rack unit on a live tenant (2026-09-01)"
+        "Controllers, cards and CPUs also join via ComputeBoard: 0 of 37 controllers named a blade or rack unit on a live tenant (2026-09-01)",
+        "Cisco BMCs are reached through the appliance and are not probed directly (ADR-0037)"
       ]
     },
     {

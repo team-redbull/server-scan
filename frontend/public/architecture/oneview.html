@@ -4959,7 +4959,7 @@
       </div>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"session","label":"Session","focus":["cronjob","oneview"],"note":"Version discovery, then a login whose sessionID rides the Auth header."},{"id":"bulk","label":"Three bulk sweeps","focus":["cronjob","oneview"],"note":"Profiles, templates and expand=all hardware cover the whole appliance."},{"id":"ingest","label":"Ingest","focus":["cronjob","ingest","mongo"],"note":"One upsert per server: classify, health, audit, write."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"session","label":"Session","focus":["cronjob","oneview"],"note":"Version discovery, then a login whose sessionID rides the Auth header."},{"id":"bulk","label":"Three bulk sweeps","focus":["cronjob","oneview"],"note":"Profiles, templates and expand=all hardware cover the whole appliance."},{"id":"bmc-probe","label":"BMC reachability","focus":["cronjob","ilo"],"note":"One unauthenticated GET per iLO; no BMC credentials are ever held."},{"id":"ingest","label":"Ingest","focus":["cronjob","ingest","mongo"],"note":"One upsert per server: classify, health, audit, write."}]</script>
 
     <script id="archify-i18n-data" type="application/json">{"locale":"en","messages":{"viewer.kind.frontend":"Frontend","viewer.kind.backend":"Backend","viewer.kind.database":"Database","viewer.kind.cloud":"Cloud","viewer.kind.security":"Security","viewer.kind.messagebus":"Message bus","viewer.kind.external":"External","viewer.kind.neutral":"Neutral","viewer.kind.node":"Node","viewer.kind.start":"Start","viewer.kind.active":"Active","viewer.kind.waiting":"Waiting","viewer.kind.decision":"Decision","viewer.kind.success":"Success","viewer.kind.failure":"Failure","viewer.toolbar.actions":"Diagram actions","viewer.theme.toggle.title":"Toggle theme (T)","viewer.theme.toggle":"Toggle color theme","viewer.theme.dark":"Dark","viewer.theme.light":"Light","viewer.preset.choose.title":"Choose visual style (S cycles)","viewer.preset.choose":"Choose visual style","viewer.preset.style":"Style","viewer.preset.menu":"Visual style","viewer.preset.identity":"Visual identity","viewer.preset.cycles":"S cycles","viewer.preset.classic":"Classic","viewer.preset.classic.short":"Classic","viewer.preset.classic.hint":"Stable technical default","viewer.preset.flow":"Signal Flow","viewer.preset.flow.short":"Flow","viewer.preset.flow.hint":"Motion-forward presentation","viewer.preset.blueprint":"Blueprint","viewer.preset.blueprint.hint":"Engineering review","viewer.preset.editorial":"Editorial","viewer.preset.editorial.hint":"Publication and launch notes","viewer.preset.badge.signalFlow":"SIGNAL FLOW","viewer.preset.badge.blueprint":"BLUEPRINT / REV 01","viewer.preset.badge.editorial":"EDITORIAL / FIELD NOTE","viewer.preset.badge.editorialPlate":"ARCHIFY / PLATE 04","viewer.preset.current":"Visual style: {style}. Choose visual style","viewer.motion.live":"Live","viewer.motion.still":"Still","viewer.motion.pause":"Pause motion","viewer.motion.resume":"Resume motion","viewer.motion.reduced":"Motion paused by reduced-motion preference","viewer.motion.hidden":"Motion paused while this page is hidden","viewer.motion.yielding":"Pause motion; currently yielding to {owner}","viewer.motion.yielding.title":"Live preview enabled · yielding to {owner}","viewer.owner.story":"the guided story","viewer.owner.chapter":"the active chapter","viewer.owner.chapterPreview":"the chapter delta preview","viewer.owner.handoff":"the chapter handoff","viewer.owner.route":"Route Probe","viewer.owner.lens":"Semantic Lens","viewer.owner.relationship":"Relationship Preview","viewer.owner.intent":"Intent Trace","viewer.owner.focus":"semantic focus","viewer.owner.legend":"legend preview","viewer.owner.reader":"reader interaction","viewer.present.enter":"Enter presentation stage","viewer.present.enter.title":"Presentation stage (F)","viewer.present.exit":"Exit presentation stage","viewer.present.exit.title":"Exit presentation stage (F or Escape)","viewer.present.present":"Present","viewer.present.exit.label":"Exit","viewer.export.button":"Export","viewer.export.button.title":"Export diagram (E)","viewer.export.diagram":"Export diagram","viewer.export.menu":"Export","viewer.export.subtitle":"Portable, clean outputs","viewer.export.share":"Share","viewer.export.shareCard":"Share Card","viewer.export.routeShareCard":"Route Share Card","viewer.export.reachShareCard":"Reach Share Card","viewer.export.copyShareCard":"Copy Share Card","viewer.export.copyDiagram":"Copy diagram","viewer.export.clipboardPng":"PNG to clipboard","viewer.export.raster":"Raster images","viewer.export.image":"Image","viewer.export.lossless":"Lossless image","viewer.export.compact":"Compact image","viewer.export.modern":"Modern image","viewer.export.vectorMotion":"Vector and motion","viewer.export.vectorMotion.heading":"Vector \u0026 motion","viewer.export.editable":"Editable vector","viewer.export.motion6s":"6s motion","viewer.export.unsupported":"Not supported by this browser","viewer.export.clipboardUnsupported":"Clipboard image write not supported by this browser","viewer.export.clipboardUnsupported.period":"Clipboard image write not supported by this browser.","viewer.export.clipboardUnsupported.short":"Clipboard image write not supported in this browser.","viewer.export.motionUnavailable":"Motion capture unavailable in this browser","viewer.export.webmUnavailable":"WebM unavailable in this browser","viewer.export.failed":"Export failed: {message}","viewer.export.unknownVariant":"Unknown Share Card variant: {variant}","viewer.export.routeRequired":"Trace a route before exporting a Route Share Card","viewer.export.reachRequired":"Trace authored reach before exporting a Reach Share Card","viewer.export.unknown":"unknown","viewer.export.routeFailed":"Route Share Card export failed: {message}","viewer.export.reachFailed":"Reach Share Card export failed: {message}","viewer.export.copyFailed":"Copy failed: {message}","viewer.export.copiedPng":"Copied PNG to clipboard","viewer.export.copiedShare":"Copied Share Card","viewer.export.downloadedShare":"Downloaded Share Card","viewer.export.downloadedRoute":"Downloaded Route Share Card","viewer.export.downloadedReach":"Downloaded Reach Share Card","viewer.export.downloadedWebm":"Downloaded WebM","viewer.export.recording":"Recording 6 seconds of motion…","viewer.export.card.routeSummary.one":"Route: {source} → {target} · {count} directed hop","viewer.export.card.routeSummary.other":"Route: {source} → {target} · {count} directed hops","viewer.export.card.reachSummary":"Authored {direction} from {origin} · {nodes} · {links} · max {hops}","viewer.export.card.node.one":"{count} node","viewer.export.card.node.other":"{count} nodes","viewer.export.card.link.one":"{count} link","viewer.export.card.link.other":"{count} links","viewer.export.card.hop.one":"{count} hop","viewer.export.card.hop.other":"{count} hops","viewer.export.card.routeBadge":"ARCHIFY · ROUTE · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction} REACH","viewer.export.card.defaultBadge":"ARCHIFY · {preset} · {theme}","viewer.export.direction.upstream":"Upstream","viewer.export.direction.downstream":"Downstream","viewer.export.error.canvasUnavailable":"Canvas unavailable for {label}","viewer.export.error.contextUnavailable":"2D canvas context unavailable for {label}","viewer.export.error.toBlobUnavailable":"canvas.toBlob unavailable for {label}","viewer.export.error.toBlobNull":"canvas.toBlob returned no data for {label}","viewer.export.error.variantsCombined":"Share Card variants cannot be combined","viewer.export.error.viewerState":"Share Card export could not remove temporary viewer state","viewer.export.error.routeState":"Route Card export could not preserve the resolved route safely","viewer.export.error.reachState":"Reach Card export could not preserve authored reach safely","viewer.export.error.webmRequirements":"WebM motion export requires a trace animation and browser MediaRecorder support","viewer.export.error.mediaRecorder":"MediaRecorder failed","viewer.export.error.emptyWebm":"MediaRecorder produced an empty WebM","viewer.export.error.webmBackground":"SVG background could not be loaded for WebM export","viewer.guided.region":"Guided diagram views","viewer.guided.previous":"Previous guided view","viewer.guided.previous.title":"Previous guided view ([)","viewer.guided.next":"Next guided view","viewer.guided.next.title":"Next guided view (])","viewer.guided.views":"Guided views","viewer.guided.explore":"Explore this system","viewer.guided.intro":"Step through curated paths without changing the source diagram.","viewer.guided.trail":"Story trail","viewer.guided.beat":"Beat","viewer.guided.nextBeat":"Next","viewer.guided.play":"Play guided story","viewer.guided.play.title":"Play guided story (P)","viewer.guided.pause":"Pause guided story","viewer.guided.pause.title":"Pause guided story (P)","viewer.guided.replay":"Replay guided story","viewer.guided.replay.title":"Replay guided story (P)","viewer.guided.playStory":"Play story","viewer.guided.pauseStory":"Pause","viewer.guided.replayStory":"Replay story","viewer.guided.motionUnavailable":"Story playback unavailable while motion is Still","viewer.guided.enableMotion":"Switch motion to Live to play the guided story","viewer.guided.selectBeatLink":"Select a Story Beat to copy its exact link","viewer.guided.copyMoment":"Copy moment","viewer.guided.momentCopied":"Moment link copied","viewer.guided.momentCopyFailed":"Could not copy story moment link","viewer.guided.copied":"Copied","viewer.guided.copyFailed":"Copy failed","viewer.guided.showAll":"Show all","viewer.guided.showAll.aria":"Show entire diagram","viewer.guided.chapters":"Story chapters","viewer.guided.storyTrail":"Story trail for {label}: {count} beats","viewer.guided.chapter.open":"Open chapter {index} of {total}: {label}, {count} stops","viewer.guided.chapter.current":"Current chapter {index} of {total}: {label}, {count} stops","viewer.guided.chapter.selectedNodes":"{count} selected nodes","viewer.guided.chapter.stops":"{count} stops","viewer.guided.chapter.stop.one":"{count} stop","viewer.guided.chapter.stop.other":"{count} stops","viewer.guided.chapter.current.title":"{label} — current chapter, {count} stops","viewer.guided.chapter.delta.expanded":"{stay} stay, {enter} enter, {leave} leave","viewer.guided.chapter.delta.aria":"Open chapter {index} of {total}: {label}. Chapter focus delta: {delta}","viewer.guided.chapter.delta.title":"{label} — {delta} chapter focus","viewer.guided.handoff":"{from} → {to} · via {label}","viewer.guided.share.chapter":"Chapter {index} / {total}","viewer.guided.share.initial":"Chapter 01 / 01","viewer.guided.share.default":"Guided chapter","viewer.guided.state.ready":"Ready","viewer.guided.state.playing":"Playing","viewer.guided.state.settled":"Settled","viewer.guided.state.paused":"Paused","viewer.guided.state.pinned":"Pinned","viewer.guided.state.still":"Still","viewer.guided.share.step":"Step {index} / {total} · {label}","viewer.guided.share.staticMoment":"{step} · Static moment","viewer.guided.share.complete":"{count} steps complete · {note}","viewer.guided.share.settled":"Path settled for reading.","viewer.guided.share.staticPath":"{count} steps · Static path","viewer.guided.share.ready":"{count} steps · Ready","viewer.guided.share.aria":"{state} chapter {index} of {total}: {label}. {beat}. {route}","viewer.guided.beat.start":"Beat {index} / {total} · {label} · starting point","viewer.guided.beat.forward":"Beat {index} / {total} · {from} → {to}","viewer.guided.beat.reverse":"Beat {index} / {total} · {from} → {to} · reverse authored link","viewer.guided.beat.multiple":"Beat {index} / {total} · {from} ⇄ {to} · {count} authored links","viewer.guided.beat.group":"Beat {index} / {total} · {from} · {to} · grouped · no direct link","viewer.guided.beat.aria.prefix":"Story beat {index} of {total}: {label}. ","viewer.guided.beat.aria.start":"Starting point.","viewer.guided.beat.aria.forward":"From {from} through one authored forward relationship.","viewer.guided.beat.aria.reverse":"From {from}; the authored relationship points from {to} to {from}.","viewer.guided.beat.aria.multiple":"From {from} through {count} authored relationships; shown without arbitrary motion.","viewer.guided.beat.aria.group":"Grouped from {from} with no direct authored relationship.","viewer.guided.caption.start":"Starting point","viewer.guided.caption.grouped":"Grouped transition · no direct authored link","viewer.guided.caption.more":" +{count} more","viewer.guided.caption.reverse":"Reverse authored relationship","viewer.guided.caption.relationships":"{count} authored relationships","viewer.guided.caption.relationship":"Authored relationship","viewer.guided.caption.direction":"authored direction: {from} → {to}","viewer.guided.caption.starting":"Authored starting point","viewer.guided.beatLink":"Copy link to current story moment: Beat {index} of {total}: {label}","viewer.guided.noStory":"This diagram has no authored guided story.","viewer.guide.eyebrow":"Diagram guide","viewer.guide.close":"Close diagram guide","viewer.guide.inspecting":"Inspecting compiled semantics","viewer.guide.actions":"Diagram exploration actions","viewer.guide.find":"Find any node","viewer.guide.find.hint":"Search labels, responsibilities, kinds, and stable IDs.","viewer.guide.route":"Trace a route","viewer.guide.route.aria":"Trace a directed route","viewer.guide.route.hint":"Ask how two semantic nodes connect in authored direction.","viewer.guide.map":"See the whole system","viewer.guide.map.hint":"Open Semantic Radar with a live viewport and stable nodes.","viewer.guide.lens":"Compare semantic kinds","viewer.guide.lens.hint":"Count roles, reveal their traffic, and compare direct authored links.","viewer.guide.story":"Play the guided story","viewer.guide.story.hint":"Walk the authored chapters and real relationships.","viewer.guide.present":"Enter Presentation Stage","viewer.guide.present.hint":"Give the live diagram the viewport without changing export.","viewer.guide.shortcuts":"Additional keyboard shortcuts","viewer.guide.shortcut.export":"Export","viewer.guide.shortcut.theme":"Theme","viewer.guide.shortcut.style":"Style","viewer.guide.shortcut.reset":"Reset","viewer.guide.shortcut.zoomIn":"Zoom in","viewer.guide.shortcut.zoomOut":"Zoom out","viewer.guide.shortcut.close":"Close","viewer.guide.facts":"{nodes} · {relationships} · {views}","viewer.guide.fact.node.one":"{count} semantic node","viewer.guide.fact.node.other":"{count} semantic nodes","viewer.guide.fact.relationship.one":"{count} relationship","viewer.guide.fact.relationship.other":"{count} relationships","viewer.guide.fact.view.one":"{count} guided view","viewer.guide.fact.view.other":"{count} guided views","viewer.guide.story.available.one":"Walk {count} authored chapter and its real relationships.","viewer.guide.story.available.other":"Walk {count} authored chapters and their real relationships.","viewer.guide.story.unavailable":"No authored guided story in this diagram.","viewer.guide.open":"Open diagram guide","viewer.guide.noStory":"This diagram has no authored guided story.","viewer.finder.title":"Find a node","viewer.finder.close":"Close node finder","viewer.finder.placeholder":"Search labels or IDs","viewer.finder.search":"Search diagram nodes","viewer.finder.results":"Diagram nodes","viewer.finder.empty":"No matching nodes","viewer.finder.result.focus":"Focus {label}","viewer.finder.result.routeStart":"Choose {label} as route start","viewer.finder.result.routeTarget":"Choose {label} as route destination, {links}","viewer.finder.status.empty":"No matching nodes","viewer.finder.status.count.one":"{count} matching node","viewer.finder.status.count.other":"{count} matching nodes","viewer.finder.noun.nodes":"nodes","viewer.finder.link.one":"{count} link","viewer.finder.link.other":"{count} links","viewer.finder.result.focus.one":"Focus {label}, {count} related connection","viewer.finder.result.focus.other":"Focus {label}, {count} related connections","viewer.finder.status.filtered":"{visible} of {available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"Semantic passport","viewer.passport.metadata":"Node metadata","viewer.passport.evidence":"Verified source evidence","viewer.passport.verified":"Verified source","viewer.passport.reach":"Authored reach","viewer.passport.reach.trace":"Trace authored reachability","viewer.passport.upstream":"Upstream","viewer.passport.downstream":"Downstream","viewer.passport.upstream.trace":"Trace upstream authored reachability","viewer.passport.downstream.trace":"Trace downstream authored reachability","viewer.passport.close":"Close semantic passport","viewer.passport.copy":"Copy link","viewer.passport.copy.focus":"Copy link to focused node","viewer.passport.relations":"Relations","viewer.passport.relations.show":"Show connected relationships","viewer.passport.relations.hide":"Hide connected relationships","viewer.passport.relations.list":"Connected relationships","viewer.passport.copyRelation":"Copy relation","viewer.passport.copyNode":"Copy node","viewer.passport.copyPinned":"Copy link to pinned relationship","viewer.passport.copySource":"Copy link to source node","viewer.passport.copy.focused.success":"Focused node link copied","viewer.passport.copy.pinned.success":"Pinned relationship link copied","viewer.passport.copy.focused.failed":"Could not copy focused node link","viewer.passport.copy.pinned.failed":"Could not copy pinned relationship link","viewer.passport.relationship.none":"No connected relationships","viewer.passport.relationship.count.one":"{count} relation","viewer.passport.relationship.count.other":"{count} relations","viewer.passport.relationship.show.one":"Show {count} connected relationship","viewer.passport.relationship.show.other":"Show {count} connected relationships","viewer.passport.relationship.summary":"{out} outgoing · {in} incoming{loops}","viewer.passport.relationship.loops":" · {count} loop","viewer.passport.relationship.explorer":"Direct relationship explorer","viewer.passport.relationship.help":"Use arrow keys to explore relationships. Press Enter or Space to pin details; Escape clears.","viewer.passport.relationship.loopsBack":"loops back","viewer.passport.relationship.connectsTo":"connects to","viewer.passport.relationship.connectsFrom":"connects from","viewer.passport.relationship.pinned":"Pinned relationship · {from} → {to} · {label}","viewer.passport.relationship.inspect":"Inspect relationship {index} of {total}: {from} to {to}, {label}. Press Enter for details.","viewer.passport.relationship.group.out":"Outgoing","viewer.passport.relationship.group.in":"Incoming","viewer.passport.relationship.group.loop":"Self loops","viewer.passport.relationship.row":"{group}: {relationship}, {neighbor}","viewer.passport.relationship.direction.out":"OUT →","viewer.passport.relationship.direction.in":"← IN","viewer.passport.relationship.direction.loop":"LOOP","viewer.passport.sourceCount.one":"{count} verified source reference","viewer.passport.sourceCount.other":"{count} verified source references","viewer.passport.sourceMarker":"SRC","viewer.passport.beacon.one":"{count} verified source; focus this node to inspect","viewer.passport.beacon.other":"{count} verified sources; focus this node to inspect","viewer.passport.repository.open":"Open verified repository revision {revision}","viewer.passport.source.open":"Open verified source {path} at revision {revision}","viewer.passport.source.openLink":"Open ↗","viewer.passport.reach.upstream.one":"Trace {count} upstream authored node","viewer.passport.reach.upstream.other":"Trace {count} upstream authored nodes","viewer.passport.reach.downstream.one":"Trace {count} downstream authored node","viewer.passport.reach.downstream.other":"Trace {count} downstream authored nodes","viewer.passport.reach.noUpstream":"No upstream authored nodes","viewer.passport.reach.noDownstream":"No downstream authored nodes","viewer.passport.reach.status":"{direction} · {nodes} nodes · {links} links · max {hops} hops","viewer.route.eyebrow":"Route probe","viewer.route.start":"Choose a start node","viewer.route.start.find":"Find start","viewer.route.start.find.aria":"Find a route start","viewer.route.copy":"Copy link","viewer.route.copy.aria":"Copy link to traced route","viewer.route.clear":"Clear","viewer.route.clear.aria":"Clear route probe","viewer.route.traced":"Traced route","viewer.route.pickTwo":"Pick two semantic nodes on the diagram","viewer.route.pickOne":"Pick a semantic node on the diagram","viewer.route.controls":"Route journey controls","viewer.route.previous":"Previous route position","viewer.route.play":"Play route journey","viewer.route.pause":"Pause route journey","viewer.route.replay":"Replay route journey","viewer.route.next":"Next route position","viewer.route.journey":"Journey","viewer.route.pause.label":"Pause","viewer.route.replay.label":"Replay","viewer.route.overview":"Overview","viewer.route.overview.aria":"Show complete route overview","viewer.route.instructions":"Choose the source, then the destination. Direction matters.","viewer.route.destination":"Choose a destination from {label}","viewer.route.destination.find":"Find target","viewer.route.destination.find.aria":"Find a reachable route destination","viewer.route.differentDestination":"Choose a different destination","viewer.route.distinct":"A route needs two distinct semantic nodes.","viewer.route.unreachable":"No directed route to {label}","viewer.route.unreachable.detail":"{target} is not reachable from {source}. Pick a highlighted destination.","viewer.route.start.instructions":"Select the source. The next step will reveal only directed destinations.","viewer.route.copy.success":"Traced route link copied","viewer.route.copy.failed":"Could not copy traced route link","viewer.route.position":"Route position {index} of {total}: {label}","viewer.route.step":"Step {index} of {total} · {phase} · {label}","viewer.route.motionRequired":"Automatic journey requires Live motion","viewer.route.trigger.clear":"Clear traced route","viewer.route.overview.status":"{nodes} · {hops} · shortest authored route","viewer.route.overview.node.one":"{count} node","viewer.route.overview.node.other":"{count} nodes","viewer.route.overview.hop.one":"{count} directed hop","viewer.route.overview.hop.other":"{count} directed hops","viewer.route.phase.playing":"Playing","viewer.route.phase.complete":"Complete","viewer.route.phase.inspecting":"Inspecting","viewer.route.destination.count.one":"{count} directed destination available. Pick a highlighted node.","viewer.route.destination.count.other":"{count} directed destinations available. Pick a highlighted node.","viewer.route.noOutgoing":"No outgoing route starts here. Clear and choose another source.","viewer.route.result.title":"{source} to {target}","viewer.route.finder.source.title":"Choose route start","viewer.route.finder.source.placeholder":"Search route sources","viewer.route.finder.source.empty":"No matching route sources","viewer.route.finder.source.results":"Nodes that can start a route","viewer.route.finder.source.noun":"route sources","viewer.route.finder.source.badge":"start","viewer.route.finder.target.title":"Destination from {label}","viewer.route.finder.target.placeholder":"Search reachable destinations","viewer.route.finder.target.empty":"No matching reachable destinations","viewer.route.finder.target.results":"Reachable route destinations","viewer.route.finder.target.noun":"reachable destinations","viewer.route.hop.one":"{count} hop","viewer.route.hop.other":"{count} hops","viewer.lens.eyebrow":"Semantic lens","viewer.lens.title":"Compare system roles","viewer.lens.close":"Close semantic lens","viewer.lens.instruction":"Choose up to two semantic kinds. One reveals its real traffic; two compare only direct authored relationships.","viewer.lens.kinds":"Semantic kinds","viewer.lens.choose":"Choose a kind to inspect its nodes and touching relationships.","viewer.lens.copy":"Copy link to semantic lens","viewer.lens.clear":"Clear semantic lens","viewer.lens.open":"Open semantic lens","viewer.lens.openActive":"Open active semantic lens","viewer.lens.legend":"Semantic legend","viewer.lens.legend.inspect.one":"Inspect {label}, {count} node","viewer.lens.legend.inspect.other":"Inspect {label}, {count} nodes","viewer.lens.kind.count.one":"{label}, {count} node","viewer.lens.kind.count.other":"{label}, {count} nodes","viewer.lens.compare.one":"{first} → {second}: {forward} · {second} → {first}: {reverse} · {count} direct relationship","viewer.lens.compare.other":"{first} → {second}: {forward} · {second} → {first}: {reverse} · {count} direct relationships","viewer.lens.single":"{nodes} · {relationships} · connected peers remain visible","viewer.lens.node.one":"{count} {label} node","viewer.lens.node.other":"{count} {label} nodes","viewer.lens.relationship.one":"{count} touching relationship","viewer.lens.relationship.other":"{count} touching relationships","viewer.radar.title":"Semantic radar","viewer.radar.building":"Building overview","viewer.radar.openFull":"Open full semantic radar","viewer.radar.open":"Open radar","viewer.radar.close":"Close semantic radar","viewer.radar.surface":"Diagram overview. Click a node to focus it, or use arrow keys to pan.","viewer.radar.click":"Click node","viewer.radar.drag":"Drag to pan","viewer.radar.space":"Semantic radar needs more MAP space.","viewer.radar.nodes":"Semantic diagram radar nodes","viewer.radar.focus":"Focus {label} from Semantic Radar","viewer.radar.status":"{count} nodes · {viewport}","viewer.radar.fullMap":"{count} nodes · full map","viewer.radar.compacted":"Radar compacted to avoid covering the Semantic Passport or MAP controls.","viewer.radar.cancelWaiting":"Cancel semantic radar waiting for more MAP space","viewer.radar.needsSpace":"Semantic radar needs more visible MAP space","viewer.radar.viewport.full":"full map","viewer.radar.viewport.width":"{percent}% width","viewer.radar.viewport.scale":"{percent}% viewport","viewer.nav.controls":"Diagram view controls","viewer.nav.route":"Trace a directed route","viewer.nav.route.title":"Trace route (R)","viewer.nav.route.short":"PATH","viewer.nav.radar":"Open semantic radar","viewer.nav.radar.title":"Semantic radar (M)","viewer.nav.radar.short":"MAP","viewer.nav.lens":"Open semantic lens","viewer.nav.lens.title":"Semantic lens (L)","viewer.nav.lens.short":"LENS","viewer.nav.find":"Find a node","viewer.nav.find.title":"Find a node (/)","viewer.nav.guide":"Open diagram guide","viewer.nav.guide.title":"Diagram guide (?)","viewer.nav.zoomOut":"Zoom out","viewer.nav.zoomOut.title":"Zoom out (-)","viewer.nav.reset":"Reset diagram view","viewer.nav.reset.title":"Reset view (0)","viewer.nav.read":"READ","viewer.nav.zoomIn":"Zoom in","viewer.nav.zoomIn.title":"Zoom in (+)","viewer.nav.camera":"{hint}. Reset diagram view","viewer.nav.camera.title":"{semantic}{hint} · reset view (0)","viewer.nav.camera.semantic":"Semantic camera active · ","viewer.nav.level.map":"MAP","viewer.nav.level.read":"READ","viewer.nav.level.full":"FULL","viewer.nav.level.auto":"AUTO","viewer.nav.detail.map":"Zoom in to reveal relationship labels and node context","viewer.nav.detail.read":"Zoom in again to reveal tags and annotations","viewer.nav.detail.full":"Full diagram detail","viewer.intent.summary":"{label}. {out} outgoing, {in} incoming{loops}. {total} connections. Press Enter for details.","viewer.intent.loops":", {count} self loop","viewer.common.copied":"Copied","viewer.common.copyFailed":"Copy failed","viewer.common.copyLink":"Copy link","viewer.common.clear":"Clear","viewer.common.close":"Close"}}</script>
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
@@ -5004,7 +5004,7 @@
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / PLATE 04">
-      <svg viewBox="0 0 1080 760" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1060 836" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">HPE OneView collector run</title>
         <desc id="archify-diagram-description">A sequence diagram generated by Archify.</desc>
         <!-- Definitions -->
@@ -5030,138 +5030,160 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Time Segments -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="162" width="984" height="146" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="162" width="964" height="146" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="314" width="984" height="222" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="314" width="964" height="222" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="542" width="984" height="146" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="542" width="964" height="70" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="3" x="48" y="618" width="964" height="146" rx="10" class="c-lane" stroke-width="1"/>
 
         <!-- Lifelines -->
-        <path d="M 157 142 L 157 695" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 419.6666666666667 142 L 419.6666666666667 695" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 682.3333333333334 142 L 682.3333333333334 695" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 945 142 L 945 695" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 143.5 142 L 143.5 771" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 342.25 142 L 342.25 771" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 541 142 L 541 771" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 739.75 142 L 739.75 771" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 938.5 142 L 938.5 771" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
 
         <!-- Activations -->
-        <rect x="152" y="174" width="10" height="506" rx="3" class="c-mask"/>
-        <rect x="152" y="174" width="10" height="506" rx="3" class="c-backend" stroke-width="1"/>
-        <rect x="414.6666666666667" y="252" width="10" height="276" rx="3" class="c-mask"/>
-        <rect x="414.6666666666667" y="252" width="10" height="276" rx="3" class="c-external" stroke-width="1"/>
-        <rect x="677.3333333333334" y="556" width="10" height="86" rx="3" class="c-mask"/>
-        <rect x="677.3333333333334" y="556" width="10" height="86" rx="3" class="c-backend" stroke-width="1"/>
-        <rect x="940" y="594" width="10" height="46" rx="3" class="c-mask"/>
-        <rect x="940" y="594" width="10" height="46" rx="3" class="c-database" stroke-width="1"/>
+        <rect x="138.5" y="174" width="10" height="582" rx="3" class="c-mask"/>
+        <rect x="138.5" y="174" width="10" height="582" rx="3" class="c-backend" stroke-width="1"/>
+        <rect x="337.25" y="252" width="10" height="276" rx="3" class="c-mask"/>
+        <rect x="337.25" y="252" width="10" height="276" rx="3" class="c-external" stroke-width="1"/>
+        <rect x="536" y="554" width="10" height="50" rx="3" class="c-mask"/>
+        <rect x="536" y="554" width="10" height="50" rx="3" class="c-external" stroke-width="1"/>
+        <rect x="734.75" y="630" width="10" height="88" rx="3" class="c-mask"/>
+        <rect x="734.75" y="630" width="10" height="88" rx="3" class="c-backend" stroke-width="1"/>
+        <rect x="933.5" y="668" width="10" height="48" rx="3" class="c-mask"/>
+        <rect x="933.5" y="668" width="10" height="48" rx="3" class="c-database" stroke-width="1"/>
 
         <!-- Messages -->
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="GET /rest/version (unauthenticated)" data-edge-key="0" data-edge-id="version">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="version" data-composition-points="164,180;412.6666666666667,180" d="M 164 180 L 412.6666666666667 180" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="version" data-composition-points="150.5,180;335.25,180" d="M 150.5 180 L 335.25 180" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="191.33333333333337" y="160" width="194" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="170" class="t-backend" font-size="9" text-anchor="middle">GET /rest/version (unauthenticated)</text>
+          <rect x="145.875" y="160" width="194" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="170" class="t-backend" font-size="9" text-anchor="middle">GET /rest/version (unauthenticated)</text>
         </g>
         </g>
 
         <g data-edge-from="oneview" data-edge-to="cronjob" data-edge-label="currentVersion → X-Api-Version clamped to 8000" data-edge-key="1" data-edge-id="version-ok">
-          <path data-composition-edge-from="oneview" data-composition-edge-to="cronjob" data-composition-edge-id="version-ok" data-composition-points="412.6666666666667,218;164,218" d="M 412.6666666666667 218 L 164 218" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+          <path data-composition-edge-from="oneview" data-composition-edge-to="cronjob" data-composition-edge-id="version-ok" data-composition-points="335.25,218;150.5,218" d="M 335.25 218 L 150.5 218" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="162.73333333333335" y="198" width="251.20000000000002" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="208" class="t-muted" font-size="9" text-anchor="middle">currentVersion → X-Api-Version clamped to 8000</text>
+          <rect x="117.27499999999999" y="198" width="251.20000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="208" class="t-muted" font-size="9" text-anchor="middle">currentVersion → X-Api-Version clamped to 8000</text>
         </g>
         </g>
 
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="POST /rest/login-sessions (loginMsgAck)" data-edge-key="2" data-edge-id="login">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="login" data-composition-points="164,256;412.6666666666667,256" d="M 164 256 L 412.6666666666667 256" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="login" data-composition-points="150.5,256;335.25,256" d="M 150.5 256 L 335.25 256" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
         <g data-detail="context">
-          <rect x="180.93333333333337" y="236" width="214.8" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="246" class="t-security" font-size="9" text-anchor="middle">POST /rest/login-sessions (loginMsgAck)</text>
+          <rect x="135.475" y="236" width="214.8" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="246" class="t-security" font-size="9" text-anchor="middle">POST /rest/login-sessions (loginMsgAck)</text>
         </g>
         </g>
 
         <g data-edge-from="oneview" data-edge-to="cronjob" data-edge-label="sessionID → Auth header" data-edge-key="3" data-edge-id="login-ok">
-          <path data-composition-edge-from="oneview" data-composition-edge-to="cronjob" data-composition-edge-id="login-ok" data-composition-points="412.6666666666667,294;164,294" d="M 412.6666666666667 294 L 164 294" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+          <path data-composition-edge-from="oneview" data-composition-edge-to="cronjob" data-composition-edge-id="login-ok" data-composition-points="335.25,294;150.5,294" d="M 335.25 294 L 150.5 294" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="222.53333333333336" y="274" width="131.60000000000002" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="284" class="t-muted" font-size="9" text-anchor="middle">sessionID → Auth header</text>
+          <rect x="177.075" y="274" width="131.60000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="284" class="t-muted" font-size="9" text-anchor="middle">sessionID → Auth header</text>
         </g>
         </g>
 
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="GET /rest/server-profiles, paged via nextPageUri" data-edge-key="4" data-edge-id="profiles">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="profiles" data-composition-points="164,332;412.6666666666667,332" d="M 164 332 L 412.6666666666667 332" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="profiles" data-composition-points="150.5,332;335.25,332" d="M 150.5 332 L 335.25 332" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="157.53333333333336" y="312" width="261.6" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="322" class="t-backend" font-size="9" text-anchor="middle">GET /rest/server-profiles, paged via nextPageUri</text>
+          <rect x="112.07499999999999" y="312" width="261.6" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="322" class="t-backend" font-size="9" text-anchor="middle">GET /rest/server-profiles, paged via nextPageUri</text>
         </g>
         </g>
 
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="GET /rest/server-profile-templates" data-edge-key="5" data-edge-id="templates">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="templates" data-composition-points="164,370;412.6666666666667,370" d="M 164 370 L 412.6666666666667 370" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="templates" data-composition-points="150.5,370;335.25,370" d="M 150.5 370 L 335.25 370" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="193.93333333333337" y="350" width="188.8" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="360" class="t-backend" font-size="9" text-anchor="middle">GET /rest/server-profile-templates</text>
+          <rect x="148.475" y="350" width="188.8" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="360" class="t-backend" font-size="9" text-anchor="middle">GET /rest/server-profile-templates</text>
         </g>
         </g>
 
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="GET /rest/server-hardware?expand=all (DIMMs, drives, PCI inline)" data-edge-key="6" data-edge-id="hardware">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="hardware" data-composition-points="164,408;412.6666666666667,408" d="M 164 408 L 412.6666666666667 408" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="hardware" data-composition-points="150.5,408;335.25,408" d="M 150.5 408 L 335.25 408" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="115.93333333333337" y="388" width="344.8" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="398" class="t-backend" font-size="9" text-anchor="middle">GET /rest/server-hardware?expand=all (DIMMs, drives, PCI inline)</text>
+          <rect x="70.475" y="388" width="344.8" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="398" class="t-backend" font-size="9" text-anchor="middle">GET /rest/server-hardware?expand=all (DIMMs, drives, PCI inline)</text>
         </g>
         </g>
 
         <g data-edge-from="oneview" data-edge-to="cronjob" data-edge-label="members joined to profiles in memory" data-edge-key="7" data-edge-id="hardware-ok">
-          <path data-composition-edge-from="oneview" data-composition-edge-to="cronjob" data-composition-edge-id="hardware-ok" data-composition-points="412.6666666666667,446;164,446" d="M 412.6666666666667 446 L 164 446" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+          <path data-composition-edge-from="oneview" data-composition-edge-to="cronjob" data-composition-edge-id="hardware-ok" data-composition-points="335.25,446;150.5,446" d="M 335.25 446 L 150.5 446" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="188.73333333333335" y="426" width="199.20000000000002" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="436" class="t-muted" font-size="9" text-anchor="middle">members joined to profiles in memory</text>
+          <rect x="143.27499999999998" y="426" width="199.20000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="436" class="t-muted" font-size="9" text-anchor="middle">members joined to profiles in memory</text>
         </g>
         </g>
 
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="GET {hardware}/powerSupplies — only where expand=all lacked them" data-edge-key="8" data-edge-id="psus">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="psus" data-composition-points="164,484;412.6666666666667,484" d="M 164 484 L 412.6666666666667 484" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="psus" data-composition-points="150.5,484;335.25,484" d="M 150.5 484 L 335.25 484" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <g data-detail="context">
-          <rect x="115.93333333333337" y="464" width="344.8" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="474" class="t-messagebus" font-size="9" text-anchor="middle">GET {hardware}/powerSupplies — only where expand=all lacked them</text>
+          <rect x="70.475" y="464" width="344.8" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="474" class="t-messagebus" font-size="9" text-anchor="middle">GET {hardware}/powerSupplies — only where expand=all lacked them</text>
         </g>
         </g>
 
         <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="GET {hardware}/processors — the one source of cpu_threads" data-edge-key="9" data-edge-id="cpus">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="cpus" data-composition-points="164,522;412.6666666666667,522" d="M 164 522 L 412.6666666666667 522" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="cpus" data-composition-points="150.5,522;335.25,522" d="M 150.5 522 L 335.25 522" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <g data-detail="context">
-          <rect x="134.13333333333335" y="502" width="308.40000000000003" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="512" class="t-messagebus" font-size="9" text-anchor="middle">GET {hardware}/processors — the one source of cpu_threads</text>
+          <rect x="88.67499999999998" y="502" width="308.40000000000003" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="512" class="t-messagebus" font-size="9" text-anchor="middle">GET {hardware}/processors — the one source of cpu_threads</text>
         </g>
         </g>
 
-        <g data-edge-from="cronjob" data-edge-to="ingest" data-edge-label="ProviderServer per matched profile (server_from)" data-edge-key="10" data-edge-id="normalise">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="ingest" data-composition-edge-id="normalise" data-composition-points="164,560;675.3333333333334,560" d="M 164 560 L 675.3333333333334 560" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="cronjob" data-edge-to="ilo" data-edge-label="GET https://&lt;iLO&gt;/redfish/v1, unauthenticated (BmcProbedProvider)" data-edge-key="10" data-edge-id="probe">
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="ilo" data-composition-edge-id="probe" data-composition-points="150.5,560;534,560" d="M 150.5 560 L 534 560" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="288.8666666666667" y="540" width="261.6" height="16" rx="3" class="c-mask"/>
-          <text x="419.6666666666667" y="550" class="t-backend" font-size="9" text-anchor="middle">ProviderServer per matched profile (server_from)</text>
+          <rect x="167.25" y="540" width="350" height="16" rx="3" class="c-mask"/>
+          <text x="342.25" y="550" class="t-backend" font-size="9" text-anchor="middle">GET https://&lt;iLO&gt;/redfish/v1, unauthenticated (BmcProbedProvider)</text>
+        </g>
+        <text data-detail="fine" x="162.5" y="578" class="t-dim" font-size="7">one shared httpx client, 64 at once, 5 s</text>
+        </g>
+
+        <g data-edge-from="ilo" data-edge-to="cronjob" data-edge-label="any HTTP response or TLS failure = reachable; refused/timeout = unreachable + reason" data-edge-key="11" data-edge-id="probe-ok">
+          <path data-composition-edge-from="ilo" data-composition-edge-to="cronjob" data-composition-edge-id="probe-ok" data-composition-points="534,598;150.5,598" d="M 534 598 L 150.5 598" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="117.85" y="578" width="448.8" height="16" rx="3" class="c-mask"/>
+          <text x="342.25" y="588" class="t-muted" font-size="9" text-anchor="middle">any HTTP response or TLS failure = reachable; refused/timeout = unreachable + reason</text>
         </g>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="classify + evaluate health + audit event + upsert, one write" data-edge-key="11" data-edge-id="upsert">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="mongo" data-composition-edge-id="upsert" data-composition-points="689.3333333333334,598;938,598" d="M 689.3333333333334 598 L 938 598" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="cronjob" data-edge-to="ingest" data-edge-label="ProviderServer per matched profile (server_from)" data-edge-key="12" data-edge-id="normalise">
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="ingest" data-composition-edge-id="normalise" data-composition-points="150.5,636;732.75,636" d="M 150.5 636 L 732.75 636" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="651.6666666666667" y="578" width="324" height="16" rx="3" class="c-mask"/>
-          <text x="813.6666666666667" y="588" class="t-backend" font-size="9" text-anchor="middle">classify + evaluate health + audit event + upsert, one write</text>
+          <rect x="310.825" y="616" width="261.6" height="16" rx="3" class="c-mask"/>
+          <text x="441.625" y="626" class="t-backend" font-size="9" text-anchor="middle">ProviderServer per matched profile (server_from)</text>
         </g>
         </g>
 
-        <g data-edge-from="mongo" data-edge-to="ingest" data-edge-label="IngestSummary (created / updated / errors)" data-edge-key="12" data-edge-id="upsert-ok">
-          <path data-composition-edge-from="mongo" data-composition-edge-to="ingest" data-composition-edge-id="upsert-ok" data-composition-points="938,636;689.3333333333334,636" d="M 938 636 L 689.3333333333334 636" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="classify + evaluate health + audit event + upsert, one write" data-edge-key="13" data-edge-id="upsert">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="mongo" data-composition-edge-id="upsert" data-composition-points="746.75,674;931.5,674" d="M 746.75 674 L 931.5 674" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="698.4666666666667" y="616" width="230.4" height="16" rx="3" class="c-mask"/>
-          <text x="813.6666666666667" y="626" class="t-muted" font-size="9" text-anchor="middle">IngestSummary (created / updated / errors)</text>
+          <rect x="677.125" y="654" width="324" height="16" rx="3" class="c-mask"/>
+          <text x="839.125" y="664" class="t-backend" font-size="9" text-anchor="middle">classify + evaluate health + audit event + upsert, one write</text>
         </g>
         </g>
 
-        <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="DELETE /rest/login-sessions (failure logged, never raised)" data-edge-key="13" data-edge-id="logout">
-          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="logout" data-composition-points="164,674;412.6666666666667,674" d="M 164 674 L 412.6666666666667 674" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-edge-from="mongo" data-edge-to="ingest" data-edge-label="IngestSummary (created / updated / errors)" data-edge-key="14" data-edge-id="upsert-ok">
+          <path data-composition-edge-from="mongo" data-composition-edge-to="ingest" data-composition-edge-id="upsert-ok" data-composition-points="931.5,712;746.75,712" d="M 931.5 712 L 746.75 712" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="131.53333333333336" y="654" width="313.6" height="16" rx="3" class="c-mask"/>
-          <text x="288.33333333333337" y="664" class="t-security" font-size="9" text-anchor="middle">DELETE /rest/login-sessions (failure logged, never raised)</text>
+          <rect x="723.925" y="692" width="230.4" height="16" rx="3" class="c-mask"/>
+          <text x="839.125" y="702" class="t-muted" font-size="9" text-anchor="middle">IngestSummary (created / updated / errors)</text>
+        </g>
+        </g>
+
+        <g data-edge-from="cronjob" data-edge-to="oneview" data-edge-label="DELETE /rest/login-sessions (failure logged, never raised)" data-edge-key="15" data-edge-id="logout">
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="oneview" data-composition-edge-id="logout" data-composition-points="150.5,750;335.25,750" d="M 150.5 750 L 335.25 750" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-detail="context">
+          <rect x="86.07499999999999" y="730" width="313.6" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="740" class="t-security" font-size="9" text-anchor="middle">DELETE /rest/login-sessions (failure logged, never raised)</text>
         </g>
         </g>
 
@@ -5175,79 +5197,95 @@
           <text x="62" y="217" class="t-dim" font-size="9" font-weight="600">Bulk enumeration + bounded fan-out</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="2">
-          <rect x="56" y="520" width="92" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="533" class="t-dim" font-size="9" font-weight="600">Ingest + logout</text>
+          <rect x="56" y="520" width="60.800000000000004" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="533" class="t-dim" font-size="9" font-weight="600">BMC probe</text>
+        </g>
+        <g data-graph-role="segment-label" data-segment-id="3">
+          <rect x="56" y="596" width="92" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="609" class="t-dim" font-size="9" font-weight="600">Ingest + logout</text>
         </g>
 
         <!-- Participants -->
         <g id="node-cronjob" data-node-id="cronjob" data-node-label="OneView CronJob" tabindex="0" role="button" aria-label="Focus OneView CronJob, tools.run_collector, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="tools.run_collector" data-node-context="Sequence participant">
           <title>OneView CronJob · tools.run_collector · Sequence participant</title>
-          <rect x="62" y="72" width="190" height="54" rx="6" class="c-mask"/>
-          <rect x="62" y="72" width="190" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
+          <rect x="62" y="72" width="163" height="54" rx="6" class="c-mask"/>
+          <rect x="62" y="72" width="163" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(68 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="157" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">OneView CronJob</text>
-          <text data-detail="context" x="157" y="111" class="t-muted" font-size="7" text-anchor="middle">tools.run_collector</text>
+          <text data-node-label="" data-detail-anchor="" x="143.5" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">OneView CronJob</text>
+          <text data-detail="context" x="143.5" y="111" class="t-muted" font-size="7" text-anchor="middle">tools.run_collector</text>
         </g>
 
         <g id="node-oneview" data-node-id="oneview" data-node-label="HPE OneView" tabindex="0" role="button" aria-label="Focus HPE OneView, one appliance, httpx, Sequence participant" aria-pressed="false" data-node-kind="external" data-node-sublabel="one appliance, httpx" data-node-context="Sequence participant">
           <title>HPE OneView · one appliance, httpx · Sequence participant</title>
-          <rect x="324.6666666666667" y="72" width="190" height="54" rx="6" class="c-mask"/>
-          <rect x="324.6666666666667" y="72" width="190" height="54" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(330.6666666666667 78) scale(0.6875)">
+          <rect x="260.75" y="72" width="163" height="54" rx="6" class="c-mask"/>
+          <rect x="260.75" y="72" width="163" height="54" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(266.75 78) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="419.6666666666667" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">HPE OneView</text>
-          <text data-detail="context" x="419.6666666666667" y="111" class="t-muted" font-size="7" text-anchor="middle">one appliance, httpx</text>
+          <text data-node-label="" data-detail-anchor="" x="342.25" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">HPE OneView</text>
+          <text data-detail="context" x="342.25" y="111" class="t-muted" font-size="7" text-anchor="middle">one appliance, httpx</text>
+        </g>
+
+        <g id="node-ilo" data-node-id="ilo" data-node-label="iLO (Redfish root)" tabindex="0" role="button" aria-label="Focus iLO (Redfish root), one per matched server, Sequence participant" aria-pressed="false" data-node-kind="external" data-node-sublabel="one per matched server" data-node-context="Sequence participant">
+          <title>iLO (Redfish root) · one per matched server · Sequence participant</title>
+          <rect x="459.5" y="72" width="163" height="54" rx="6" class="c-mask"/>
+          <rect x="459.5" y="72" width="163" height="54" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(465.5 78) scale(0.6875)">
+            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
+            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="541" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">iLO (Redfish root)</text>
+          <text data-detail="context" x="541" y="111" class="t-muted" font-size="7" text-anchor="middle">one per matched server</text>
         </g>
 
         <g id="node-ingest" data-node-id="ingest" data-node-label="IngestService" tabindex="0" role="button" aria-label="Focus IngestService, classify + health + audit, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="classify + health + audit" data-node-context="Sequence participant">
           <title>IngestService · classify + health + audit · Sequence participant</title>
-          <rect x="587.3333333333334" y="72" width="190" height="54" rx="6" class="c-mask"/>
-          <rect x="587.3333333333334" y="72" width="190" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(593.3333333333334 78) scale(0.6875)">
+          <rect x="658.25" y="72" width="163" height="54" rx="6" class="c-mask"/>
+          <rect x="658.25" y="72" width="163" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(664.25 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="682.3333333333334" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">IngestService</text>
-          <text data-detail="context" x="682.3333333333334" y="111" class="t-muted" font-size="7" text-anchor="middle">classify + health + audit</text>
+          <text data-node-label="" data-detail-anchor="" x="739.75" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">IngestService</text>
+          <text data-detail="context" x="739.75" y="111" class="t-muted" font-size="7" text-anchor="middle">classify + health + audit</text>
         </g>
 
         <g id="node-mongo" data-node-id="mongo" data-node-label="MongoDB" tabindex="0" role="button" aria-label="Focus MongoDB, servers collection, Sequence participant" aria-pressed="false" data-node-kind="database" data-node-sublabel="servers collection" data-node-context="Sequence participant">
           <title>MongoDB · servers collection · Sequence participant</title>
-          <rect x="850" y="72" width="190" height="54" rx="6" class="c-mask"/>
-          <rect x="850" y="72" width="190" height="54" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(856 78) scale(0.6875)">
+          <rect x="857" y="72" width="163" height="54" rx="6" class="c-mask"/>
+          <rect x="857" y="72" width="163" height="54" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(863 78) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="945" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">MongoDB</text>
-          <text data-detail="context" x="945" y="111" class="t-muted" font-size="7" text-anchor="middle">servers collection</text>
+          <text data-node-label="" data-detail-anchor="" x="938.5" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">MongoDB</text>
+          <text data-detail="context" x="938.5" y="111" class="t-muted" font-size="7" text-anchor="middle">servers collection</text>
         </g>
 
         <!-- Legend -->
         <g data-legend="">
-          <text x="40" y="686" class="t-primary" font-size="12" font-weight="650">Legend</text>
-          <g data-legend-semantic-kind="emphasis" data-legend-x="40" data-legend-baseline="706" data-legend-width="78">
-            <path d="M 40 703 L 74 703" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-            <text x="83" y="706" class="t-muted" font-size="10" font-weight="500">request</text>
+          <text x="40" y="762" class="t-primary" font-size="12" font-weight="650">Legend</text>
+          <g data-legend-semantic-kind="emphasis" data-legend-x="40" data-legend-baseline="782" data-legend-width="78">
+            <path d="M 40 779 L 74 779" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+            <text x="83" y="782" class="t-muted" font-size="10" font-weight="500">request</text>
           </g>
-          <g data-legend-semantic-kind="return" data-legend-x="140" data-legend-baseline="706" data-legend-width="73">
-            <path d="M 140 703 L 174 703" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
-            <text x="183" y="706" class="t-muted" font-size="10" font-weight="500">return</text>
+          <g data-legend-semantic-kind="return" data-legend-x="140" data-legend-baseline="782" data-legend-width="73">
+            <path d="M 140 779 L 174 779" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+            <text x="183" y="782" class="t-muted" font-size="10" font-weight="500">return</text>
           </g>
-          <g data-legend-semantic-kind="security" data-legend-x="235" data-legend-baseline="706" data-legend-width="83">
-            <path d="M 235 703 L 269 703" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-            <text x="278" y="706" class="t-muted" font-size="10" font-weight="500">security</text>
+          <g data-legend-semantic-kind="security" data-legend-x="235" data-legend-baseline="782" data-legend-width="83">
+            <path d="M 235 779 L 269 779" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+            <text x="278" y="782" class="t-muted" font-size="10" font-weight="500">security</text>
           </g>
-          <g data-legend-semantic-kind="dashed" data-legend-x="340" data-legend-baseline="706" data-legend-width="98">
-            <path d="M 340 703 L 374 703" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-            <text x="383" y="706" class="t-muted" font-size="10" font-weight="500">async trace</text>
+          <g data-legend-semantic-kind="dashed" data-legend-x="340" data-legend-baseline="782" data-legend-width="98">
+            <path d="M 340 779 L 374 779" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+            <text x="383" y="782" class="t-muted" font-size="10" font-weight="500">async trace</text>
           </g>
-          <g data-legend-semantic-kind="default" data-legend-x="460" data-legend-baseline="706" data-legend-width="118">
-            <path d="M 460 703 L 494 703" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-            <text x="503" y="706" class="t-muted" font-size="10" font-weight="500">default message</text>
+          <g data-legend-semantic-kind="default" data-legend-x="460" data-legend-baseline="782" data-legend-width="118">
+            <path d="M 460 779 L 494 779" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+            <text x="503" y="782" class="t-muted" font-size="10" font-weight="500">default message</text>
           </g>
         </g>
       </svg>
@@ -5442,7 +5480,7 @@
           <h3>One source for every HPE server</h3>
         </div>
         <ul>
-          <li>&bull; OneView is the only HPE source whatever the iLO generation (4, 5 or 6): no BMC login, no per-generation branch (ADR-0022)</li>
+          <li>&bull; OneView is the only HPE source whatever the iLO generation (4, 5 or 6): no BMC login, no per-generation branch; iLO is only probed for reachability (ADR-0022, ADR-0037)</li>
           <li>&bull; What that costs on Gen10/Gen11 is written down, not worked around: cpu_threads only via /processors, GPU VRAM from the catalog</li>
           <li>&bull; One appliance, ~15 requests for the whole estate; the 2500-server ceiling is documented, not coded</li>
         </ul>

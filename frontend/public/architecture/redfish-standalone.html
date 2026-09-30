@@ -5120,11 +5120,11 @@
         </g>
         </g>
 
-        <g data-edge-from="bmc" data-edge-to="cronjob" data-edge-label="unreachable or auth failure → host skipped, run exits 3 (PARTIAL)" data-edge-key="8" data-edge-id="unreachable">
+        <g data-edge-from="bmc" data-edge-to="cronjob" data-edge-label="any failure → serial-less stub; unreachable/rejected login exit 0, TLS/budget/protocol exit 3" data-edge-key="8" data-edge-id="unreachable">
           <path data-composition-edge-from="bmc" data-composition-edge-to="cronjob" data-composition-edge-id="unreachable" data-composition-points="544,575;152.5,575" d="M 544 575 L 152.5 575" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <g data-detail="context">
-          <rect x="173.25" y="555" width="350" height="16" rx="3" class="c-mask"/>
-          <text x="348.25" y="565" class="t-messagebus" font-size="9" text-anchor="middle">unreachable or auth failure → host skipped, run exits 3 (PARTIAL)</text>
+          <rect x="100.44999999999999" y="555" width="495.6" height="16" rx="3" class="c-mask"/>
+          <text x="348.25" y="565" class="t-messagebus" font-size="9" text-anchor="middle">any failure → serial-less stub; unreachable/rejected login exit 0, TLS/budget/protocol exit 3</text>
         </g>
         </g>
 
@@ -5471,7 +5471,7 @@
         <ul>
           <li>&bull; A Storage 404 once wrote zeros over good data and flipped a server with a failed disk from CRITICAL to HEALTHY (ADR-0016, &#39;A partial read silently heals a real fault&#39;)</li>
           <li>&bull; Now a 404/403 sub-collection is None; IngestService carries the stored value forward and lists the path in Server.unread_fields</li>
-          <li>&bull; A host that does not answer is skipped and the run exits 3 — PARTIAL is the normal outcome, alerting is on staleness</li>
+          <li>&bull; A host that gives nothing still yields a serial-less stub named by inventory name or host, matched at ingest by (source_provider, BMC host). Unreachable or rejected login exits 0; TLS, budget or protocol error makes the run PARTIAL (exit 3) (ADR-0037)</li>
         </ul>
       </div>
 

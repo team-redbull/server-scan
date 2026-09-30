@@ -26,7 +26,7 @@
           "cronjob",
           "idrac"
         ],
-        "note": "The Redfish collector reads measured values; Oem.Dell NodeID is the Service Tag."
+        "note": "The Redfish collector reads measured values; Oem.Dell NodeID is the Service Tag. A dead iDRAC still yields a stub."
       },
       {
         "id": "ingest",
@@ -178,7 +178,7 @@
       "from": "idrac",
       "to": "cronjob",
       "y": 510,
-      "label": "no answer \u2192 reachable=False, hardware None",
+      "label": "any failure \u2192 reachable=False stub + reason; unreachable/rejected login exit 0, TLS/budget/protocol exit 3",
       "variant": "dashed"
     },
     {
@@ -260,7 +260,7 @@
       "title": "Still open",
       "items": [
         "The iDRAC GPU VRAM check (docs/field-test-checklist.md part 3) has not run on real hardware",
-        "One fleet-wide read-only iDRAC account: the auth guard disables it after 3 rejections, aborts after 10"
+        "One fleet-wide read-only iDRAC account: the auth guard disables it after 3 rejections, aborts after 10; a rejected login is a stub with exit 0, not PARTIAL (ADR-0037)"
       ]
     }
   ]

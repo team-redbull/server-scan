@@ -5045,10 +5045,13 @@
         <path data-edge-from="ingest" data-edge-to="healtheval" data-edge-label="evaluate" data-edge-key="7" data-edge-id="health-in-write" data-composition-points="710,326;710,390" d="M 710 326 L 710 390" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="ingest" data-edge-to="mongo" data-edge-label="upsert" data-edge-key="8" data-edge-id="upsert" data-composition-points="790,286;880,286" d="M 790 286 L 880 286" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="mongo" data-edge-to="api" data-edge-label="queries" data-edge-key="9" data-edge-id="read-truth" data-composition-points="1040,293;1130,293" d="M 1040 293 L 1130 293" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="api" data-edge-to="redis" data-edge-label="cache-aside" data-edge-key="10" data-edge-id="cache-aside" data-composition-points="1210,260;1210,196" d="M 1210 260 L 1210 196" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="api" data-edge-to="redis" data-edge-label="cache-aside" data-edge-key="10" data-edge-id="cache-aside" data-composition-points="1217,260;1217,196" d="M 1217 260 L 1217 196" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="api" data-edge-to="ui" data-edge-label="REST" data-edge-key="11" data-edge-id="serve" data-composition-points="1210,326;1210,390" d="M 1210 326 L 1210 390" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="kube" data-edge-to="openshift" data-edge-label="list Nodes / Agents" data-edge-key="12" data-edge-id="kube-read" data-composition-points="540,523;630,523" d="M 540 523 L 630 523" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="openshift" data-edge-to="mongo" data-edge-label="reconcile openshift" data-edge-key="13" data-edge-id="membership-write" data-composition-points="820,523;850,523;850,300;880,300" d="M 820 523 L 842 523 Q 850 523 850 515 L 850 308 Q 850 300 858 300 L 880 300" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="prune" data-edge-to="mongo" data-edge-label="guarded delete" data-edge-key="14" data-edge-id="prune-delete" data-composition-points="960,390;960,326" d="M 960 390 L 960 326" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="api" data-edge-to="ad" data-edge-label="bind + groups" data-edge-key="15" data-edge-id="login" data-composition-points="1290,293;1314,293;1314,553;1290,553" d="M 1290 293 L 1306 293 Q 1314 293 1314 301 L 1314 545 Q 1314 553 1306 553 L 1290 553" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="prom" data-edge-to="api" data-edge-label="scrape" data-edge-key="16" data-edge-id="scrape" data-composition-points="1040,163;1064,163;1064,236;1203,236;1203,260" d="M 1040 163 L 1056 163 Q 1064 163 1064 171 L 1064 228 Q 1064 236 1072 236 L 1195 236 Q 1203 236 1203 244 L 1203 260" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
 
         <!-- Components -->
         <g id="node-ucscentral" data-node-id="ucscentral" data-node-label="Cisco UCS Central" tabindex="0" role="button" aria-label="Focus Cisco UCS Central, + domain UCS Managers, Vendor management plane (read-only)" aria-pressed="false" data-node-kind="external" data-node-sublabel="+ domain UCS Managers" data-node-context="Vendor management plane (read-only)">
@@ -5144,15 +5147,15 @@
         <text data-detail="context" x="710" y="307" class="t-muted" font-size="9" text-anchor="middle">normalize · upsert</text>
         </g>
 
-        <g id="node-healtheval" data-node-id="healtheval" data-node-label="Health Policy Engine" tabindex="0" role="button" aria-label="Focus Health Policy Engine, policy_key families, Air-gapped OpenShift namespace" aria-pressed="false" data-node-kind="backend" data-node-sublabel="policy_key families" data-node-context="Air-gapped OpenShift namespace">
-          <title>Health Policy Engine · policy_key families · Air-gapped OpenShift namespace</title>
+        <g id="node-healtheval" data-node-id="healtheval" data-node-label="Health Policy Engine" tabindex="0" role="button" aria-label="Focus Health Policy Engine, policy_key · bmc category, Air-gapped OpenShift namespace" aria-pressed="false" data-node-kind="backend" data-node-sublabel="policy_key · bmc category" data-node-context="Air-gapped OpenShift namespace">
+          <title>Health Policy Engine · policy_key · bmc category · Air-gapped OpenShift namespace</title>
           <rect x="630" y="390" width="160" height="66" rx="6" class="c-mask"/>
           <rect x="630" y="390" width="160" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(636 396) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="710" y="421" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Health Policy Engine</text>
-        <text data-detail="context" x="710" y="437" class="t-muted" font-size="9" text-anchor="middle">policy_key families</text>
+        <text data-detail="context" x="710" y="437" class="t-muted" font-size="9" text-anchor="middle">policy_key · bmc category</text>
         </g>
 
         <g id="node-mongo" data-node-id="mongo" data-node-label="MongoDB" tabindex="0" role="button" aria-label="Focus MongoDB, source of truth, Air-gapped OpenShift namespace" aria-pressed="false" data-node-kind="database" data-node-sublabel="source of truth" data-node-context="Air-gapped OpenShift namespace">
@@ -5216,15 +5219,49 @@
         <text data-detail="context" x="460" y="537" class="t-muted" font-size="9" text-anchor="middle">Nodes · Agents</text>
         </g>
 
-        <g id="node-openshift" data-node-id="openshift" data-node-label="OpenShift Membership Jobs" tabindex="0" role="button" aria-label="Focus OpenShift Membership Jobs, nodes + agents per cluster, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="nodes + agents per cluster" data-node-context="Architecture component">
-          <title>OpenShift Membership Jobs · nodes + agents per cluster · Architecture component</title>
+        <g id="node-openshift" data-node-id="openshift" data-node-label="nodes-status Jobs" tabindex="0" role="button" aria-label="Focus nodes-status Jobs, nodes + agents per cluster, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="nodes + agents per cluster" data-node-context="Architecture component">
+          <title>nodes-status Jobs · nodes + agents per cluster · Architecture component</title>
           <rect x="630" y="490" width="190" height="66" rx="6" class="c-mask"/>
           <rect x="630" y="490" width="190" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(636 496) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="725" y="521" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">OpenShift Membership Jobs</text>
+          <text data-node-label="" data-detail-anchor="" x="725" y="521" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">nodes-status Jobs</text>
         <text data-detail="context" x="725" y="537" class="t-muted" font-size="9" text-anchor="middle">nodes + agents per cluster</text>
+        </g>
+
+        <g id="node-prune" data-node-id="prune" data-node-label="Prune CronJob" tabindex="0" role="button" aria-label="Focus Prune CronJob, off by default, Air-gapped OpenShift namespace" aria-pressed="false" data-node-kind="backend" data-node-sublabel="off by default" data-node-context="Air-gapped OpenShift namespace">
+          <title>Prune CronJob · off by default · Air-gapped OpenShift namespace</title>
+          <rect x="880" y="390" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="880" y="390" width="160" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(886 396) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="960" y="421" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Prune CronJob</text>
+        <text data-detail="context" x="960" y="437" class="t-muted" font-size="9" text-anchor="middle">off by default</text>
+        </g>
+
+        <g id="node-ad" data-node-id="ad" data-node-label="Active Directory" tabindex="0" role="button" aria-label="Focus Active Directory, LDAP + group API, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="LDAP + group API" data-node-context="Architecture component">
+          <title>Active Directory · LDAP + group API · Architecture component</title>
+          <rect x="1130" y="520" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="1130" y="520" width="160" height="66" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1136 526) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="1210" y="551" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Active Directory</text>
+        <text data-detail="context" x="1210" y="567" class="t-muted" font-size="9" text-anchor="middle">LDAP + group API</text>
+        </g>
+
+        <g id="node-prom" data-node-id="prom" data-node-label="Prometheus + Grafana" tabindex="0" role="button" aria-label="Focus Prometheus + Grafana, gauges from MongoDB, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="gauges from MongoDB" data-node-context="Architecture component">
+          <title>Prometheus + Grafana · gauges from MongoDB · Architecture component</title>
+          <rect x="880" y="130" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="880" y="130" width="160" height="66" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(886 136) scale(0.6875)">
+            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="960" y="161" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Prometheus + Grafana</text>
+        <text data-detail="context" x="960" y="177" class="t-muted" font-size="9" text-anchor="middle">gauges from MongoDB</text>
         </g>
 
         <!-- Connection labels -->
@@ -5269,8 +5306,8 @@
           <text x="1085" y="283" class="t-backend" font-size="8" text-anchor="middle">queries</text>
         </g>
         <g data-detail="context" data-edge-from="api" data-edge-to="redis" data-edge-label="cache-aside" data-edge-key="10" data-edge-id="cache-aside">
-          <rect x="1178.6" y="240" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="1210" y="250" class="t-messagebus" font-size="8" text-anchor="middle">cache-aside</text>
+          <rect x="1125.6" y="240" width="62.8" height="14" rx="3" class="c-mask"/>
+          <text x="1157" y="250" class="t-messagebus" font-size="8" text-anchor="middle">cache-aside</text>
         </g>
         <g data-detail="context" data-edge-from="api" data-edge-to="ui" data-edge-label="REST" data-edge-key="11" data-edge-id="serve">
           <rect x="1195" y="361" width="30" height="14" rx="3" class="c-mask"/>
@@ -5281,8 +5318,20 @@
           <text x="585" y="570" class="t-security" font-size="8" text-anchor="middle">list Nodes / Agents</text>
         </g>
         <g data-detail="context" data-edge-from="openshift" data-edge-to="mongo" data-edge-label="reconcile openshift" data-edge-key="13" data-edge-id="membership-write">
-          <rect x="799.4" y="391.5" width="101.2" height="14" rx="3" class="c-mask"/>
-          <text x="850" y="401.5" class="t-backend" font-size="8" text-anchor="middle">reconcile openshift</text>
+          <rect x="799.4" y="371.5" width="101.2" height="14" rx="3" class="c-mask"/>
+          <text x="850" y="381.5" class="t-backend" font-size="8" text-anchor="middle">reconcile openshift</text>
+        </g>
+        <g data-detail="context" data-edge-from="prune" data-edge-to="mongo" data-edge-label="guarded delete" data-edge-key="14" data-edge-id="prune-delete">
+          <rect x="921.4" y="370" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="960" y="380" class="t-messagebus" font-size="8" text-anchor="middle">guarded delete</text>
+        </g>
+        <g data-detail="context" data-edge-from="api" data-edge-to="ad" data-edge-label="bind + groups" data-edge-key="15" data-edge-id="login">
+          <rect x="1277.8" y="460" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="1314" y="470" class="t-security" font-size="8" text-anchor="middle">bind + groups</text>
+        </g>
+        <g data-detail="context" data-edge-from="prom" data-edge-to="api" data-edge-label="scrape" data-edge-key="16" data-edge-id="scrape">
+          <rect x="1044.6" y="179.5" width="38.8" height="14" rx="3" class="c-mask"/>
+          <text x="1064" y="189.5" class="t-messagebus" font-size="8" text-anchor="middle">scrape</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
@@ -5311,9 +5360,17 @@
             <rect x="245" y="615" width="16" height="10" rx="2.5" class="c-database" stroke-width="1"/>
             <text x="267" y="624" class="t-muted" font-size="10" font-weight="500">Database</text>
           </g>
-          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="350" data-legend-baseline="624" data-legend-width="83">
-            <rect x="350" y="615" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
-            <text x="372" y="624" class="t-muted" font-size="10" font-weight="500">External</text>
+          <g data-legend-semantic-kind="cloud" data-legend-kind="cloud" data-legend-label="Cloud" data-legend-x="350" data-legend-baseline="624" data-legend-width="68">
+            <rect x="350" y="615" width="16" height="10" rx="2.5" class="c-cloud" stroke-width="1"/>
+            <text x="372" y="624" class="t-muted" font-size="10" font-weight="500">Cloud</text>
+          </g>
+          <g data-legend-semantic-kind="security" data-legend-kind="security" data-legend-label="Security" data-legend-x="440" data-legend-baseline="624" data-legend-width="83">
+            <rect x="440" y="615" width="16" height="10" rx="2.5" class="c-security" stroke-width="1"/>
+            <text x="462" y="624" class="t-muted" font-size="10" font-weight="500">Security</text>
+          </g>
+          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="External" data-legend-x="545" data-legend-baseline="624" data-legend-width="83">
+            <rect x="545" y="615" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
+            <text x="567" y="624" class="t-muted" font-size="10" font-weight="500">External</text>
           </g>
         </g>
       </svg>
@@ -5510,7 +5567,7 @@
         <ul>
           <li>&bull; Vendor → collector → ingest → MongoDB → API → UI.</li>
           <li>&bull; Classify and health-evaluate happen inside that one upsert.</li>
-          <li>&bull; A second write path bypasses ingest entirely: per-cluster jobs reconcile OpenShift membership straight into MongoDB (ADR-0024).</li>
+          <li>&bull; A second write path bypasses ingest entirely: per-cluster nodes-status jobs reconcile OpenShift membership straight into MongoDB (ADR-0024, ADR-0036)</li>
         </ul>
       </div>
 
@@ -5521,7 +5578,7 @@
         </div>
         <ul>
           <li>&bull; Collectors initiate every vendor call and are strictly read-only.</li>
-          <li>&bull; No API authentication yet — deferred, and the release gate.</li>
+          <li>&bull; Optional AD login (sessions, API tokens for machines), off by default (ADR-0034)</li>
         </ul>
       </div>
 
@@ -5555,6 +5612,18 @@
         <ul>
           <li>&bull; The browser loads the whole fleet once, as flat rows, and filters/sorts/searches locally.</li>
           <li>&bull; Polled every 30s; an unchanged fleet is a 304, not a re-download.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Pruning and observability</h3>
+        </div>
+        <ul>
+          <li>&bull; The prune CronJob is report-only by default; it deletes servers a manager stopped listing for 24h, each audited SERVER_PRUNED (ADR-0037)</li>
+          <li>&bull; Fleet gauges, incl. server_scan_servers_pruned_24h, are derived from MongoDB on each scrape (ADR-0029)</li>
+          <li>&bull; The bmc health category marks a dead BMC; Cisco BMCs are not probed</li>
         </ul>
       </div>
     </div>

@@ -160,7 +160,7 @@
       "from": "bmc",
       "to": "cronjob",
       "y": 575,
-      "label": "unreachable or auth failure \u2192 host skipped, run exits 3 (PARTIAL)",
+      "label": "any failure \u2192 serial-less stub; unreachable/rejected login exit 0, TLS/budget/protocol exit 3",
       "variant": "dashed"
     },
     {
@@ -252,7 +252,7 @@
       "items": [
         "A Storage 404 once wrote zeros over good data and flipped a server with a failed disk from CRITICAL to HEALTHY (ADR-0016, 'A partial read silently heals a real fault')",
         "Now a 404/403 sub-collection is None; IngestService carries the stored value forward and lists the path in Server.unread_fields",
-        "A host that does not answer is skipped and the run exits 3 \u2014 PARTIAL is the normal outcome, alerting is on staleness"
+        "A host that gives nothing still yields a serial-less stub named by inventory name or host, matched at ingest by (source_provider, BMC host). Unreachable or rejected login exits 0; TLS, budget or protocol error makes the run PARTIAL (exit 3) (ADR-0037)"
       ]
     },
     {

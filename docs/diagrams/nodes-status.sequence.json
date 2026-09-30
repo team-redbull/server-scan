@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "OpenShift Cluster Membership: nodes and agents jobs reconcile Server.openshift",
+    "title": "Nodes Status: nodes and agents jobs reconcile Server.openshift",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "viewBox": [
@@ -89,7 +89,7 @@
       "from": "nodes_job",
       "to": "mongo",
       "y": 260,
-      "label": "match metadata.name to name_normalized, claim INSTALLED + cluster_name",
+      "label": "unique hostname \u2192 claim INSTALLED + cluster_name; miss/duplicate \u2192 SSH serial (DMI product_serial)",
       "variant": "emphasis"
     },
     {
@@ -121,7 +121,7 @@
       "from": "kube",
       "to": "agents_job",
       "y": 384,
-      "label": "Agents; hostname = spec.hostname, else status.inventory.hostname",
+      "label": "Agents; hostname = spec.hostname, else inventory; serial = systemVendor.serialNumber",
       "variant": "return"
     },
     {
@@ -129,7 +129,7 @@
       "from": "agents_job",
       "to": "mongo",
       "y": 412,
-      "label": "bound: INSTALLED + clusterDeploymentName; unbound: INSTALLED_TO_INVENTORY",
+      "label": "serial (else hostname) match; bound: INSTALLED + clusterDeploymentName; unbound: INSTALLED_TO_INVENTORY",
       "variant": "emphasis"
     },
     {
@@ -145,7 +145,7 @@
       "from": "mongo",
       "to": "nodes_job",
       "y": 480,
-      "label": "unseen in scope -> AVAILABLE, revision-checked upsert",
+      "label": "unseen in scope -> AVAILABLE, except ambiguous candidates; revision-checked upsert",
       "variant": "return"
     },
     {
@@ -227,7 +227,8 @@
       "items": [
         "A job frees only servers naming its own cluster/MCE",
         "Failed read: exit 1 before any write",
-        "Empty read: also refuses (RBAC, not an empty cluster)"
+        "Empty read: also refuses (RBAC, not an empty cluster)",
+        "An unreadable serial holds back only its own duplicate candidates, never the whole run (ADR-0036)"
       ]
     },
     {
@@ -235,7 +236,7 @@
       "title": "Kept apart on purpose",
       "items": [
         "Writes Server.openshift only, never via IngestService",
-        "Name verdict vs cluster fact: a mismatch is the signal",
+        "Name verdict vs cluster fact: a mismatch is the signal (reported_name)",
         "httpx to kubernetes.default.svc, no SDK, two GETs"
       ]
     }
