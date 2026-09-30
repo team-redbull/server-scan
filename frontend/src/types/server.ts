@@ -13,13 +13,15 @@ export type Vendor = "dell" | "cisco" | "hp" | "standalone";
  * `GET /api/v1/sites` — a copy here drifted once when sites were renamed. */
 export type SiteCode = string;
 
-export type HealthSeverity = "UNKNOWN" | "HEALTHY" | "WARNING" | "MAJOR" | "CRITICAL";
+export type HealthSeverity =
+  "UNKNOWN" | "HEALTHY" | "WARNING" | "MAJOR" | "CRITICAL";
 
 export type LinkState = "UP" | "DOWN" | "UNKNOWN" | "DISABLED";
 
 export type AdminState = "ENABLED" | "DISABLED" | "UNKNOWN";
 
-export type InstallationType = "HOSTED_CLUSTER" | "MCE" | "UPI" | "UNCLASSIFIED";
+export type InstallationType =
+  "HOSTED_CLUSTER" | "MCE" | "UPI" | "UNCLASSIFIED";
 
 export interface Classification {
   installation_type: InstallationType;
@@ -34,15 +36,22 @@ export interface ProfileTemplate {
 }
 
 /** Never absent or null: `UNKNOWN` is "no policy has said anything yet". */
+export type UnreachableReason =
+  | "network_unreachable"
+  | "auth_rejected"
+  | "tls_error"
+  | "timeout"
+  | "protocol_error";
+
 export interface HealthSummary {
   overall: HealthSeverity;
-  cpu: HealthSeverity;
   memory: HealthSeverity;
   storage: HealthSeverity;
   network: HealthSeverity;
   connectivity: HealthSeverity;
   power: HealthSeverity;
   gpu: HealthSeverity;
+  bmc: HealthSeverity;
 }
 
 export interface MaintenanceState {
@@ -276,15 +285,14 @@ export interface ServerDetail {
   stale: boolean;
   reachable: boolean;
   unreachable_since: string | null;
+  unreachable_reason: UnreachableReason | null;
   updated_at: string;
   created_at: string;
 }
 
 /** `AVAILABLE` is the default; there is no "nothing reported yet" state. */
 export type OpenShiftState =
-  | "AVAILABLE"
-  | "INSTALLED"
-  | "INSTALLED_TO_INVENTORY";
+  "AVAILABLE" | "INSTALLED" | "INSTALLED_TO_INVENTORY";
 
 /** `cluster_name` is set only when a cluster claims the server, `mce_name`
  * only by the MCE job. */

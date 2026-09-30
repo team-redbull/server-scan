@@ -6,7 +6,11 @@ import { InstallationBadge } from "@/components/InstallationBadge";
 import { ReservationBadge } from "@/components/ReservationBadge";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
 import { inferredGpuModel } from "@/lib/gpuModel";
-import type { HealthSummary, ServerDetail } from "@/types/server";
+import type {
+  HealthSummary,
+  ServerDetail,
+  UnreachableReason,
+} from "@/types/server";
 
 interface OverviewTabProps {
   server: ServerDetail;
@@ -39,7 +43,15 @@ export function OverviewTab({ server }: OverviewTabProps) {
         <Field label="Serial" value={server.identity?.serial ?? "—"} />
         <Field label="Manager" value={server.manager_id ?? "—"} />
         <Field label="OpenShift" value={<OpenShiftValue server={server} />} />
-        <Field label="Health breakdown" value={<HealthBreakdown health={server.health} />} />
+        <Field
+          label="Health breakdown"
+          value={
+            <HealthBreakdown
+              health={server.health}
+              sourceProvider={server.source_provider}
+            />
+          }
+        />
         {/* Relative so staleness reads at a glance; the exact instant is the hover. */}
         <Field
           label="Last seen"
@@ -61,19 +73,32 @@ export function OverviewTab({ server }: OverviewTabProps) {
       <dl className="flex flex-col gap-4">
         <Field label="Vendor" value={server.identity?.vendor ?? "unknown"} />
         {profileTemplateLabel && (
-          <Field label={profileTemplateLabel} value={server.profile_template.name ?? "—"} />
+          <Field
+            label={profileTemplateLabel}
+            value={server.profile_template.name ?? "—"}
+          />
         )}
         <Field label="Site" value={server.site_id ?? "—"} />
-        <Field label="Classification" value={<Badge>{server.classification.installation_type}</Badge>} />
-        <Field label="Overall health" value={<HealthBadge severity={server.health.overall} />} />
+        <Field
+          label="Classification"
+          value={<Badge>{server.classification.installation_type}</Badge>}
+        />
+        <Field
+          label="Overall health"
+          value={<HealthBadge severity={server.health.overall} />}
+        />
         {/* Read-only: maintenance is switched from the inventory list. */}
         <Field
           label="Maintenance"
           value={
             server.maintenance.enabled ? (
-              <Badge tone="warning">{server.maintenance.reason ?? "Enabled"}</Badge>
+              <Badge tone="warning">
+                {server.maintenance.reason ?? "Enabled"}
+              </Badge>
             ) : (
-              <span className="text-[var(--text-secondary)]">Not in maintenance</span>
+              <span className="text-[var(--text-secondary)]">
+                Not in maintenance
+              </span>
             )
           }
         />
@@ -82,7 +107,9 @@ export function OverviewTab({ server }: OverviewTabProps) {
             label="Collection"
             value={
               <Badge tone="warning">
-                Unreachable
+                {server.unreachable_reason
+                  ? UNREACHABLE_LABELS[server.unreachable_reason]
+                  : "Unreachable"}
                 {server.unreachable_since
                   ? ` since ${formatTimestamp(server.unreachable_since)}`
                   : ""}
@@ -116,7 +143,8 @@ function ModelValue({ server }: { server: ServerDetail }) {
  * back to it: the two disagreeing is how a misnamed server is noticed. Carries
  * the install lock too, when one is held — ADR-0035. */
 function OpenShiftValue({ server }: { server: ServerDetail }) {
-  const { lifecycle_state, cluster_name, mce_name, reported_name } = server.openshift;
+  const { lifecycle_state, cluster_name, mce_name, reported_name } =
+    server.openshift;
 
   return (
     <div className="flex flex-col gap-1">
@@ -142,21 +170,51 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
   );
 }
 
-/** The six categories behind "Overall health"; `overall` has its own field. */
-const HEALTH_CATEGORIES: { key: keyof Omit<HealthSummary, "overall">; label: string }[] = [
-  { key: "cpu", label: "CPU" },
+const UNREACHABLE_LABELS: Record<UnreachableReason, string> = {
+  network_unreachable: "Unreachable",
+  auth_rejected: "Wrong credentials",
+  tls_error: "TLS error",
+  timeout: "Timed out",
+  protocol_error: "Protocol error",
+};
+
+/** The categories behind "Overall health"; `overall` has its own field. */
+const HEALTH_CATEGORIES: {
+  key: keyof Omit<HealthSummary, "overall">;
+  label: string;
+}[] = [
   { key: "memory", label: "Memory" },
   { key: "storage", label: "Storage" },
   { key: "network", label: "Network" },
   { key: "connectivity", label: "Connectivity" },
   { key: "power", label: "Power" },
   { key: "gpu", label: "GPU" },
+  { key: "bmc", label: "BMC" },
 ];
 
-function HealthBreakdown({ health }: { health: HealthSummary }) {
+/** Cisco servers sit behind the fabric interconnects and are never probed, so
+ * their BMC row could only ever say "Unknown". Dell, HP and standalone keep it:
+ * there an Unknown means the check ran and got no answer (ADR-0037). */
+const BMC_UNCHECKED_PROVIDERS = new Set([
+  "UCS_CENTRAL",
+  "UCS_MANAGER",
+  "INTERSIGHT",
+]);
+
+function HealthBreakdown({
+  health,
+  sourceProvider,
+}: {
+  health: HealthSummary;
+  sourceProvider: string | null;
+}) {
+  const categories = HEALTH_CATEGORIES.filter(
+    ({ key }) =>
+      key !== "bmc" || !BMC_UNCHECKED_PROVIDERS.has(sourceProvider ?? ""),
+  );
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-      {HEALTH_CATEGORIES.map(({ key, label }) => (
+      {categories.map(({ key, label }) => (
         <span key={key} className="inline-flex items-center gap-1.5 text-xs">
           <span className="text-gray-500">{label}</span>
           <HealthBadge severity={health[key]} />
@@ -169,7 +227,9 @@ function HealthBreakdown({ health }: { health: HealthSummary }) {
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
+        {label}
+      </dt>
       <dd className="mt-1 text-sm">{value}</dd>
     </div>
   );

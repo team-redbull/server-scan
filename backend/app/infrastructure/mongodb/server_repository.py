@@ -218,6 +218,83 @@ class MongoServerRepository:
             return None
         return Server.model_validate(doc)
 
+    async def find_by_bmc_host(self, source_provider: str, host: str) -> list[Server]:
+        """
+        Every server one collector recorded with this parsed BMC host (ADR-0037).
+
+        Args:
+            source_provider (str): The collector's `ManagerType` value.
+            host (str): `network.bmc.host`, already parsed.
+
+        Returns:
+            list[Server]: The matching documents, usually zero or one.
+        """
+        cursor = self._collection.find(
+            {"source_provider": source_provider, "network.bmc.host": host}
+        )
+        return [Server.model_validate(doc) for doc in await cursor.to_list(length=None)]
+
+    async def delete(self, server_id: str) -> bool:
+        """
+        Delete one server document by id.
+
+        Args:
+            server_id (str): The server's id.
+
+        Returns:
+            bool: `True` if a document was deleted.
+        """
+        result = await self._collection.delete_one({"_id": server_id})
+        return result.deleted_count == 1
+
+    async def backfill_listed_at(self, now: datetime) -> int:
+        """
+        Stamp `listed_at` on every document that has none (ADR-0037 decision 6).
+
+        Args:
+            now (datetime): The stamp; stored as an ISO string.
+
+        Returns:
+            int: How many documents were stamped.
+        """
+        result = await self._collection.update_many(
+            {"listed_at": None}, {"$set": {"listed_at": _stored_form(now)}}
+        )
+        return result.modified_count
+
+    async def count_missing_listed_at(self) -> int:
+        """
+        Count documents with no `listed_at`, which a real pass would stamp.
+
+        Returns:
+            int: The number of documents lacking the field.
+        """
+        return await self._collection.count_documents({"listed_at": None})
+
+    async def list_listed_before(self, cutoff: datetime) -> list[Server]:
+        """
+        Servers whose `listed_at` is older than `cutoff`; documents without one never match.
+
+        Args:
+            cutoff (datetime): The exclusive upper bound.
+
+        Returns:
+            list[Server]: The matching documents.
+        """
+        cursor = self._collection.find({"listed_at": {"$lt": _stored_form(cutoff)}})
+        return [Server.model_validate(doc) for doc in await cursor.to_list(length=None)]
+
+    async def count_by_source_provider(self) -> dict[str, int]:
+        """
+        How many servers each collector owns.
+
+        Returns:
+            dict[str, int]: `source_provider` to document count.
+        """
+        pipeline = [{"$group": {"_id": "$source_provider", "n": {"$sum": 1}}}]
+        cursor = await self._collection.aggregate(pipeline)
+        return {str(row["_id"]): int(row["n"]) async for row in cursor}
+
     async def list_page(
         self,
         *,

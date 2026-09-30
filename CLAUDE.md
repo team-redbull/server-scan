@@ -420,7 +420,8 @@ long form of every entry as of 2026-09-13 is
 
 - **`None` from a provider means "could not read this run"**, never zero.
   `IngestService` carries the stored value forward and lists the path in
-  `Server.unread_fields`; `reachable=False` is the whole-server version.
+  `Server.unread_fields`; `reachable=False` (with `unreachable_reason`) is the
+  whole-server version, and a `REDFISH_STANDALONE` stub has no serial (ADR-0037).
   Before this existed a 404'd sub-resource wrote zeros over good data and
   took a server from CRITICAL to HEALTHY (ADR-0016).
 - **A fleet-sized response never goes through `Server.model_validate`**
@@ -495,7 +496,9 @@ long form of every entry as of 2026-09-13 is
   report — never "collected without a manager": correlation is on
   `(vendor, serial_normalized)`, so moving a machine between vendors
   splits it into two documents. Which collector found it is
-  `Server.source_provider`.
+  `Server.source_provider`. **A serial-less stub** (a failed
+  `REDFISH_STANDALONE` host) is matched by `(source_provider, BMC host)`
+  instead, so correlation is no longer only the serial (ADR-0037).
 - **Health: UNKNOWN is not a verdict** (ADR-0027) — every fact counts only
   definite readings; a new fact must exclude UNKNOWN or
   `TestUnknownIsNotAVerdict` fails. **A category with
@@ -616,41 +619,26 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-09-27 — ADR-0036's freeze-on-unresolved was too blunt; scoped to
-what's actually ambiguous.** Moved to `docs/notes/session-log.md`: the
-OpenShift hardware-serial fallback / UI mismatch-chip unit this corrects.
+**2026-10-01 — BMC reachability is a health category (ADR-0037).** Moved to
+`docs/notes/session-log.md`: ADR-0036's scoped freeze-on-unresolved unit.
 
-**The incident:** hours after ADR-0036 shipped, a UPI cluster had one
-`NotReady` node (`compute-80`) that never answered SSH. The original rule
-— any unresolved serial skips the **entire** cluster's free-on-absence
-pass — meant every 15-minute run blocked release of *every* server in
-that cluster, indefinitely, because of one unrelated broken node.
-Meanwhile that same cluster had a genuine duplicate name
-(`ocp-tomer-compute-06`/`ocp-tomer-compute-6`, one HP one Cisco) that a
-pre-ADR-0036 run had wrongly claimed onto the HP box; the fallback was
-correctly resolving it to the right (Cisco) server every run, but the
-stale HP claim could never be released, because `compute-80`'s unrelated
-failure blocked all freeing.
+**Shipped (uncommitted when written):** a `bmc` health category (CRITICAL
+`bmc.unreachable`; `cpu` category removed); `Server.unreachable_reason` and
+`Server.listed_at`; `REDFISH_STANDALONE` failed hosts become serial-less stubs
+matched by BMC host; OneView gets an unauthenticated `GET /redfish/v1` probe
+(`infrastructure/bmc_probe.py`); `tools/prune_servers.py` (dry-run default,
+`INVENTORY_PRUNE_*`, `SERVER_PRUNED` audit, `server_scan_servers_pruned_24h`
+and Grafana panels); the fake provider seeds ~4% unreachable on three
+collectors. On both `OPENMANAGE` and `REDFISH_STANDALONE` every failed host is a stub
+with a reason; an unreachable host or rejected login exits 0, while TLS, budget
+and protocol errors are still recorded and make the run PARTIAL (3). Exit codes
+are unchanged from before ADR-0037.
+**Pruning** ships as the `collectors.prune` Helm CronJob, off and report-only by default
+(`collectors.prune.enabled`/`apply`).
 
-**Fix:** `OpenShiftMembershipService._resolve` now threads a
-`protected_ids: set[str]` accumulator instead of the summary-level
-`if summary.unresolved: skip everything` gate. A **duplicate** whose
-serial can't be read adds its own (already-known) candidate ids to it —
-those specific servers, and only those, are held back from freeing this
-run. A **miss** (zero hostname candidates) has no candidate to add — it
-protects nothing beyond itself, since there is no way to narrow an
-unidentified single machine's risk to a specific server. Every other
-server in scope is freed normally regardless of what else was unresolved
-that run. `MembershipSummary.unresolved`/`MembershipRun.unresolved` still
-record every unresolved hostname for the gauges/logs — they just no
-longer gate freeing by themselves. Full incident writeup, the residual
-accepted risk (a rename landing on the exact same run an SSH outage hits
-that same node — self-corrects next successful read), and rejected
-alternatives (N-consecutive-runs confirmation needs new per-server stored
-state; excluding long-`NotReady` nodes doesn't cover an SSH failure on a
-`Ready` node) are in ADR-0036's 2026-09-27 update.
+**Also shipped:** donors (ADR-0038, a maintenance reason containing "donor":
+badge + inventory filter, frontend only), the `collectors.prune` CronJob, and the
+Architecture page's seven diagrams refreshed in the original style (specs in `docs/diagrams/*.json`).
 
-**Known gap, unchanged from before, recorded in ADR-0036:** a rename
-*onto* another server's exact existing name still hostname-matches the
-wrong one, since the serial fallback only triggers on a miss or a
-duplicate, never on an already-unique match.
+**Next:** measure the probe's
+concurrency (64) and timeout (5 s) against the 821-server OneView appliance.

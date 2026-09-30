@@ -1275,3 +1275,17 @@ failing the host — that machinery predates this incident and needed no
 changes. Thermal, fan and `LogServices`/SEL data (where this BMC's
 firmware showed a scaling bug on inlet temperature) are not collected by
 this provider at all, so that defect never reaches the platform.
+
+## Update (2026-10-01): failed hosts become stub documents
+
+ADR-0037 closes the gap the 2026-09-10 update left open: a
+`REDFISH_STANDALONE` host that fails no longer yields nothing. Every failure
+branch (unreachable, rejected login, TLS, time budget, protocol) yields a
+stub `ProviderServer` with `reachable=False`, an `unreachable_reason`, no
+serial and `bmc_address_raw` `redfish://<host>`. The exit code is unchanged: only a plain unreachable
+host or a rejected login is benign (exit 0); a TLS failure, blown budget or
+protocol error is still recorded and makes the run PARTIAL (exit 3).
+Ingest matches a serial-less stub to an existing document by
+`(source_provider, BMC host)`, so a host that answered yesterday is updated
+in place rather than duplicated. The earlier "no serial to correlate on"
+objection is resolved by that match, not by a synthetic serial.

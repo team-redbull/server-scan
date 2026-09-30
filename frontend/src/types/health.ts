@@ -132,13 +132,13 @@ export type PolicyMode = "EVALUATE" | "SUPPRESS";
 
 /** Closed set per the domain model; no API for it either. */
 export const POLICY_CATEGORIES = [
-  "cpu",
   "memory",
   "storage",
   "network",
   "connectivity",
   "power",
   "gpu",
+  "bmc",
 ] as const;
 export type PolicyCategory = (typeof POLICY_CATEGORIES)[number];
 

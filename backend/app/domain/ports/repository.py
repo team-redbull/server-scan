@@ -171,6 +171,19 @@ class ServerRepository(Protocol):
         """
         ...
 
+    async def find_by_bmc_host(self, source_provider: str, host: str) -> list[Server]:
+        """
+        Every server one collector recorded with this parsed BMC host (ADR-0037).
+
+        Args:
+            source_provider (str): The collector's `ManagerType` value.
+            host (str): `network.bmc.host`, already parsed.
+
+        Returns:
+            list[Server]: The matching documents, usually zero or one.
+        """
+        ...
+
     async def list_page(
         self,
         *,

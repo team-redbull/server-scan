@@ -8,6 +8,7 @@ from app.domain.enums.core import (
     ManagerType,
     MediaType,
     OpenShiftState,
+    UnreachableReason,
     Vendor,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "ManagerType",
     "MediaType",
     "OpenShiftState",
+    "UnreachableReason",
     "Vendor",
 ]

@@ -20,9 +20,10 @@ from typing import Any
 import pytest
 from tests.redfish_fixture import RedfishFixture, minimal_service
 
-from app.domain.enums import ManagerType, Vendor
+from app.domain.enums import ManagerType, UnreachableReason, Vendor
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
+from app.domain.ports.provider import ProviderServer
 from app.infrastructure.providers.redfish.client import (
     RedfishClient,
     RedfishProtocolError,
@@ -734,12 +735,31 @@ class TestChassisFallback:
         assert await provider._chassis_fallback(_ExplodingClient(), system) is None
 
 
+def _assert_stub(servers: list[ProviderServer], reason: UnreachableReason) -> None:
+    """
+    Assert a failed host yielded exactly one serial-less `reachable=False` stub.
+
+    Args:
+        servers (list[ProviderServer]): What `_collect` returned.
+        reason (UnreachableReason): The expected reason.
+    """
+    [stub] = servers
+    assert stub.reachable is False
+    assert stub.unreachable_reason is reason
+    assert stub.serial is None
+    assert stub.vendor == Vendor.STANDALONE.value
+    assert stub.external_id == "redfish-unreachable:127.0.0.1"
+    assert (stub.bmc_address_raw or "").startswith("redfish://127.0.0.1")
+    assert stub.model is None
+    assert stub.cpu_cores is None
+
+
 class TestFailureModes:
     async def test_an_unreachable_host_is_recorded_not_raised(self) -> None:
         # Port 1 is reserved and refuses immediately.
         provider = _provider(1, _target(1), connect_timeout=0.2)
         servers = await _collect(provider)
-        assert servers == []
+        _assert_stub(servers, UnreachableReason.NETWORK_UNREACHABLE)
         assert any("unreachable" in e for e in provider.collection_errors)
 
     async def test_a_rejected_credential_is_never_retried(self) -> None:
@@ -752,7 +772,7 @@ class TestFailureModes:
 
             posts = [p for m, p in fixture.requests if m == "POST"]
             assert len(posts) == 1, "a rejected login must not be retried"
-        assert servers == []
+        _assert_stub(servers, UnreachableReason.AUTH_REJECTED)
         assert any("login failed" in e for e in provider.collection_errors)
 
     async def test_a_missing_optional_collection_yields_none_not_zero(self) -> None:
@@ -841,7 +861,7 @@ class TestFailureModes:
             servers = await _collect(provider)
             assert not [m for m, _ in fixture.requests if m == "POST"]
 
-        assert servers == []
+        _assert_stub(servers, UnreachableReason.PROTOCOL_ERROR)
         assert any("conformant" in e for e in provider.collection_errors)
 
     async def test_an_old_but_conformant_unversioned_service_root_is_collected(self) -> None:
@@ -900,7 +920,7 @@ class TestSessionReestablishment:
         with RedfishFixture(resources=minimal_service(), session_valid=False) as fixture:
             provider = _provider(fixture.port)
             servers = await _collect(provider)
-        assert servers == []
+        _assert_stub(servers, UnreachableReason.PROTOCOL_ERROR)
         assert not any("login failed" in e for e in provider.collection_errors)
 
     async def test_a_rejected_relogin_is_still_reported_as_an_auth_failure(self) -> None:
@@ -912,7 +932,7 @@ class TestSessionReestablishment:
         ) as fixture:
             provider = _provider(fixture.port)
             servers = await _collect(provider)
-        assert servers == []
+        _assert_stub(servers, UnreachableReason.AUTH_REJECTED)
         assert any("login failed" in e for e in provider.collection_errors)
 
     async def test_the_reauth_budget_is_per_client_not_per_run(self) -> None:
@@ -941,7 +961,8 @@ class TestPartialFleetAndTheBreaker:
             )
             servers = await _collect(provider)
 
-        assert len(servers) == 1
+        assert len(servers) == 2
+        assert [s.reachable for s in servers].count(False) == 1
         assert len(provider.collection_errors) == 1
 
     async def test_every_host_is_tried_however_many_rejected_the_credential(self) -> None:

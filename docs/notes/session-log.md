@@ -8,6 +8,45 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-09-27 — ADR-0036's freeze-on-unresolved was too blunt; scoped to
+what's actually ambiguous.** Moved to `docs/notes/session-log.md`: the
+OpenShift hardware-serial fallback / UI mismatch-chip unit this corrects.
+
+**The incident:** hours after ADR-0036 shipped, a UPI cluster had one
+`NotReady` node (`compute-80`) that never answered SSH. The original rule
+— any unresolved serial skips the **entire** cluster's free-on-absence
+pass — meant every 15-minute run blocked release of *every* server in
+that cluster, indefinitely, because of one unrelated broken node.
+Meanwhile that same cluster had a genuine duplicate name
+(`ocp-tomer-compute-06`/`ocp-tomer-compute-6`, one HP one Cisco) that a
+pre-ADR-0036 run had wrongly claimed onto the HP box; the fallback was
+correctly resolving it to the right (Cisco) server every run, but the
+stale HP claim could never be released, because `compute-80`'s unrelated
+failure blocked all freeing.
+
+**Fix:** `OpenShiftMembershipService._resolve` now threads a
+`protected_ids: set[str]` accumulator instead of the summary-level
+`if summary.unresolved: skip everything` gate. A **duplicate** whose
+serial can't be read adds its own (already-known) candidate ids to it —
+those specific servers, and only those, are held back from freeing this
+run. A **miss** (zero hostname candidates) has no candidate to add — it
+protects nothing beyond itself, since there is no way to narrow an
+unidentified single machine's risk to a specific server. Every other
+server in scope is freed normally regardless of what else was unresolved
+that run. `MembershipSummary.unresolved`/`MembershipRun.unresolved` still
+record every unresolved hostname for the gauges/logs — they just no
+longer gate freeing by themselves. Full incident writeup, the residual
+accepted risk (a rename landing on the exact same run an SSH outage hits
+that same node — self-corrects next successful read), and rejected
+alternatives (N-consecutive-runs confirmation needs new per-server stored
+state; excluding long-`NotReady` nodes doesn't cover an SSH failure on a
+`Ready` node) are in ADR-0036's 2026-09-27 update.
+
+**Known gap, unchanged from before, recorded in ADR-0036:** a rename
+*onto* another server's exact existing name still hostname-matches the
+wrong one, since the serial fallback only triggers on a miss or a
+duplicate, never on an already-unique match.
+
 **2026-09-27 — OpenShift membership gets a hardware-serial fallback, and
 the UI flags a name mismatch.** Moved to `docs/notes/session-log.md`: the
 membership-job run gauges / Grafana dashboard unit.

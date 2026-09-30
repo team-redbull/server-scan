@@ -27,6 +27,16 @@ class Vendor(StrEnum):
     STANDALONE = "standalone"
 
 
+class UnreachableReason(StrEnum):
+    """Why a BMC could not be read, set with `reachable=False` (docs/adr/0037)."""
+
+    NETWORK_UNREACHABLE = "network_unreachable"
+    AUTH_REJECTED = "auth_rejected"
+    TLS_ERROR = "tls_error"
+    TIMEOUT = "timeout"
+    PROTOCOL_ERROR = "protocol_error"
+
+
 class ManagerType(StrEnum):
     """
     How this platform reaches a server.

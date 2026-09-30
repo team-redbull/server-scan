@@ -17,7 +17,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import Vendor
+from app.domain.enums import UnreachableReason, Vendor
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity
 from app.domain.models.hardware import Hardware
@@ -86,6 +86,9 @@ class Server(BaseModel):
 
     reachable: bool = True  # False: identity known, not reached; hardware carries forward
     unreachable_since: datetime | None = None
+    unreachable_reason: UnreachableReason | None = None
+    # When a manager last yielded this server, reachable or not (docs/adr/0037).
+    listed_at: datetime | None = None
 
     # Rebuilt from scratch every ingest, never merged.
     unread_fields: list[str] = Field(default_factory=list)

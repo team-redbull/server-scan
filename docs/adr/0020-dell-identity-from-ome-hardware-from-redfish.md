@@ -114,18 +114,16 @@ name a CA. `INVENTORY_REDFISH_CA_BUNDLE` plus
 `INVENTORY_OME_BMC_VERIFY_TLS=true` is the scalable fix and the documented
 intent, not leaving verification off forever.
 
-**Partial runs stay honest.** A profile OME gives no iDRAC address for
-lands in `collection_errors`, so `tools.run_collector` reports PARTIAL
-rather than a complete success over a fleet it only half reached. **Since
-2026-09-10, a plain unreachable host is the exception**: a profile whose
-BMC simply did not answer is instead written as a `reachable=False`
-server document (see the dated update below) — the per-server record is
-now that failure's signal, not the exit code. **Widened the same day**:
-a rejected/disabled BMC credential no longer drives PARTIAL either,
-though it gets no Mongo record — see `docs/dell-collectors.md`'s
-"Collection flow". TLS failures, a per-host time budget exceeded, and
-any other unrecognized error still land in `collection_errors` and still
-drive PARTIAL.
+**Per-host failures are stub documents.** *History:* a
+per-host failure used to land in `collection_errors` and make the run
+PARTIAL; 2026-09-10 made a plain unreachable host a `reachable=False`
+document (dated update below), 2026-09-12 a rejected credential too.
+**Since 2026-10-01 (ADR-0037) every per-host Redfish failure — TLS, time
+budget and protocol as well — yields that stub with an
+`unreachable_reason`. Only a plain unreachable host or a rejected login is
+benign (exit 0); TLS, budget and protocol failures are still recorded and
+make the run PARTIAL (exit 3), as before.** A profile OME gives no iDRAC address for is
+skipped and logged (`ome.profile_without_address`), not an error.
 
 **Correlation is unchanged in mechanism, wrong in its field, and now
 fixed.** `IngestService` correlates on `(vendor, serial_normalized)`.
@@ -169,18 +167,17 @@ itself. See `docs/dell-collectors.md`'s "Collection flow" for the full
 writeup, including two items the research left unconfirmed for lack of a
 live appliance.
 
-**A second, related decision from the same incident, same day**: a plain
+**A second, related decision from the same incident, same day** (widened
+to every per-host failure 2026-10-01, ADR-0037): a plain
 connection failure on a known profile no longer only produces a log line
 and a PARTIAL exit code. `OpenManageProvider` now writes it as a real
 `reachable=False` server document, built from OME's own identity — the
 BMC is never contacted for this — with every hardware field left `None`
 so `IngestService` carries the server's last-known hardware forward
 rather than blanking it, exactly as it already does for any other unread
-field. This is deliberately narrower than "any redfish failure": only the
-plain-connection-refused case gets this treatment and drops out of
-`collection_errors`; auth/TLS/budget/guard failures are unaffected and
-still fail the run, since those can be systemic rather than one dead
-server. See `docs/dell-collectors.md`'s "Collection flow" and
+field. *Superseded 2026-10-01:* this was deliberately narrower than "any redfish
+failure" (only plain-connection-refused was a stub; auth/TLS/budget
+failures had no stub), and is no longer — see above. See `docs/dell-collectors.md`'s "Collection flow" and
 `docs/arc42.md` §12 (`Server.reachable`).
 
 Before trusting the rest of this design in production, still confirm on

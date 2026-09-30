@@ -41,7 +41,7 @@ import zlib
 from collections.abc import Iterator
 from dataclasses import replace
 
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, UnreachableReason
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.models.site import Site
@@ -943,6 +943,46 @@ def _nics_for(
     return tuple(nics)
 
 
+_UNREACHABLE_RATE = 0.04
+_REDFISH_REASONS = (
+    UnreachableReason.AUTH_REJECTED,
+    UnreachableReason.NETWORK_UNREACHABLE,
+    UnreachableReason.TLS_ERROR,
+    UnreachableReason.TIMEOUT,
+)
+_REDFISH_REASON_WEIGHTS = (4, 3, 1, 2)
+_ONEVIEW_REASONS = (UnreachableReason.NETWORK_UNREACHABLE, UnreachableReason.TIMEOUT)
+
+
+def _bmc_reachability(
+    seed: int, index: int, collector: ManagerType
+) -> tuple[bool, UnreachableReason | None]:
+    """
+    Decide whether a fake BMC answered, with its own RNG so other fields keep their draws.
+
+    Args:
+        seed (int): The fleet seed.
+        index (int): The server's index in the fleet.
+        collector (ManagerType): The collector that found the server.
+
+    Returns:
+        tuple[bool, UnreachableReason | None]: `(reachable, reason)`; UCS and Intersight are
+            always `(True, None)`.
+    """
+    if collector not in (
+        ManagerType.REDFISH_STANDALONE,
+        ManagerType.OPENMANAGE,
+        ManagerType.ONEVIEW,
+    ):
+        return True, None
+    rng = random.Random(f"bmc-reach/{seed}/{index}")  # noqa: S311 - deterministic fake data
+    if rng.random() >= _UNREACHABLE_RATE:
+        return True, None
+    if collector is ManagerType.ONEVIEW:
+        return False, rng.choice(_ONEVIEW_REASONS)
+    return False, rng.choices(_REDFISH_REASONS, weights=_REDFISH_REASON_WEIGHTS)[0]
+
+
 def generate_servers(
     *, seed: int, count: int, sites: SiteCatalog | None = None
 ) -> Iterator[ProviderServer]:
@@ -999,9 +1039,8 @@ def generate_servers(
         gpus = _build_gpus(rng, collector)
         psus = _build_psus(rng, collector, index=index)
 
-        # The shape `OpenManageProvider._unreachable_server` produces.
-        reachable = not (collector is ManagerType.OPENMANAGE and rng.random() < 0.03)
-        if not reachable:
+        reachable, reason = _bmc_reachability(seed, index, collector)
+        if not reachable and collector is not ManagerType.ONEVIEW:
             system_uuid = None
             nic_macs = None
             nics = ()
@@ -1010,6 +1049,8 @@ def generate_servers(
             memory_total_bytes = None
             storage_drives = storage_total_bytes = None
             gpus = psus = None
+        if not reachable and collector is ManagerType.REDFISH_STANDALONE:
+            serial = None
 
         # A Gen9's iLO 4: hardware `None` (unread), never `()` or `0` — see the doc above.
         if collector is ManagerType.ONEVIEW and _is_ilo4(model):
@@ -1034,6 +1075,7 @@ def generate_servers(
             serial=serial,
             system_uuid=system_uuid,
             reachable=reachable,
+            unreachable_reason=reason,
             nic_macs=nic_macs,
             nics=nics,
             bmc_address_raw=_bmc_address(collector, bmc_ip),

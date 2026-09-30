@@ -109,7 +109,7 @@ def build_default_registry() -> MetricRegistry:
     Build the registry of core metrics every deployment ships with.
 
     Returns:
-        MetricRegistry: A registry with the cpu/memory/storage/network/
+        MetricRegistry: A registry with the memory/storage/network/
             connectivity/power core metrics registered.
     """
     registry = MetricRegistry()
@@ -391,6 +391,24 @@ def build_default_registry() -> MetricRegistry:
             category="gpu",
             description="Uncorrectable ECC errors summed across the server's GPUs",
             resolver=lambda f: _get(f, "gpu.uncorrectable_error_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="bmc.unreachable_count",
+            type=MetricType.INT,
+            category="bmc",
+            description="1 when the BMC could not be reached this run, else 0",
+            resolver=lambda f: _get(f, "bmc.unreachable_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="bmc.unreachable_reason",
+            type=MetricType.STRING,
+            category="bmc",
+            description="Why the BMC could not be reached (auth_rejected, timeout, ...)",
+            resolver=lambda f: _get(f, "bmc.unreachable_reason", "unknown"),
         )
     )
     return registry

@@ -26,7 +26,7 @@ from typing import Any
 
 import structlog
 
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, UnreachableReason, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.redfish.client import (
@@ -60,8 +60,31 @@ _PROVIDER_TYPE = ManagerType.REDFISH_STANDALONE.value
 # `collection_errors` shapes, exported for `tools.run_collector` and `..openmanage`.
 UNREACHABLE_MARKER = ": unreachable — "
 AUTH_REJECTED_MARKER = ": login failed for credential "
+TLS_FAILED_MARKER = ": TLS verification failed — "
+BUDGET_MARKER = ": exceeded its "
 
 _PCIE_SELECT = "$select=Manufacturer,Description,Status"
+
+
+def reason_from_error(message: str) -> UnreachableReason:
+    """
+    Classify one `collection_errors` entry into an `UnreachableReason`.
+
+    Args:
+        message (str): An entry recorded by `_collect_host`.
+
+    Returns:
+        UnreachableReason: The reason its marker names, else `PROTOCOL_ERROR`.
+    """
+    for marker, reason in (
+        (UNREACHABLE_MARKER, UnreachableReason.NETWORK_UNREACHABLE),
+        (AUTH_REJECTED_MARKER, UnreachableReason.AUTH_REJECTED),
+        (TLS_FAILED_MARKER, UnreachableReason.TLS_ERROR),
+        (BUDGET_MARKER, UnreachableReason.TIMEOUT),
+    ):
+        if marker in message:
+            return reason
+    return UnreachableReason.PROTOCOL_ERROR
 
 
 def _pcie_scan_query(service_root: dict[str, Any]) -> str:
@@ -318,8 +341,10 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             semaphore (asyncio.Semaphore): Limits concurrent hosts.
 
         Returns:
-            list[ProviderServer]: Its servers, or an empty list on failure.
+            list[ProviderServer]: Its servers, or one `reachable=False` stub
+                (ADR-0037) on failure.
         """
+        reason = UnreachableReason.PROTOCOL_ERROR
         # Slot first, then the budget — queueing is not charged to the host.
         async with semaphore:
             if not target.verify_tls:
@@ -342,20 +367,46 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                     host=target.host,
                     budget_seconds=self._host_budget,
                 )
-                self._record_error(f"{target.host}: exceeded its {self._host_budget:.0f}s budget")
+                self._record_error(f"{target.host}{BUDGET_MARKER}{self._host_budget:.0f}s budget")
+                reason = UnreachableReason.TIMEOUT
             except RedfishAuthError as exc:
                 self._record_auth_failure(target, exc)
+                reason = UnreachableReason.AUTH_REJECTED
             except RedfishTlsError as exc:
                 logger.exception("redfish.tls_verify_failed", host=target.host, error=str(exc))
-                self._record_error(f"{target.host}: TLS verification failed — {exc}")
+                self._record_error(f"{target.host}{TLS_FAILED_MARKER}{exc}")
+                reason = UnreachableReason.TLS_ERROR
             except RedfishUnreachableError as exc:
                 # ERROR: the log may be the only signal left (UNREACHABLE_MARKER).
                 logger.exception("redfish.host_unreachable", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}{UNREACHABLE_MARKER}{exc}")
+                reason = UnreachableReason.NETWORK_UNREACHABLE
             except (RedfishError, ValueError) as exc:
                 logger.warning("redfish.host_failed", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}: {exc}")
-            return []
+            return [self._unreachable_stub(target, reason)]
+
+    def _unreachable_stub(self, target: RedfishTarget, reason: UnreachableReason) -> ProviderServer:
+        """
+        Build the serial-less placeholder for a host that gave nothing (ADR-0037).
+
+        Args:
+            target (RedfishTarget): The failed BMC.
+            reason (UnreachableReason): Why it failed.
+
+        Returns:
+            ProviderServer: `reachable=False`, every hardware field `None`.
+        """
+        return ProviderServer(
+            external_id=f"redfish-unreachable:{target.host}",
+            vendor=Vendor.STANDALONE.value,
+            name=target.name or target.host,
+            serial=None,
+            bmc_address_raw=target.base_url.replace("https://", "redfish://"),
+            manager_id=self._manager.id,
+            reachable=False,
+            unreachable_reason=reason,
+        )
 
     def _record_auth_failure(self, target: RedfishTarget, exc: RedfishAuthError) -> None:
         """

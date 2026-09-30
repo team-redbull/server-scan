@@ -123,6 +123,7 @@ async def test_list_returns_expected_items(
         "stale",
         "reachable",
         "unreachable_since",
+        "unreachable_reason",
         "updated_at",
     }
 

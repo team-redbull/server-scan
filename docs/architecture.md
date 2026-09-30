@@ -135,9 +135,12 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   (ADR-0030), reporting both the physical `adaptorExtEthIf` uplinks and
   the two `adaptorHostEthIf` vNICs carved out of each, distinguished by
   `interface_kind`, so dev sees the two kinds together.
-- **Two partial-record shapes exist.** ~3% of Dell servers are
-  `reachable=False` with every hardware field `None`, the one shape
-  `OpenManageProvider._unreachable_server` produces. A ProLiant Gen9
+- **Two partial-record shapes exist.** ~4% of the servers from each of
+  `OPENMANAGE`, `REDFISH_STANDALONE` and `ONEVIEW` are `reachable=False`
+  with an `unreachable_reason` (ADR-0037); an OpenManage or standalone
+  one also has every hardware field `None` (the shape
+  `OpenManageProvider._unreachable_server` produces), and a standalone one
+  has no serial. A OneView one keeps its data: only the probe failed. A ProLiant Gen9
   carries an iLO 4, against which every OneView subresource call fails,
   so its drives, GPUs, PSUs and `nic_macs` are `None` — unread — while its
   identity is intact. Never `()` or `0`: an empty drive list reads as "no
@@ -501,7 +504,10 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   in it fires, records evidence, and is then dropped before the
   per-category and overall severities are computed. `gpu` was missing
   until 2026-09-13 — "GPU failed" (CRITICAL) fired and the server still
-  read HEALTHY overall. Adding a category means `CATEGORIES`, a field on
+  read HEALTHY overall. The tuple is `memory`, `storage`, `network`,
+  `connectivity`, `power`, `gpu`, `bmc`: `bmc` was added 2026-10-01
+  (ADR-0037, one CRITICAL policy, `bmc.unreachable`) and `cpu` removed the
+  same day, since no policy ever used it. Adding a category means `CATEGORIES`, a field on
   `domain.models.health.Health`, `pipeline.health_from_state`, and the
   frontend's `HealthSummary` + overview badges, together.
 - **A policy's scope names a set of collectors, not one** (ADR-0030).
@@ -578,10 +584,10 @@ the link-fault minority is `docs/adr/0027`'s "Seeded data".
   extract_facts`) is the one place that reaches into the nested `Server`
   shape; everything downstream works on its flat dict. What each fact
   counts, and the live-data bug behind each choice:
-  - `<category>.has_data` (`cpu`, `memory`, `storage`, `network`,
-    `connectivity`, `power`, `gpu`; 2026-09-21) is whether anything was
-    read for that category at all — sockets, memory bytes or DIMMs, drives
-    or bytes, interfaces, fabric paths, PSUs, GPUs. It is not a policy
+  - `<category>.has_data` (`memory`, `storage`, `network`,
+    `connectivity`, `power`, `gpu`, `bmc`; 2026-09-21) is whether anything was
+    read for that category at all — memory bytes or DIMMs, drives
+    or bytes, interfaces, fabric paths, PSUs, GPUs, a probed BMC. It is not a policy
     metric: `evaluate_health` reads it directly and skips every policy in a
     category where it is false, which is what keeps a `-10tb` server whose
     storage was never read from reading CRITICAL (ADR-0027's update).
@@ -812,6 +818,26 @@ writes a `MembershipRun` into a new `membership_runs` collection on every
 real run, read via a third source (`MembershipRunSource`, alongside
 `FleetSnapshotSource` and `ManagerSource`) and exported as
 `server_scan_membership_last_run_*`, present whatever the match rate was.
+`server_scan_servers_pruned_24h{source_provider}` (ADR-0037) counts the
+`SERVER_PRUNED` audit events of the last 24 h, and the Grafana dashboard
+has total-servers and pruned-servers panels over it.
+
+### Pruning servers a manager stopped listing (`tools/prune_servers.py`)
+
+Nothing deleted a server a manager stopped listing; it only aged into the
+Stale chip. `tools.prune_servers` (ADR-0037) deletes servers whose
+`listed_at` is older than `INVENTORY_PRUNE_AFTER_SECONDS` (24 h). It is
+**dry-run by default**; `--apply` or `INVENTORY_PRUNE_ENABLED=true`
+deletes. Guards: every enabled manager of that `source_provider` must have
+a clean, recent `last_run` (`INVENTORY_PRUNE_MAX_RUN_AGE_SECONDS`, 6 h),
+and a collector whose pass would delete more than
+`INVENTORY_PRUNE_MAX_FRACTION` (0.2) of its servers is skipped outright
+(`tools.prune_servers.prune`), not trimmed to that share. Each deletion writes an `EventType.SERVER_PRUNED`
+audit event (actor `SYSTEM`); list them with
+`GET /api/v1/events?event_type=SERVER_PRUNED`. Documents written before
+`listed_at` existed are stamped on the first applied run, never deleted by
+it. The chart runs it as the `collectors.prune` CronJob, off and report-only by
+default (`enabled`, `apply`); it can also be run by hand.
 
 ## Ingestion wires both engines together (slice 2 + 3 integration)
 
@@ -919,7 +945,16 @@ Smaller ingest facts, moved here from `ingest.py`'s comments 2026-09-13:
 - **`last_seen_at` means "the server's own endpoint answered."** A
   `reachable=False` run keeps the stored value rather than bumping it,
   or a dead server would look freshly seen; `unreachable_since` is set
-  on the first miss and held across repeated ones.
+  on the first miss and held across repeated ones, and `unreachable_reason`
+  is set and cleared with it. `listed_at` is the separate "a manager still
+  lists it" clock that pruning reads (ADR-0037); a OneView server whose iLO
+  probe failed still advances `last_seen_at`, since OneView read it.
+- **A serial-less record is matched by BMC host.** Correlation is
+  `(vendor, serial_normalized)`, but a `REDFISH_STANDALONE` stub for a host
+  that failed has no serial, so `IngestService._find_by_bmc_host` finds the
+  existing document by `(source_provider, BMC host)` and updates it in
+  place (ADR-0037 decision 5); a never-answered host gets one document,
+  given its serial when it first succeeds.
 - **The carry-forward set is explicit**: `maintenance` and `openshift`
   are carried verbatim (this module never writes either);
   `classification` and `health` are carried and then overwritten only
@@ -1313,9 +1348,11 @@ integration that isn't `FakeProvider`. See
     turned it into a generic exit 1. PARTIAL is decided by
     `_is_benign_collection_error`: a plain unreachable host or a rejected
     login (`UNREACHABLE_MARKER`/`AUTH_REJECTED_MARKER`, since 2026-09-10)
-    is printed but exits 0; TLS failures, a per-host budget exceeded and
-    any unrecognized error still exit 3 — ADR-0016's dated updates have
-    the reasoning. `--dry-run` never opens a MongoDB connection: it talks
+    is printed but exits 0. Since 2026-10-01 (ADR-0037) every failed host
+    on `REDFISH_STANDALONE` and `OPENMANAGE` also becomes a stub document
+    with an `unreachable_reason`, but TLS, budget and protocol failures are
+    still recorded and make the run PARTIAL.
+    ADR-0016's dated updates have the reasoning. `--dry-run` never opens a MongoDB connection: it talks
     only to the vendor manager, and connecting unconditionally used to
     let an unreachable Mongo fail a dry run that was never going to touch
     it. The run is timed around `_run_one_manager` rather than inside it
@@ -1348,10 +1385,12 @@ format. The field-level rules a new collector has to honour:
   means zero failed drives (ADR-0016). This applies to every optional
   field: `nic_macs`, the CPU/memory/storage scalars, `storage_drives`,
   `gpus`, `psus`, `memory_modules`.
-- **`reachable=False`** means the provider knows this server's identity
-  but could not reach it at all this run; every optional field is `None`
-  on such a record, so nothing is blanked (`Server.reachable`,
-  `unreachable_since`).
+- **`reachable=False`** means the provider could not reach this server's
+  BMC this run, with an `unreachable_reason` (`Server.reachable`,
+  `unreachable_since`, `unreachable_reason`). The provider need not know
+  the identity: a `REDFISH_STANDALONE` stub has `serial=None` and is
+  matched by BMC host at ingest. Every optional field is `None` on such a
+  record, so nothing is blanked.
 - **There is no `site_id`.** A provider does not get to declare a
   server's site; it is derived from the name at ingest
   (`parse_site_code`), because a misconfigured manager would otherwise
@@ -1480,8 +1519,14 @@ than being gathered, so a killed run has already persisted what completed.
 down, so per-host failures accumulate in `collection_errors` and the run
 continues. A plain unreachable host or a rejected login is logged at
 ERROR and printed but no longer makes the run PARTIAL (exit 0, since
-2026-09-10); TLS failures, a per-host budget exceeded and unrecognized
-errors still do (exit 3). Nothing stops the run any more: the credential
+2026-09-10). Since 2026-10-01 (ADR-0037) every failed host, whatever the
+cause (TLS, budget, protocol included), also yields a stub
+`ProviderServer` with `reachable=False`, no serial, `bmc_address_raw`
+`redfish://<host>` and an `unreachable_reason`, so it appears in the UI
+(named from the inventory file's `name`, else the host); the failure is
+still recorded, so a TLS, budget or protocol failure still makes the run
+PARTIAL (exit 3); ingest matches the stub to an existing document by BMC host.
+Nothing stops the run any more: the credential
 circuit breaker that once disabled a credential after enough distinct
 hosts rejected it was removed 2026-09-12 at the operator's request, so
 every listed host is attempted every run and the lockout risk is the
@@ -1611,6 +1656,17 @@ of per-controller objects, not a flat drive list). See
 GPU field mapping remains unverified — that estate has no GPU-bearing
 HPE server.
 
+**BMC reachability probe (2026-10-01, ADR-0037).** OneView never touches
+iLO, so a dead iLO read HEALTHY. `infrastructure/bmc_probe.py` wraps the
+provider and sends one unauthenticated `GET /redfish/v1` (port 443, 5 s
+timeout, concurrency 64, stamped in batches of 64) to each yielded server's
+`bmc_address_raw` host, setting `reachable`/`unreachable_reason`. Any HTTP
+answer, or a TLS failure, counts as reachable; only refused, timeout and
+no-route do not. It sends no credentials, so ADR-0022's no-BMC-credentials
+decision stands and the probe can never report `auth_rejected`. The
+timeout and concurrency are estimates, not yet measured against the
+821-server appliance.
+
 ### Every collector now reports power supplies
 
 `ProviderServer.psus` was added on 2026-09-01 and was dead for a while:
@@ -1635,7 +1691,7 @@ Two rules are shared across every one of those mappings:
   still delivering power has not lost redundancy, and counting it would
   raise CRITICAL on a healthy server.
 
-### Cluster membership: a second kind of job, and a reconcile
+### Cluster membership (the `nodes-status` jobs): a second kind of job, and a reconcile
 
 Every collector above answers "what hardware exists". None can answer "is
 anything using it": a vendor manager sees a blade as `associated` whether
@@ -1737,10 +1793,12 @@ paragraph used to be.
 The `/architecture` page (nav, after Rules & Policies) is seven
 self-contained, pan/zoom/search HTML diagrams generated with the
 `archify` Claude Code skill: one full-flow overview
-(`runtime-architecture`) and one per collector (UCS Central, Intersight,
-OpenManage, OneView, standalone Redfish, OpenShift membership). Every
+(`runtime-architecture`, now including the prune CronJob, Prometheus and AD
+login) and one sequence diagram per collector (UCS Central, Intersight,
+OpenManage, OneView, standalone Redfish) and the `nodes-status` jobs. Every
 message and card fact is sourced from an ADR or the provider file it
-names — see each diagram's own cards for the pointer.
+names — see each diagram's own cards for the pointer. Data refreshed
+2026-10-01 for ADR-0037 (stubs with reasons, the OneView iLO probe).
 
 **Source of truth is `docs/diagrams/*.json`**, not the rendered HTML: a
 spec regenerates deterministically via
@@ -1753,6 +1811,27 @@ collector's real sequence changes enough to matter. Each viewer loads a
 Google Fonts stylesheet asynchronously and falls back to a system font
 without blocking first paint if that fails, so it degrades gracefully
 air-gapped rather than depending on it.
+
+### Diagrams
+
+Linked for readers of this file (`docs/diagrams/*.json` are the specs; the
+page order matches this list):
+
+- [runtime-architecture.html](../frontend/public/architecture/runtime-architecture.html) — vendors,
+  collector / prune / `nodes-status` CronJobs, API, MongoDB, Redis, UI,
+  Prometheus and AD login.
+- [ucs-central.html](../frontend/public/architecture/ucs-central.html) — Central lists
+  domains; each domain's UCS Manager supplies servers; Cisco BMCs not probed.
+- [intersight.html](../frontend/public/architecture/intersight.html) — signed API reads
+  joined in memory; UCSM-managed servers skipped.
+- [openmanage.html](../frontend/public/architecture/openmanage.html) — OME identity plus
+  iDRAC Redfish hardware; a failed iDRAC becomes a stub with a reason.
+- [oneview.html](../frontend/public/architecture/oneview.html) — three bulk calls,
+  per-server fallbacks and the unauthenticated iLO probe (`BmcProbedProvider`).
+- [redfish-standalone.html](../frontend/public/architecture/redfish-standalone.html) —
+  inventory TOML to direct BMC reads; failures become serial-less stubs.
+- [nodes-status.html](../frontend/public/architecture/nodes-status.html) — cluster read,
+  hostname then serial match, reconcile with protected ids.
 
 ## Further reading
 

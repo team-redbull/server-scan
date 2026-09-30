@@ -502,6 +502,28 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    bmc_unreachable = HealthPolicy(
+        id=new_id("health_policy"),
+        name="BMC unreachable",
+        description=(
+            "Fires when the server's BMC could not be reached: dead, wrong "
+            "credentials, TLS failure or timeout. Only collectors that check "
+            "the BMC populate it (docs/adr/0037)."
+        ),
+        policy_key="bmc.unreachable",
+        category="bmc",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="bmc.unreachable_count", operator="GTE", value=1),
+        evidence=[EvidenceField(key="reason", metric="bmc.unreachable_reason")],
+        message_template="BMC unreachable ({reason})",
+        scope=PolicyScope(),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     return [
         fabric_warning,
         fabric_critical,
@@ -520,4 +542,5 @@ def default_system_policies() -> list[HealthPolicy]:
         single_link_up,
         failed_gpu,
         gpu_ecc,
+        bmc_unreachable,
     ]

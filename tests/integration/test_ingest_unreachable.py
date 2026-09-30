@@ -11,6 +11,7 @@ blank a server's last-known hardware, and must leave a clear, durable
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from dataclasses import replace
 
 import pytest
 
@@ -175,4 +176,19 @@ async def test_a_server_that_recovers_clears_the_unreachable_flag(
     server = await _stored(mongo_holder, "sn-recovers")
     assert server.reachable is True
     assert server.unreachable_since is None
+    assert server.last_seen_at is not None
+
+
+async def test_a_manager_read_server_with_a_dead_bmc_still_advances_last_seen(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """OneView reads the hardware itself, so only the BMC flag changes."""
+    service = _service(mongo_holder)
+    probed = replace(_reachable("SN-ONEVIEW-DEAD-ILO"), reachable=False)
+
+    await service.ingest(_OneShotProvider(probed))
+
+    server = await _stored(mongo_holder, "sn-oneview-dead-ilo")
+    assert server.reachable is False
+    assert server.unreachable_since is not None
     assert server.last_seen_at is not None

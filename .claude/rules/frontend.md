@@ -27,6 +27,8 @@ Loaded only when a `frontend/` file is open.
   byte-stable for an unchanged fleet, or the ETag/304 stops working.
 - **Maintenance is switched only from the inventory list** (per-row
   switch); the detail page shows it read-only. One place, on purpose.
+  A maintenance whose reason says "donor" is a parts donor (ADR-0038):
+  `lib/donor.ts` drives the Donor badge and the Donor filter, frontend only.
 - **`OverviewTab`'s two columns are two explicit `<dl>`s, not one
   auto-flowing grid** (2026-09-17) — a single `grid-cols-2` over a flat
   field list means a vendor missing one conditional field (the profile
@@ -79,7 +81,9 @@ Loaded only when a `frontend/` file is open.
 - **A new health category** touches `evaluate.CATEGORIES`, `Health`,
   `health_from_state` *and* the frontend's `HealthSummary`/`OverviewTab`
   — `POLICY_CATEGORIES` listing `gpu` while the rollup skipped it is how
-  a failed GPU read HEALTHY overall until 2026-09-13.
+  a failed GPU read HEALTHY overall until 2026-09-13. Current set: memory,
+  storage, network, connectivity, power, gpu, `bmc` (added 2026-10-01);
+  `cpu` was removed then.
 - **Playwright: if you add a page with sibling `<select>` fields, do not
   use `getByLabel`.** A real Chromium quirk makes a `<label>`'s computed
   name include every nested `<option>`'s text, so "Source" resolves to

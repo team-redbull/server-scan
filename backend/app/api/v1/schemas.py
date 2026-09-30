@@ -36,6 +36,7 @@ from app.domain.enums import (
     LinkState,
     ManagerType,
     OpenShiftState,
+    UnreachableReason,
     Vendor,
 )
 from app.domain.models.classification import Classification
@@ -85,6 +86,7 @@ class ServerSummary(BaseModel):
     stale: bool
     reachable: bool
     unreachable_since: datetime | None
+    unreachable_reason: UnreachableReason | None
     updated_at: datetime
 
     @classmethod
@@ -117,6 +119,7 @@ class ServerSummary(BaseModel):
             stale=is_stale(server, stale_before),
             reachable=server.reachable,
             unreachable_since=server.unreachable_since,
+            unreachable_reason=server.unreachable_reason,
             updated_at=server.updated_at,
         )
 
@@ -366,6 +369,7 @@ class ServerDetail(BaseModel):
     stale: bool
     reachable: bool
     unreachable_since: datetime | None
+    unreachable_reason: UnreachableReason | None
     revision: int
     created_at: datetime
     updated_at: datetime
@@ -421,6 +425,7 @@ class ServerDetail(BaseModel):
             stale=is_stale(server, stale_before),
             reachable=server.reachable,
             unreachable_since=server.unreachable_since,
+            unreachable_reason=server.unreachable_reason,
             revision=server.revision,
             created_at=server.created_at,
             updated_at=server.updated_at,

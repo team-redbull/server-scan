@@ -139,6 +139,11 @@ SERVER_INDEXES: list[IndexModel] = [
         [("source_provider", ASCENDING), ("name_normalized", ASCENDING), ("_id", ASCENDING)],
         name="source_provider_name_id",
     ),
+    # The serial-less standalone stub's lookup by BMC host (ADR-0037).
+    IndexModel(
+        [("source_provider", ASCENDING), ("network.bmc.host", ASCENDING)],
+        name="source_provider_bmc_host",
+    ),
     # The fleet gauges' staleness query (ADR-0029).
     IndexModel(
         [("source_provider", ASCENDING), ("last_seen_at", ASCENDING)],

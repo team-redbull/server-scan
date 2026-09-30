@@ -40,6 +40,7 @@ from app.domain.ports.provider import (
     ServerIdentity,
     ServerInventoryProvider,
 )
+from app.infrastructure.bmc_probe import BmcProbedProvider
 from app.infrastructure.providers.oneview.provider import OneViewProvider
 from app.infrastructure.providers.openmanage.provider import OpenManageProvider
 from app.infrastructure.providers.ucs_central.provider import UcsCentralProvider
@@ -1030,9 +1031,11 @@ class TestOverridesReachTheInnerPruningGates:
             timeout_seconds=5.0,
             settings=_settings(collector_name_pattern="^ocp", oneview_name_pattern="^hpe"),
         )
-        assert isinstance(provider, OneViewProvider)
-        assert provider._pattern is not None
-        assert provider._pattern.pattern == "^hpe"
+        assert isinstance(provider, BmcProbedProvider)
+        inner = provider._inner
+        assert isinstance(inner, OneViewProvider)
+        assert inner._pattern is not None
+        assert inner._pattern.pattern == "^hpe"
 
     def test_openmanage_prunes_bmcs_on_the_override(self) -> None:
         provider = _build_provider(
@@ -1061,8 +1064,10 @@ class TestOverridesReachTheInnerPruningGates:
             timeout_seconds=5.0,
             settings=_settings(collector_name_pattern="^ocp", oneview_name_pattern=""),
         )
-        assert isinstance(provider, OneViewProvider)
-        assert provider._pattern is None
+        assert isinstance(provider, BmcProbedProvider)
+        inner = provider._inner
+        assert isinstance(inner, OneViewProvider)
+        assert inner._pattern is None
 
 
 class TestNameFilter:

@@ -25,6 +25,7 @@ from app.domain.ports.credentials import (
     ManagerNotConfiguredError,
 )
 from app.domain.ports.provider import ServerInventoryProvider
+from app.infrastructure.bmc_probe import BmcProbedProvider
 from app.infrastructure.credentials import EnvConnectionResolver
 from app.infrastructure.credentials.env import resolve_login
 from app.infrastructure.providers.intersight.provider import IntersightProvider
@@ -324,9 +325,9 @@ def _oneview_provider(
             `/processors` calls; `_NameFilteredProvider` stays authoritative.
 
     Returns:
-        ServerInventoryProvider: The HPE collector.
+        ServerInventoryProvider: The HPE collector, wrapped in the BMC probe (ADR-0037).
     """
-    return OneViewProvider(
+    provider = OneViewProvider(
         manager=manager,
         credentials=credentials,
         timeout_seconds=timeout_seconds,
@@ -339,6 +340,7 @@ def _oneview_provider(
         api_version=settings.oneview_api_version,
         verify_tls=settings.oneview_verify_tls,
     )
+    return BmcProbedProvider(provider)
 
 
 def _optional_login(settings: Settings, manager_type: ManagerType) -> tuple[str, str] | None:

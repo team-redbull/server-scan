@@ -92,6 +92,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+_BMC_MATCHED_PROVIDER = ManagerType.REDFISH_STANDALONE.value
+
 
 class SiteRepositoryPort(Protocol):
     """
@@ -473,6 +475,37 @@ class IngestService:
         )
         return page.items[0] if page.items else None
 
+    async def _find_by_bmc_host(self, ps: ProviderServer, *, has_serial: bool) -> Server | None:
+        """
+        Match a standalone-Redfish record to a document by BMC host (ADR-0037 decision 5).
+
+        A serial-less record updates its host's document; a serial-bearing one
+        adopts only a serial-less stub, never another machine's document.
+
+        Args:
+            ps (ProviderServer): The provider's record.
+            has_serial (bool): Whether `ps` carries a serial with no document yet.
+
+        Returns:
+            Server | None: The document to update in place, or `None` to create one.
+        """
+        parsed = parse_bmc_address(ps.bmc_address_raw)
+        if parsed is None or not parsed.host:
+            return None
+        matches = await self._server_repo.find_by_bmc_host(_BMC_MATCHED_PROVIDER, parsed.host)
+        if has_serial:
+            matches = [m for m in matches if not m.identity.serial_normalized]
+        if not matches:
+            return None
+        matches.sort(key=lambda m: not m.identity.serial_normalized)
+        if len(matches) > 1:
+            logger.warning(
+                "ingest.bmc_host_ambiguous",
+                host=parsed.host,
+                server_ids=[m.id for m in matches],
+            )
+        return matches[0]
+
     async def _ingest_one(
         self,
         ps: ProviderServer,
@@ -513,6 +546,10 @@ class IngestService:
             if serial_normalized
             else None
         )
+        if existing is None and provider_type == _BMC_MATCHED_PROVIDER:
+            existing = await self._find_by_bmc_host(ps, has_serial=bool(serial_normalized))
+        if existing is not None and not serial_normalized:
+            vendor = existing.identity.vendor
 
         server = await self._build_server(
             ps,
@@ -650,11 +687,19 @@ class IngestService:
             name="identity.nic_macs",
         )
 
+        if not serial_normalized and existing is not None:
+            serial, serial_normalized = (
+                existing.identity.serial,
+                existing.identity.serial_normalized,
+            )
+            system_uuid = ps.system_uuid or existing.identity.system_uuid
+        else:
+            serial, system_uuid = ps.serial, ps.system_uuid
         identity = Identity(
             vendor=vendor,
-            serial=ps.serial,
+            serial=serial,
             serial_normalized=serial_normalized,
-            system_uuid=ps.system_uuid,
+            system_uuid=system_uuid,
             nic_macs=nic_macs,
             external_ids={ps.manager_id: ps.external_id} if ps.manager_id else {},
         )
@@ -814,25 +859,33 @@ class IngestService:
             ps.profile_dn, self._sites
         )
 
-        # An unreachable run must not bump `last_seen_at`, or a dead server
-        # would look freshly seen.
+        # A stub read nothing, so it must not bump `last_seen_at`; a server the
+        # manager did read (OneView with a dead iLO) still advances it.
+        hardware_read = ps.cpu_sockets is not None or ps.memory_total_bytes is not None
         if ps.reachable:
             last_seen_at = now
             unreachable_since = None
+            unreachable_reason = None
         else:
-            last_seen_at = existing.last_seen_at if existing is not None else None
+            unreachable_reason = ps.unreachable_reason
+            last_seen_at = (
+                now if hardware_read else (existing.last_seen_at if existing is not None else None)
+            )
             unreachable_since = (
                 existing.unreachable_since
                 if existing is not None and existing.unreachable_since is not None
                 else now
             )
 
+        model = ps.model
+        if model is None and not ps.reachable and existing is not None:
+            model = existing.model
         server = Server(
             _id=server_id,
             name=ps.name,
             name_normalized=normalize_text(ps.name),
-            model=ps.model,
-            model_normalized=normalize_text(ps.model),
+            model=model,
+            model_normalized=normalize_text(model),
             identity=identity,
             profile_template=profile_template,
             hardware=hardware,
@@ -845,6 +898,8 @@ class IngestService:
             last_seen_at=last_seen_at,
             reachable=ps.reachable,
             unreachable_since=unreachable_since,
+            unreachable_reason=unreachable_reason,
+            listed_at=now,
             unread_fields=unread,
             revision=revision,
             created_at=created_at,
@@ -868,8 +923,8 @@ class IngestService:
                 vendor=vendor,
                 manager_type=ManagerType(provider_type),
                 site_id=site_id,
-                serial=ps.serial,
-                model=ps.model,
+                serial=serial,
+                model=model,
             )
             result = self._classification_service.classify_with_ruleset(classifiable, ruleset)
             previous_version = existing.classification.classification_version if existing else 0

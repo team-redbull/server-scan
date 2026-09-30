@@ -25,6 +25,10 @@ from app.domain.models.server import Server
 _FAILED = frozenset({"CRITICAL", "DOWN"})
 
 # Degraded or dead, counted together for the disk and DIMM checks.
+# Collectors whose BMC is actually checked (docs/adr/0037); UCS and Intersight
+# reach servers through an aggregator and are never probed.
+_BMC_CHECKED = frozenset({"REDFISH_STANDALONE", "OPENMANAGE", "ONEVIEW"})
+
 _NOT_GOOD = frozenset({"CRITICAL", "WARNING", "DOWN"})
 
 # Storage builds only the server's name records; one boolean fact each.
@@ -89,6 +93,22 @@ def _os_disk_capacities(drives: list[Any]) -> tuple[int, ...]:
     return (min(capacities),)
 
 
+def _bmc_probed(server: Server) -> bool:
+    """
+    Whether this server's BMC reachability was actually determined.
+
+    Args:
+        server (Server): The server being evaluated.
+
+    Returns:
+        bool: True for a checked collector's server that answered or failed;
+            False for an aggregator-managed one, or a BMC address we lack.
+    """
+    if server.source_provider not in _BMC_CHECKED:
+        return False
+    return not server.reachable or server.network.bmc.host is not None
+
+
 def extract_facts(server: Server) -> dict[str, Any]:
     """
     Flatten a `Server` into the dotted-key facts dict the metric registry resolves against.
@@ -98,7 +118,7 @@ def extract_facts(server: Server) -> dict[str, Any]:
 
     Returns:
         dict[str, Any]: A flat mapping of dotted metric-name-shaped keys
-            (`"cpu.socket_count"`, `"storage.failed_drive_count"`, ...) to
+            (`"memory.total_bytes"`, `"storage.failed_drive_count"`, ...) to
             their current values.
     """
     drive_healths = [d.health for d in server.hardware.storage.drives if d.health is not None]
@@ -148,7 +168,6 @@ def extract_facts(server: Server) -> dict[str, Any]:
             if name_capacity_bytes is not None
             else None
         ),
-        "cpu.has_data": server.hardware.cpu.sockets > 0,
         "memory.has_data": server.hardware.memory.total_bytes > 0 or bool(dimms),
         "storage.has_data": bool(drives) or server.hardware.storage.total_bytes > 0,
         # A readable state, not merely an interface: a collector listing NICs
@@ -164,6 +183,11 @@ def extract_facts(server: Server) -> dict[str, Any]:
         ),
         "power.has_data": bool(server.hardware.power.psus),
         "gpu.has_data": bool(gpus),
+        "bmc.has_data": _bmc_probed(server),
+        "bmc.unreachable_count": 0 if server.reachable else 1,
+        "bmc.unreachable_reason": (
+            server.unreachable_reason.value if server.unreachable_reason else "unknown"
+        ),
         "memory.dimm_count": len(dimms),
         "memory.degraded_dimm_count": sum(1 for d in dimms if d.health in _NOT_GOOD),
         "network.interface_link_states": link_states,

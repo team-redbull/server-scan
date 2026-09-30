@@ -11,12 +11,12 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — 23 records, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0037, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
 | Air-gapped mirroring | `docs/air-gap.md` |
-| A picture of the runtime, and one per collector | the in-app **Architecture** page (`/architecture`), or open `frontend/public/architecture/*.html` directly — sources are `docs/diagrams/*.json`, regenerated with the archify skill |
+| A picture of the runtime, and one per collector | the in-app **Architecture** page (`/architecture`), or open `frontend/public/architecture/*.html` directly — sources are `docs/diagrams/*.json`, regenerated with the archify skill. The seven diagrams (full flow, five collectors, `nodes-status`) are listed under "Diagrams" in §5 |
 
 Sections 4–8 therefore read as maps with pointers, not as prose
 duplicates. Where this document is the only place a fact is written
@@ -136,7 +136,8 @@ read-only, and that is a safety property rather than a missing feature.
 |---|---|
 | **Backend API** (`backend/app`) | Serves the REST API; owns classification, health evaluation, search, pagination, caching. Contacts a vendor only for `GET /servers/available`'s live recheck (ADR-0032). |
 | **Collectors** (`tools/run_collector.py` + a provider) | One process per manager type, on a schedule. Reads a vendor, normalises, ingests. Never serves traffic. |
-| **Membership jobs** (`tools/collect_openshift.py`) | Two per cluster at most, on a schedule. Run *inside* each OpenShift cluster, not beside the API, and deployed from their own chart. Read that cluster's own Kubernetes API and write only `Server.openshift`. Never contact a vendor, never serve traffic, never use `IngestService`. |
+| **nodes-status jobs** (`tools/collect_openshift.py`, chart `deploy/helm/nodes-status`) | Two per cluster at most, on a schedule. Run *inside* each OpenShift cluster, not beside the API, and deployed from their own chart. Read that cluster's own Kubernetes API and write only `Server.openshift`. Never contact a vendor, never serve traffic, never use `IngestService`. |
+| **Prune tool** (`tools/prune_servers.py`) | Helm CronJob `collectors.prune`, off and report-only by default (or run by hand). Deletes servers no manager has listed for `INVENTORY_PRUNE_AFTER_SECONDS` (`listed_at`), dry-run unless `--apply`, guarded by a per-manager clean-run check and a deletion cap, one `SERVER_PRUNED` audit event each (ADR-0037). |
 | **Frontend** (`frontend/`) | React admin UI. Talks only to the backend API. |
 | **MongoDB** | Source of truth. |
 | **Redis** | Cache only, cache-aside, never authoritative. |
@@ -180,7 +181,7 @@ a live recheck for `GET /servers/available` fetches one server directly
 (a scoped query, a direct-by-URI/DN fetch, or a single-host recollect,
 per provider) rather than re-running the bulk path and filtering.
 
-The membership jobs deliberately do **not** sit behind this seam. It
+The `nodes-status` jobs deliberately do **not** sit behind this seam. It
 exists to normalise a *vendor* into `ProviderServer` for `IngestService`;
 a cluster reports membership, not hardware, and writes `Server.openshift`
 directly (ADR-0024).
@@ -258,6 +259,23 @@ after those copies silently drifted.
 
 ---
 
+### Diagrams
+
+Interactive archify HTML served by the in-app Architecture page from
+`frontend/public/architecture/`; specs are `docs/diagrams/*.json` (a sequence
+diagram per collector and `nodes-status`, plus the full-flow architecture
+diagram). Refreshed 2026-10-01 for ADR-0037.
+
+| Diagram | What it shows |
+|---|---|
+| [runtime-architecture.html](../frontend/public/architecture/runtime-architecture.html) | Vendors, the CronJobs (collectors, prune, nodes-status), API, MongoDB, Redis, UI, Prometheus and AD |
+| [ucs-central.html](../frontend/public/architecture/ucs-central.html) | UCS Central lists domains, each domain's UCS Manager supplies the servers; Cisco BMCs not probed |
+| [intersight.html](../frontend/public/architecture/intersight.html) | Signed Intersight API reads joined in memory; UCSM-managed servers skipped |
+| [openmanage.html](../frontend/public/architecture/openmanage.html) | OME identity plus per-iDRAC Redfish hardware; failed iDRAC becomes a stub |
+| [oneview.html](../frontend/public/architecture/oneview.html) | OneView bulk calls plus the unauthenticated iLO reachability probe |
+| [redfish-standalone.html](../frontend/public/architecture/redfish-standalone.html) | Inventory TOML to direct BMC Redfish; failures become serial-less stubs |
+| [nodes-status.html](../frontend/public/architecture/nodes-status.html) | Cluster read, hostname then serial match, reconcile with protected ids |
+
 ## 6. Runtime View
 
 ### 6.1 A collection run
@@ -270,7 +288,8 @@ CronJob fires
         normalize → ProviderServer
         name filter (INVENTORY_COLLECTOR_NAME_PATTERN)
         parse site from name (fallback: UCS org DN)
-        classify → health-evaluate → audit → upsert     ← ONE write per server
+        correlate → classify → health-evaluate → upsert     ← ONE write per server
+        audit only a new server or a changed verdict
   → write the Manager projection
   → exit 0 (complete) | 2 (not configured) | 3 (PARTIAL) | 1 (failed)
 ```
@@ -285,13 +304,10 @@ Job status.
 **Two exceptions, both added 2026-09-10**: neither `OPENMANAGE` nor
 `REDFISH_STANDALONE` counts a single BMC's plain connection failure, nor
 a rejected BMC credential, toward exit 3 any more — see
-`tools.run_collector._is_benign_collection_error` and
-`..redfish.provider`'s exported markers (`UNREACHABLE_MARKER`,
-`AUTH_REJECTED_MARKER`). Widened to cover auth the same day, at the
-operator's request, after a real OME run hit rejected credentials often
-enough that PARTIAL had stopped meaning anything unusual. TLS failures, a
-per-host time budget exceeded, and any other error are unaffected and
-still drive PARTIAL; this is narrower than "any failure," on purpose.
+`tools.run_collector._is_benign_collection_error`. Since 2026-10-01
+(ADR-0037) every per-host failure on both collectors also yields a stub
+document with an `unreachable_reason`; on both a TLS, time-budget or
+protocol failure is still recorded and exits 3.
 
 **No host is skipped over an earlier host's rejection (2026-09-12).** The
 credential circuit breaker that disabled a credential after three
@@ -301,16 +317,16 @@ cost. Every BMC is attempted every run; each rejection logs
 `redfish.bmc_login_failed` at ERROR. On `OPENMANAGE`, a rejected login
 now also writes the same `reachable=False` document a dead BMC does.
 
-They differ in what replaces the signal. `OPENMANAGE` gets the fuller
-treatment: OME already knows a server's identity before its BMC is ever
-contacted, so the collector writes a real `reachable=False` document (see
-`Server.reachable` in §12) instead of just naming it in a log line —
-Mongo carries the fact, not just the exit code. `REDFISH_STANDALONE` has
-no such identity source (its inventory file names a host, never a
-serial), so a never-reached host gets no document — only the log line,
-now at ERROR instead of WARNING since it is what is left. See
-ADR-0016's dated update for why closing that gap is a real design change,
-not implemented yet.
+Both now write the fact to Mongo, not just the exit code. `OPENMANAGE`
+has the identity from OME and writes a `reachable=False` document (see
+`Server.reachable` in §12). Since 2026-10-01 (ADR-0037) so does
+`REDFISH_STANDALONE`: a failed host yields a stub with no serial, matched
+to any existing document by BMC host, carrying an `unreachable_reason`.
+The `bmc` health category turns that into a CRITICAL verdict.
+
+Per-collector versions of this run, with what each vendor is asked and
+how a failed BMC is recorded, are the `flow-*` diagrams listed under
+"Diagrams" in §5; the `nodes-status` run is `flow-nodes-status`.
 
 ### 6.2 A list request
 
@@ -353,12 +369,14 @@ OpenShift namespace                        (chart: deploy/helm/server-scan)
 ├── CronJob  collector-openmanage           (6-hourly, opt-in)
 ├── CronJob  collector-redfish-standalone   (6-hourly, opt-in, ships suspended)
 │      all five: envFrom the SAME api-config ConfigMap + the collector Secret
+├── CronJob  prune-servers                  (03/09/15/21h, opt-in, report-only
+│      until collectors.prune.apply; deletes unlisted servers, ADR-0037)
 ├── Secret   <release>-collector-credentials  (rendered from values, or bring your own)
 ├── MongoDB  ─┐  platform-provided, not deployed by this chart
 └── Redis    ─┘
 
 EVERY OpenShift cluster, its own namespace, its own Helm release
-  (deploy/helm/nodes-status — a SEPARATE chart)
+  (deploy/helm/nodes-status — a SEPARATE chart; the "nodes-status jobs")
 ├── CronJob  <release>-openshift-nodes    (every cluster; --source nodes)
 ├── CronJob  <release>-openshift-agents   (MCE hubs only; --source agents)
 │      the one workload here that mounts its ServiceAccount token: it
@@ -368,7 +386,7 @@ EVERY OpenShift cluster, its own namespace, its own Helm release
           mongo-uri and cursor-secret Secrets
 ```
 
-**The membership jobs do not live in the inventory namespace.** That is
+**The `nodes-status` jobs do not live in the inventory namespace.** That is
 the most important deployment fact about them: they run wherever the
 cluster they report on runs, one Helm release per cluster, pointed at by
 an ArgoCD `Application` each. They reach MongoDB directly, exactly as a
@@ -445,6 +463,7 @@ collector does, and never call this platform's API.
 | **Error handling** | `exception_handlers` | RFC 9457 Problem Details, extended with a stable `code`, `request_id` and structured `details` (ADR-0002) |
 | **Persistence rules** | `infrastructure/mongodb` | Datetimes stored as ISO 8601 **strings**; range/cursor queries must compare against that type (ADR-0006 — this caused a real silent-wrong-results bug) |
 | **Search** | `domain/services/search_tokens` | Anchored, escaped prefix match over a multikey-indexed token array; structurally incapable of ReDoS or an unanchored scan (ADR-0004). Tokens are word-boundary **suffixes**, so the anchored query still finds a fragment from the middle of a name — `cisco-m6` matches `ocp-cisco-m6-bat-yam-…` (ADR-0025) |
+| **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS and Intersight are UNKNOWN, skipped (ADR-0037) |
 | **Staleness** | `observability/fleet_gauges` | `/metrics` carries gauges derived from MongoDB on scrape, throttled to once per 30s: servers not seen within `INVENTORY_STALE_AFTER_SECONDS` per collector, each collector's and each cluster's newest report as a Unix timestamp, the health mix, and (2026-09-16) duplicate-name group/server counts. A CronJob pod is never scraped, so this is the only signal that a collector or membership job has *stopped* (ADR-0029). Each `nodes`/`agents` membership job's most recent run (observed/matched/unmatched hostnames, duration, PARTIAL) is a further gauge set added 2026-09-24, present even when every hostname was unmatched. Shipped with a `ServiceMonitor` and seven alerts |
 | **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — five CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
 | **Pagination** | `domain/services/cursor` | Keyset only, HMAC-signed cursor bound to the filter/sort combination. A **nullable** sort field needs the null-aware clause: Mongo's range operators are type-bracketed, so a naive `$gt`/`$lt` cursor drops rows with no error (ADR-0026) |
@@ -522,6 +541,8 @@ of it.
 | 0034 | AD login: admin/viewer roles from four admin/view group and user lists, a stateless HMAC-signed session cookie (not Redis), `auth.enabled=false` auto-admits every caller, and two static API tokens for machine callers like the BMH generator |
 | 0035 | A short-TTL install reservation, so two MCEs cannot draw the same server from `GET /servers/available` |
 | 0036 | OpenShift membership falls back to the hardware serial (SSH for a node, an Agent's own inventory) when a hostname is not a unique match — a vendor-side rename or a duplicate name |
+| 0037 | BMC reachability is a `bmc` health category, probed with an unauthenticated Redfish GET (OneView); standalone Redfish failures become stub documents matched by BMC address; `listed_at` + guarded pruning (Accepted) |
+| 0038 | A parts donor is a maintenance whose reason says "donor": a cyan Donor badge and inventory filter, no new field; `/servers/available` already excludes maintenance |
 
 ---
 
@@ -622,11 +643,13 @@ go stale — treat its date as load-bearing.
 | **Service profile** | UCS's logical server definition. **The source of a UCS server's real name** — `computeBlade.name` is empty in practice. |
 | **IMM** | Intersight Managed Mode. Servers Intersight manages directly, as opposed to `UCSM`-mode servers that UCS Central owns. |
 | **PARTIAL run** | Exit code 3: some servers were written, but the run did not see the whole fleet. |
-| **`Server.reachable`** | `False` when a provider knew a server's identity but could not reach its management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. `OPENMANAGE` is the only collector that populates it so far. |
+| **`Server.reachable`** | `False` when a provider could not reach a server's management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. Written by `OPENMANAGE`, `REDFISH_STANDALONE` (stub documents) and, via an unauthenticated probe, `ONEVIEW` (ADR-0037). |
+| **`Server.unreachable_reason`** | Why `reachable` is `False`: `network_unreachable`, `auth_rejected`, `tls_error`, `timeout` or `protocol_error`. Set and cleared together with `unreachable_since` (ADR-0037). |
+| **`Server.listed_at`** | The last time any manager listed the server, reachable or not. Unlike `last_seen_at` it does not freeze for an unreachable server; `tools.prune_servers` deletes on it (ADR-0037). |
 | **UCSPE** | Cisco's free UCS Platform Emulator — the test target that validated the UCS collector. |
 | **PVA** | Intersight Private Virtual Appliance: on-prem Intersight, the only form reachable from an air-gapped site. |
-| **Membership job** | A scheduled process that runs *inside* an OpenShift cluster and reports which servers that cluster is using. Two sources, `nodes` and `agents`. Not a collector: it reads no vendor and writes only `Server.openshift` (ADR-0024). |
+| **nodes-status job** (membership job) | A scheduled process, deployed by the `deploy/helm/nodes-status` chart, that runs *inside* an OpenShift cluster and reports which servers that cluster is using. Two sources, `nodes` and `agents`. Not a collector: it reads no vendor and writes only `Server.openshift` (ADR-0024). |
 | **`OpenShiftState`** | Whether a cluster holds a server: `AVAILABLE` (nothing does — the default, and the only state reached by absence), `INSTALLED` (a cluster does), `INSTALLED_TO_INVENTORY` (an MCE holds it but no cluster does — the spare pool). Distinct from **classification**, which is what the *name* claims. |
-| **MCE hub** | A multicluster-engine cluster that provisions and manages other clusters. Runs both membership jobs: `agents` for the fleet it manages, `nodes` for its own hardware. |
+| **MCE hub** | A multicluster-engine cluster that provisions and manages other clusters. Runs both `nodes-status` jobs: `agents` for the fleet it manages, `nodes` for its own hardware. |
 | **Agent** | The `agent-install.openshift.io` custom resource an MCE creates per discovered host. Bound to a cluster or unbound; the `agents` job reads these. |
 | **Reconcile (membership)** | Each run claims what its cluster reports *and frees what it does not*, scoped to the servers already naming that cluster. Nothing in Kubernetes reports a removal, so this is the only thing that returns a server to `AVAILABLE`. |

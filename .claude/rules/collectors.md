@@ -48,11 +48,15 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   the path in `Server.unread_fields` (rebuilt every ingest, never merged).
   Collapsing the two once wrote zeros over good data and reported a failed
   drive as recovered (ADR-0016).
-- **`reachable=False`** = identity known, BMC not reached; every optional
-  field is `None`, nothing is blanked, it does not count toward
-  `collection_errors`. `OPENMANAGE` writes it for a dead *or*
-  auth-rejected iDRAC; `REDFISH_STANDALONE` writes none (no serial to
-  correlate on).
+- **`reachable=False`** = BMC not reached, with an `unreachable_reason`
+  (closed vocabulary, ADR-0037); every optional field is `None`, nothing
+  is blanked. `OPENMANAGE` and `REDFISH_STANDALONE` write it for every
+  per-host failure (dead, rejected login, TLS, budget, protocol); a
+  standalone stub has `serial=None` and is matched at ingest by
+  `(source_provider, BMC host)`. `ONEVIEW` gets it from an unauthenticated
+  `GET /redfish/v1` probe (`bmc_probe.py`). It drives the `bmc` health
+  category. A server a manager still lists keeps `listed_at` fresh even
+  while unreachable; pruning reads `listed_at`, never `last_seen_at`.
 - **No `site_id`** — parsed from the name at ingest. **`nic_macs` is the
   minimum; `nics` the richer view.** `interface_kind` is `PHYSICAL` or
   `VNIC`; only PHYSICAL counts as a fabric path.
@@ -127,9 +131,11 @@ the global and filter on the override, silently.
   `ComputerSystem.SerialNumber` (confirmed on iDRAC9 only); BMC address is
   `DeviceManagement[0].NetworkAddress`, **not** `TargetName`/`DeviceName`
   (OME's "Server Device Naming" setting can make those an OS hostname).
-- **`REDFISH_STANDALONE`** (ADR-0016): unreachable host or rejected login
-  is ERROR-logged but exit-0-safe (`_is_benign_collection_error`); TLS
-  failure, blown host budget, unrecognised error stay PARTIAL.
+- **`REDFISH_STANDALONE`** and **`OPENMANAGE`** (ADR-0016, ADR-0037): every per-host failure
+  (unreachable, rejected login, TLS, blown budget, protocol) is
+  ERROR-logged and yields a stub with a reason; only a plain unreachable host
+  or a rejected login is benign (exit 0) — a TLS failure, blown budget or
+  protocol error is still recorded and makes the run PARTIAL (3).
   **Nothing skips a BMC (2026-09-12)** — the `_AuthGuard` breaker is
   deleted at the operator's explicit direction; the lockout risk (Lenovo
   XCC, hour-long iDRAC IP block) is theirs. Do not re-add without asking.

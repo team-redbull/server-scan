@@ -205,11 +205,14 @@ Consequences and limits:
 - **No GPU is indistinguishable from GPUs not read**: both are an empty
   list, so a GPU-less server's GPU category is `UNKNOWN`, not HEALTHY. It
   never changes the overall verdict. Likewise CPU, which no shipped policy
-  covers, has always been `UNKNOWN`.
+  covered, was always `UNKNOWN`; the category was removed in 2026-10
+  (ADR-0037).
 - Stored health changes on each server's next collection.
 - Seeded fleet (`--count 1000 --seed 42`): 10 servers, all the unreachable
-  OpenManage ones with every hardware field unread, are now `UNKNOWN`
-  overall; they read HEALTHY before.
+  OpenManage ones with every hardware field unread, were `UNKNOWN`
+  overall; they read HEALTHY before. Re-measured 2026-10-01 after ADR-0037:
+  none is `UNKNOWN` overall, because the `bmc.unreachable` policy makes
+  every unreachable server (34 of 1000, across three collectors) CRITICAL.
 
 ## Update (2026-09-23): `single_link_up` moves from MAJOR to CRITICAL
 

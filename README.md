@@ -139,6 +139,12 @@ physical manager. On a schedule, a CronJob's pod:
    platform already exercises with fake data
    (`app.application.services.ingest.IngestService`) — classify, health-
    evaluate, audit, and upsert into MongoDB, all in one write per server.
+   On the Dell, HPE and standalone-Redfish collectors a server whose BMC
+   cannot be reached is still written, as a `reachable=False` document with
+   an `unreachable_reason` that the `bmc` health category turns CRITICAL
+   (ADR-0037); `ONEVIEW` gets this from an unauthenticated
+   `GET /redfish/v1` probe of each iLO. The two Cisco collectors do not
+   probe (their BMCs are behind fabric interconnects or Intersight).
 
 ### The clusters report what they are using
 
@@ -146,15 +152,17 @@ The vendor collectors above answer "what hardware exists". They cannot
 answer "is anything using it" — to UCS, a blade running production and a
 blade sitting idle both read `associated`. Only the cluster knows.
 
-So a **second kind of job** runs *inside* each OpenShift cluster and
-writes `Server.openshift`:
+So a **second kind of job** — the `nodes-status` jobs — runs *inside* each
+OpenShift cluster and writes `Server.openshift`:
 
 | Job | Runs on | Reports |
 |---|---|---|
 | `--source nodes` | every cluster | its own worker nodes |
 | `--source agents` | MCE hubs | its Agents, bound to a cluster or not |
 
-They correlate to inventory **by hostname**, and each run reconciles only
+They correlate to inventory **by hostname** (an Agent by its own hardware
+serial first), falling back to the machine's hardware serial when a node's
+hostname is not a unique match (ADR-0036), and each run reconciles only
 the servers already naming *its* cluster — claiming what it sees and
 freeing what it does not. Nothing in Kubernetes reports a *removal*, so
 that reconcile is the only thing that can ever return a server to
@@ -224,8 +232,8 @@ standalone".
  Intersight CronJob ──┤       (vendor-neutral)   (classify, health,        ▲
  OneView CronJob ─────┘                           audit, upsert)           │
                                                                            │
- openshift-nodes  CronJob ─┐  in EVERY cluster    writes Server.openshift  │
- openshift-agents CronJob ─┴─ on an MCE hub       only, never IngestService┘
+ nodes-status (nodes)  ──┐ in EVERY cluster     writes Server.openshift  │
+ nodes-status (agents) ──┴─ on an MCE hub        only, never IngestService┘
                                                                             │
                                                                             ▼
                                                        FastAPI REST API (reads MongoDB,
@@ -236,6 +244,10 @@ standalone".
                                                        server detail, read-only rules/
                                                        policies page — dark theme only)
 ```
+
+Explorable versions of this picture — the full flow, each collector's
+sequence and the `nodes-status` jobs — are the in-app Architecture page (`frontend/public/architecture/*.html`; specs in
+`docs/diagrams/*.json`, see `docs/architecture.md`, "Diagrams").
 
 MongoDB is the only thing that ties a collector run to what the UI shows
 — a collector never talks to the API. **The one exception, since
@@ -250,7 +262,7 @@ implementation for it (see `app.infrastructure.providers.ucs_manager` as
 the reference), register it in `tools/run_collector.py`, and add a
 CronJob to `deploy/helm/server-scan` — nothing in the API, the
 classification engine, the health engine, or the frontend needs to
-change. (The membership jobs are the other chart,
+change. (The `nodes-status` jobs are the other chart,
 `deploy/helm/nodes-status`, and do not go through this seam at
 all — they write `Server.openshift` directly.) `docs/adr/0009-ucs-
 manager-collector.md` is the detailed writeup of how the first provider
@@ -494,12 +506,15 @@ is reachable.
   UCS Central servers now (docs/cisco-collectors.md). Only the 160
   Intersight servers still report `UNKNOWN` for every vNIC and are
   scored on nothing — no equivalent field is known for it yet.
-* **Ten servers are `UNKNOWN` overall, on purpose.** They are the
-  unreachable OpenManage ones — OME lists them, their iDRAC did not
-  answer, so no hardware field was read. A category nothing was read for
-  is `UNKNOWN` and judges nothing, so with every category unread the
-  server is too; before 2026-09-21 they read HEALTHY
-  (`docs/adr/0027-unknown-is-not-a-reading.md`).
+* **34 servers have an unreachable BMC, and all of them read `CRITICAL`.**
+  About 4% of the OpenManage (10), standalone Redfish (12) and OneView (12)
+  servers carry an `unreachable_reason`, which the `bmc` category's
+  `bmc.unreachable` policy turns into CRITICAL (ADR-0037). Nothing is
+  `UNKNOWN` overall in this fleet any more: before 2026-10-01 the ten
+  OpenManage ones were, since no hardware field was read and a category
+  nothing was read for judges nothing
+  (`docs/adr/0027-unknown-is-not-a-reading.md`); before 2026-09-21 they
+  read HEALTHY.
 * **Availability is not derived from the name.** A seeded server named
   `ocp4-prod-tlv-compute-01` can come back `AVAILABLE`, because a freed
   server keeps the name it was installed under. That disagreement between

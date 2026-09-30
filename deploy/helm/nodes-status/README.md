@@ -1,4 +1,4 @@
-# Cluster membership CronJobs
+# nodes-status: cluster membership CronJobs
 
 Deployed **to every cluster**, by ArgoCD — one release per cluster. This
 is a separate chart from `deploy/helm/server-scan`, which deploys the

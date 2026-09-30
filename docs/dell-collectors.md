@@ -103,10 +103,13 @@ standalone Redfish collector, where the pattern is deliberately *not*
 applied because a BMC does not know the server's name — here OME supplies
 it.
 
-A profile OME reports no iDRAC address for is dropped and recorded: there
-is nothing to collect it from. That and every per-host Redfish failure land
-on `collection_errors`, which `tools.run_collector` reads to report the run
-as **PARTIAL** (exit 3) rather than a silently-complete success.
+A profile OME reports no iDRAC address for is skipped and logged
+(`ome.profile_without_address`): it is an undeployed template with no
+server behind it. Every per-host Redfish failure (dead, rejected login,
+TLS, time budget, protocol) yields a `reachable=False` stub with an
+`unreachable_reason` (ADR-0037, 2026-10-01). Only a plain unreachable host or
+a rejected login is left out of `collection_errors` (exit 0); TLS, budget and
+protocol failures are still recorded and make the run **PARTIAL** (exit 3).
 
 Correlation keys on `(vendor, serial)`
 (`app.application.services.ingest`).
@@ -186,8 +189,10 @@ that stops early (`--limit`, a killed run) throws `GeneratorExit` in at
 the `yield`, which used to skip the pass over `redfish.collection_errors`
 entirely — the same shape `..ucs_central.provider` handles, see
 `docs/cisco-collectors.md`'s "Sessions". In that pass a dead BMC and a
-rejected login are set aside as uncollected; every other failure is still
-recorded, still PARTIAL. The placeholder documents themselves are yielded
+rejected login are set aside as uncollected; since 2026-10-01 so is every
+other per-host failure (`_is_uncollected` matches any `"{host}:"`
+message; `_UNCOLLECTED_MARKERS` is gone), each with a reason from the
+message. The placeholder documents themselves are yielded
 only on normal completion of the Redfish pass: a consumer that stopped
 early never asked to see the rest of the fleet, so nothing is reported
 unreachable on its behalf.
@@ -196,9 +201,10 @@ unreachable on its behalf.
 after a real OME run hit auth failures often enough that PARTIAL stopped
 meaning anything unusual — `tools.run_collector.
 _is_benign_collection_error` treats `AUTH_REJECTED_MARKER` (a
-`..redfish.provider` export) the same as `UNREACHABLE_MARKER`. Still
-PARTIAL-worthy: TLS failures, a per-host time budget exceeded, and any
-other unrecognized error. See ADR-0016's second 2026-09-10 update.
+`..redfish.provider` export) the same as `UNREACHABLE_MARKER`. TLS
+failures, a blown per-host budget and protocol errors stay PARTIAL-worthy;
+since 2026-10-01 they also yield a stub, exit code unchanged (ADR-0037). See
+ADR-0016's second 2026-09-10 update.
 
 **Widened again 2026-09-12: a rejected login now writes the same
 `reachable=False` placeholder a dead BMC does.** An iDRAC that refuses
@@ -212,6 +218,13 @@ run**, however many earlier ones refused. See ADR-0016's 2026-09-12
 update — and note the risk that buys, which is now the operator's:
 repeating a run with a wrong shared password locks accounts and
 IP-blocks this collector from every iDRAC for about an hour.
+
+**Widened 2026-10-01 (ADR-0037): every per-host failure is a stub with a
+reason.** The stub's `unreachable_reason` is mapped from the inner Redfish
+error (`network_unreachable`, `auth_rejected`, `tls_error`, `timeout`,
+`protocol_error`); the `get_one` fallback stub has none, because the inner
+`get_one` swallows it. The `bmc` health category makes such a server
+CRITICAL.
 
 ## Profile template
 

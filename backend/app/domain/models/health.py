@@ -20,13 +20,13 @@ _RETIRED_SEVERITIES: dict[str, HealthSeverity] = {"INFO": HealthSeverity.HEALTHY
 
 _SEVERITY_FIELDS = (
     "overall",
-    "cpu",
     "memory",
     "storage",
     "network",
     "connectivity",
     "power",
     "gpu",
+    "bmc",
 )
 
 
@@ -60,13 +60,13 @@ class Health(BaseModel):
     """The health rollup embedded on a `Server` document, one severity per category."""
 
     overall: HealthSeverity = HealthSeverity.UNKNOWN
-    cpu: HealthSeverity = HealthSeverity.UNKNOWN
     memory: HealthSeverity = HealthSeverity.UNKNOWN
     storage: HealthSeverity = HealthSeverity.UNKNOWN
     network: HealthSeverity = HealthSeverity.UNKNOWN
     connectivity: HealthSeverity = HealthSeverity.UNKNOWN
     power: HealthSeverity = HealthSeverity.UNKNOWN
     gpu: HealthSeverity = HealthSeverity.UNKNOWN
+    bmc: HealthSeverity = HealthSeverity.UNKNOWN
     evaluated_at: datetime | None = None
     # The `policy_key`s that fired, so "what is wrong across the fleet" is
     # one aggregation (ADR-0029). Absent on documents written before it.

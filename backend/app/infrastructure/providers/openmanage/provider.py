@@ -34,7 +34,7 @@ from typing import Any
 
 import structlog
 
-from app.domain.enums import ManagerType, Vendor
+from app.domain.enums import ManagerType, UnreachableReason, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
@@ -45,19 +45,12 @@ from app.infrastructure.providers.openmanage.mapping import (
     dell_port_nics,
     identity_from_profile,
 )
-from app.infrastructure.providers.redfish.provider import (
-    AUTH_REJECTED_MARKER,
-    UNREACHABLE_MARKER,
-)
+from app.infrastructure.providers.redfish.provider import reason_from_error
 from app.infrastructure.providers.redfish.targets import RedfishCredential, RedfishTarget
 
 logger = structlog.get_logger(__name__)
 
 _PROVIDER_TYPE = ManagerType.OPENMANAGE.value
-
-
-# Both leave a server unmeasured — docs/dell-collectors.md, "Collection flow".
-_UNCOLLECTED_MARKERS = (UNREACHABLE_MARKER, AUTH_REJECTED_MARKER)
 
 
 def _odata_literal(value: str) -> str:
@@ -73,6 +66,12 @@ def _odata_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
+# A dead host or a rejected login is routine; the rest stay PARTIAL (ADR-0037).
+_BENIGN_REASONS = frozenset(
+    {UnreachableReason.NETWORK_UNREACHABLE, UnreachableReason.AUTH_REJECTED}
+)
+
+
 def _is_uncollected(message: str, host: str) -> bool:
     """
     Whether a `collection_errors` entry means `host` was not read at all.
@@ -82,10 +81,10 @@ def _is_uncollected(message: str, host: str) -> bool:
         host (str): A candidate host to test the message against.
 
     Returns:
-        bool: `True` when `message` is that host's connection failure or
-            its rejected login.
+        bool: `True` when `message` is a failure recorded against that
+            host, which left it unmeasured (docs/dell-collectors.md, "Collection flow").
     """
-    return any(message.startswith(f"{host}{marker}") for marker in _UNCOLLECTED_MARKERS)
+    return message.startswith(f"{host}:")
 
 
 class OpenManageProvider(ServerInventoryProvider):
@@ -304,10 +303,12 @@ class OpenManageProvider(ServerInventoryProvider):
 
         redfish = self._redfish_provider_factory(targets)
         reached: set[str] = set()
-        uncollected: set[str] = set()
+        uncollected: dict[str, UnreachableReason] = {}
         try:
             async with contextlib.aclosing(redfish.collect()) as servers:
                 async for server in servers:
+                    if not server.reachable:
+                        continue
                     parsed = parse_bmc_address(server.bmc_address_raw)
                     if parsed is not None and parsed.host is not None:
                         reached.add(parsed.host)
@@ -320,12 +321,15 @@ class OpenManageProvider(ServerInventoryProvider):
                     None,
                 )
                 if host is not None:
-                    uncollected.add(host)
+                    reason = reason_from_error(message)
+                    uncollected[host] = reason
+                    if reason not in _BENIGN_REASONS:
+                        self._record_error(message)
                 else:
                     self._record_error(message)
 
-        for host in uncollected:
-            yield self._unreachable_server(identities[host])
+        for host, reason in uncollected.items():
+            yield self._unreachable_server(identities[host], reason)
 
     async def _discover(self) -> dict[str, OmeIdentity]:
         """
@@ -421,7 +425,9 @@ class OpenManageProvider(ServerInventoryProvider):
             name=identity.name,
         )
 
-    def _unreachable_server(self, identity: OmeIdentity) -> ProviderServer:
+    def _unreachable_server(
+        self, identity: OmeIdentity, reason: UnreachableReason | None = None
+    ) -> ProviderServer:
         """
         Build the placeholder for a profile OME knows but whose iDRAC gave nothing.
 
@@ -429,6 +435,8 @@ class OpenManageProvider(ServerInventoryProvider):
 
         Args:
             identity (OmeIdentity): The uncollected profile's OME identity.
+            reason (UnreachableReason | None): Why the iDRAC gave nothing,
+                or `None` when the caller cannot tell (`get_one`).
 
         Returns:
             ProviderServer: `reachable=False`, every hardware/network field
@@ -446,6 +454,7 @@ class OpenManageProvider(ServerInventoryProvider):
             profile_template_name=identity.profile_template_name,
             profile_template_external_id=identity.profile_template_external_id,
             reachable=False,
+            unreachable_reason=reason,
         )
 
     def _merged(self, server: ProviderServer, by_host: dict[str, OmeIdentity]) -> ProviderServer:

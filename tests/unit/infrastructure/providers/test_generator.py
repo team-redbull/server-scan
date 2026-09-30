@@ -98,9 +98,30 @@ def test_serials_are_unique_per_vendor() -> None:
     servers = list(generate_servers(seed=42, count=500))
     seen: set[tuple[str, str | None]] = set()
     for s in servers:
+        if s.serial is None:
+            continue
         key = (s.vendor, s.serial)
         assert key not in seen
         seen.add(key)
+
+
+def test_bmc_reachability_follows_the_collector() -> None:
+    """Only the three probed collectors fail, each with a reason and the real stub shape."""
+    servers = list(generate_servers(seed=42, count=3000))
+    down = [s for s in servers if not s.reachable]
+    assert down
+    for s in servers:
+        assert (s.unreachable_reason is None) == s.reachable
+        collector = provider_type_for(s)
+        if collector in (ManagerType.UCS_CENTRAL.value, ManagerType.INTERSIGHT.value):
+            assert s.reachable
+        if not s.reachable and collector is ManagerType.REDFISH_STANDALONE.value:
+            assert s.serial is None
+            assert s.bmc_address_raw
+        if not s.reachable and collector is ManagerType.OPENMANAGE.value:
+            assert s.serial is not None
+        if not s.reachable and collector is ManagerType.ONEVIEW.value:
+            assert s.nics or s.cpu_cores
 
 
 def test_system_uuids_are_unique() -> None:
@@ -497,8 +518,9 @@ def test_some_dell_servers_are_seeded_unreachable() -> None:
     servers = list(generate_servers(seed=42, count=1000))
     unreachable = [s for s in servers if not s.reachable]
     assert unreachable
-    assert all(provider_type_for(s) == ManagerType.OPENMANAGE.value for s in unreachable)
-    for s in unreachable:
+    dell = [s for s in unreachable if provider_type_for(s) == ManagerType.OPENMANAGE.value]
+    assert dell
+    for s in dell:
         assert s.name and s.serial
         assert s.cpu_sockets is None
         assert s.storage_drives is None

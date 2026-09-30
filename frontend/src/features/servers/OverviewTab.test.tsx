@@ -10,7 +10,12 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
     name: "ocp-dell-worker-000",
     model: "PowerEdge R6515",
     profile_template: { name: null, external_id: null },
-    identity: { vendor: "dell", serial: "SN123", system_uuid: null, nic_macs: [] },
+    identity: {
+      vendor: "dell",
+      serial: "SN123",
+      system_uuid: null,
+      nic_macs: [],
+    },
     hardware: {
       cpu: { sockets: 2, cores: 32, threads: 64, model: "Xeon Gold 6338" },
       memory: { total_bytes: 0, modules: [] },
@@ -19,7 +24,13 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       power: { psus: [] },
     },
     network: {
-      bmc: { address_raw: null, scheme: null, host: null, port: null, mac: null },
+      bmc: {
+        address_raw: null,
+        scheme: null,
+        host: null,
+        port: null,
+        mac: null,
+      },
       interfaces: [],
     },
     connectivity: {
@@ -31,19 +42,28 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
         fabrics_present: [],
       },
     },
-    classification: { installation_type: "HOSTED_CLUSTER", matched_rule_id: null },
+    classification: {
+      installation_type: "HOSTED_CLUSTER",
+      matched_rule_id: null,
+    },
     health: {
       overall: "HEALTHY",
-      cpu: "HEALTHY",
       memory: "HEALTHY",
       storage: "HEALTHY",
       network: "HEALTHY",
       connectivity: "HEALTHY",
       power: "HEALTHY",
       gpu: "UNKNOWN",
+      bmc: "UNKNOWN",
     },
     maintenance: { enabled: false, reason: null },
-    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
+    reservation: {
+      held: false,
+      holder: null,
+      mce_cluster: null,
+      infra_env: null,
+      expires_at: null,
+    },
     unread_fields: [],
     nic_os_names: {},
     openshift: {
@@ -63,6 +83,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
     stale: false,
     reachable: true,
     unreachable_since: null,
+    unreachable_reason: null,
     updated_at: "2026-08-13T10:00:00Z",
     ...overrides,
   };
@@ -113,18 +134,24 @@ describe("OverviewTab maintenance", () => {
     render(<OverviewTab server={makeServer()} />);
     expect(screen.getByText("Not in maintenance")).toBeInTheDocument();
     // Maintenance is switched from the inventory list only.
-    expect(screen.queryByRole("button", { name: /maintenance/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /maintenance/i }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
   it("shows the reason when in maintenance, still with no control", () => {
     render(
       <OverviewTab
-        server={makeServer({ maintenance: { enabled: true, reason: "disk replacement" } })}
+        server={makeServer({
+          maintenance: { enabled: true, reason: "disk replacement" },
+        })}
       />,
     );
     expect(screen.getByText("disk replacement")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /maintenance/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /maintenance/i }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -231,7 +258,10 @@ describe("OverviewTab profile template", () => {
     for (const [sourceProvider, label] of cases) {
       const server = makeServer({
         source_provider: sourceProvider,
-        profile_template: { name: "worker-profile-tmpl", external_id: "tmpl-001" },
+        profile_template: {
+          name: "worker-profile-tmpl",
+          external_id: "tmpl-001",
+        },
       });
 
       const { unmount } = render(<OverviewTab server={server} />);
@@ -261,7 +291,9 @@ describe("OverviewTab profile template", () => {
 
     render(<OverviewTab server={server} />);
 
-    expect(screen.queryByText(/profile template|deployment template/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/profile template|deployment template/i),
+    ).not.toBeInTheDocument();
   });
 
   it("omits the row when the server has no source provider at all", () => {
@@ -269,7 +301,9 @@ describe("OverviewTab profile template", () => {
 
     render(<OverviewTab server={server} />);
 
-    expect(screen.queryByText(/profile template|deployment template/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/profile template|deployment template/i),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -279,7 +313,9 @@ describe("OverviewTab collection status", () => {
 
     render(<OverviewTab server={server} />);
 
-    expect(screen.queryByText("Unreachable", { exact: false })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Unreachable", { exact: false }),
+    ).not.toBeInTheDocument();
   });
 
   it("flags an unreachable server with how long it has been down", () => {
@@ -291,6 +327,49 @@ describe("OverviewTab collection status", () => {
     render(<OverviewTab server={server} />);
 
     expect(screen.getByText(/Unreachable since/)).toBeInTheDocument();
+  });
+
+  it("says wrong credentials when the BMC rejected the login", () => {
+    const server = makeServer({
+      reachable: false,
+      unreachable_since: "2026-09-09T10:00:00Z",
+      unreachable_reason: "auth_rejected",
+    });
+
+    render(<OverviewTab server={server} />);
+
+    expect(screen.getByText(/Wrong credentials since/)).toBeInTheDocument();
+  });
+
+  it.each(["UCS_CENTRAL", "INTERSIGHT"])(
+    "hides the BMC row for a %s server",
+    (provider) => {
+      render(
+        <OverviewTab server={makeServer({ source_provider: provider })} />,
+      );
+
+      expect(screen.queryByText("BMC")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(["OPENMANAGE", "ONEVIEW", "REDFISH_STANDALONE"])(
+    "keeps the BMC row for a %s server even when it is Unknown",
+    (provider) => {
+      render(
+        <OverviewTab server={makeServer({ source_provider: provider })} />,
+      );
+
+      expect(screen.getByText("BMC")).toBeInTheDocument();
+    },
+  );
+
+  it("lists BMC in the health breakdown and leaves CPU out", () => {
+    render(
+      <OverviewTab server={makeServer({ source_provider: "OPENMANAGE" })} />,
+    );
+
+    expect(screen.getByText("BMC")).toBeInTheDocument();
+    expect(screen.queryByText("CPU")).not.toBeInTheDocument();
   });
 
   it("still flags an unreachable server with no known start time", () => {
@@ -317,7 +396,9 @@ describe("OverviewTab collection status", () => {
         })}
       />,
     );
-    expect(screen.getByText("Installing to ocp4-mce-alpha")).toBeInTheDocument();
+    expect(
+      screen.getByText("Installing to ocp4-mce-alpha"),
+    ).toBeInTheDocument();
   });
 
   it("shows no install lock on a server nobody is installing", () => {

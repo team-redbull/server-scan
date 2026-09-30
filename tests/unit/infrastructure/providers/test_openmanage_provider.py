@@ -11,12 +11,13 @@ See docs/adr/0020-dell-identity-from-ome-hardware-from-redfish.md.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 from collections.abc import AsyncIterator
 from typing import Any, Self
 
 import pytest
 
-from app.domain.enums import ManagerType, Vendor
+from app.domain.enums import ManagerType, UnreachableReason, Vendor
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
@@ -510,11 +511,42 @@ class TestUnreachableHosts:
         assert placeholder.reachable is False
         assert placeholder.serial == "7XKD9P9"
 
-    async def test_every_other_failure_still_counts_toward_partial(self) -> None:
-        """TLS and a per-host budget are not "the server is down" — they
-        may affect many hosts, so they keep today's behaviour: no
-        placeholder, still PARTIAL.
+    async def test_every_failure_yields_a_placeholder_but_only_routine_ones_are_benign(
+        self,
+    ) -> None:
+        """Every inner failure becomes a placeholder with its reason; TLS, budget and
+        protocol also stay a collection error (PARTIAL), a dead host or bad login do not.
         """
+        for message, reason, recorded_error in (
+            ("10.0.0.9: TLS verification failed — bad cert", UnreachableReason.TLS_ERROR, True),
+            ("10.0.0.9: exceeded its 60s budget", UnreachableReason.TIMEOUT, True),
+            ("10.0.0.9: not a Redfish service", UnreachableReason.PROTOCOL_ERROR, True),
+            ("10.0.0.9: unreachable — refused", UnreachableReason.NETWORK_UNREACHABLE, False),
+            ("10.0.0.9: login failed for credential 'x'", UnreachableReason.AUTH_REJECTED, False),
+        ):
+            provider, recorded = _provider(
+                profiles=[
+                    _profile("ocp4-nyc-prod-worker-03", "10.0.0.1"),
+                    _profile("ocp4-nyc-prod-worker-09", "10.0.0.9"),
+                ],
+                devices=[
+                    _device("10.0.0.1", service_tag="7XKD9P3"),
+                    _device("10.0.0.9", service_tag="7XKD9P9"),
+                ],
+                servers=[_collected("10.0.0.1")],
+            )
+            servers = []
+            async for server in provider.collect():
+                recorded["redfish"].collection_errors = (message,)
+                servers.append(server)
+            [placeholder] = [s for s in servers if not s.reachable]
+            assert placeholder.unreachable_reason is reason
+            assert placeholder.serial == "7XKD9P9"
+            assert provider.collection_errors == ((message,) if recorded_error else ())
+
+    async def test_an_inner_redfish_stub_is_dropped_not_yielded(self) -> None:
+        """OME yields its own serial-carrying placeholder, never Redfish's."""
+        stub = dataclasses.replace(_collected("10.0.0.9"), reachable=False, serial=None, model=None)
         provider, recorded = _provider(
             profiles=[
                 _profile("ocp4-nyc-prod-worker-03", "10.0.0.1"),
@@ -524,14 +556,13 @@ class TestUnreachableHosts:
                 _device("10.0.0.1", service_tag="7XKD9P3"),
                 _device("10.0.0.9", service_tag="7XKD9P9"),
             ],
-            servers=[_collected("10.0.0.1")],
+            servers=[_collected("10.0.0.1"), stub],
         )
         servers = []
         async for server in provider.collect():
-            recorded["redfish"].collection_errors = (
-                "10.0.0.9: TLS verification failed — bad cert",
-            )
+            recorded["redfish"].collection_errors = ("10.0.0.9: unreachable — refused",)
             servers.append(server)
-
-        assert provider.collection_errors == ("10.0.0.9: TLS verification failed — bad cert",)
-        assert all(s.external_id != "ome-unreachable:10.0.0.9" for s in servers)
+        [placeholder] = [s for s in servers if not s.reachable]
+        assert placeholder.external_id == "ome-unreachable:10.0.0.9"
+        assert placeholder.serial == "7XKD9P9"
+        assert len(servers) == 2

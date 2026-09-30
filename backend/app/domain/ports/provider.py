@@ -30,6 +30,8 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import dataclass, field
 
+from app.domain.enums import UnreachableReason
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderAttachment:
@@ -99,6 +101,7 @@ class ProviderServer:
     system_uuid: str | None = None
 
     reachable: bool = True  # False: identity known, BMC unreachable; every field below is None
+    unreachable_reason: UnreachableReason | None = None
 
     nic_macs: tuple[str, ...] | None = None
 

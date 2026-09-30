@@ -56,13 +56,13 @@ def health_from_state(state: HealthState) -> Health:
     severities = {cat: state.categories[cat].severity for cat in CATEGORIES}
     return Health(
         overall=state.overall,
-        cpu=severities["cpu"],
         memory=severities["memory"],
         storage=severities["storage"],
         network=severities["network"],
         connectivity=severities["connectivity"],
         power=severities["power"],
         gpu=severities["gpu"],
+        bmc=severities["bmc"],
         evaluated_at=state.evaluated_at,
         active_policy_keys=sorted(e.policy_key for e in state.evaluations if e.active),
     )
