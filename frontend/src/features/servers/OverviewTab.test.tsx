@@ -89,6 +89,32 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
   };
 }
 
+describe("OverviewTab matched rule", () => {
+  it("names the rule and what it matched on", () => {
+    render(
+      <OverviewTab
+        server={makeServer({
+          classification: {
+            installation_type: "UPI",
+            matched_rule_id: "r1",
+            matched_rule_name: "Hypershift",
+            matched_field: "name",
+            matched_pattern: "^ocp4-hypershift",
+          },
+        })}
+      />,
+    );
+    expect(
+      screen.getByText("Hypershift (name ~ ^ocp4-hypershift)"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows nothing for a legacy classification", () => {
+    render(<OverviewTab server={makeServer()} />);
+    expect(screen.queryByText("Matched rule")).not.toBeInTheDocument();
+  });
+});
+
 describe("OverviewTab model", () => {
   it("shows the chassis's own model when it read one", () => {
     render(<OverviewTab server={makeServer({ model: "PowerEdge R6515" })} />);

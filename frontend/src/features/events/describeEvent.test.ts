@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeEvent,
   healthSections,
+  visibleData,
   WRITTEN_EVENT_TYPES,
 } from "@/features/events/describeEvent";
 import type { AuditEventResponse } from "@/types/events";
@@ -138,9 +139,7 @@ describe("describeEvent", () => {
 
     it("describes only the transition; reasons are separate sections", () => {
       const d = { ...base, to_reasons: [reason("A", "x"), reason("B", "y")] };
-      expect(describeEvent(ev("HEALTH_CHANGED", d))).toBe(
-        "MAJOR → CRITICAL",
-      );
+      expect(describeEvent(ev("HEALTH_CHANGED", d))).toBe("MAJOR → CRITICAL");
       expect(healthSections(d).to).toHaveLength(2);
       expect(healthSections(d).from).toBeNull();
     });
@@ -157,5 +156,17 @@ describe("describeEvent", () => {
       );
       expect(healthSections(base)).toEqual({ from: null, to: null });
     });
+  });
+});
+
+describe("visibleData", () => {
+  it("hides the legacy ticket and matched_rule_id keys without touching the event", () => {
+    const e = ev("CLASSIFICATION_CHANGED", {
+      to: "UPI",
+      ticket: "T",
+      matched_rule_id: "r",
+    });
+    expect(visibleData(e)).toEqual({ to: "UPI" });
+    expect(e.data).toHaveProperty("ticket");
   });
 });

@@ -26,6 +26,9 @@ export type InstallationType =
 export interface Classification {
   installation_type: InstallationType;
   matched_rule_id: string | null;
+  matched_rule_name?: string | null;
+  matched_field?: string | null;
+  matched_pattern?: string | null;
 }
 
 /** Null for a standalone server (a bare BMC has no template concept) or

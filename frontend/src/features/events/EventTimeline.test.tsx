@@ -244,3 +244,40 @@ describe("EventTimeline health changes", () => {
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 });
+
+describe("EventTimeline classification details", () => {
+  function open(data: Record<string, unknown>) {
+    render(
+      <MemoryRouter>
+        <EventTimeline
+          events={[
+            { ...event("c", data), event_type: "CLASSIFICATION_CHANGED" },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /details/i }));
+  }
+
+  it("shows the rule name and what it matched on, and hides legacy keys", () => {
+    open({
+      from: "UNCLASSIFIED",
+      to: "HOSTED_CLUSTER",
+      matched_rule: "Hypershift",
+      matched_field: "name",
+      matched_pattern: "^ocp4-hypershift",
+      matched_rule_id: "r1",
+      ticket: "T-1",
+    });
+    expect(screen.getByText("Matched rule")).toBeInTheDocument();
+    expect(screen.getByText("Hypershift")).toBeInTheDocument();
+    expect(screen.getByText("name ~ ^ocp4-hypershift")).toBeInTheDocument();
+    const json = screen.getByText(/"from"/, { selector: "pre" });
+    expect(json.textContent).not.toMatch(/matched_rule_id|ticket/);
+  });
+
+  it("shows nothing extra for a legacy event with only a rule id", () => {
+    open({ from: "UNCLASSIFIED", to: "UPI", matched_rule_id: "r1" });
+    expect(screen.queryByText("Matched rule")).not.toBeInTheDocument();
+  });
+});

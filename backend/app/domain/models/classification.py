@@ -21,7 +21,30 @@ class Classification(BaseModel):
 
     installation_type: InstallationType = InstallationType.UNCLASSIFIED
     matched_rule_id: str | None = None
+    matched_rule_name: str | None = None
     matched_pattern: str | None = None
     matched_field: str | None = None
     classified_at: datetime | None = None
     classification_version: int = 0
+
+
+def classification_changed_data(
+    previous: InstallationType, classification: Classification
+) -> dict[str, str | None]:
+    """
+    Build the `CLASSIFICATION_CHANGED` event data, in words a user can read.
+
+    Args:
+        previous (InstallationType): The installation type before the change.
+        classification (Classification): The new classification.
+
+    Returns:
+        dict[str, str | None]: from/to plus the matched rule's name, field and pattern.
+    """
+    return {
+        "from": previous.value,
+        "to": classification.installation_type.value,
+        "matched_rule": classification.matched_rule_name,
+        "matched_field": classification.matched_field,
+        "matched_pattern": classification.matched_pattern,
+    }

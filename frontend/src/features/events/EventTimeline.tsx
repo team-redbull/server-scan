@@ -6,8 +6,10 @@ import type { HealthReason } from "@/features/events/describeEvent";
 import {
   describeEvent,
   healthSections,
+  matchedRule,
   topReason,
   transition,
+  visibleData,
 } from "@/features/events/describeEvent";
 import { actorLabel } from "@/lib/actor";
 import type { ActorKind } from "@/lib/actor";
@@ -169,6 +171,24 @@ function HealthWhy({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+/** The matching rule, readable; nothing for a legacy event that only has an id. */
+function ClassificationWhy({ data }: { data: Record<string, unknown> }) {
+  const rule = matchedRule(data);
+  if (rule === null) return null;
+  return (
+    <dl className="mb-2 grid grid-cols-[6rem_1fr] gap-x-3 gap-y-0.5 text-xs">
+      <dt className="text-[var(--text-secondary)]">Matched rule</dt>
+      <dd className="break-words">{rule.name}</dd>
+      {rule.on && (
+        <>
+          <dt className="text-[var(--text-secondary)]">Matched on</dt>
+          <dd className="font-mono break-words">{rule.on}</dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
 const KIND_TINT: Record<ActorKind, string> = {
   user: "--tint-info",
   token: "--tint-major",
@@ -312,8 +332,11 @@ export function EventTimeline({
                           {describeEvent(event)}
                         </p>
                       )}
+                      {event.event_type === "CLASSIFICATION_CHANGED" && (
+                        <ClassificationWhy data={event.data} />
+                      )}
                       <pre className="text-xs break-words whitespace-pre-wrap text-[var(--text-secondary)]">
-                        {JSON.stringify(event.data, null, 2)}
+                        {JSON.stringify(visibleData(event), null, 2)}
                       </pre>
                     </td>
                   </tr>

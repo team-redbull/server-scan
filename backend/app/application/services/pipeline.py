@@ -40,6 +40,7 @@ def classification_from_result(
     return Classification(
         installation_type=result.installation_type,
         matched_rule_id=result.rule_id,
+        matched_rule_name=result.rule_name,
         matched_pattern=result.matched_pattern,
         matched_field=result.matched_field,
         classified_at=result.classified_at,

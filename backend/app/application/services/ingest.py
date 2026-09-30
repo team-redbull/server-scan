@@ -51,7 +51,7 @@ from app.application.services.pipeline import (
 )
 from app.domain.enums import LinkState, ManagerType, MediaType, Vendor
 from app.domain.models.audit_event import EventType
-from app.domain.models.classification import Classification
+from app.domain.models.classification import Classification, classification_changed_data
 from app.domain.models.classification_rule import ClassificationRule
 from app.domain.models.connectivity import (
     Connectivity,
@@ -636,11 +636,9 @@ class IngestService:
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
                 server_name=server.name,
-                data={
-                    "from": existing.classification.installation_type.value,
-                    "to": server.classification.installation_type.value,
-                    "matched_rule_id": server.classification.matched_rule_id,
-                },
+                data=classification_changed_data(
+                    existing.classification.installation_type, server.classification
+                ),
             )
 
         if state is not None and server.health.overall != existing.health.overall:

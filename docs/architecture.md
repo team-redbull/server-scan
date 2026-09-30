@@ -1041,7 +1041,10 @@ and exposed via reclassify/recalculate endpoints.
   no longer in that list — both are read-only now, see Slice 5 below.
 - Ingestion emits `SERVER_CREATED` for genuinely new servers and
   `CLASSIFICATION_CHANGED`/`HEALTH_CHANGED` only on a real
-  transition (a `HEALTH_CHANGED` event's `data` is `{from, to,
+  transition (a `CLASSIFICATION_CHANGED` event's `data` is `{from, to,
+  matched_rule, matched_field, matched_pattern}` — the rule's name, not its
+  id, read from `Classification.matched_rule_name`; events written before
+  2026-10 carry `matched_rule_id` instead, which the UI hides) (a `HEALTH_CHANGED` event's `data` is `{from, to,
   from_reasons, to_reasons}` (renamed from `HEALTH_STATUS_CHANGED`: readers decode the old
   name, `GET /events?event_type=` matches either, and startup rewrites stored rows once), each a list of `{policy_key, policy_name,
   category, severity, message}`, worst first, capped at 10, no evidence.
@@ -1835,7 +1838,10 @@ read-only and open to the viewer role. They share `features/events/`:
 ONLY the event-type chip (no sentence, no message): an event with a status
 change (`CLASSIFICATION_CHANGED`, `OPENSHIFT_STATE_CHANGED`) adds a muted
 `FROM → TO` under it, and the human sentence (`describeEvent`) plus the raw
-`data` are behind the Details button; a
+`data` are behind the Details button (a `CLASSIFICATION_CHANGED` shows
+labelled `Matched rule` / `Matched on` above the JSON, which hides the
+legacy `ticket` and `matched_rule_id` keys; the server Overview tab shows
+`Matched rule: name (field ~ pattern)`); a
 `HEALTH_CHANGED` row shows instead `FROM → TO` as severity chips
 directly under the type chip and nothing else, and its Details show a
 `FROM <severity>` section then a `TO <severity>` section, each showing only

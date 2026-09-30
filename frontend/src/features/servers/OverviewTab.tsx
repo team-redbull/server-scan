@@ -84,6 +84,17 @@ export function OverviewTab({ server }: OverviewTabProps) {
           label="Classification"
           value={<Badge>{server.classification.installation_type}</Badge>}
         />
+        {server.classification.matched_rule_name && (
+          <Field
+            label="Matched rule"
+            value={`${server.classification.matched_rule_name}${
+              server.classification.matched_field &&
+              server.classification.matched_pattern
+                ? ` (${server.classification.matched_field} ~ ${server.classification.matched_pattern})`
+                : ""
+            }`}
+          />
+        )}
         <Field
           label="Overall health"
           value={<HealthBadge severity={server.health.overall} />}

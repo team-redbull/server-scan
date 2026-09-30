@@ -131,3 +131,25 @@ export function describeEvent(event: AuditEventResponse): string {
       return event.event_type;
   }
 }
+
+const LEGACY_DATA_KEYS = ["ticket", "matched_rule_id"];
+
+/** The event's data minus legacy keys (removed ticket, internal rule id); the stored event is untouched. */
+export function visibleData(
+  event: AuditEventResponse,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(event.data).filter(([k]) => !LEGACY_DATA_KEYS.includes(k)),
+  );
+}
+
+/** The readable rule of a CLASSIFICATION_CHANGED event; null for a legacy or unmatched one. */
+export function matchedRule(
+  data: Record<string, unknown>,
+): { name: string; on: string | null } | null {
+  const name = str(data.matched_rule);
+  if (name === null) return null;
+  const field = str(data.matched_field);
+  const pattern = str(data.matched_pattern);
+  return { name, on: field && pattern ? `${field} ~ ${pattern}` : null };
+}

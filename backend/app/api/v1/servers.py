@@ -80,6 +80,7 @@ from app.dependencies import (
 )
 from app.domain.enums import HealthSeverity, ManagerType, Vendor
 from app.domain.models.audit_event import Actor, EventType
+from app.domain.models.classification import classification_changed_data
 from app.domain.ports.regex_engine import RegexEngine
 from app.domain.services.classification import ClassifiableServer
 from app.domain.services.health.metrics import build_default_registry
@@ -848,11 +849,7 @@ async def reclassify_server(
             server_id=server_id,
             server_name=server.name,
             request_id=request_id,
-            data={
-                "from": previous_type.value,
-                "to": server.classification.installation_type.value,
-                "matched_rule_id": server.classification.matched_rule_id,
-            },
+            data=classification_changed_data(previous_type, server.classification),
         )
     return ServerDetail.from_server(
         server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
