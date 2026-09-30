@@ -588,6 +588,7 @@ class OpenShiftMembershipService:
                 EventType.OPENSHIFT_STATE_CHANGED,
                 actor=self._actor,
                 server_id=server.id,
+                server_name=server.name,
                 request_id=None,
                 data={
                     "from": before.lifecycle_state.value,

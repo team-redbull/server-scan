@@ -65,7 +65,11 @@ from app.application.services.classification_service import ClassificationServic
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService
 from app.application.services.maintenance_service import MaintenanceService
-from app.application.services.pipeline import classification_from_result, health_from_state
+from app.application.services.pipeline import (
+    classification_from_result,
+    health_change_data,
+    health_from_state,
+)
 from app.application.services.reservation_service import ReservationService
 from app.config import Settings, get_settings
 from app.dependencies import (
@@ -842,6 +846,7 @@ async def reclassify_server(
             EventType.CLASSIFICATION_CHANGED,
             actor=actor,
             server_id=server_id,
+            server_name=server.name,
             request_id=request_id,
             data={
                 "from": previous_type.value,
@@ -868,7 +873,7 @@ async def recalculate_server_health(
     """
     Re-run health evaluation for one server against the current policy set.
 
-    Same rationale as `reclassify_server`. Records a `HEALTH_STATUS_CHANGED`
+    Same rationale as `reclassify_server`. Records a `HEALTH_CHANGED`
     audit event when the overall severity changes.
 
     Args:
@@ -892,8 +897,9 @@ async def recalculate_server_health(
         raise NotFoundError(f"No server with id {server_id!r}.", details={"server_id": server_id})
 
     expected_revision = server.revision
-    previous_overall = server.health.overall
-    state = await service.evaluate_server(server)
+    previous_health = server.health
+    policies = await service.load_policies()
+    state = service.evaluate_with_policies(server, policies)
     server.health = health_from_state(state)
     server.revision += 1
     server.updated_at = utcnow()
@@ -901,17 +907,14 @@ async def recalculate_server_health(
     await repo.upsert_with_revision_check(server, expected_revision=expected_revision)
     await _invalidate_detail_cache(server_id, cache)
 
-    if server.health.overall != previous_overall:
+    if server.health.overall != previous_health.overall:
         await audit.record(
-            EventType.HEALTH_STATUS_CHANGED,
+            EventType.HEALTH_CHANGED,
             actor=actor,
             server_id=server_id,
+            server_name=server.name,
             request_id=request_id,
-            data={
-                "from": previous_overall.value,
-                "to": server.health.overall.value,
-                "policy_ids": [e.policy_id for e in state.evaluations if e.active],
-            },
+            data=health_change_data(previous_health, state, policies),
         )
     return ServerDetail.from_server(
         server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
@@ -933,7 +936,7 @@ async def enable_maintenance(
 
     Args:
         server_id (str): The server's ID.
-        payload (MaintenanceEnableRequest): The reason/ticket/expected end.
+        payload (MaintenanceEnableRequest): The reason/expected end.
         service (MaintenanceService): Applies the maintenance state change.
         cache (CacheClient): Cache-aside to invalidate on write.
         actor (Actor): The actor to attribute the audit event to.
@@ -949,7 +952,6 @@ async def enable_maintenance(
     server = await service.enable(
         server_id,
         reason=payload.reason,
-        ticket=payload.ticket,
         expected_end=payload.expected_end,
         actor=actor,
         request_id=request_id,

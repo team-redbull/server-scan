@@ -287,7 +287,7 @@ async def test_a_partial_read_does_not_write_a_health_recovery_event(
     mongo_holder: MongoClientHolder,
 ) -> None:
     """The defect's second-order harm: zeroed storage also wrote a durable
-    HEALTH_STATUS_CHANGED event asserting the failed drive had recovered.
+    HEALTH_CHANGED event asserting the failed drive had recovered.
     """
     service = _service(mongo_holder)
     await service.ingest(_OneShotProvider(_fully_read(serial="SN-PARTIAL-3")))

@@ -38,6 +38,7 @@ class AuditService:
         *,
         actor: Actor,
         server_id: str | None = None,
+        server_name: str | None = None,
         request_id: str | None = None,
         data: dict[str, Any] | None = None,
     ) -> AuditEvent:
@@ -48,6 +49,7 @@ class AuditService:
             event_type (EventType): What kind of event occurred.
             actor (Actor): Who or what caused it.
             server_id (str | None): The server it concerns, if any.
+            server_name (str | None): That server's name, snapshotted onto the event.
             request_id (str | None): The originating API request id, if any.
             data (dict[str, Any] | None): Event-specific payload; defaults to `{}`.
 
@@ -58,6 +60,7 @@ class AuditService:
             id=new_id("event"),
             event_type=event_type,
             server_id=server_id,
+            server_name=server_name,
             actor=actor,
             request_id=request_id,
             created_at=utcnow(),

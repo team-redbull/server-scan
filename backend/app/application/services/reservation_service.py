@@ -97,6 +97,7 @@ class ReservationService:
                 EventType.SERVER_RESERVATION_REFUSED,
                 actor=actor,
                 server_id=server_id,
+                server_name=server.name,
                 request_id=request_id,
                 data={
                     "requested_by": holder,
@@ -145,6 +146,7 @@ class ReservationService:
                 EventType.SERVER_RESERVATION_REFUSED,
                 actor=actor,
                 server_id=server_id,
+                server_name=server.name,
                 request_id=request_id,
                 data={
                     "requested_by": holder,
@@ -162,6 +164,7 @@ class ReservationService:
             EventType.SERVER_RESERVED,
             actor=actor,
             server_id=server_id,
+            server_name=server.name,
             request_id=request_id,
             data={
                 "holder": holder,
@@ -243,6 +246,7 @@ class ReservationService:
             EventType.SERVER_RELEASED,
             actor=actor,
             server_id=server_id,
+            server_name=server.name,
             request_id=request_id,
             data={
                 "holder": existing.holder,

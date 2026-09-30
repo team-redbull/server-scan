@@ -56,6 +56,16 @@ class CategoryHealth(BaseModel):
     _decode = field_validator("severity", mode="before")(decode_retired_severity)
 
 
+class HealthReason(BaseModel):
+    """One policy that fired in the last evaluation, without its evidence."""
+
+    policy_key: str
+    policy_name: str
+    category: str
+    severity: HealthSeverity
+    message: str | None = None
+
+
 class Health(BaseModel):
     """The health rollup embedded on a `Server` document, one severity per category."""
 
@@ -71,5 +81,7 @@ class Health(BaseModel):
     # The `policy_key`s that fired, so "what is wrong across the fleet" is
     # one aggregation (ADR-0029). Absent on documents written before it.
     active_policy_keys: list[str] = Field(default_factory=list)
+    # The last evaluation's firing policies, worst first, capped; absent on older documents.
+    reasons: list[HealthReason] = Field(default_factory=list)
 
     _decode = field_validator(*_SEVERITY_FIELDS, mode="before")(decode_retired_severity)

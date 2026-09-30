@@ -111,7 +111,11 @@ async def _delete_one(
         "reason": REASON,
     }
     await audit.record(
-        EventType.SERVER_PRUNED, actor=PRUNE_ACTOR, server_id=server.id, data=details
+        EventType.SERVER_PRUNED,
+        actor=PRUNE_ACTOR,
+        server_id=server.id,
+        server_name=server.name,
+        data=details,
     )
     deleted = await repo.delete(server.id)
     logger.info("server.pruned", deleted=deleted, **details)

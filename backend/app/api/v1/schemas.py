@@ -187,10 +187,11 @@ _OPTIONAL_DATETIME = TypeAdapter(datetime | None)
 
 
 class MaintenanceFlag(BaseModel):
-    """The two maintenance fields an inventory row shows."""
+    """The maintenance fields an inventory row shows."""
 
     enabled: bool
     reason: str | None
+    created_by: str | None
 
 
 class ReservationFlag(BaseModel):
@@ -286,6 +287,7 @@ class ServerRow(BaseModel):
             maintenance=MaintenanceFlag(
                 enabled=(doc.get("maintenance") or {}).get("enabled", False),
                 reason=(doc.get("maintenance") or {}).get("reason"),
+                created_by=(doc.get("maintenance") or {}).get("created_by"),
             ),
             reservation=_reservation_flag(doc.get("reservation") or {}),
             openshift_state=(doc.get("openshift") or {}).get(

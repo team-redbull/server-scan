@@ -16,6 +16,7 @@ class AuditEventResponse(BaseModel):
     id: str
     event_type: EventType
     server_id: str | None
+    server_name: str | None
     actor: Actor
     request_id: str | None
     created_at: datetime
@@ -35,3 +36,18 @@ class AuditEventListResponse(BaseModel):
 
     items: list[AuditEventResponse]
     page: EventPageInfo
+
+
+class EventActor(BaseModel):
+    """One distinct actor seen in the audit log."""
+
+    id: str
+    type: str
+    display: str | None
+    event_count: int
+
+
+class EventActorListResponse(BaseModel):
+    """Distinct actors, busiest first."""
+
+    items: list[EventActor]

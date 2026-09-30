@@ -86,6 +86,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     mongo = MongoClientHolder(settings)
     await mongo.connect()
     await ensure_indexes(mongo.db)
+    renamed = await MongoAuditEventRepository(mongo).rename_legacy_event_types()
+    if renamed:
+        logger.info("audit_events.legacy_types_renamed", count=renamed)
     regex_engine = RegexModuleEngine(
         max_pattern_length=settings.regex_max_pattern_length,
         match_timeout_seconds=settings.regex_match_timeout_seconds,

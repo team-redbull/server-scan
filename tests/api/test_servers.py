@@ -591,7 +591,7 @@ async def test_rows_returns_every_server_as_a_flat_row(
     assert rows[seen.id]["vendor"] == "cisco"
     assert rows[seen.id]["site_id"] == "tlv"
     assert rows[seen.id]["health"] == "CRITICAL"
-    assert rows[seen.id]["maintenance"] == {"enabled": False, "reason": None}
+    assert rows[seen.id]["maintenance"] == {"enabled": False, "reason": None, "created_by": None}
     # An unreserved server reports the lock as not held, with nothing attributed.
     # `held` is computed per request rather than stored, so an expired lock reads
     # as free everywhere at once.
@@ -654,7 +654,7 @@ async def test_rows_change_after_a_maintenance_write(
     after = await client.get("/api/v1/servers/rows")
     assert after.headers["etag"] != before.headers["etag"]
     (row,) = after.json()["items"]
-    assert row["maintenance"] == {"enabled": True, "reason": "fan"}
+    assert row["maintenance"] == {"enabled": True, "reason": "fan", "created_by": "dev"}
 
 
 async def test_rows_are_gzipped_for_a_gzip_client(

@@ -18,7 +18,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ActorType(StrEnum):
@@ -62,7 +62,7 @@ class EventType(StrEnum):
     HEALTH_POLICY_UPDATED = "HEALTH_POLICY_UPDATED"
     HEALTH_POLICY_DISABLED = "HEALTH_POLICY_DISABLED"
     HEALTH_POLICY_DELETED = "HEALTH_POLICY_DELETED"
-    HEALTH_STATUS_CHANGED = "HEALTH_STATUS_CHANGED"
+    HEALTH_CHANGED = "HEALTH_CHANGED"
     OPENSHIFT_STATE_CHANGED = "OPENSHIFT_STATE_CHANGED"
     SERVER_RESERVED = "SERVER_RESERVED"
     SERVER_RESERVATION_REFUSED = "SERVER_RESERVATION_REFUSED"
@@ -76,15 +76,37 @@ class EventType(StrEnum):
     SITE_UPDATED = "SITE_UPDATED"
 
 
+LEGACY_EVENT_TYPES = {"HEALTH_STATUS_CHANGED": EventType.HEALTH_CHANGED.value}
+
+
+def decode_legacy_event_type(value: object) -> object:
+    """
+    Map an event type renamed since it was stored onto its current name.
+
+    Args:
+        value (object): The stored or caller-supplied event type.
+
+    Returns:
+        object: The current name if `value` is a legacy one, else `value`.
+    """
+    if isinstance(value, str):
+        return LEGACY_EVENT_TYPES.get(value, value)
+    return value
+
+
 class AuditEvent(BaseModel):
     """One immutable, append-only record in the `audit_events` collection."""
 
     id: str = Field(alias="_id")
     event_type: EventType
     server_id: str | None = None  # None for rule/policy events; their id is in `data`
+    # The name at write time, so an event outlives a rename or a prune. None on legacy events.
+    server_name: str | None = None
     actor: Actor
     request_id: str | None = None
     created_at: datetime
     data: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"populate_by_name": True}
+
+    _decode = field_validator("event_type", mode="before")(decode_legacy_event_type)

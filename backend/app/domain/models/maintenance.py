@@ -18,7 +18,6 @@ class Maintenance(BaseModel):
 
     enabled: bool = False
     reason: str | None = None
-    ticket: str | None = None
     created_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

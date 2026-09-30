@@ -18,5 +18,4 @@ class MaintenanceEnableRequest(BaseModel):
     """The request body for enabling maintenance mode on a server."""
 
     reason: str | None = None
-    ticket: str | None = None
     expected_end: datetime | None = None

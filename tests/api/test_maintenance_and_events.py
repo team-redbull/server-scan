@@ -134,14 +134,14 @@ async def test_enable_maintenance_sets_fields_and_returns_server_detail(
 
     resp = await client.put(
         f"/api/v1/servers/{server.id}/maintenance",
-        json={"reason": "disk replacement", "ticket": "INC-1"},
+        json={"reason": "disk replacement"},
     )
 
     assert resp.status_code == 200
     body = resp.json()
     assert body["maintenance"]["enabled"] is True
     assert body["maintenance"]["reason"] == "disk replacement"
-    assert body["maintenance"]["ticket"] == "INC-1"
+    assert "ticket" not in body["maintenance"]
     assert body["revision"] == server.revision + 1
 
 
@@ -179,7 +179,7 @@ async def test_a_maintenance_write_refreshes_the_rows_body(
 
     await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "x"})
     (after,) = (await client.get("/api/v1/servers/rows")).json()["items"]
-    assert after["maintenance"] == {"enabled": True, "reason": "x"}
+    assert after["maintenance"] == {"enabled": True, "reason": "x", "created_by": "dev"}
 
 
 async def test_enable_maintenance_records_maintenance_enabled_event(
@@ -260,10 +260,40 @@ async def test_recalculate_health_records_health_status_changed_on_real_transiti
     assert resp.status_code == 200
     assert resp.json()["health"]["overall"] == "CRITICAL"
     events = (await client.get(f"/api/v1/servers/{server.id}/events")).json()["items"]
-    changed = [e for e in events if e["event_type"] == "HEALTH_STATUS_CHANGED"]
+    changed = [e for e in events if e["event_type"] == "HEALTH_CHANGED"]
     assert len(changed) == 1
     assert changed[0]["data"]["from"] == "UNKNOWN"
     assert changed[0]["data"]["to"] == "CRITICAL"
+    reasons = changed[0]["data"]["to_reasons"]
+    assert [(r["policy_key"], r["severity"], r["message"]) for r in reasons] == [
+        ("connectivity.fabric_paths_down", "CRITICAL", "2 paths down")
+    ]
+    assert changed[0]["data"]["from_reasons"] == []
+
+
+async def test_recalculate_health_recovery_lists_legacy_from_reasons(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
+) -> None:
+    client, repo, policy_repo = app_context
+    server = _make_server("srv-recalc-rec", health=HealthSeverity.CRITICAL)
+    server.health.active_policy_keys = ["connectivity.fabric_paths_down"]
+    await repo.upsert(server)
+    await policy_repo.upsert(_make_policy("fabric-down-recovery"))
+
+    await client.post(f"/api/v1/servers/{server.id}/health/recalculate")
+
+    events = (await client.get(f"/api/v1/servers/{server.id}/events")).json()["items"]
+    data = next(e for e in events if e["event_type"] == "HEALTH_CHANGED")["data"]
+    assert data["to_reasons"] == []
+    assert data["from_reasons"] == [
+        {
+            "policy_key": "connectivity.fabric_paths_down",
+            "policy_name": "fabric-down-recovery",
+            "category": "connectivity",
+            "severity": "CRITICAL",
+            "message": None,
+        }
+    ]
 
 
 async def test_recalculate_health_records_no_event_when_unchanged(
@@ -276,7 +306,7 @@ async def test_recalculate_health_records_no_event_when_unchanged(
     await client.post(f"/api/v1/servers/{server.id}/health/recalculate")
 
     events = (await client.get(f"/api/v1/servers/{server.id}/events")).json()["items"]
-    assert not any(e["event_type"] == "HEALTH_STATUS_CHANGED" for e in events)
+    assert not any(e["event_type"] == "HEALTH_CHANGED" for e in events)
 
 
 async def test_list_events_filters_by_event_type(
@@ -318,3 +348,45 @@ async def test_events_endpoint_is_read_only(
     client, _repo, _policy_repo = app_context
     resp = await client.post("/api/v1/events", json={})
     assert resp.status_code == 405
+
+
+async def test_events_carry_the_server_name_and_filter_by_window_and_name(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
+) -> None:
+    client, repo, _policy_repo = app_context
+    server = await repo.upsert(_make_server("srv-named-1"))
+    await repo.upsert(_make_server("other-box", index=1))
+    await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "x"})
+
+    body = (await client.get("/api/v1/events?server_name=NAMED")).json()
+    assert [e["server_name"] for e in body["items"]] == ["srv-named-1"]
+    assert body["items"][0]["event_type"] == "MAINTENANCE_ENABLED"
+
+    future = (await client.get("/api/v1/events?since=2999-01-01T00:00:00Z")).json()
+    assert future["items"] == []
+    past = (await client.get("/api/v1/events?until=2000-01-01T00:00:00Z")).json()
+    assert past["items"] == []
+    assert len((await client.get("/api/v1/events?since=2000-01-01T00:00:00Z")).json()["items"]) == 1
+
+
+async def test_events_reject_an_invalid_since(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
+) -> None:
+    client, _repo, _policy_repo = app_context
+    resp = await client.get("/api/v1/events?since=yesterday")
+    assert resp.status_code == 422
+    assert "problem+json" in resp.headers["content-type"]
+
+
+async def test_event_actors_lists_distinct_actors(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
+) -> None:
+    client, repo, _policy_repo = app_context
+    server = await repo.upsert(_make_server("srv-actor-1"))
+    await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "x"})
+    await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "y"})
+
+    items = (await client.get("/api/v1/events/actors")).json()["items"]
+    assert items == [
+        {"id": "dev", "type": "USER", "display": "Dev (auth disabled)", "event_count": 2}
+    ]

@@ -101,6 +101,7 @@ _ROW_PROJECTION: dict[str, int] = {
     "health.overall": 1,
     "maintenance.enabled": 1,
     "maintenance.reason": 1,
+    "maintenance.created_by": 1,
     # The install lock. Projected into the inventory row rather than left to
     # the detail page, because "which MCE is installing this?" is a question
     # asked OF THE FLEET — scanning rows for the machine that is stuck.

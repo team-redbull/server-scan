@@ -36,19 +36,52 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import TypeAdapter
 from pymongo.asynchronous.collection import AsyncCollection
 
-from app.domain.models.audit_event import AuditEvent
+from app.domain.models.audit_event import (
+    LEGACY_EVENT_TYPES,
+    AuditEvent,
+    decode_legacy_event_type,
+)
+from app.domain.services.normalize import normalize_text
 from app.errors import CursorInvalidError
 from app.infrastructure.mongodb.client import MongoClientHolder
-from app.infrastructure.mongodb.indexes import AUDIT_EVENTS_COLLECTION
+from app.infrastructure.mongodb.indexes import AUDIT_EVENTS_COLLECTION, SERVERS_COLLECTION
 
 _Document = dict[str, Any]
+
+_NAME_MATCH_ID_CAP = 5000
+_ACTOR_LIMIT = 200
+
+
+def _iso(value: datetime) -> str:
+    """
+    Render a filter bound the way `created_at` is stored (UTC ISO string, ADR-0006).
+
+    Args:
+        value (datetime): The bound; naive is taken as UTC.
+
+    Returns:
+        str: The stored-format string.
+    """
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return TypeAdapter(datetime).dump_python(aware, mode="json")
+
+
+@dataclass(frozen=True, slots=True)
+class ActorSummary:
+    """One distinct actor and how many events it recorded."""
+
+    id: str
+    type: str
+    display: str | None
+    event_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,12 +158,33 @@ class MongoAuditEventRepository:
         await self._collection.insert_one(doc)
         return event
 
+    async def rename_legacy_event_types(self) -> int:
+        """
+        Rewrite stored event types that have since been renamed (idempotent one-shot).
+
+        The one deliberate exception to append-only: a rename of the type label, run at
+        startup; readers also decode legacy names, so this is an optimisation, not a need.
+
+        Returns:
+            int: How many events were renamed.
+        """
+        renamed = 0
+        for old, new in LEGACY_EVENT_TYPES.items():
+            result = await self._collection.update_many(
+                {"event_type": old}, {"$set": {"event_type": new}}
+            )
+            renamed += result.modified_count
+        return renamed
+
     async def list_page(
         self,
         *,
         server_id: str | None = None,
         event_type: str | None = None,
         actor_id: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        server_name: str | None = None,
         cursor: str | None = None,
         page_size: int = 50,
     ) -> AuditEventPage:
@@ -141,6 +195,12 @@ class MongoAuditEventRepository:
             server_id (str | None): If given, only events for this server.
             event_type (str | None): If given, only events of this type.
             actor_id (str | None): If given, only events by this actor.
+            since (datetime | None): Inclusive lower bound on `created_at`.
+            until (datetime | None): Exclusive upper bound on `created_at`.
+            server_name (str | None): Case-insensitive substring of the server's
+                name: events of a current server whose `name_normalized` contains
+                it (at most 5000 ids are resolved), or whose snapshot
+                `server_name` does, so pruned servers still match.
             cursor (str | None): If given, resume after this page's last
                 item (from a previous call's `next_cursor`).
             page_size (int): Maximum number of items to return.
@@ -153,16 +213,42 @@ class MongoAuditEventRepository:
         if server_id is not None:
             query["server_id"] = server_id
         if event_type is not None:
-            query["event_type"] = event_type
+            current = decode_legacy_event_type(event_type)
+            legacy = [old for old, new in LEGACY_EVENT_TYPES.items() if new == current]
+            query["event_type"] = {"$in": [current, *legacy]} if legacy else current
         if actor_id is not None:
             query["actor.id"] = actor_id
+        window: dict[str, str] = {}
+        if since is not None:
+            window["$gte"] = _iso(since)
+        if until is not None:
+            window["$lt"] = _iso(until)
+        if window:
+            query["created_at"] = window
 
+        clauses: list[_Document] = []
+        if server_name and (needle := normalize_text(server_name)):
+            ids = await self._server_ids_by_name(needle)
+            clauses.append(
+                {
+                    "$or": [
+                        {"server_id": {"$in": ids}},
+                        {"server_name": {"$regex": re.escape(needle), "$options": "i"}},
+                    ]
+                }
+            )
         if cursor is not None:
             created_at_iso, event_id = _decode_cursor(cursor)
-            query["$or"] = [
-                {"created_at": {"$lt": created_at_iso}},
-                {"created_at": created_at_iso, "_id": {"$lt": event_id}},
-            ]
+            clauses.append(
+                {
+                    "$or": [
+                        {"created_at": {"$lt": created_at_iso}},
+                        {"created_at": created_at_iso, "_id": {"$lt": event_id}},
+                    ]
+                }
+            )
+        if clauses:
+            query["$and"] = clauses
 
         docs = await (
             self._collection.find(query)
@@ -173,6 +259,7 @@ class MongoAuditEventRepository:
         has_more = len(docs) > page_size
         docs = docs[:page_size]
         items = [AuditEvent.model_validate(doc) for doc in docs]
+        await self._backfill_server_names(items)
 
         # From the raw stored string, never `created_at.isoformat()`:
         # "+00:00" versus Pydantic's "Z" silently breaks the next page
@@ -181,6 +268,65 @@ class MongoAuditEventRepository:
             _encode_cursor(docs[-1]["created_at"], docs[-1]["_id"]) if has_more and docs else None
         )
         return AuditEventPage(items=items, next_cursor=next_cursor, has_more=has_more)
+
+    async def _server_ids_by_name(self, needle: str) -> list[str]:
+        """
+        Resolve the ids of current servers whose normalized name contains `needle`.
+
+        Args:
+            needle (str): Normalized text.
+
+        Returns:
+            list[str]: Up to 5000 server ids.
+        """
+        cursor = self._mongo.db[SERVERS_COLLECTION].find(
+            {"name_normalized": {"$regex": re.escape(needle)}}, {"_id": 1}
+        )
+        return [d["_id"] for d in await cursor.to_list(length=_NAME_MATCH_ID_CAP)]
+
+    async def _backfill_server_names(self, items: list[AuditEvent]) -> None:
+        """
+        Fill `server_name` on legacy events from the current servers, in one query.
+
+        Args:
+            items (list[AuditEvent]): A page of events, mutated in place.
+        """
+        missing = {e.server_id for e in items if e.server_name is None and e.server_id}
+        if not missing:
+            return
+        cursor = self._mongo.db[SERVERS_COLLECTION].find(
+            {"_id": {"$in": list(missing)}}, {"name": 1}
+        )
+        names = {d["_id"]: d.get("name") async for d in cursor}
+        for e in items:
+            if e.server_name is None and e.server_id:
+                e.server_name = names.get(e.server_id)
+
+    async def list_actors(self) -> list[ActorSummary]:
+        """
+        Distinct actors by `actor.id`, busiest first, at most 200.
+
+        Type and display come from each actor's most recent event.
+
+        Returns:
+            list[ActorSummary]: One row per actor.
+        """
+        pipeline: list[_Document] = [
+            {"$sort": {"created_at": -1, "_id": -1}},
+            {"$group": {"_id": "$actor.id", "actor": {"$first": "$actor"}, "n": {"$sum": 1}}},
+            {"$sort": {"n": -1, "_id": 1}},
+            {"$limit": _ACTOR_LIMIT},
+        ]
+        cursor = await self._collection.aggregate(pipeline)
+        return [
+            ActorSummary(
+                id=row["_id"],
+                type=row["actor"].get("type", "SYSTEM"),
+                display=row["actor"].get("display"),
+                event_count=row["n"],
+            )
+            async for row in cursor
+        ]
 
     async def count_by_provider_since(self, event_type: str, since: datetime) -> dict[str, int]:
         """

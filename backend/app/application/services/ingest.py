@@ -44,7 +44,11 @@ import structlog
 from pymongo.errors import DuplicateKeyError
 
 from app.application.services.audit_service import SYSTEM_INGEST_ACTOR, AuditService
-from app.application.services.pipeline import classification_from_result, health_from_state
+from app.application.services.pipeline import (
+    classification_from_result,
+    health_change_data,
+    health_from_state,
+)
 from app.domain.enums import LinkState, ManagerType, MediaType, Vendor
 from app.domain.models.audit_event import EventType
 from app.domain.models.classification import Classification
@@ -77,6 +81,7 @@ from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.classification import ClassifiableServer
+from app.domain.services.health.evaluate import HealthState
 from app.domain.services.normalize import normalize_text
 from app.domain.services.search_tokens import build_search_tokens
 from app.domain.value_objects.bmc_address import parse_bmc_address
@@ -551,7 +556,7 @@ class IngestService:
         if existing is not None and not serial_normalized:
             vendor = existing.identity.vendor
 
-        server = await self._build_server(
+        server, state = await self._build_server(
             ps,
             vendor=vendor,
             serial_normalized=serial_normalized,
@@ -574,7 +579,7 @@ class IngestService:
             if refetched is None:
                 raise
             existing = refetched
-            server = await self._build_server(
+            server, state = await self._build_server(
                 ps,
                 vendor=vendor,
                 serial_normalized=serial_normalized,
@@ -584,13 +589,19 @@ class IngestService:
                 policies=policies,
             )
             await self._server_repo.upsert(server)
-            await self._emit_transition_events(existing, server)
+            await self._emit_transition_events(existing, server, state, policies)
             return server, False
 
-        await self._emit_transition_events(existing, server)
+        await self._emit_transition_events(existing, server, state, policies)
         return server, existing is None
 
-    async def _emit_transition_events(self, existing: Server | None, server: Server) -> None:
+    async def _emit_transition_events(
+        self,
+        existing: Server | None,
+        server: Server,
+        state: HealthState | None,
+        policies: list[HealthPolicy],
+    ) -> None:
         """
         Audit only the ingestion transitions worth an entry.
 
@@ -601,6 +612,10 @@ class IngestService:
             existing (Server | None): The server as it was before this
                 upsert, or `None` if it was just created.
             server (Server): The server as it now stands, already upserted.
+            state (HealthState | None): The health evaluation behind `server`,
+                kept alongside it so the event can say why; `None` if no
+                health engine ran.
+            policies (list[HealthPolicy]): This run's policy snapshot.
         """
         if self._audit is None:
             return
@@ -610,6 +625,7 @@ class IngestService:
                 EventType.SERVER_CREATED,
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
+                server_name=server.name,
                 data={"vendor": server.identity.vendor.value, "name": server.name},
             )
             return
@@ -619,6 +635,7 @@ class IngestService:
                 EventType.CLASSIFICATION_CHANGED,
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
+                server_name=server.name,
                 data={
                     "from": existing.classification.installation_type.value,
                     "to": server.classification.installation_type.value,
@@ -626,12 +643,13 @@ class IngestService:
                 },
             )
 
-        if server.health.overall != existing.health.overall:
+        if state is not None and server.health.overall != existing.health.overall:
             await self._audit.record(
-                EventType.HEALTH_STATUS_CHANGED,
+                EventType.HEALTH_CHANGED,
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
-                data={"from": existing.health.overall.value, "to": server.health.overall.value},
+                server_name=server.name,
+                data=health_change_data(existing.health, state, policies),
             )
 
     async def _build_server(
@@ -644,7 +662,7 @@ class IngestService:
         provider_type: str,
         ruleset: list[ClassificationRule],
         policies: list[HealthPolicy],
-    ) -> Server:
+    ) -> tuple[Server, HealthState | None]:
         """
         Build the `Server` document for one provider record, without persisting it.
 
@@ -662,8 +680,9 @@ class IngestService:
                 for why.
 
         Returns:
-            Server: The built document, classified and health-evaluated
-                when the corresponding engine was supplied.
+            tuple[Server, HealthState | None]: The built document, classified
+                and health-evaluated when the engines were supplied, and the
+                health evaluation (for the audit event's reasons).
         """
         now = utcnow()
         server_id = existing.id if existing is not None else new_id("server")
@@ -932,9 +951,10 @@ class IngestService:
                 result, previous_version=previous_version
             )
 
+        state: HealthState | None = None
         if self._health_service is not None:
             state = self._health_service.evaluate_with_policies(server, policies)
             server.health = health_from_state(state)
 
         server.search_tokens = build_search_tokens(server)
-        return server
+        return server, state

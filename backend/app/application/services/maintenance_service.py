@@ -40,7 +40,6 @@ class MaintenanceService:
         server_id: str,
         *,
         reason: str | None,
-        ticket: str | None,
         expected_end: datetime | None,
         actor: Actor,
         request_id: str | None,
@@ -51,7 +50,6 @@ class MaintenanceService:
         Args:
             server_id (str): The server to put into maintenance.
             reason (str | None): Why the server is in maintenance.
-            ticket (str | None): A reference to an external tracking ticket.
             expected_end (datetime | None): When the window is expected to end.
             actor (Actor): Who is enabling maintenance.
             request_id (str | None): The originating API request id, if any.
@@ -70,7 +68,6 @@ class MaintenanceService:
         server.maintenance = Maintenance(
             enabled=True,
             reason=reason,
-            ticket=ticket,
             created_by=actor.id if not was_enabled else server.maintenance.created_by,
             created_at=server.maintenance.created_at if was_enabled else now,
             updated_at=now,
@@ -86,8 +83,9 @@ class MaintenanceService:
             EventType.MAINTENANCE_UPDATED if was_enabled else EventType.MAINTENANCE_ENABLED,
             actor=actor,
             server_id=server_id,
+            server_name=server.name,
             request_id=request_id,
-            data={"reason": reason, "ticket": ticket},
+            data={"reason": reason},
         )
         return server
 
@@ -123,6 +121,7 @@ class MaintenanceService:
                 EventType.MAINTENANCE_DISABLED,
                 actor=actor,
                 server_id=server_id,
+                server_name=server.name,
                 request_id=request_id,
             )
         return server
