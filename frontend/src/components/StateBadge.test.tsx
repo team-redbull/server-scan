@@ -63,6 +63,21 @@ describe("StateBadge", () => {
   });
 });
 
+describe("StateBadge maintenance author", () => {
+  it.each([
+    ["alice", "PSU swap - by alice"],
+    ["api-token-admin", "PSU swap - by API token (admin)"],
+  ])("titles the chip with who set it (%s)", (by, title) => {
+    render(
+      <StateBadge
+        severity="HEALTHY"
+        maintenance={{ enabled: true, reason: "PSU swap", created_by: by }}
+      />,
+    );
+    expect(screen.getByText("Maint")).toHaveAttribute("title", title);
+  });
+});
+
 describe("StateBadge donor chip", () => {
   it.each(["Donor", "DONOR - bad DIMM B3", "parts donor (PSU)"])(
     "shows Donor instead of Maint when the reason says %j",

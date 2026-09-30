@@ -4,6 +4,7 @@ import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { ReservationBadge } from "@/components/ReservationBadge";
+import { actorIdLabel } from "@/lib/actor";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
 import { inferredGpuModel } from "@/lib/gpuModel";
 import type {
@@ -94,6 +95,9 @@ export function OverviewTab({ server }: OverviewTabProps) {
             server.maintenance.enabled ? (
               <Badge tone="warning">
                 {server.maintenance.reason ?? "Enabled"}
+                {server.maintenance.created_by
+                  ? ` - by ${actorIdLabel(server.maintenance.created_by)}`
+                  : ""}
               </Badge>
             ) : (
               <span className="text-[var(--text-secondary)]">

@@ -11,7 +11,6 @@ export function getServer(id: string): Promise<ServerDetail> {
 
 export interface MaintenanceEnableRequest {
   reason?: string;
-  ticket?: string;
   expected_end?: string;
 }
 
@@ -20,14 +19,20 @@ export function enableMaintenance(
   id: string,
   body: MaintenanceEnableRequest,
 ): Promise<ServerDetail> {
-  return apiFetch<ServerDetail>(`/api/v1/servers/${encodeURIComponent(id)}/maintenance`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  return apiFetch<ServerDetail>(
+    `/api/v1/servers/${encodeURIComponent(id)}/maintenance`,
+    {
+      method: "PUT",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function disableMaintenance(id: string): Promise<ServerDetail> {
-  return apiFetch<ServerDetail>(`/api/v1/servers/${encodeURIComponent(id)}/maintenance`, {
-    method: "DELETE",
-  });
+  return apiFetch<ServerDetail>(
+    `/api/v1/servers/${encodeURIComponent(id)}/maintenance`,
+    {
+      method: "DELETE",
+    },
+  );
 }

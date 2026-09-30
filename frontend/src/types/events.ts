@@ -39,6 +39,8 @@ export interface AuditEventResponse {
   id: string;
   event_type: string;
   server_id: string | null;
+  /** The server's current name; null for an event with no server or a pruned one. */
+  server_name: string | null;
   actor: Actor;
   request_id: string | null;
   created_at: string;
@@ -54,4 +56,9 @@ export interface EventPageInfo {
 export interface AuditEventListResponse {
   items: AuditEventResponse[];
   page: EventPageInfo;
+}
+
+/** One row of `GET /api/v1/events/actors`, the User filter's options. */
+export interface EventActor extends Actor {
+  event_count: number;
 }

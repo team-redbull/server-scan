@@ -1,4 +1,5 @@
 import { SEVERITY_GLYPH } from "@/components/severity";
+import { actorIdLabel } from "@/lib/actor";
 import { formatAge, formatTimestamp } from "@/lib/datetime";
 import { isDonor } from "@/lib/donor";
 import type { HealthSeverity, MaintenanceState } from "@/types/server";
@@ -77,7 +78,16 @@ export function StateBadge({
       </span>
       {maintenance.enabled && (
         <span
-          title={maintenance.reason ?? undefined}
+          title={
+            [
+              maintenance.reason,
+              maintenance.created_by
+                ? `by ${actorIdLabel(maintenance.created_by)}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" - ") || undefined
+          }
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
             isDonor(maintenance)
               ? "bg-[var(--tint-donor)] text-[var(--text-on-donor)]"

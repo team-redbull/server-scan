@@ -352,8 +352,11 @@ jobs:
 
       # Small on purpose — E2E flow coverage, not the 10k/50k scale
       # verification tools/loadtest.py owns (docs/adr/0007).
+      # Epoch 1 re-seeds the same fleet with a few health changes: the events specs need HEALTH_STATUS_CHANGED rows.
       - name: Seed a deterministic dataset
-        run: uv run python -m tools.seed_inventory --count 300 --seed 42
+        run: |
+          uv run python -m tools.seed_inventory --count 300 --seed 42
+          uv run python -m tools.seed_inventory --count 300 --seed 42 --epoch 1
 
       - name: Start frontend dev server
         working-directory: frontend

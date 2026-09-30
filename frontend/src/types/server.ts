@@ -57,6 +57,8 @@ export interface HealthSummary {
 export interface MaintenanceState {
   enabled: boolean;
   reason: string | null;
+  /** Actor id that set it (a person, or `api-token-admin`); null if unrecorded. */
+  created_by?: string | null;
 }
 
 /** One row's view of the install lock — see ADR-0035.

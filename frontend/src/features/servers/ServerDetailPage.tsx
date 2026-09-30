@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router";
 
 import { ApiError } from "@/api/client";
 import { BmcLink } from "@/components/BmcLink";
+import { HistoryTab } from "@/features/events/HistoryTab";
 import { ConnectivityTab } from "@/features/servers/ConnectivityTab";
 import { HardwareTab } from "@/features/servers/HardwareTab";
 import { useServerDetailQuery } from "@/features/servers/hooks";
@@ -18,7 +19,13 @@ function modelHint(gpus: GpuInfo[]): string {
   return inferred ? `${inferred} (from GPU)` : "—";
 }
 
-const TABS = ["overview", "hardware", "network", "connectivity"] as const;
+const TABS = [
+  "overview",
+  "hardware",
+  "network",
+  "connectivity",
+  "history",
+] as const;
 type TabId = (typeof TABS)[number];
 
 const TAB_LABELS: Record<TabId, string> = {
@@ -26,6 +33,7 @@ const TAB_LABELS: Record<TabId, string> = {
   hardware: "Hardware",
   network: "Network",
   connectivity: "Connectivity",
+  history: "History",
 };
 
 export function ServerDetailPage() {
@@ -103,6 +111,7 @@ export function ServerDetailPage() {
               />
             )}
             {activeTab === "connectivity" && <ConnectivityTab connectivity={data.connectivity} />}
+            {activeTab === "history" && <HistoryTab serverId={data.id} />}
           </div>
         </>
       )}

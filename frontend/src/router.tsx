@@ -3,6 +3,7 @@ import { createBrowserRouter } from "react-router";
 import { AppLayout } from "@/components/AppLayout";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
+import { EventsPage } from "@/features/events/EventsPage";
 import { InventoryPage } from "@/features/inventory/InventoryPage";
 import { RulesPage } from "@/features/rules/RulesPage";
 import { ServerDetailPage } from "@/features/servers/ServerDetailPage";
@@ -25,6 +26,10 @@ export const router = createBrowserRouter([
       {
         path: "/servers/:id",
         element: <ServerDetailPage />,
+      },
+      {
+        path: "/events",
+        element: <EventsPage />,
       },
       {
         // Read-only on purpose (docs/architecture.md, "Slice 5").

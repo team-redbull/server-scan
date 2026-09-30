@@ -1,3 +1,4 @@
+import { formatTimestamp } from "@/lib/datetime";
 import type { ReservationState } from "@/types/server";
 
 /**
@@ -33,7 +34,7 @@ export function ReservationBadge({
     reservation.infra_env ? `InfraEnv ${reservation.infra_env}` : null,
     reservation.holder ? `held by ${reservation.holder}` : null,
     reservation.expires_at
-      ? `lock expires ${new Date(reservation.expires_at).toLocaleString()}`
+      ? `lock expires ${formatTimestamp(reservation.expires_at)}`
       : "lock has no expiry",
   ]
     .filter(Boolean)

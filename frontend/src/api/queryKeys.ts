@@ -37,6 +37,7 @@ export const queryKeys = {
   events: {
     all: ["events"] as const,
     lists: () => [...queryKeys.events.all, "list"] as const,
+    actors: () => [...queryKeys.events.all, "actors"] as const,
     list: (params: EventListParams) => [...queryKeys.events.lists(), params] as const,
   },
 };

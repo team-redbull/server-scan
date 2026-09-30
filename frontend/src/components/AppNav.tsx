@@ -5,6 +5,7 @@ import { useAuth, useLogoutMutation } from "@/features/auth/useAuth";
 const LINKS = [
   { to: "/", label: "Sites" },
   { to: "/servers", label: "Servers" },
+  { to: "/events", label: "Events" },
   { to: "/rules", label: "Rules & Policies" },
   { to: "/architecture", label: "Architecture" },
 ];
