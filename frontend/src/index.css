@@ -46,6 +46,8 @@
   --tint-major: oklch(0.32 0.08 45);
   --tint-critical: oklch(0.32 0.09 25);
   --tint-maintenance: oklch(0.3 0.06 300);
+  /* Hue 200: cyan, clear of healthy green (152), info blue (245) and maintenance violet (300). */
+  --tint-donor: oklch(0.3 0.07 200);
   --tint-unknown: oklch(0.28 0.006 260);
 
   --text-on-healthy: oklch(0.85 0.13 152);
@@ -54,6 +56,7 @@
   --text-on-major: oklch(0.86 0.13 45);
   --text-on-critical: oklch(0.84 0.13 25);
   --text-on-maintenance: oklch(0.85 0.11 300);
+  --text-on-donor: oklch(0.86 0.1 200);
   --text-on-unknown: oklch(0.8 0.006 260);
 
   /* Motion: a strong ease-out, durations under 200ms. */

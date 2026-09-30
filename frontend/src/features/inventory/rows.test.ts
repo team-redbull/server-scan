@@ -21,7 +21,13 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     installation_type: "UPI",
     health: "HEALTHY",
     maintenance: { enabled: false, reason: null },
-    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
+    reservation: {
+      held: false,
+      holder: null,
+      mce_cluster: null,
+      infra_env: null,
+      expires_at: null,
+    },
     openshift_state: "AVAILABLE",
     cluster_name: null,
     mce_name: null,
@@ -103,12 +109,35 @@ describe("filterRows", () => {
 
   it("keeps only rows OpenShift reports under a different name (ADR-0036)", () => {
     const fleet = [
-      row({ name: "ocp-toto-compute-01", openshift_reported_name: "ocp-tomer-compute-01" }),
+      row({
+        name: "ocp-toto-compute-01",
+        openshift_reported_name: "ocp-tomer-compute-01",
+      }),
       row({ name: "ocp-tlv-compute-02", openshift_reported_name: null }),
     ];
     expect(
       filterRows(fleet, { nameMismatch: true }).map((r) => r.name),
     ).toEqual(["ocp-toto-compute-01"]);
+  });
+
+  it("keeps only donors: maintenance whose reason says donor, in any case (ADR-0038)", () => {
+    const fleet = [
+      row({
+        name: "donor-a",
+        maintenance: { enabled: true, reason: "DONOR - DIMM B3 bad" },
+      }),
+      row({
+        name: "psu-swap",
+        maintenance: { enabled: true, reason: "psu swap" },
+      }),
+      row({
+        name: "was-donor",
+        maintenance: { enabled: false, reason: "donor" },
+      }),
+    ];
+    expect(filterRows(fleet, { donor: true }).map((r) => r.name)).toEqual([
+      "donor-a",
+    ]);
   });
 });
 
@@ -309,14 +338,18 @@ describe("the install lock", () => {
   });
 
   it("leaves every row alone when the filter is off", () => {
-    expect(filterRows(FLEET_WITH_LOCK, {})).toHaveLength(FLEET_WITH_LOCK.length);
+    expect(filterRows(FLEET_WITH_LOCK, {})).toHaveLength(
+      FLEET_WITH_LOCK.length,
+    );
   });
 
   it("finds a server by the MCE it is being installed TO", () => {
     // Not the MCE it already lives in — searching a cluster should surface the
     // machines heading there, which is how a stuck install gets chased down.
     expect(
-      filterRows(FLEET_WITH_LOCK, { search: "ocp4-mce-alpha" }).map((r) => r.name),
+      filterRows(FLEET_WITH_LOCK, { search: "ocp4-mce-alpha" }).map(
+        (r) => r.name,
+      ),
     ).toEqual(["srv-installing"]);
   });
 

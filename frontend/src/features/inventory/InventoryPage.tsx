@@ -70,6 +70,7 @@ export function InventoryPage() {
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
   const nameMismatchOnly = searchParams.get("name_mismatch") === "true";
+  const donorOnly = searchParams.get("donor") === "true";
   const sortParam = searchParams.get("sort") ?? "";
   const sortField: SortableField = isSortableField(sortParam)
     ? sortParam
@@ -97,6 +98,7 @@ export function InventoryPage() {
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
     if (nameMismatchOnly) next.nameMismatch = true;
+    if (donorOnly) next.donor = true;
     if (mceSel.length) next.mce = mceSel;
     if (clusterSel.length) next.cluster = clusterSel;
     return next;
@@ -112,6 +114,7 @@ export function InventoryPage() {
     staleOnly,
     duplicateOnly,
     nameMismatchOnly,
+    donorOnly,
     mceSel,
     clusterSel,
   ]);
@@ -260,6 +263,7 @@ export function InventoryPage() {
     activeFilters.push({ key: "duplicate", label: "Duplicate" });
   if (nameMismatchOnly)
     activeFilters.push({ key: "name_mismatch", label: "Name mismatch" });
+  if (donorOnly) activeFilters.push({ key: "donor", label: "Donor" });
 
   function clearFilters() {
     updateFilters({
@@ -274,6 +278,7 @@ export function InventoryPage() {
       stale: null,
       duplicate: null,
       name_mismatch: null,
+      donor: null,
       mce: null,
       cluster: null,
     });
@@ -533,7 +538,24 @@ export function InventoryPage() {
                       });
                     }}
                   />
-                  Name mismatch{nameMismatchOnly && facets ? ` (${facets.total})` : ""}
+                  Name mismatch
+                  {nameMismatchOnly && facets ? ` (${facets.total})` : ""}
+                </label>
+
+                <label
+                  className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+                  title="In maintenance with “donor” in the reason — kept only for its parts"
+                >
+                  <input
+                    type="checkbox"
+                    checked={donorOnly}
+                    onChange={(e) => {
+                      updateFilters({
+                        donor: e.target.checked ? "true" : null,
+                      });
+                    }}
+                  />
+                  Donor{donorOnly && facets ? ` (${facets.total})` : ""}
                 </label>
 
                 <button

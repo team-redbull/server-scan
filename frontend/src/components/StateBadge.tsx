@@ -1,5 +1,6 @@
 import { SEVERITY_GLYPH } from "@/components/severity";
 import { formatAge, formatTimestamp } from "@/lib/datetime";
+import { isDonor } from "@/lib/donor";
 import type { HealthSeverity, MaintenanceState } from "@/types/server";
 
 /**
@@ -77,12 +78,16 @@ export function StateBadge({
       {maintenance.enabled && (
         <span
           title={maintenance.reason ?? undefined}
-          className="inline-flex items-center gap-1 rounded-full bg-[var(--tint-maintenance)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-maintenance)]"
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+            isDonor(maintenance)
+              ? "bg-[var(--tint-donor)] text-[var(--text-on-donor)]"
+              : "bg-[var(--tint-maintenance)] text-[var(--text-on-maintenance)]"
+          }`}
         >
           <span aria-hidden="true" className="text-[0.7em] leading-none">
-            ⏸
+            {isDonor(maintenance) ? "◇" : "⏸"}
           </span>
-          Maint
+          {isDonor(maintenance) ? "Donor" : "Maint"}
         </span>
       )}
       {stale && (

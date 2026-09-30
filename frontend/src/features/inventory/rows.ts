@@ -2,6 +2,7 @@ import { UNASSIGNED_SITE_ID } from "@/api/sites";
 import type { SortableField } from "@/features/inventory/sorting";
 import type { ServerRow } from "@/types/server";
 import { SEVERITY_ORDER } from "@/components/severity";
+import { isDonor } from "@/lib/donor";
 
 /**
  * Filtering, search, sort, facet counts and paging over the fleet's rows —
@@ -24,6 +25,8 @@ export interface RowFilters {
   /** Installed in OpenShift under a hostname the vendor manager no longer
    * reports (ADR-0036) — `ServerRow.openshift_reported_name` is set. */
   nameMismatch?: true;
+  /** Maintenance whose reason says "donor" (ADR-0038). */
+  donor?: true;
   /** Selected MCEs (OR within); ANDed with every other filter. */
   mce?: string[];
   /** Selected clusters, hosted and UPI alike (OR within). */
@@ -116,6 +119,7 @@ export function filterRows(
       (!filters.reserved || row.reservation.held) &&
       (!filters.stale || row.stale) &&
       (!filters.nameMismatch || row.openshift_reported_name !== null) &&
+      (!filters.donor || isDonor(row.maintenance)) &&
       (!filters.mce?.length ||
         (row.mce_name !== null && filters.mce.includes(row.mce_name))) &&
       (!filters.cluster?.length ||

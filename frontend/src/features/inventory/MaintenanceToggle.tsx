@@ -19,7 +19,9 @@ const ADMIN_ONLY_TITLE = "Only admins can change maintenance";
 /** An `<img>` (a fixed multi-colour illustration, nothing for `currentColor`
  * to drive), imported so Vite content-hashes it. */
 function ToolsIcon() {
-  return <img src={maintenanceIcon} alt="" aria-hidden="true" className="size-4" />;
+  return (
+    <img src={maintenanceIcon} alt="" aria-hidden="true" className="size-4" />
+  );
 }
 
 function PlayIcon() {
@@ -34,7 +36,9 @@ function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.problem.detail;
   }
-  return error instanceof Error ? error.message : "Failed to update maintenance.";
+  return error instanceof Error
+    ? error.message
+    : "Failed to update maintenance.";
 }
 
 export function MaintenanceToggle({ server }: { server: ServerRow }) {
@@ -132,7 +136,10 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
             <h2 className="text-sm font-semibold text-[var(--text-primary)]">
               Put into maintenance
             </h2>
-            <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]" title={server.name}>
+            <p
+              className="mt-0.5 truncate text-xs text-[var(--text-muted)]"
+              title={server.name}
+            >
               {server.name}
             </p>
 
@@ -143,6 +150,9 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
               >
                 Why is it going into maintenance?
               </label>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                Include the word “donor” to mark it as a parts donor.
+              </p>
               <input
                 id={`maint-reason-${server.id}`}
                 ref={inputRef}
@@ -156,7 +166,10 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
               />
 
               {toggle.isError && (
-                <p role="alert" className="mt-2 text-xs text-[var(--text-on-critical)]">
+                <p
+                  role="alert"
+                  className="mt-2 text-xs text-[var(--text-on-critical)]"
+                >
                   {errorMessage(toggle.error)}
                 </p>
               )}
