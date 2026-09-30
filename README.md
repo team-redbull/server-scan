@@ -75,6 +75,10 @@ manager owns. Built so far, in order:
     two static API tokens let a machine caller like the BMH generator keep
     working with no interactive login
     (`docs/adr/0034-ad-login-roles-and-api-tokens.md`).
+19. **The audit trail in the UI** — a History tab on every server's
+    detail page and a global Events page (`/events`, nav after Servers),
+    each event as one readable sentence with its raw data under
+    "Details" (`docs/architecture.md`, "Audit trail UI").
 
 The inventory table shows **Name, BMC, Installation, MCE, Cluster, Model,
 State** and a per-row maintenance switch (BMC is an icon that opens the
@@ -468,6 +472,15 @@ uv run python -m tools.seed_inventory --count 1000 --seed 42
 `--count` defaults to 1000 and `--seed` to 42; the same pair always
 produces the same fleet, field for field.
 
+`--epoch N` (default 0) re-seeds the same fleet with a few percent of
+servers' health changed (failed drive, PSU down, links down, degraded DIMM,
+failed GPU, or recovered), so a second run produces `HEALTH_CHANGED`
+events in the audit trail. `--epoch auto` picks `floor(unix_time / 21600) % 8`.
+
+```bash
+uv run python -m tools.seed_inventory --count 1000 --seed 42 --epoch 1
+```
+
 What you get mirrors the collectors that exist. Cisco blades arrive
 as `source_provider=UCS_CENTRAL` with Central-rooted DNs, service-profile
 org paths and fabric attachments; Cisco rack units arrive as
@@ -568,7 +581,7 @@ uv run lint-imports                # layering (pyproject.toml's [tool.importlint
 
 cd frontend
 npm run lint && npm run typecheck && npm run test -- --run && npm run build
-npm run test:e2e                  # Playwright — needs the dev stack + backend + frontend all running
+npm run test:e2e                  # Playwright — needs the dev stack + backend + frontend all running, seeded `--seed 42` at epoch 0 then `--epoch 1` (the events specs need health changes)
 node scripts/bench-inventory.mjs http://localhost:4173 <label> 5   # the ADR-0033 UX benchmark, against `vite preview`
 ```
 

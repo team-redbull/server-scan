@@ -557,7 +557,7 @@ uv run python scripts/check_comment_density.py    # convention 8
 uv run lint-imports                                # layering contracts
 
 cd frontend && npm run lint && npm run typecheck && npm run test -- --run && npm run build
-npm run test:e2e                                    # needs backend + frontend dev server running
+npm run test:e2e                                    # needs backend + dev server; seed epoch 0 then `--epoch 1` (events specs)
 ```
 
 `/gate` runs all of that in CI's order, helm lint/template included. Then

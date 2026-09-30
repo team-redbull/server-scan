@@ -120,5 +120,14 @@ Loaded only when a `frontend/` file is open.
   the full contract.
 - The gate for any frontend change is
   `cd frontend && npm run lint && npm run typecheck && npm run test -- --run && npm run build`
-  (`/gate --frontend`); E2E (`npm run test:e2e`) needs the backend and dev
+  (`/gate --frontend`); E2E (`npm run test:e2e`; seed `--epoch 0` then `--epoch 1` so health-change events exist) needs the backend and dev
   server running.
+- **The audit trail UI is `features/events/`** (History tab + `/events`):
+  `describeEvent`'s sentences mirror the `data` keys each backend writer
+  records (ingest, maintenance, reservation, openshift_membership, prune);
+  a new `EventType` or renamed `data` key needs a case and test there and
+  an entry in `WRITTEN_EVENT_TYPES`. The Events page filters (Event type, Server, User, Time range,
+  in that order) are all API params in the URL: `server_name` is a
+  server-side substring, never resolved client-side; `since`/`until` are
+  UTC ISO built from Israel-time `DD/MM/YYYY` input (`parseIsraelInput`);
+  every actor is rendered by `lib/actor.ts`'s `actorLabel`.

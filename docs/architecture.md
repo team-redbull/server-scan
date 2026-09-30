@@ -46,6 +46,18 @@ so its choices are recorded here rather than in the code. The seeded
 figures and what to look at once seeded are in `README.md`'s "Fake data";
 the link-fault minority is `docs/adr/0027`'s "Seeded data".
 
+**Epochs.** `generate_servers(epoch=N)` / `seed_inventory --epoch N` let a
+later seed run change health so the audit trail shows
+`HEALTH_CHANGED`. Epoch 0 (the default) is byte-identical to the
+base fleet. For N > 0, `fake.epochs.apply_epoch` post-processes each server
+(so no RNG draw shifts): a seed-stable ~6% of reachable servers are
+"flappers", each with one fault kind for life (DIMM health, drives, PSUs,
+NIC links, GPUs — all read by the default policies) and a per-epoch draw of
+recovered, degraded or critical. The component is always emitted, healthy
+when recovered, never `None` (which ingest would read as "unread" and carry
+the old fault forward). Identity never changes, so ingest updates the same
+documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
+
 - **Managers are a small fixed set, independent of `seed`/`count`**
   (`COLLECTOR_TYPES`, one `Manager` per collector that exists, with the
   same `mgr_<type>` id `tools.run_collector.manager_for` writes on a real
@@ -1028,8 +1040,17 @@ and exposed via reclassify/recalculate endpoints.
   ingestion) goes through. Classification-rule and health-policy CRUD are
   no longer in that list — both are read-only now, see Slice 5 below.
 - Ingestion emits `SERVER_CREATED` for genuinely new servers and
-  `CLASSIFICATION_CHANGED`/`HEALTH_STATUS_CHANGED` only on a real
-  transition — never a generic "updated" event, since ingestion touches
+  `CLASSIFICATION_CHANGED`/`HEALTH_CHANGED` only on a real
+  transition (a `HEALTH_CHANGED` event's `data` is `{from, to,
+  from_reasons, to_reasons}` (renamed from `HEALTH_STATUS_CHANGED`: readers decode the old
+  name, `GET /events?event_type=` matches either, and startup rewrites stored rows once), each a list of `{policy_key, policy_name,
+  category, severity, message}`, worst first, capped at 10, no evidence.
+  `to_reasons` is the new evaluation; `from_reasons` is the previous one,
+  read from `Health.reasons` (the last evaluation's compact reasons, stored
+  on the server only while something fires; absent on older documents), or
+  for a legacy document rebuilt from `Health.active_policy_keys` and the
+  policy list with `message` null. Built by `pipeline.health_change_data`;
+  events written before this carry `reasons`/`resolved` instead) — never a generic "updated" event, since ingestion touches
   `last_seen_at` on every server on every run and a naive audit-on-every-
   write would be pure noise with no signal. `OPENSHIFT_STATE_CHANGED`
   follows the same rule: the membership jobs run every 15 minutes over
@@ -1044,6 +1065,23 @@ and exposed via reclassify/recalculate endpoints.
   nullable because rule/policy events are about no one server; the
   affected id lives in `data` instead, so the field is never overloaded
   to mean two things depending on `event_type`.
+- `GET /api/v1/events` filters (AND-combined): `server_id`, `event_type`,
+  `actor_id` (exact `actor.id`), `since` (inclusive) / `until` (exclusive)
+  compared as stored ISO strings (ADR-0006; naive = UTC), and `server_name`,
+  a case-insensitive substring matched against current servers'
+  `name_normalized` (first 5000 ids) OR the name snapshotted on the event, so
+  pruned servers still match. Existing indexes serve all of them (the time
+  window rides `created_at_id`); no index was added. Every item carries
+  `server_name`: the `AuditEvent.server_name` snapshot every
+  `AuditService.record(server_name=...)` caller writes, else (legacy events)
+  one batched lookup per page against the servers collection, else null.
+  `GET /api/v1/events/actors` lists distinct `actor.id`s (type/display from
+  the latest event, `event_count`, busiest first, at most 200; a full
+  `created_at`-ordered scan, fine at audit-log volumes). Actors: LDAP
+  sessions `USER` with `id` = username and no `display` (the AD lookups read
+  no display name); static tokens `TOKEN` `api-token-admin`/`api-token-viewer`;
+  jobs `SYSTEM` `ingestion`, `prune`, `openshift:<reporter>`; auth-off dev is
+  `USER` `dev`. The fleet row's `maintenance` flag also carries `created_by`.
 - `GET /api/v1/events` and `GET /api/v1/servers/{id}/events` use a
   simpler, unsigned keyset cursor than `servers`' HMAC-signed one — the
   sort order here never varies (`created_at DESC, _id DESC`), and a
@@ -1787,6 +1825,51 @@ implying coverage that does not exist.
 Real authentication landed 2026-09-22 — see "Authentication and
 authorization" above and ADR-0034, rather than the placeholder this
 paragraph used to be.
+
+## Audit trail UI
+
+The server detail page has a **History** tab (`GET /servers/{id}/events`)
+and the nav a global **Events** page at `/events` (`GET /events`), both
+read-only and open to the viewer role. They share `features/events/`:
+`EventTimeline` renders a newest-first table whose "What happened" cell is
+ONLY the event-type chip (no sentence, no message): an event with a status
+change (`CLASSIFICATION_CHANGED`, `OPENSHIFT_STATE_CHANGED`) adds a muted
+`FROM → TO` under it, and the human sentence (`describeEvent`) plus the raw
+`data` are behind the Details button; a
+`HEALTH_CHANGED` row shows instead `FROM → TO` as severity chips
+directly under the type chip and nothing else, and its Details show a
+`FROM <severity>` section then a `TO <severity>` section, each showing only
+its single most severe reason (the first recorded on a tie; `topReason`) as
+a labelled block (policy key, policy name, category, severity chip, message;
+an em dash for a missing value, "nothing failing" when empty) above the raw
+JSON, which keeps every reason; a legacy event with only `reasons` shows the TO
+section, one with neither shows the JSON alone), `describeEvent` builds
+the sentence from the `data` keys each backend writer records, and an
+unknown `event_type` falls back to its raw name. Both page by cursor with
+"Load more". The Events filters, in bar order, all in the URL: **Event
+type** (All, then the types the backend writes; an old
+`?event_type=HEALTH_STATUS_CHANGED` URL maps to `HEALTH_CHANGED`), **Server** (free text sent as `server_name`,
+a case-insensitive substring match done by the API, so `ocp-dell` lists
+every server containing it; there is no client-side name resolution
+any more), **User** (options from `GET /events/actors`, sent as
+`actor_id`) and **Time range** (presets Last hour / 24 hours / 7 days /
+30 days, or Custom: two `DD/MM/YYYY [HH:MM]` text inputs read as Israel
+time and sent as `since` inclusive / `until` exclusive, in UTC ISO). The
+table columns are Server (the API's `server_name`, linking to the
+server; a legacy event whose server is gone shows a muted "Unknown server"
+with the id only in its tooltip, never the raw id as text), What happened,
+When and User (the History tab drops Server). Raw ids appear only inside
+the expandable Details JSON. Every timestamp
+goes through `lib/datetime.ts` (en-GB, 24 h, Asia/Jerusalem).
+
+An actor is shown by `lib/actor.ts`'s `actorLabel` everywhere (table,
+dropdown, History tab): a person by display name (else id) with a `user`
+chip; the static API tokens as `API token (admin)` / `(viewer)` with a
+`token` chip; the system as `System (<id>)` with a `system` chip.
+`describeEvent` also names the actor in maintenance sentences ("Put into
+maintenance by alice: <reason>", "Marked as parts donor by ..."), and the
+inventory's Maint/Donor badge title and the detail Overview's maintenance
+row say "by <who>" from `maintenance.created_by`.
 
 ## Architecture diagrams (interactive)
 

@@ -581,7 +581,11 @@ repeated runs at the same pair upsert the same servers, which is what
 makes it safe to schedule. **Changing either against a populated database
 reports errors rather than replacing the fleet** — servers correlate on
 `(vendor, serial)`, so a new seed is a second fleet. Wipe the database
-first. And never enable it alongside a real collector: one estate, two
+first. `collectors.fake.epoch` (default `"0"`, data unchanged between runs)
+makes the demo move: an integer renders that health epoch, and `"auto"`
+cycles eight epochs at six-hourly boundaries, so each scheduled run flips a
+few percent of servers' health and `HEALTH_CHANGED` events accrue.
+And never enable it alongside a real collector: one estate, two
 sources of truth.
 
 `ONEVIEW` is one appliance like the rest. Power supplies and CPU thread
