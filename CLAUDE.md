@@ -108,6 +108,14 @@ is a real mistake, not a style preference.
    `uv run ruff check . && uv run ruff format --check . && uv run ty check backend/app tools tests`
    plus `uv run python scripts/check_comment_density.py`, which is a
    fourth CI step since 2026-09-10 (see convention 8).
+   **CI also audits dependencies** — `uv run --with pip-audit pip-audit
+   --skip-editable`, `deptry`, and `npm audit` in `frontend/` — and these fail on
+   an advisory published after your last green run with no code change. They
+   were missing from `/gate`, so a push passed every local check and still went
+   red on 2026-09-30 (urllib3 2.7.0, undici). `/gate` runs them now (network
+   needed). **After every push to `main`, run `gh run watch` (or `gh run list`)
+   on the pushed commit and report the CI result before calling the work done**;
+   a red CI also blocks the release (publish and deploy are skipped).
    (add `cd frontend && npm run lint && npm run typecheck && npm run build`
    for any frontend change). If `ruff format --check` fails, run
    `uv run ruff format .` and re-verify — don't hand-fix formatting.
@@ -586,7 +594,8 @@ quarterly, or before any release you care about:
    tag actually resolves before pinning it — this repo has been broken
    twice by assuming a rolling major tag exists (`github-tag-action` has
    no `v6`; `setup-uv` has no `v8`/`v9`/`v10`).
-2. **Is anything vulnerable?**
+2. **Is anything vulnerable?** (`/gate` now runs these on every pass — this
+   quarterly item is for bumping what they do not force.)
    `uv run --with pip-audit pip-audit --skip-editable` and, in
    `frontend/`, `npm audit`. This is a different question from step 1 —
    the `python-multipart` finding was a *direct* dependency that no

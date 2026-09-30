@@ -30,6 +30,10 @@ if [ "$want_backend" = 1 ]; then
   step "ty" uv run ty check backend/app tools tests
   step "comment density" uv run python scripts/check_comment_density.py
   step "import-linter" uv run lint-imports
+  # CI's `lint` job also audits dependencies. These need the network and fail
+  # on an advisory published AFTER your last green run, with no code change.
+  step "pip-audit" uv run --with pip-audit pip-audit --skip-editable
+  step "deptry" uv run --with deptry==0.24.0 deptry . --known-first-party app
 fi
 
 if [ "$want_helm" = 1 ]; then
@@ -57,6 +61,7 @@ if [ "$want_helm" = 1 ]; then
 fi
 
 if [ "$want_frontend" = 1 ]; then
+  step "npm audit" sh -c 'cd frontend && npm audit'
   step "npm run lint" sh -c 'cd frontend && npm run lint'
   step "npm run typecheck" sh -c 'cd frontend && npm run typecheck'
   step "vitest" sh -c 'cd frontend && npm run test -- --run'
