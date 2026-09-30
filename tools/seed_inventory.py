@@ -2,6 +2,7 @@
 
 Usage:
     uv run python -m tools.seed_inventory --count 1000 --seed 42
+    uv run python -m tools.seed_inventory --count 1000 --seed 42 --epoch 1   # or --epoch auto
 
 Runs the exact same ingestion pipeline (`app.application.services.ingest.
 IngestService`) a real collector would go through — this is a seeding
@@ -67,16 +68,38 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--count", type=int, default=1000, help="Number of fake servers to generate."
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible output.")
+    parser.add_argument(
+        "--epoch",
+        default="0",
+        help="Health epoch: an integer (0 = base fleet), or 'auto' for a six-hourly cycle of 8.",
+    )
     return parser.parse_args(argv)
 
 
-async def _run(*, count: int, seed: int) -> None:
+def resolve_epoch(value: str, *, now: float | None = None) -> int:
+    """
+    Turn the `--epoch` argument into an integer epoch.
+
+    Args:
+        value (str): An integer, or `auto`.
+        now (float | None): Unix time for `auto`; defaults to the clock.
+
+    Returns:
+        int: The epoch; `auto` is `floor(unix_time / 21600) % 8`.
+    """
+    if value == "auto":
+        return int((time.time() if now is None else now) // 21600) % 8
+    return int(value)
+
+
+async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
     """
     Seed default classification rules/health policies, then ingest `count` fake servers.
 
     Args:
         count (int): How many fake servers to generate.
         seed (int): Random seed, for reproducible output across runs.
+        epoch (int): Health epoch; above 0 a few servers' health differs.
     """
     settings = get_settings()
     configure_logging(
@@ -117,7 +140,7 @@ async def _run(*, count: int, seed: int) -> None:
         # One pass per collector, so `Server.source_provider` varies across the fleet.
         fetched = created = updated = errors = 0
         manager_repo = MongoManagerRepository(mongo)
-        for provider in fake_providers(seed=seed, count=count, sites=sites):
+        for provider in fake_providers(seed=seed, count=count, sites=sites, epoch=epoch):
             started_at = utcnow()
             started = time.monotonic()
             summary = await ingest_service.ingest(
@@ -205,7 +228,7 @@ def main(argv: list[str] | None = None) -> None:
         argv (list[str] | None): Arguments, or None for `sys.argv`.
     """
     args = _parse_args(argv)
-    asyncio.run(_run(count=args.count, seed=args.seed))
+    asyncio.run(_run(count=args.count, seed=args.seed, epoch=resolve_epoch(args.epoch)))
 
 
 if __name__ == "__main__":

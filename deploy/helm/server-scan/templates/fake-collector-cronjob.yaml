@@ -38,6 +38,8 @@ spec:
                 - {{ .Values.collectors.fake.count | quote }}
                 - --seed
                 - {{ .Values.collectors.fake.seed | quote }}
+                - --epoch
+                - {{ .Values.collectors.fake.epoch | default "0" | quote }}
               env:
                 - name: INVENTORY_ENVIRONMENT
                   value: production

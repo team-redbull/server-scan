@@ -31,6 +31,7 @@ class FakeProvider(ServerInventoryProvider):
         count: int,
         provider_type: str,
         sites: SiteCatalog | None = None,
+        epoch: int = 0,
         get_one_overrides: dict[str, ProviderServer] | None = None,
     ) -> None:
         """Store the parameters that determine which fake servers this instance yields.
@@ -44,6 +45,7 @@ class FakeProvider(ServerInventoryProvider):
                 `ManagerType` value.
             sites (SiteCatalog | None): The sites whose codes appear in
                 generated hostnames, or None for the shipped default.
+            epoch (int): Which health epoch to render (`generate_servers`).
             get_one_overrides (dict[str, ProviderServer] | None): Test-only
                 seam, keyed by `external_id` — `get_one` returns the
                 override instead of regenerating the fleet, so a test can
@@ -56,6 +58,7 @@ class FakeProvider(ServerInventoryProvider):
         self._count = count
         self.provider_type = provider_type
         self._sites = sites
+        self._epoch = epoch
         self._get_one_overrides = get_one_overrides or {}
 
     async def health_check(self) -> None:
@@ -68,7 +71,9 @@ class FakeProvider(ServerInventoryProvider):
         Yields:
             ProviderServer: Each fake server this collector would own.
         """
-        for server in generate_servers(seed=self._seed, count=self._count, sites=self._sites):
+        for server in generate_servers(
+            seed=self._seed, count=self._count, sites=self._sites, epoch=self._epoch
+        ):
             if provider_type_for(server) == self.provider_type:
                 yield server
 
@@ -85,7 +90,9 @@ class FakeProvider(ServerInventoryProvider):
         """
         if identity.external_id in self._get_one_overrides:
             return self._get_one_overrides[identity.external_id]
-        for server in generate_servers(seed=self._seed, count=self._count, sites=self._sites):
+        for server in generate_servers(
+            seed=self._seed, count=self._count, sites=self._sites, epoch=self._epoch
+        ):
             if provider_type_for(server) != self.provider_type:
                 continue
             if identity.external_id and server.external_id == identity.external_id:
@@ -98,7 +105,7 @@ class FakeProvider(ServerInventoryProvider):
 
 
 def fake_providers(
-    *, seed: int, count: int, sites: SiteCatalog | None = None
+    *, seed: int, count: int, sites: SiteCatalog | None = None, epoch: int = 0
 ) -> list[FakeProvider]:
     """
     One provider per collector the platform actually runs.
@@ -111,11 +118,14 @@ def fake_providers(
         count (int): How many servers the fleet holds in total.
         sites (SiteCatalog | None): The sites whose codes appear in
             generated hostnames, or None for the shipped default.
+        epoch (int): Health epoch, 0 for the base fleet.
 
     Returns:
         list[FakeProvider]: A provider per implemented collector.
     """
     return [
-        FakeProvider(seed=seed, count=count, provider_type=manager_type.value, sites=sites)
+        FakeProvider(
+            seed=seed, count=count, provider_type=manager_type.value, sites=sites, epoch=epoch
+        )
         for manager_type in COLLECTOR_TYPES
     ]

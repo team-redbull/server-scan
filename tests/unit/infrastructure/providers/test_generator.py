@@ -676,3 +676,33 @@ def test_a_server_with_no_profile_token_has_onboard_nics_only() -> None:
         assert all(n.name.startswith("NIC.Integrated.1-") for n in server.nics), (
             f"{server.name} has no profile token but reports {[n.name for n in server.nics]}"
         )
+
+
+class TestEpochs:
+    """`epoch` mutates a few servers' health and never their identity."""
+
+    def test_epoch_zero_is_the_default_output(self) -> None:
+        base = list(generate_servers(seed=42, count=200, sites=SITES))
+        assert base == list(generate_servers(seed=42, count=200, sites=SITES, epoch=0))
+
+    def test_same_seed_count_epoch_is_reproducible(self) -> None:
+        a = list(generate_servers(seed=42, count=300, sites=SITES, epoch=3))
+        assert a == list(generate_servers(seed=42, count=300, sites=SITES, epoch=3))
+
+    def test_identity_is_stable_and_a_small_share_changes(self) -> None:
+        base = list(generate_servers(seed=42, count=1000, sites=SITES))
+        later = list(generate_servers(seed=42, count=1000, sites=SITES, epoch=1))
+        for a, b in zip(base, later, strict=True):
+            assert (a.vendor, a.serial, a.name, a.external_id) == (
+                b.vendor,
+                b.serial,
+                b.name,
+                b.external_id,
+            )
+        changed = sum(a != b for a, b in zip(base, later, strict=True))
+        assert 20 <= changed <= 100
+
+    def test_epochs_differ_from_each_other(self) -> None:
+        one = list(generate_servers(seed=42, count=1000, sites=SITES, epoch=1))
+        two = list(generate_servers(seed=42, count=1000, sites=SITES, epoch=2))
+        assert one != two

@@ -47,6 +47,7 @@ from app.domain.models.manager import Manager
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderAttachment, ProviderNic, ProviderServer
 from app.domain.value_objects.site import SiteCatalog, site_catalog
+from app.infrastructure.providers.fake.epochs import apply_epoch
 
 # Managers are fixed; sites come from the catalog — see docs/architecture.md,
 # "The fake provider's shape" (every "the doc" pointer in this file means it).
@@ -984,7 +985,7 @@ def _bmc_reachability(
 
 
 def generate_servers(
-    *, seed: int, count: int, sites: SiteCatalog | None = None
+    *, seed: int, count: int, sites: SiteCatalog | None = None, epoch: int = 0
 ) -> Iterator[ProviderServer]:
     """
     Yield `count` deterministic `ProviderServer` DTOs for the given `seed`.
@@ -997,6 +998,8 @@ def generate_servers(
         count (int): How many servers to generate.
         sites (SiteCatalog | None): The sites whose codes appear in the
             generated hostnames, or None for the shipped default.
+        epoch (int): 0 is the base fleet; above 0 a few servers' health
+            differs (`fake.epochs.apply_epoch`), identity never.
 
     Yields:
         ProviderServer: One fake server.
@@ -1067,7 +1070,7 @@ def generate_servers(
         )
         template_name, template_external_id = _profile_template(rng, collector)
 
-        yield ProviderServer(
+        server = ProviderServer(
             external_id=_external_id(collector, index=index, site_index=site_index, bmc_ip=bmc_ip),
             vendor=vendor,
             name=name,
@@ -1097,3 +1100,4 @@ def generate_servers(
             # No collector reports tags.
             tags=(),
         )
+        yield apply_epoch(server, seed=seed, index=index, epoch=epoch)

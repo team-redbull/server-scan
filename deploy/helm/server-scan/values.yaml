@@ -442,8 +442,14 @@ collectors:
     count: 2500
     seed: 42
 
-    # Every 6 hours. Nothing about the data changes between runs — the point
-    # is a fresh `last_seen_at` and a live audit trail, not new servers.
+    # Health epoch. "0" (default) leaves the data identical between runs.
+    # An integer N renders that epoch; "auto" is floor(unix_time / 21600) % 8,
+    # so every six-hourly run flips a few percent of servers' health and the
+    # audit trail shows HEALTH_CHANGED events — the way to a moving demo.
+    epoch: "0"
+
+    # Every 6 hours. With epoch "0" nothing about the data changes between
+    # runs — the point is a fresh `last_seen_at` and a live audit trail.
     schedule: "0 */6 * * *"
     backoffLimit: 1
     activeDeadlineSeconds: 1800
