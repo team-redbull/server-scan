@@ -43,7 +43,7 @@ any real collector exists.
 `app.infrastructure.providers.fake.generator` is what every dev
 environment, demo and screenshot runs against (CLAUDE.md convention 10),
 so its choices are recorded here rather than in the code. The seeded
-figures and what to look at once seeded are in `README.md`'s "Fake data";
+figures and what to look at once seeded are in `docs/fake-data.md`;
 the link-fault minority is `docs/adr/0027`'s "Seeded data".
 
 **Epochs.** `generate_servers(epoch=N)` / `seed_inventory --epoch N` let a
@@ -167,7 +167,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   yields byte-identical output on every machine — asserted in
   `tests/unit/infrastructure/providers/test_generator.py`. Adding or
   removing an `rng` call anywhere in that path shifts every later draw
-  and makes README's quoted figures stale.
+  and makes `docs/fake-data.md`'s quoted figures stale.
 
 ## Request lifecycle
 

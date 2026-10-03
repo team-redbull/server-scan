@@ -8,6 +8,32 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-01 — BMC reachability is a health category (ADR-0037).** Moved to
+`docs/notes/session-log.md`: ADR-0036's scoped freeze-on-unresolved unit.
+
+**Shipped (uncommitted when written):** a `bmc` health category (CRITICAL
+`bmc.unreachable`; `cpu` category removed); `Server.unreachable_reason` and
+`Server.listed_at`; `REDFISH_STANDALONE` failed hosts become serial-less stubs
+matched by BMC host; OneView gets an unauthenticated `GET /redfish/v1` probe
+(`infrastructure/bmc_probe.py`); `tools/prune_servers.py` (dry-run default,
+`INVENTORY_PRUNE_*`, `SERVER_PRUNED` audit, `server_scan_servers_pruned_24h`
+and Grafana panels); the fake provider seeds ~4% unreachable on three
+collectors. On both `OPENMANAGE` and `REDFISH_STANDALONE` every failed host is a stub
+with a reason; an unreachable host or rejected login exits 0, while TLS, budget
+and protocol errors are still recorded and make the run PARTIAL (3). Exit codes
+are unchanged from before ADR-0037.
+**Pruning** ships as the `collectors.prune` Helm CronJob, off and report-only by default
+(`collectors.prune.enabled`/`apply`).
+
+**Also shipped:** donors (ADR-0038, a maintenance reason containing "donor":
+badge + inventory filter, frontend only), the `collectors.prune` CronJob, and the
+Architecture page's seven diagrams refreshed in the original style (specs in `docs/diagrams/*.json`).
+
+**Next:** measure the probe's
+concurrency (64) and timeout (5 s) against the 821-server OneView appliance.
+
+---
+
 **2026-09-27 — ADR-0036's freeze-on-unresolved was too blunt; scoped to
 what's actually ambiguous.** Moved to `docs/notes/session-log.md`: the
 OpenShift hardware-serial fallback / UI mismatch-chip unit this corrects.

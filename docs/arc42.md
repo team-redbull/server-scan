@@ -11,7 +11,7 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — records 0001 to 0037, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0039, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
@@ -363,11 +363,11 @@ OpenShift namespace                        (chart: deploy/helm/server-scan)
 ├── Deployment  frontend (nginx + SPA)  ── Service ──┴── Route  ← the ONLY one
 │      nginx proxies /api/ and /health/ to the API Service, so the
 │      API has no Route of its own (frontend off: the API takes it)
-├── CronJob  collector-ucs-central          (6-hourly, opt-in)
-├── CronJob  collector-intersight           (6-hourly, opt-in)
-├── CronJob  collector-oneview              (6-hourly, opt-in)
-├── CronJob  collector-openmanage           (6-hourly, opt-in)
-├── CronJob  collector-redfish-standalone   (6-hourly, opt-in, ships suspended)
+├── CronJob  collector-ucs-central          (3-hourly, opt-in)
+├── CronJob  collector-intersight           (3-hourly, opt-in)
+├── CronJob  collector-oneview              (3-hourly, opt-in)
+├── CronJob  collector-openmanage           (3-hourly, opt-in)
+├── CronJob  collector-redfish-standalone   (3-hourly, opt-in, ships suspended)
 │      all five: envFrom the SAME api-config ConfigMap + the collector Secret
 ├── CronJob  prune-servers                  (03/09/15/21h, opt-in, report-only
 │      until collectors.prune.apply; deletes unlisted servers, ADR-0037)
@@ -485,7 +485,7 @@ a stateless HMAC-signed session cookie, and two static API tokens for a
 machine caller like the BMH generator. `app.dependencies.
 get_current_actor` resolves the caller — the dev bypass, a bearer token,
 or the session cookie — and every router except `health`/`auth`/`metrics`
-requires one; `require_admin` additionally gates the four mutation
+requires one; `require_admin` additionally gates the six mutation
 endpoints.
 
 **`auth.enabled` is still `false` by default** — no AD is reachable from
@@ -493,7 +493,8 @@ this repo's own dev/test environment, so every existing install (and this
 one) keeps auto-admitting every caller as admin with no login page,
 exactly as before this ADR. Turning it on is the operator's own choice,
 made where a real AD/LDAP + their own "AD API" REST service are both
-reachable. `CLAUDE.md` convention 6 has the summary; ADR-0034 has the
+reachable. Verified against a real LDAP in the operator's air-gapped
+environment on 2026-10-04 (ADR-0034's update). `CLAUDE.md` convention 6 has the summary; ADR-0034 has the
 design.
 
 ---
@@ -543,6 +544,7 @@ of it.
 | 0036 | OpenShift membership falls back to the hardware serial (SSH for a node, an Agent's own inventory) when a hostname is not a unique match — a vendor-side rename or a duplicate name |
 | 0037 | BMC reachability is a `bmc` health category, probed with an unauthenticated Redfish GET (OneView); standalone Redfish failures become stub documents matched by BMC address; `listed_at` + guarded pruning (Accepted) |
 | 0038 | A parts donor is a maintenance whose reason says "donor": a cyan Donor badge and inventory filter, no new field; `/servers/available` already excludes maintenance |
+| 0039 | `POST /auth/login` is throttled per username in Redis (default 5 failures / 15 min, then 429 before any LDAP bind); fails open if Redis is down |
 
 ---
 
@@ -597,7 +599,7 @@ go stale — treat its date as load-bearing.
 | The Redfish collector does not reach 10k | ~25 round trips per BMC; supported range ~400–1000 hosts per CronJob, sharded beyond that. Stated in ADR-0016 rather than hidden. |
 | Intersight requires an on-prem appliance | A licensed Cisco product this platform does not control — a deployment dependency no other collector carries. |
 | **Intersight's DOWN/CRITICAL vocabulary is unconfirmed** | Validated against a live on-prem PVA on 2026-09-01 and again 2026-09-07 (19 servers): auth, name resolution, `TotalMemory`-as-MiB, `cpu_model`, per-drive storage and GPU catalog matching are all confirmed, and a GPU-catalog matching bug plus an `OperState`/`Health` `"OK"`-spelling gap (silently reading PSUs and drives as UNKNOWN) were found and fixed the same day (`docs/adr/0017`'s "A second field pass (2026-09-07)"). What is left is narrower: no PSU, GPU or drive on that tenant has ever reported a failure state, so the DOWN/CRITICAL side of that same vocabulary is still contract-only. Demoted from High: every headline unknown that ADR listed (auth, the unit assumption, field mapping) is now settled. |
-| No rate limiting anywhere | Includes `POST /auth/login` (ADR-0034) — repeated bad attempts are throttled only by AD's own account-lockout policy, not by the API. |
+| Little rate limiting | `POST /auth/login` is throttled per username (ADR-0039, fails open without Redis); nothing else is, and there is no per-IP limit, so password spraying across usernames is left to AD. |
 | No session revocation | ADR-0034's login cookie is a stateless HMAC signature, not a server-side session — a removed admin/viewer keeps working until the cookie's TTL (default 8h) expires. Accepted trade-off of not using Redis for sessions (Redis here is deliberately non-persistent). |
 | Redis persistence | Deliberately none: cache-aside, degrades to Mongo. **MongoDB HA/backup is not a risk of this platform** — production Mongo is an operated service in the air-gapped estate, not the chart's bundled Bitnami pod (operator, 2026-09-13); the bundled one is for demos and dev. |
 | No concurrency cap on `GET /servers/available`'s live rechecks | Each request can open up to `count` vendor-manager sessions (UCS Manager, OneView, iDRAC all have hard concurrent-session caps). A retry-looping caller would exhaust those and fail the scheduled collector's login — a vendor-side outage, not an API slowdown. `RateLimitedError` (429) exists and nothing raises it; a per-`ManagerType` semaphore is the fix, before bmhgen goes to production. |
@@ -609,7 +611,7 @@ go stale — treat its date as load-bearing.
 ### Low / accepted
 
 - No image-tag bump reaches the cluster without a green CI run — a hotfix deployed by hand is a gitops edit Argo will keep until the next release overwrites it.
-- No alerting rules or dashboards over the existing metrics.
+- The Grafana dashboard over the existing metrics is the operator's own and keeps changing; the repo ships a starting point in `deploy/grafana/`.
 - A *syntactically valid* typo in `INVENTORY_SITES` (`tvl` for `tlv`)
   cannot be caught at startup — only by looking at the resulting
   inventory. `--dry-run` prints the resolved site per server for this.

@@ -286,14 +286,14 @@ metrics:
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched
     staleServersThreshold: 10
-    silentForSeconds: 43200            # vendor collectors only — 2x their 6h schedule
+    silentForSeconds: 21600            # vendor collectors only — 2x their 3h schedule
     membershipSilentForSeconds: 1800   # nodes-status jobs only — 2x their 15min schedule
     membershipUnmatchedThreshold: 0
 ```
 
 **`silentForSeconds` and `membershipSilentForSeconds` are two separate
 values on purpose.** The vendor collectors (`collectors.*.schedule`,
-default every 6h) and the `nodes-status` membership jobs
+default every 3h) and the `nodes-status` membership jobs
 (`nodes.schedule`/`agents.schedule`, default every 15min) run on very
 different cadences, and a single shared threshold cannot fit both: sized
 for the collectors (12h) it tolerates 48 missed membership-job runs
@@ -430,7 +430,7 @@ Real vendor collectors run as Kubernetes `CronJob`s, one per manager
 *type*, invoking `tools/run_collector.py --manager-type <TYPE>` in the
 same image as the API (`Containerfile` copies `tools/` alongside `app/`
 specifically so no second image is needed). See the repo root
-`README.md`'s "How data actually gets in" section for the full design,
+`docs/architecture.md` and `docs/arc42.md` for the full design,
 `docs/adr/0009-ucs-manager-collector.md` for how the UCS Manager data
 path was built and validated, and `docs/adr/0014-ucs-central-multi-
 domain-collector.md` for how the Cisco collector drives it per domain.
@@ -484,11 +484,10 @@ its Pod) is deleted that many seconds after it completes, success or
 failure. This is independent of, and in addition to, the count-based
 `successfulJobsHistoryLimit: 3`/`failedJobsHistoryLimit: 5` every
 CronJob template also sets — whichever cleanup condition is met first
-wins. Every collector here defaults to the same `"0 */6 * * *"` schedule
-(2026-09-10, at the operator's request — a uniform cadence across the
-whole fleet), so 8 hours keeps at most two finished Jobs visible at once
-per collector: the just-finished one and the previous one, not yet
-TTL'd. Set it to `0` to
+wins. Every collector here defaults to the same `"0 */3 * * *"` schedule
+(2026-10-04, at the operator's request — a uniform cadence across the
+whole fleet; it was 6-hourly from 2026-09-10), so 8 hours keeps at most
+three finished Jobs visible at once per collector, not yet TTL'd. Set it to `0` to
 disable and rely on the count limits alone.
 
 `collectors.ucsManager` is the one carve-out and has no `ip` at all: the
@@ -564,8 +563,8 @@ Pruning servers a manager stopped listing (`python -m tools.prune_servers`,
 ADR-0037) is the `collectors.prune` CronJob, **off by default**
 (`collectors.prune.enabled`). Even when enabled it only reports until
 `collectors.prune.apply` is true, so the first rollout shows in the job logs
-what it would delete. It runs at 03/09/15/21h, three hours after each
-6-hourly collector sweep; `afterSeconds` (24 h), `maxFraction` (0.2) and
+what it would delete. It runs at 03/09/15/21h, three hours after every other
+3-hourly collector sweep; `afterSeconds` (24 h), `maxFraction` (0.2) and
 `maxRunAgeSeconds` (6 h) are its guards. By hand: dry-run by default,
 `--apply` to delete.
 
@@ -583,7 +582,7 @@ reports errors rather than replacing the fleet** — servers correlate on
 `(vendor, serial)`, so a new seed is a second fleet. Wipe the database
 first. `collectors.fake.epoch` (default `"0"`, data unchanged between runs)
 makes the demo move: an integer renders that health epoch, and `"auto"`
-cycles eight epochs at six-hourly boundaries, so each scheduled run flips a
+cycles eight epochs at six-hour boundaries, so every other scheduled run flips a
 few percent of servers' health and `HEALTH_CHANGED` events accrue.
 And never enable it alongside a real collector: one estate, two
 sources of truth.
@@ -637,6 +636,12 @@ API pod; set `auth.ldap.*` and `auth.adApi.*`, plus at least one of
 permission". `auth.apiTokens.admin`/`.viewer` are static bearer tokens for
 a machine caller (the BMH generator) that can't do an interactive login —
 leave blank to disable each independently of AD entirely.
+
+`auth.loginMaxFailures` (default 5) and `auth.loginLockoutSeconds` (default 900) throttle
+`POST /auth/login` per username, in Redis, before any LDAP bind (ADR-0039); 0 disables the
+limit. Keep the limit below AD's own lockout threshold. If Redis is down the throttle is
+skipped, not failed. The template renders these only when the keys exist, so a downstream
+`values.yaml` that predates them still renders.
 
 These render into `<release>-auth-credentials`
 (`templates/backend-auth-secret.yaml`), the same `existingSecret` escape

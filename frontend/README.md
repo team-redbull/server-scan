@@ -1,8 +1,8 @@
 # Server Scan — Frontend
 
 Vite + React 19 + TypeScript (strict) SPA for the inventory platform. See
-the repo root `README.md` for the full local-dev workflow and `docs/` for
-architecture notes.
+the repo root `README.md` for the quick start, `CLAUDE.md`'s "Verifying your work" for
+the test and Playwright commands, and `docs/` for architecture notes.
 
 Not a Next.js app on purpose: this is an internal dashboard with no SEO or
 SSR requirement, so a static Vite build is the simplest, most portable
