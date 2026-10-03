@@ -158,11 +158,11 @@ this one pre-app screen, not the data-dense interior.
 
 ## Deferred
 
-- **Session revocation.** There is no server-side session store, so a
+- **Session revocation (accepted by the operator, 2026-10-04: not a gap).** There is no server-side session store, so a
   removed admin/viewer keeps working until the cookie's TTL
   (`session_ttl_seconds`, default 8h) expires. Accepted trade-off of
   choosing a stateless cookie over Redis (Decision 3).
-- **Rate limiting / lockout on repeated bad logins** is left entirely to
+- **Rate limiting / lockout on repeated bad logins** — resolved by ADR-0039 (per-username throttle). It was left entirely to
   AD's own account-lockout policy — `POST /auth/login` has no throttling
   of its own.
 - **A real local AD for testing was attempted and abandoned.** Two runs of
@@ -175,6 +175,11 @@ this one pre-app screen, not the data-dense interior.
   directly instead — real code paths, realistic responses, no real wire
   protocol. A future session with a working rootless-podman-compatible AD
   image (or access to a real one) should replace this with an actual bind.
+
+- **Update (2026-10-04): verified against a real LDAP in the operator's
+  air-gapped environment.** Login worked, with the role resolved from the
+  configured groups and user lists. A local AD for testing is therefore no
+  longer wanted: the item above is closed, not deferred.
 
 ## Consequences
 

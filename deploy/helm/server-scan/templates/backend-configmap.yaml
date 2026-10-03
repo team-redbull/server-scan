@@ -43,3 +43,10 @@ data:
   INVENTORY_ADMIN_USERS: {{ $auth.adminUsers | quote }}
   INVENTORY_VIEWER_USERS: {{ $auth.viewerUsers | quote }}
   INVENTORY_SESSION_TTL_SECONDS: {{ required "auth.sessionTtlSeconds must be set" $auth.sessionTtlSeconds | quote }}
+  {{- /* `hasKey`, not `default`: 0 disables the limit, and an older downstream values.yaml may lack the keys. */}}
+  {{- if hasKey $auth "loginMaxFailures" }}
+  INVENTORY_LOGIN_MAX_FAILURES: {{ $auth.loginMaxFailures | quote }}
+  {{- end }}
+  {{- if hasKey $auth "loginLockoutSeconds" }}
+  INVENTORY_LOGIN_LOCKOUT_SECONDS: {{ $auth.loginLockoutSeconds | quote }}
+  {{- end }}

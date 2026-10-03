@@ -14,6 +14,8 @@ or forget.
 
 from __future__ import annotations
 
+import hashlib
+
 _NAMESPACE_VERSION = 1
 
 
@@ -77,3 +79,19 @@ def rows_key() -> str:
         str: The cache key.
     """
     return f"si:{_NAMESPACE_VERSION}:rows"
+
+
+def login_failure_key(username: str) -> str:
+    """
+    The counter key for one username's failed logins.
+
+    The username is hashed so the key is bounded and free of arbitrary bytes.
+
+    Args:
+        username (str): The submitted username, already normalized.
+
+    Returns:
+        str: The key.
+    """
+    digest = hashlib.sha256(username.encode()).hexdigest()[:32]
+    return f"si:{_NAMESPACE_VERSION}:loginfail:{digest}"

@@ -177,6 +177,20 @@ class RateLimitedError(AppError):
     status_code = 429
     code = ErrorCode.RATE_LIMITED
 
+    def __init__(self, detail: str, *, retry_after_seconds: int | None = None) -> None:
+        """
+        Build the error.
+
+        Args:
+            detail (str): Human-readable explanation.
+            retry_after_seconds (int | None): When the caller may retry; also sent as `Retry-After`.
+        """
+        super().__init__(
+            detail,
+            details={"retry_after_seconds": retry_after_seconds} if retry_after_seconds else None,
+        )
+        self.retry_after_seconds = retry_after_seconds
+
 
 class ServiceUnavailableError(AppError):
     """503: a dependency this request needed is down."""

@@ -59,4 +59,35 @@ describe("LoginPage", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(message);
     });
   });
+
+  it("shows the server's own message when the login is throttled (429)", async () => {
+    const detail = "Too many failed login attempts. Try again later.";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: false,
+          status: 429,
+          json: () =>
+            Promise.resolve({
+              type: "/problems/rate-limited",
+              title: "Rate Limited",
+              status: 429,
+              detail,
+              instance: "/api/v1/auth/login",
+              code: "RATE_LIMITED",
+              request_id: null,
+              details: { retry_after_seconds: 900 },
+            }),
+        }),
+      ),
+    );
+    renderLoginPage();
+
+    await submit("jdoe", "wrong");
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(detail);
+    });
+  });
 });

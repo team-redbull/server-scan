@@ -969,6 +969,12 @@ auth:
   sessionSecret: ""
   sessionTtlSeconds: 28800
 
+  # Login throttle (docs/adr/0039): after loginMaxFailures wrong passwords for
+  # one username, POST /auth/login answers 429 for loginLockoutSeconds, before
+  # any LDAP bind. Keep it below AD's own lockout threshold. 0 disables.
+  loginMaxFailures: 5
+  loginLockoutSeconds: 900
+
   # Static bearer tokens for a machine caller (e.g. the BMH generator) that
   # can't do an interactive AD login — `Authorization: Bearer <token>`
   # gets admin or read-only access respectively. Blank disables each.

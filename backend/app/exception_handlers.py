@@ -40,6 +40,7 @@ def _problem_response(
     title: str,
     detail: str,
     details: dict[str, object] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     body = {
         "type": f"/problems/{code.lower().replace('_', '-')}",
@@ -51,7 +52,14 @@ def _problem_response(
         "request_id": _request_id(request),
         "details": details or {},
     }
-    return JSONResponse(status_code=status_code, content=body, media_type=_PROBLEM_JSON)
+    return JSONResponse(
+        status_code=status_code, content=body, media_type=_PROBLEM_JSON, headers=headers
+    )
+
+
+def _retry_after(exc: AppError) -> dict[str, str] | None:
+    seconds = getattr(exc, "retry_after_seconds", None)
+    return {"Retry-After": str(seconds)} if seconds else None
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -78,6 +86,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             title=exc.title,
             detail=exc.detail,
             details=exc.details,
+            headers=_retry_after(exc),
         )
 
     @app.exception_handler(RequestValidationError)

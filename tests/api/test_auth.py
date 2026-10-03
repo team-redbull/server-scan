@@ -14,13 +14,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
+from tests.fake_redis import FakeRedisHolder
 
 from app.api.v1.auth import _auth_service
 from app.config import get_settings
 from app.config.settings import Settings
+from app.dependencies import get_redis_holder
 from app.domain.enums import HealthSeverity, InstallationType, Vendor
 from app.domain.models.audit_event import Role
 from app.domain.models.classification import Classification
@@ -73,6 +75,7 @@ class _FakeAuthService:
 
 
 def _auth_enabled_app(login_result: object, **settings_overrides: object) -> FastAPI:
+    holder = FakeRedisHolder()
     settings = get_settings().model_copy(
         update={
             "auth_enabled": True,
@@ -86,6 +89,14 @@ def _auth_enabled_app(login_result: object, **settings_overrides: object) -> Fas
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[_auth_service] = lambda: _FakeAuthService(login_result)
+
+    async def _holder(request: Request) -> object:
+        # Only the login throttle gets the in-memory fake; the server cache keeps real Redis.
+        if request.url.path.startswith("/api/v1/auth/"):
+            return holder
+        return await get_redis_holder(request)
+
+    app.dependency_overrides[get_redis_holder] = _holder
     return app
 
 
@@ -150,6 +161,35 @@ class TestMeWithAuthEnabled:
             resp = await client.get("/api/v1/servers")
             assert resp.status_code == 401
             assert resp.json()["code"] == "UNAUTHORIZED"
+
+
+class TestLoginThrottle:
+    async def test_lockout_returns_429_with_retry_after_and_skips_the_bind(self) -> None:
+        app = _auth_enabled_app(None, login_max_failures=2, login_lockout_seconds=300)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            body = {"username": "Mallory", "password": "guess"}
+            for _ in range(2):
+                assert (await client.post("/api/v1/auth/login", json=body)).status_code == 401
+            resp = await client.post("/api/v1/auth/login", json=body)
+            assert resp.status_code == 429
+            assert resp.json()["code"] == "RATE_LIMITED"
+            assert resp.headers["Retry-After"] == "300"
+            other = await client.post(
+                "/api/v1/auth/login", json={"username": "bob", "password": "x"}
+            )
+            assert other.status_code == 401
+
+    async def test_a_good_login_clears_the_count(self) -> None:
+        app = _auth_enabled_app(Role.ADMIN, login_max_failures=2)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            resp = await client.post("/api/v1/auth/login", json={"username": "u", "password": "x"})
+            assert resp.status_code == 200
 
 
 class TestLogin:

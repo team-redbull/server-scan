@@ -225,6 +225,10 @@ class Settings(BaseSettings):
     session_secret: str = _INSECURE_DEV_SESSION_SECRET
     session_ttl_seconds: int = 28_800
 
+    # Failed logins per username before `POST /auth/login` answers 429 (docs/adr/0039); 0 disables.
+    login_max_failures: int = Field(default=5, ge=0)
+    login_lockout_seconds: int = Field(default=900, gt=0)
+
     # A machine caller (e.g. the BMH generator) sends `Authorization: Bearer
     # <token>` instead of logging in. Blank disables that token.
     api_token_admin: SecretStr = SecretStr("")

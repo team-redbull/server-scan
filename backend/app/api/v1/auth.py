@@ -15,11 +15,14 @@ from fastapi import APIRouter, Depends, Request, Response
 from app.api.v1.auth_schemas import LoginRequest, LoginResponse, MeResponse
 from app.application.services.auth_service import AuthService
 from app.config import Settings, get_settings
+from app.dependencies import get_redis_holder
 from app.domain.models.audit_event import Role
 from app.domain.services.authz import LoginResult
 from app.domain.services.session import SESSION_COOKIE_NAME, decode_session, encode_session
 from app.errors import ForbiddenError, UnauthorizedError
 from app.infrastructure.ad.client import AdApiClient, build_ad_api_http_client
+from app.infrastructure.redis.client import RedisClientHolder
+from app.infrastructure.redis.login_throttle import LoginThrottle
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -48,6 +51,7 @@ async def login(
     response: Response,
     service: Annotated[AuthService, Depends(_auth_service)],
     settings: Annotated[Settings, Depends(get_settings)],
+    redis: Annotated[RedisClientHolder, Depends(get_redis_holder)],
 ) -> LoginResponse:
     """
     Authenticate against AD and, on success, set the session cookie.
@@ -56,19 +60,25 @@ async def login(
         payload (LoginRequest): The username/password to authenticate.
         response (Response): Carries the session cookie back on success.
         service (AuthService): Runs the LDAP bind and role resolution.
-        settings (Settings): Supplies the session secret and TTL.
+        settings (Settings): Supplies the session secret, TTL and lockout limits.
+        redis (RedisClientHolder): Backs the per-username failure counter.
 
     Returns:
         LoginResponse: The authenticated username and resolved role.
 
     Raises:
+        RateLimitedError: Too many recent failures for this username (429).
         UnauthorizedError: Wrong username or password.
         ForbiddenError: Valid credentials, but not admin/viewer listed.
         ServiceUnavailableError: LDAP or the AD API is unreachable.
     """
+    throttle = LoginThrottle(redis, settings)
+    await throttle.check(payload.username)
     result = await service.authenticate(payload.username, payload.password)
     if result is None:
+        await throttle.record_failure(payload.username)
         raise UnauthorizedError("Wrong username or password.")
+    await throttle.reset(payload.username)
     if result is LoginResult.NO_PERMISSION:
         raise ForbiddenError("Your account has no permission for this app.")
 
