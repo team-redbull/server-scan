@@ -3,7 +3,7 @@
 The alerts ADR-0029 exists for. Thresholds are values so an estate on a
 different collector or membership-job cadence tunes them without editing
 this file — the two silence thresholds are deliberately separate
-(silentForSeconds for the 6h-cadence vendor collectors,
+(silentForSeconds for the 3h-cadence vendor collectors,
 membershipSilentForSeconds for the 15min-cadence nodes-status jobs), not
 one shared value, or a deployment on the default schedules tolerates
 either 48 missed membership-job runs or 2 missed collector runs, never

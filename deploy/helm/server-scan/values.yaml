@@ -279,9 +279,8 @@ config:
   logLevel: INFO
   metricsEnabled: "true"
   # A server not successfully collected for this long counts toward the
-  # `server_scan_servers_stale` gauge (ADR-0029). Two of the shared
-  # 6-hour collector cycles; match it to `collectors.*.schedule` if you
-  # change those.
+  # `server_scan_servers_stale` gauge (ADR-0029). Four of the shared
+  # 3-hour collector cycles (two when it was 6-hourly), kept at 12h on purpose.
   staleAfterSeconds: "43200"
   defaultPageSize: "50"
   maxPageSize: "200"
@@ -320,11 +319,11 @@ metrics:
     # ServerScanServersStale. 0 alerts on the first stale server.
     staleServersThreshold: 10
     # A collector that has not reported for this long fires
-    # ServerScanCollectorSilent. Two of the shared 6-hour collector
+    # ServerScanCollectorSilent. Two of the shared 3-hour collector
     # cycles (`collectors.*.schedule`) — match it if you change those.
     # NOT used for the membership jobs, which run on their own, much
     # tighter schedule; see membershipSilentForSeconds below.
-    silentForSeconds: 43200
+    silentForSeconds: 21600
     # A `nodes-status` job (`nodes`/`agents`) that has not completed a run for
     # this long fires ServerScanMembershipRunSilent; a cluster that has
     # not had a server matched for this long fires ServerScanClusterSilent.
@@ -415,7 +414,7 @@ collectors:
   # `failedJobsHistoryLimit` below — whichever cleanup condition is met
   # first wins. 8 hours: long enough that a run's logs/status are still
   # there to check shortly after it finished, short enough that even the
-  # least frequent collector here (every 6 hours) never has more than two
+  # every collector here (every 3 hours) never has more than three
   # finished Jobs visible at once. For an hourly collector the count-based
   # limits below prune first in practice, so this mostly matters for the
   # slower ones. Set to 0 to disable and rely on the count limits alone.
@@ -444,13 +443,13 @@ collectors:
 
     # Health epoch. "0" (default) leaves the data identical between runs.
     # An integer N renders that epoch; "auto" is floor(unix_time / 21600) % 8,
-    # so every six-hourly run flips a few percent of servers' health and the
+    # so every run in a new six-hour epoch flips a few percent of servers' health and the
     # audit trail shows HEALTH_CHANGED events — the way to a moving demo.
     epoch: "0"
 
-    # Every 6 hours. With epoch "0" nothing about the data changes between
+    # Every 3 hours (2026-10-04; was 6). With epoch "0" nothing about the data changes between
     # runs — the point is a fresh `last_seen_at` and a live audit trail.
-    schedule: "0 */6 * * *"
+    schedule: "0 */3 * * *"
     backoffLimit: 1
     activeDeadlineSeconds: 1800
     resources:
@@ -467,8 +466,8 @@ collectors:
     enabled: false
     apply: false
     suspend: false
-    # 03:00, 09:00, 15:00, 21:00: three hours after each 6-hourly collector
-    # sweep, so every manager's last run is recent when the guard checks it.
+    # 03:00, 09:00, 15:00, 21:00: three hours after every other 3-hourly
+    # collector sweep, so every manager's last run is recent when the guard checks it.
     schedule: "0 3,9,15,21 * * *"
     afterSeconds: 86400
     # Most of one collector's servers a single pass may delete.
@@ -527,12 +526,12 @@ collectors:
     # Overrides the shared INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
     # default (15s, backend/app/config/settings.py) for this CronJob only.
     timeoutSeconds: 240
-    # Every 6 hours, matching every other collector here — a shared,
-    # uniform cadence across the whole fleet, at the operator's request
-    # (2026-09-10). Nothing here needs sub-6h freshness on its own; this
+    # Every 3 hours, matching every other collector here — a shared,
+    # uniform cadence across the whole fleet (operator, 2026-10-04; was 6h).
+    # Nothing here needs sub-3h freshness on its own; this
     # opens a session against every collected domain, so it is also the
     # more expensive job on both sides of the wire.
-    schedule: "0 */6 * * *"
+    schedule: "0 */3 * * *"
     backoffLimit: 1
     # Generous: one run covers every domain, several at a time.
     activeDeadlineSeconds: 1800
@@ -574,12 +573,12 @@ collectors:
     # first.
     suspend: true
 
-    # Every 6 hours. Inventory does not change hourly, every sweep is
+    # Every 3 hours (operator, 2026-10-04; was 6h). Every sweep is
     # thousands of requests against the estate's management plane, and
-    # <=6h freshness is ample to drive a 24h staleness check. Rule if you
+    # <=3h freshness is ample to drive a 12h staleness check. Rule if you
     # change it: keep the interval at least 4x the measured p95 sweep
     # (`redfish.run_summary`), or `Forbid` starts silently dropping runs.
-    schedule: "0 */6 * * *"
+    schedule: "0 */3 * * *"
 
     # 1, not 0: a ConfigMap mount can lag at pod start and read as
     # "inventory absent", and with no retry that loses a whole collection
@@ -766,12 +765,12 @@ collectors:
     # Appliances ship a self-signed certificate in an air-gapped estate.
     verifyTls: false
 
-    # Every 6 hours, matching every other collector here — a shared,
-    # uniform cadence across the whole fleet, at the operator's request
-    # (2026-09-10; this used to be 4 hours). Three bulk calls per
+    # Every 3 hours, matching every other collector here — a shared,
+    # uniform cadence across the whole fleet (operator, 2026-10-04; was
+    # 6h, and 4h before 2026-09-10). Three bulk calls per
     # appliance, so the wire cost would support more often than this if
     # a future need for tighter freshness ever outweighs the uniformity.
-    schedule: "0 */6 * * *"
+    schedule: "0 */3 * * *"
     backoffLimit: 1
     activeDeadlineSeconds: 3600
     resources:
@@ -817,12 +816,12 @@ collectors:
     # each), not per appliance.
     bmcConcurrency: 16
 
-    # Every 6 hours, matching redfishStandalone and every other collector
-    # here — a shared, uniform cadence across the whole fleet, at the
-    # operator's request (2026-09-10). Every sweep is thousands of
+    # Every 3 hours, matching redfishStandalone and every other collector
+    # here — a shared, uniform cadence across the whole fleet (operator,
+    # 2026-10-04; was 6h). Every sweep is thousands of
     # requests against embedded hardware that degrades when polled, so
     # this one specifically should not go tighter even if others do.
-    schedule: "0 */6 * * *"
+    schedule: "0 */3 * * *"
     backoffLimit: 1
     # Generous: one run sweeps the whole Dell estate a batch of BMCs at a
     # time. Keep it above redfish's runBudgetSeconds so the in-process
@@ -897,13 +896,13 @@ collectors:
     # reaching the endpoint at all.
     readTimeoutSeconds: 60
 
-    # Every 6 hours, matching every other collector here — a shared,
-    # uniform cadence across the whole fleet, at the operator's request
-    # (2026-09-10; this used to be hourly). One run covers the whole
+    # Every 3 hours, matching every other collector here — a shared,
+    # uniform cadence across the whole fleet (operator, 2026-10-04; was
+    # 6h, and hourly before 2026-09-10). One run covers the whole
     # tenant in a flat number of requests, so the wire cost would support
     # more often than this — unlike the per-BMC Redfish sweep, which
     # genuinely must not be scheduled tighter.
-    schedule: "0 */6 * * *"
+    schedule: "0 */3 * * *"
     backoffLimit: 1
 
     # In-process budget, so a throttled run ends with a summary naming

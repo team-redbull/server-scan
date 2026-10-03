@@ -269,7 +269,7 @@ below.
 
 **A shared threshold does not fit both cadences.** `silentForSeconds`
 already existed, sized against the vendor collectors'
-`collectors.*.schedule` (default every 6h; 43200s = 2 cycles). Reusing it
+`collectors.*.schedule` (default every 6h when written; every 3h since 2026-10-04, `silentForSeconds` now 21600 = 2 cycles). Reusing it
 for `ServerScanMembershipRunSilent` (and, latently, for the pre-existing
 `ServerScanClusterSilent`) tolerated 43200s of silence on a `nodes-status`
 job that runs every **15 minutes** by default
