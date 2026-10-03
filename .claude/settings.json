@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block_attribution_trailers.py",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       },
@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block_baseline_edit.py",
-            "timeout": 5000
+            "timeout": 5
           }
         ]
       }
@@ -29,10 +29,23 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format_python.py",
-            "timeout": 30000
+            "timeout": 30
           }
         ]
       }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run ruff *)",
+      "Bash(uv run ty *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run lint-imports*)",
+      "Bash(uv run python scripts/check_comment_density.py*)",
+      "Bash(npm run lint*)",
+      "Bash(npm run typecheck*)",
+      "Bash(npm run test*)",
+      "Bash(bash .claude/skills/gate/gate.sh *)"
     ]
   }
 }

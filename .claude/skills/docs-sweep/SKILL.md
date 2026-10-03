@@ -12,13 +12,14 @@ not.
 
 | File | Look at |
 |---|---|
-| `README.md` | status list, data-flow diagram, project layout, any seeded figures |
+| `README.md` | architecture sketch, quick start, config table, layout (kept short; seeded figures are in `docs/fake-data.md`) |
 | `docs/architecture.md` | the subsystem section for what was touched |
 | `docs/arc42.md` | **§9 ADR index — a new ADR needs a row or nothing links to it**; §5 deployable units, §7 deployment, §8 quality table, §11 risks, §12 glossary |
 | `deploy/README.md` | charts, values, CronJobs — including its opening sentence |
 | `CLAUDE.md` | "Key technical facts" for a *cross-cutting* trap; "Where to continue right now" holds only the newest unit of work — move the previous one to `docs/notes/session-log.md` |
 | `.claude/rules/*.md` | a collector / storage-query / frontend trap goes in `collectors.md`, `mongodb.md` or `frontend.md`, not CLAUDE.md |
 | `.env.example` | any new or renamed variable |
+| `.claude/skills/server-scan-api/` | any API change: endpoint, query param/filter key, enum value, response field, error code, auth rule (compare with `app.openapi()`) |
 
 Also: a new decision needs an ADR under `docs/adr/` with the code
 carrying a one-line pointer, not the reasoning (convention 8). A false

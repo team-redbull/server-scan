@@ -77,8 +77,8 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   (`PROVIDER_FACTORIES`, `build_provider`, `build_provider_for_manager_type`,
   `manager_for`, `resolve_name_pattern`), not in `tools/run_collector.py`,
   which imports it. `app` must never import `tools`: it is not an
-  installed package, and `uvicorn --app-dir backend` (the README's dev
-  command) cannot see it — that import shipped once (2026-09-13) and
+  installed package, and `uvicorn --app-dir backend` (the README's quick
+  start) cannot see it — that import shipped once (2026-09-13) and
   worked only through uvicorn's default `--app-dir .`.
 - **Every collector reports PSUs.** An `Absent` supply is dropped, never
   failed; a PSU `health` is `UP`/`DOWN`/`DISABLED`/`UNKNOWN`, **never a

@@ -67,3 +67,4 @@ ucs-dryrun.txt
 # archify visual-check evidence: regenerable screenshots and receipts,
 # not the deliverable. The .architecture.json spec and .html are committed.
 docs/diagrams/*.visual-check.*
+.claude/settings.local.json
