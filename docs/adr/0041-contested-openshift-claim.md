@@ -30,7 +30,7 @@ report after an hour without flipping, and a freed server forgets its history.
 From a fresh server the first flip back shows on the second run, so a two-Agent
 duplicate on one MCE is flagged 15 minutes after it first appears.
 
-Surfaced three ways: a structured `openshift.contested_claim` log naming both
+Surfaced three ways (plus a Grafana stat panel and the recording rule `server_scan:openshift_contested_servers:max`): a structured `openshift.contested_claim` log naming both
 claimants, the gauge `server_scan_openshift_contested_servers`, and
 `contested_with` on `ServerRow`, which the inventory shows as a "Contested with"
 chip and a **Duplicate Server** filter (the server's Overview names the other claim and its hostname) (`?contested=true`), beside **Duplicate

@@ -80,6 +80,8 @@ spec:
           expr: max by (namespace) (server_scan_duplicate_name_servers)
         - record: server_scan:openshift_name_mismatch_servers:max
           expr: max by (namespace) (server_scan_openshift_name_mismatch_servers)
+        - record: server_scan:openshift_contested_servers:max
+          expr: max by (namespace) (server_scan_openshift_contested_servers)
         - record: server_scan:membership_last_run_timestamp_seconds:max
           expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_timestamp_seconds)
         - record: server_scan:membership_last_run_duration_seconds:max
