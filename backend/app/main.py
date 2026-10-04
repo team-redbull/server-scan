@@ -13,15 +13,18 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.responses import Response
+from starlette.responses import HTMLResponse, Response
 
 from app.api.health import router as health_router
 from app.api.v1.auth import router as auth_router
@@ -126,6 +129,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await mongo.close()
 
 
+DOCS_ASSETS_URL = "/api/docs-assets"
+DOCS_ASSETS_DIR = Path(__file__).parent / "static" / "docs"
+
+
 def create_app() -> FastAPI:
     """
     Build the FastAPI app: middleware, exception handlers, every router.
@@ -139,7 +146,42 @@ def create_app() -> FastAPI:
         title=settings.service_name,
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
     )
+    app.mount(DOCS_ASSETS_URL, StaticFiles(directory=DOCS_ASSETS_DIR), name="docs-assets")
+
+    @app.get("/docs", include_in_schema=False)
+    async def swagger() -> HTMLResponse:
+        """
+        Serve Swagger UI from the vendored bundle (docs/adr/0040).
+
+        Returns:
+            HTMLResponse: The Swagger UI page with no CDN reference.
+        """
+        return get_swagger_ui_html(
+            openapi_url=app.openapi_url or "/openapi.json",
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url=f"{DOCS_ASSETS_URL}/swagger-ui-bundle.js",
+            swagger_css_url=f"{DOCS_ASSETS_URL}/swagger-ui.css",
+            swagger_favicon_url=f"{DOCS_ASSETS_URL}/favicon.svg",
+        )
+
+    @app.get("/redoc", include_in_schema=False)
+    async def redoc() -> HTMLResponse:
+        """
+        Serve ReDoc from the vendored bundle (docs/adr/0040).
+
+        Returns:
+            HTMLResponse: The ReDoc page with no CDN or Google Fonts reference.
+        """
+        return get_redoc_html(
+            openapi_url=app.openapi_url or "/openapi.json",
+            title=f"{app.title} - ReDoc",
+            redoc_js_url=f"{DOCS_ASSETS_URL}/redoc.standalone.js",
+            redoc_favicon_url=f"{DOCS_ASSETS_URL}/favicon.svg",
+            with_google_fonts=False,
+        )
 
     app.add_middleware(RequestContextMiddleware)
     # Level 6, not the default 9: 15.8x for 0.86ms vs 16.1x for 1.57ms

@@ -11,7 +11,7 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — records 0001 to 0039, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0040, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
@@ -545,6 +545,7 @@ of it.
 | 0037 | BMC reachability is a `bmc` health category, probed with an unauthenticated Redfish GET (OneView); standalone Redfish failures become stub documents matched by BMC address; `listed_at` + guarded pruning (Accepted) |
 | 0038 | A parts donor is a maintenance whose reason says "donor": a cyan Donor badge and inventory filter, no new field; `/servers/available` already excludes maintenance |
 | 0039 | `POST /auth/login` is throttled per username in Redis (default 5 failures / 15 min, then 429 before any LDAP bind); fails open if Redis is down |
+| 0040 | `/docs` and `/redoc` load Swagger UI / ReDoc from bundles vendored in the image (`/api/docs-assets`), not a CDN, so they render air-gapped |
 
 ---
 

@@ -183,9 +183,8 @@ no hostname to pick. It is an explicit list rather than a catch-all only
 because the SPA owns `/` and has client-side routes of its own
 (`/servers`, `/rules`, `/health-policies`) that must not be proxied.
 
-`/docs` loads Swagger UI's JavaScript from a public CDN, so on a
-genuinely air-gapped cluster the page will render empty even though it is
-reachable. `/openapi.json` is unaffected and is the useful half there.
+`/docs` and `/redoc` load their JavaScript from the image (`/api/docs-assets`, ADR-0040), so they
+render on an air-gapped cluster; `/openapi.json` is regenerated from the routes on every release.
 
 **`route.host` is no longer mandatory with the frontend on.** One Route
 means an OpenShift-generated hostname works; set `route.host` when you
