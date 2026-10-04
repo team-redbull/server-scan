@@ -165,6 +165,7 @@ def create_app() -> FastAPI:
             swagger_js_url=f"{DOCS_ASSETS_URL}/swagger-ui-bundle.js",
             swagger_css_url=f"{DOCS_ASSETS_URL}/swagger-ui.css",
             swagger_favicon_url=f"{DOCS_ASSETS_URL}/favicon.svg",
+            swagger_ui_parameters={"validatorUrl": None},
         )
 
     @app.get("/redoc", include_in_schema=False)

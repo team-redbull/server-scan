@@ -29,7 +29,7 @@ metadata:
     app.kubernetes.io/part-of: server-scan
 data:
   api-proxy.conf: |
-    location /api/ {
+    location ^~ /api/ {
       proxy_pass {{ $api }}/api/;
       proxy_http_version 1.1;
       proxy_set_header Host $host;
@@ -43,7 +43,7 @@ data:
     # proxy them to the API's liveness endpoints, breaking a hard refresh
     # on that page — the same trap frontend/vite.config.ts documents for
     # the dev proxy.
-    location /health/ {
+    location ^~ /health/ {
       proxy_pass {{ $api }}/health/;
       proxy_http_version 1.1;
       proxy_set_header Host $host;

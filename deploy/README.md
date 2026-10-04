@@ -184,7 +184,7 @@ because the SPA owns `/` and has client-side routes of its own
 (`/servers`, `/rules`, `/health-policies`) that must not be proxied.
 
 `/docs` and `/redoc` load their JavaScript from the image (`/api/docs-assets`, ADR-0040), so they
-render on an air-gapped cluster; `/openapi.json` is regenerated from the routes on every release.
+render on an air-gapped cluster (the proxy's `/api/` and `/health/` locations are `^~` so the SPA's static-file regex cannot capture `/api/docs-assets/*.js`); `/openapi.json` is regenerated from the routes on every release.
 
 **`route.host` is no longer mandatory with the frontend on.** One Route
 means an OpenShift-generated hostname works; set `route.host` when you

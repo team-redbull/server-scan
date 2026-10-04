@@ -11,8 +11,11 @@ so both pages rendered blank: reachable HTML, unreachable script.
 ## Decision
 
 The bundles are vendored in `backend/app/static/docs/` (versions in its
-README) and mounted at `/api/docs-assets`. That prefix is already forwarded by
-the frontend nginx proxy, so no new `location` is needed. `/redoc` is our own
+README) and mounted at `/api/docs-assets`. The frontend nginx proxy forwards that
+prefix only because its `/api/` block is `^~`: without it the SPA's
+`location ~* \.(css|js|svg|woff2?)$` regex wins and the bundles 404 (found live,
+4.20.1). Swagger UI is given `validatorUrl: null` so it never calls
+validator.swagger.io. `/redoc` is our own
 route (`get_redoc_html(with_google_fonts=False)`), since the `FastAPI`
 constructor has no switch for the fonts. The mount is unauthenticated, like
 `/docs` itself. `/openapi.json` is generated from the routes at first request,
