@@ -127,6 +127,10 @@ openshift_name_mismatch_servers = Gauge(
     "server_scan_openshift_name_mismatch_servers",
     "Servers installed in OpenShift under a different name than the vendor manager now reports",
 )
+openshift_contested_servers = Gauge(
+    "server_scan_openshift_contested_servers",
+    "Servers two OpenShift jobs (cluster or MCE) are both claiming, flipping back within an hour",
+)
 servers_pruned_24h = Gauge(
     "server_scan_servers_pruned_24h",
     "Servers deleted by the prune tool in the last 24h, from audit events",

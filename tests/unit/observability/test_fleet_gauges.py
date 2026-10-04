@@ -49,6 +49,7 @@ def _snapshot(**overrides: Any) -> FleetSnapshot:
         "duplicate_name_groups": 1,
         "duplicate_name_servers": 2,
         "openshift_name_mismatches": 1,
+        "openshift_contested": 2,
     }
     base.update(overrides)
     return FleetSnapshot(**base)
@@ -204,6 +205,7 @@ def test_apply_snapshot_sets_every_gauge() -> None:
     assert _value("server_scan_duplicate_name_groups") == 1
     assert _value("server_scan_duplicate_name_servers") == 2
     assert _value("server_scan_openshift_name_mismatch_servers") == 1
+    assert _value("server_scan_openshift_contested_servers") == 2
     assert _value("server_scan_servers_partial", source_provider="OPENMANAGE") == 2
     assert _value("server_scan_policy_active", policy_key="power.failed_psu") == 3
     assert (

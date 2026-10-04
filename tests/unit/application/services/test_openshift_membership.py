@@ -18,6 +18,7 @@ guessed at — see `TestSerialFallback`.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -707,3 +708,299 @@ class TestAgentAlwaysResolvesBySerial:
 
         assert summary.unmatched == ["dup"]
         assert repo.written == []
+
+
+class TestContestedClaim:
+    """ADR-0041: two jobs flipping one server back and forth is flagged; a real move is not."""
+
+    @staticmethod
+    async def _claim(repo: FakeRepo, cluster: str, hostname: str = "ocp4-x-worker-01") -> None:
+        await _service(repo, FakeAudit()).reconcile(
+            [_seen(hostname, cluster=cluster)],
+            scope={"openshift.cluster_name": cluster},
+            reported_by=cluster,
+        )
+
+    async def test_flipping_back_to_the_earlier_claimant_marks_it_contested(self) -> None:
+        server = _server("ocp4-x-worker-01")
+        repo = FakeRepo([server])
+
+        await self._claim(repo, "ocp4-a")
+        await self._claim(repo, "ocp4-b")
+        assert server.openshift.contested_with is None
+
+        await self._claim(repo, "ocp4-a")
+        assert server.openshift.contested_with == "ocp4-b"
+
+        await self._claim(repo, "ocp4-b")
+        assert server.openshift.contested_with == "ocp4-a"
+
+    async def test_the_other_claimants_hostname_is_recorded_when_it_differs(self) -> None:
+        server = _server(
+            "ocp4-x-worker-01",
+            openshift=OpenShiftLifecycle(
+                lifecycle_state=OpenShiftState.INSTALLED,
+                cluster_name="ocp4-b",
+                reported_by_agent_id="ocp4-b",
+                reported_name="old-name-07",
+                previous_reporter="ocp4-a",
+                claim_changed_at=utcnow() - timedelta(minutes=15),
+            ),
+        )
+        repo = FakeRepo([server])
+
+        await self._claim(repo, "ocp4-a")
+
+        assert server.openshift.contested_with == "ocp4-b"
+        assert server.openshift.contested_name == "old-name-07"
+
+    async def test_the_other_claimant_defaults_to_the_servers_own_name(self) -> None:
+        server = _server("ocp4-x-worker-01")
+        repo = FakeRepo([server])
+        for cluster in ("ocp4-a", "ocp4-b", "ocp4-a"):
+            await self._claim(repo, cluster)
+
+        assert server.openshift.contested_name == "ocp4-x-worker-01"
+
+    async def test_the_same_server_under_different_names_in_upi_and_mce_shows_both(self) -> None:
+        """One serial, three names: the inventory's, the UPI cluster's, the MCE's."""
+        server = _server("inventory-name-01", serial="SN1")
+        repo = FakeRepo([server])
+        reader = FakeSerialReader({"10.0.0.1": "SN1"})
+        node = _seen("upi-host-1", cluster="upi-a", address="10.0.0.1")
+        agent = ClusterObservation(
+            hostname="mce-host-9",
+            lifecycle_state=OpenShiftState.INSTALLED_TO_INVENTORY,
+            mce_name="mce-x",
+            serial="SN1",
+        )
+
+        for who in ("agent", "node", "agent"):
+            if who == "node":
+                await _service(repo, FakeAudit(), serial_reader=reader).reconcile(
+                    [node], scope={"openshift.cluster_name": "upi-a"}, reported_by="upi-a"
+                )
+            else:
+                await _service(repo, FakeAudit()).reconcile(
+                    [agent], scope={"openshift.mce_name": "mce-x"}, reported_by="mce-x"
+                )
+
+        assert server.openshift.contested_with == "upi-a"
+        assert server.openshift.contested_name == "upi-host-1"
+        assert server.openshift.reported_name == "mce-host-9"
+
+    async def test_a_real_move_between_clusters_is_never_flagged(self) -> None:
+        server = _server("ocp4-x-worker-01")
+        repo = FakeRepo([server])
+
+        await self._claim(repo, "ocp4-a")
+        await self._claim(repo, "ocp4-b")
+        for _ in range(3):
+            await self._claim(repo, "ocp4-b")
+
+        assert server.openshift.cluster_name == "ocp4-b"
+        assert server.openshift.contested_with is None
+
+    async def test_an_mce_agent_moving_to_a_upi_cluster_is_never_flagged(self) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        agent = ClusterObservation(
+            hostname="ocp4-x-worker-01",
+            lifecycle_state=OpenShiftState.INSTALLED_TO_INVENTORY,
+            mce_name="mce-x",
+            serial="SN1",
+        )
+        await _service(repo, FakeAudit()).reconcile(
+            [agent], scope={"openshift.mce_name": "mce-x"}, reported_by="mce-x"
+        )
+        await self._claim(repo, "upi-x")
+        await self._claim(repo, "upi-x")
+
+        assert server.openshift.cluster_name == "upi-x"
+        assert server.openshift.contested_with is None
+
+    async def test_a_stale_agent_fighting_a_node_is_flagged(self) -> None:
+        """The 2026-10-04 incident: an unbound Agent CR and the real node."""
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        agent = ClusterObservation(
+            hostname="ocp4-x-worker-01",
+            lifecycle_state=OpenShiftState.INSTALLED_TO_INVENTORY,
+            mce_name="mce-x",
+            serial="SN1",
+        )
+        for _ in range(2):
+            await self._claim(repo, "ocp4-five")
+            await _service(repo, FakeAudit()).reconcile(
+                [agent], scope={"openshift.mce_name": "mce-x"}, reported_by="mce-x"
+            )
+
+        assert server.openshift.contested_with == "ocp4-five"
+
+    async def test_the_flag_is_logged_once_with_both_claimants(self) -> None:
+        repo = FakeRepo([_server("ocp4-x-worker-01")])
+        with capture_logs() as logs:
+            for cluster in ("ocp4-a", "ocp4-b", "ocp4-a", "ocp4-a"):
+                await self._claim(repo, cluster)
+
+        flagged = [entry for entry in logs if entry["event"] == "openshift.contested_claim"]
+        assert len(flagged) == 1
+        assert flagged[0]["claimed_by"] == "ocp4-a"
+        assert flagged[0]["also_claimed_by"] == "ocp4-b"
+
+    async def test_the_flag_clears_once_the_flipping_has_stopped_for_an_hour(self) -> None:
+        old = utcnow() - timedelta(hours=2)
+        server = _server(
+            "ocp4-x-worker-01",
+            openshift=OpenShiftLifecycle(
+                lifecycle_state=OpenShiftState.INSTALLED,
+                cluster_name="ocp4-a",
+                reported_by_agent_id="ocp4-a",
+                previous_reporter="ocp4-b",
+                claim_changed_at=old,
+                contested_with="ocp4-b",
+            ),
+        )
+        repo = FakeRepo([server])
+
+        await self._claim(repo, "ocp4-a")
+
+        assert server.openshift.contested_with is None
+
+    async def test_moving_back_after_more_than_an_hour_is_a_move_not_a_contest(self) -> None:
+        server = _server(
+            "ocp4-x-worker-01",
+            openshift=OpenShiftLifecycle(
+                lifecycle_state=OpenShiftState.INSTALLED,
+                cluster_name="ocp4-b",
+                reported_by_agent_id="ocp4-b",
+                previous_reporter="ocp4-a",
+                claim_changed_at=utcnow() - timedelta(hours=2),
+            ),
+        )
+        repo = FakeRepo([server])
+
+        await self._claim(repo, "ocp4-a")
+
+        assert server.openshift.cluster_name == "ocp4-a"
+        assert server.openshift.contested_with is None
+
+    async def test_a_freed_server_forgets_its_history(self) -> None:
+        server = _server("ocp4-x-worker-01")
+        repo = FakeRepo([server])
+        await self._claim(repo, "ocp4-a")
+        await self._claim(repo, "ocp4-b")
+        await _service(repo, FakeAudit()).reconcile(
+            [], scope={"openshift.cluster_name": "ocp4-b"}, reported_by="ocp4-b"
+        )
+        await self._claim(repo, "ocp4-a")
+
+        assert server.openshift.contested_with is None
+
+
+def _agent(mce: str, cluster: str | None = None) -> ClusterObservation:
+    """
+    One MCE agent observation for the shared test server.
+
+    Args:
+        mce (str): The reporting MCE.
+        cluster (str | None): The hosted cluster it is bound to, or `None` if unbound.
+
+    Returns:
+        ClusterObservation: The agent's claim.
+    """
+    return ClusterObservation(
+        hostname="ocp4-x-worker-01",
+        lifecycle_state=(
+            OpenShiftState.INSTALLED if cluster else OpenShiftState.INSTALLED_TO_INVENTORY
+        ),
+        cluster_name=cluster,
+        mce_name=mce,
+        serial="SN1",
+    )
+
+
+# One claimant per kind of source: a UPI cluster's nodes job, an MCE's unbound agent, an
+# MCE's agent bound to a hosted cluster. Two of each, so every pairing exists.
+_CLAIMANTS: dict[str, tuple[str, str, ClusterObservation]] = {
+    "upi-a": ("upi-a", "openshift.cluster_name", _seen("ocp4-x-worker-01", cluster="upi-a")),
+    "upi-b": ("upi-b", "openshift.cluster_name", _seen("ocp4-x-worker-01", cluster="upi-b")),
+    "mce-x unbound": ("mce-x", "openshift.mce_name", _agent("mce-x")),
+    "mce-y unbound": ("mce-y", "openshift.mce_name", _agent("mce-y")),
+    "mce-x hosted h1": ("mce-x", "openshift.mce_name", _agent("mce-x", "h1")),
+    "mce-y hosted h2": ("mce-y", "openshift.mce_name", _agent("mce-y", "h2")),
+}
+_PAIRS = [(a, b) for a in _CLAIMANTS for b in _CLAIMANTS if a != b]
+
+
+async def _report(repo: FakeRepo, who: str) -> None:
+    reporter, scope_key, observation = _CLAIMANTS[who]
+    await _service(repo, FakeAudit()).reconcile(
+        [observation], scope={scope_key: reporter}, reported_by=reporter
+    )
+
+
+class TestEveryPairingOfClaimants:
+    """ADR-0041: any two sources fighting over one server are flagged; a real move never is."""
+
+    @pytest.mark.parametrize(("first", "second"), _PAIRS)
+    async def test_two_sources_flipping_are_flagged(self, first: str, second: str) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+
+        for who in (first, second, first):
+            await _report(repo, who)
+
+        assert server.openshift.contested_with is not None
+
+    @pytest.mark.parametrize(("first", "second"), _PAIRS)
+    async def test_a_move_from_one_source_to_another_is_not_flagged(
+        self, first: str, second: str
+    ) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+
+        for who in (first, second, second, second):
+            await _report(repo, who)
+
+        assert server.openshift.contested_with is None
+
+    async def test_contested_with_names_the_other_claim(self) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        for who in ("mce-x hosted h1", "upi-a", "mce-x hosted h1"):
+            await _report(repo, who)
+
+        assert server.openshift.contested_with == "upi-a"
+        await _report(repo, "upi-a")
+        assert server.openshift.contested_with == "mce-x/h1"
+
+    async def test_two_agents_for_one_serial_on_one_mce_are_flagged(self) -> None:
+        """A stale unbound Agent CR beside the live bound one: flagged on the second run."""
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+
+        for _ in range(2):
+            await _service(repo, FakeAudit()).reconcile(
+                [_agent("mce-x"), _agent("mce-x", "h1")],
+                scope={"openshift.mce_name": "mce-x"},
+                reported_by="mce-x",
+            )
+
+        assert server.openshift.contested_with == "mce-x"
+
+    async def test_a_hosted_cluster_reported_by_its_own_job_and_its_mce_is_not_contested(
+        self,
+    ) -> None:
+        """Both name cluster `h1`: they agree, so this is one claim reported twice."""
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        own_job = _seen("ocp4-x-worker-01", cluster="h1")
+
+        for _ in range(3):
+            await _service(repo, FakeAudit()).reconcile(
+                [own_job], scope={"openshift.cluster_name": "h1"}, reported_by="h1"
+            )
+            await _report(repo, "mce-x hosted h1")
+
+        assert server.openshift.contested_with is None

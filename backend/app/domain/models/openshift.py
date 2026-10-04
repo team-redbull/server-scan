@@ -39,7 +39,8 @@ reading it would cover part of the fleet while looking complete. The
 hostname is on the Agent itself. See the module above for the two-step
 read that makes it work across vendors.
 
-Five fields, and the five an earlier shape carried that were dropped:
+Eight fields (three track a contested claim, ADR-0041); the five an earlier shape
+carried and dropped:
 `docs/adr/0024-openshift-cluster-membership.md`.
 
 **`reported_name` (ADR-0036) is the one exception to hostname-only
@@ -83,6 +84,17 @@ class OpenShiftLifecycle(BaseModel):
         reported_name (str | None): The hostname OpenShift reported, set
             only when it differs from `Server.name` (ADR-0036). `None`
             means the cluster's name and the inventory's agree.
+        previous_reporter (str | None): The claim that held this server
+            before the current one took it over (a reporter, or
+            `mce/hosted-cluster` for a bound agent); `None` if nobody did.
+        claim_changed_at (datetime | None): When `reported_by_agent_id`
+            took it over from `previous_reporter`.
+        contested_with (str | None): The other claim still on this
+            server, set when ownership flipped back to `previous_reporter`
+            within an hour (ADR-0041); `None` when uncontested.
+        contested_name (str | None): The hostname the other claim reports for
+            the server (`Server.name` when it reports no different one); `None`
+            when uncontested.
     """
 
     lifecycle_state: OpenShiftState = OpenShiftState.AVAILABLE
@@ -91,6 +103,10 @@ class OpenShiftLifecycle(BaseModel):
     last_reported_at: datetime | None = None
     reported_by_agent_id: str | None = None
     reported_name: str | None = None
+    previous_reporter: str | None = None
+    claim_changed_at: datetime | None = None
+    contested_with: str | None = None
+    contested_name: str | None = None
 
     @field_validator("lifecycle_state", mode="before")
     @classmethod

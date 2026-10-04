@@ -160,6 +160,7 @@ function ModelValue({ server }: { server: ServerDetail }) {
 function OpenShiftValue({ server }: { server: ServerDetail }) {
   const { lifecycle_state, cluster_name, mce_name, reported_name } =
     server.openshift;
+  const { contested_with, contested_name } = server.openshift;
 
   return (
     <div className="flex flex-col gap-1">
@@ -179,6 +180,19 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
         <span className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
           <Badge tone="warning">Name mismatch</Badge> Installed as{" "}
           <span className="font-medium">{reported_name}</span>
+        </span>
+      )}
+      {/* Two jobs keep claiming this server (ADR-0041): name the other one,
+          and the hostname it knows the server by when that differs. */}
+      {contested_with && (
+        <span className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
+          <Badge tone="warning">Duplicate server</Badge> Also claimed by{" "}
+          <span className="font-medium">{contested_with}</span>
+          {contested_name && (
+            <>
+              {" "}as <span className="font-medium">{contested_name}</span>
+            </>
+          )}
         </span>
       )}
     </div>

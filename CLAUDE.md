@@ -281,6 +281,9 @@ long form of each entry is in the 2026-09-13 archive.
   `MembershipRun` (`membership_runs`, `tools.collect_openshift._record_run`),
   exported by the fleet gauges — the only way a zero-match job is visible
   (ADR-0029, 2026-09-24).
+  **A server two jobs keep flipping between is `contested_with`** (ADR-0041,
+  detection only: log, gauge, inventory "Duplicate Server"): the writer that held
+  it before the current claimant, within an hour. A single move is never flagged.
   **A hostname that is not a *unique* match** (miss, or two servers sharing it)
   **falls back to the hardware serial** — SSH (`SshSerialReader`, `asyncssh`)
   for a node, the Agent CR's inventory for an agent (ADR-0036) — so a renamed
@@ -399,22 +402,18 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-03 — README shortened, CLAUDE.md condensed, `server-scan-api` skill added
-(uncommitted when written).** Moved to `docs/notes/session-log.md`: the ADR-0037
-BMC-reachability unit.
+**2026-10-05 — contested OpenShift claims (ADR-0041) and the `/redoc` proxy fix.**
+Moved to `docs/notes/session-log.md`: the README / login-throttle unit.
 
-**Shipped:** `README.md` cut from 647 to ~130 lines (what it is, architecture sketch, quick
-start, API/auth/config/deploy pointers); the seeded-fleet section moved verbatim to
-`docs/fake-data.md`; `CLAUDE.md` condensed 657 -> ~415 lines with the full prior text in
-`docs/notes/2026-10-03-claude-md-archive.md`; `.claude/skills/server-scan-api` (SKILL.md +
-`references/endpoints.md`) teaches Claude to query the REST API, with `BASE_URL`/`VIEW_TOKEN`
-lines the operator edits in the air gap.
+**Shipped:** (1) `/redoc` and `/docs` were blank on OpenShift because the SPA nginx's
+`location ~* \.(css|js|svg|woff2?)$` beat the chart's plain `/api/` prefix and 404'd
+`/api/docs-assets/*.js`; the proxy locations are now `^~` (commit 6253a6f), and Swagger UI gets
+`validatorUrl: null` for the air gap. (2) A server two jobs keep flipping between (2026-10-04: a stale
+unbound Agent CR vs the real node) is flagged `OpenShiftLifecycle.contested_with` when the writer is
+the one who held it before the current claimant, within an hour; a single move is never flagged.
+Surfaced as the `openshift.contested_claim` log, gauge `server_scan_openshift_contested_servers`,
+`ServerRow.contested_with` and the inventory's **Duplicate Server** filter (`?contested=true`) beside
+**Duplicate Name** (`?duplicate=true`). Detection only, no precedence rule.
 
-**Also done (`.claude/` audit):** hook `timeout` values are seconds (5/5/30); the trailer
-hook covers `gh pr create|edit` and `-F`/`--body-file`; `settings.local.json` is untracked;
-`/gate` is user-invoked only; shared `permissions.allow` for ruff/ty/pytest/npm.
-
-**Login throttle (ADR-0039, uncommitted):** per-username Redis counter on `POST /auth/login`,
-429 + `Retry-After` before any LDAP bind, fails open without Redis; `INVENTORY_LOGIN_MAX_FAILURES`
-/ `_LOCKOUT_SECONDS` (Helm `auth.loginMaxFailures` / `loginLockoutSeconds`); tests on `tests/fake_redis.py`.
-Open: parked recheck concurrency cap; operator is checking the OneView probe and that cap.
+**Open:** the operator still has to delete the stale Agent CR / NotReady node (outside this repo);
+parked recheck concurrency cap; operator is checking the OneView probe and that cap.

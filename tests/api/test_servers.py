@@ -580,6 +580,7 @@ async def test_rows_returns_every_server_as_a_flat_row(
         "cluster_name",
         "mce_name",
         "openshift_reported_name",
+        "contested_with",
         "profile_template_name",
         "last_seen_at",
         "stale",

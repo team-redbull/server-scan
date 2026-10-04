@@ -48,6 +48,8 @@ is reachable.
   produce that state at all. Every card is meant to be non-empty and
   visibly different — an available server is a real state, not a seeding
   accident.
+* **Contested servers (ADR-0041)**: about 1% of installed servers carry `contested_with`,
+  so the inventory's Duplicate Server filter and the gauge have data.
 * **The four site cards plus Unassigned**: 211 nyc, 224 tlv, 224 bat-yam,
   220 five, and 121 with no site token in the name. That last one is why
   the Unassigned card is worth having — and why it is hidden when it

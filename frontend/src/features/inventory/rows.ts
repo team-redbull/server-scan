@@ -22,6 +22,8 @@ export interface RowFilters {
   reserved?: true;
   stale?: true;
   duplicate?: true;
+  /** OpenShift membership contested between two clusters (`contested_with` set). */
+  contested?: true;
   /** Installed in OpenShift under a hostname the vendor manager no longer
    * reports (ADR-0036) — `ServerRow.openshift_reported_name` is set. */
   nameMismatch?: true;
@@ -119,6 +121,7 @@ export function filterRows(
       (!filters.reserved || row.reservation.held) &&
       (!filters.stale || row.stale) &&
       (!filters.nameMismatch || row.openshift_reported_name !== null) &&
+      (!filters.contested || row.contested_with !== null) &&
       (!filters.donor || isDonor(row.maintenance)) &&
       (!filters.mce?.length ||
         (row.mce_name !== null && filters.mce.includes(row.mce_name))) &&

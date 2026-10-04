@@ -60,6 +60,7 @@ change from this feature.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Protocol
 
 import structlog
@@ -77,6 +78,64 @@ from app.utils.timeutil import utcnow
 logger = structlog.get_logger(__name__)
 
 _PAGE = 500
+
+# A server is contested when ownership flips back to its earlier claimant
+# within this long (ADR-0041); both jobs run every 15 minutes.
+_CONTEST_WINDOW = timedelta(hours=1)
+
+
+def _claim_key(reporter: str, cluster: str | None) -> str:
+    """
+    Name one claim: who reports it, and the cluster it puts the server in.
+
+    Args:
+        reporter (str): The cluster or MCE job reporting.
+        cluster (str | None): The cluster it says holds the server.
+
+    Returns:
+        str: The reporter alone for a node or an unbound agent, else
+            `reporter/cluster` (an MCE's agent bound to a hosted cluster), so two
+            Agent CRs on one MCE are two claims.
+    """
+    return reporter if cluster in (None, reporter) else f"{reporter}/{cluster}"
+
+
+def _claim_history(
+    before: OpenShiftLifecycle, reported_by: str, cluster: str | None, now: datetime
+) -> tuple[str | None, datetime | None, str | None, str | None]:
+    """
+    Work out who held a server before, and whether two claims are fighting over it.
+
+    A flip back to the earlier claim within an hour is a contest; a one-way move
+    is not, and claims naming the same cluster agree (ADR-0041).
+
+    Args:
+        before (OpenShiftLifecycle): The stored membership.
+        reported_by (str): The job writing now.
+        cluster (str | None): The cluster the new claim names.
+        now (datetime): The current time.
+
+    Returns:
+        tuple[str | None, datetime | None, str | None, str | None]:
+            `previous_reporter`, `claim_changed_at`, `contested_with` and
+            `contested_name` for the new value.
+    """
+    if before.lifecycle_state is OpenShiftState.AVAILABLE or not before.reported_by_agent_id:
+        return None, None, None, None
+    held = _claim_key(before.reported_by_agent_id, before.cluster_name)
+    changed_at = before.claim_changed_at
+    recent = changed_at is not None and now - changed_at < _CONTEST_WINDOW
+    agrees = cluster is not None and cluster == before.cluster_name
+    if held == _claim_key(reported_by, cluster) or agrees:
+        kept = recent and before.contested_with
+        return (
+            before.previous_reporter,
+            changed_at,
+            before.contested_with if kept else None,
+            before.contested_name if kept else None,
+        )
+    flipped_back = before.previous_reporter == _claim_key(reported_by, cluster) and recent
+    return held, now, held if flipped_back else None, before.reported_name if flipped_back else None
 
 
 class SerialReader(Protocol):
@@ -522,14 +581,31 @@ class OpenShiftMembershipService:
         Returns:
             bool: Whether the stored value changed.
         """
+        now = utcnow()
+        previous, changed_at, contested, contested_name = _claim_history(
+            server.openshift, reported_by, observation.cluster_name, now
+        )
         updated = OpenShiftLifecycle(
             lifecycle_state=observation.lifecycle_state,
             cluster_name=observation.cluster_name,
             mce_name=observation.mce_name,
-            last_reported_at=utcnow(),
+            last_reported_at=now,
             reported_by_agent_id=reported_by,
             reported_name=reported_name,
+            previous_reporter=previous,
+            claim_changed_at=changed_at,
+            contested_with=contested,
+            contested_name=contested_name,
         )
+        if contested and not contested_name:
+            updated.contested_name = server.name
+        if contested and contested != server.openshift.contested_with:
+            logger.warning(
+                "openshift.contested_claim",
+                server=server.name,
+                claimed_by=reported_by,
+                also_claimed_by=contested,
+            )
         return await self._write(server, updated, dry_run=dry_run)
 
     async def _free(self, server: Server, *, dry_run: bool) -> bool:
@@ -570,6 +646,9 @@ class OpenShiftMembershipService:
             and before.cluster_name == updated.cluster_name
             and before.mce_name == updated.mce_name
             and before.reported_name == updated.reported_name
+            and before.contested_with == updated.contested_with
+            and before.contested_name == updated.contested_name
+            and before.previous_reporter == updated.previous_reporter
         ):
             return False
         if dry_run:

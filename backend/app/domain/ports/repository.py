@@ -108,6 +108,8 @@ class FleetSnapshot:
         openshift_name_mismatches (int): Servers with a recorded
             `openshift.reported_name` — installed under a different name
             than the vendor manager now reports (ADR-0036).
+        openshift_contested (int): Servers two OpenShift jobs are fighting
+            over, `openshift.contested_with` set (ADR-0041).
     """
 
     by_provider: list[ProviderSnapshotRow]
@@ -118,6 +120,7 @@ class FleetSnapshot:
     duplicate_name_groups: int
     duplicate_name_servers: int
     openshift_name_mismatches: int
+    openshift_contested: int
 
 
 class ServerRepository(Protocol):

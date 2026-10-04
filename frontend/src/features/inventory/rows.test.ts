@@ -32,6 +32,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     cluster_name: null,
     mce_name: null,
     openshift_reported_name: null,
+    contested_with: null,
     profile_template_name: null,
     last_seen_at: null,
     stale: false,
@@ -101,6 +102,16 @@ describe("filterRows", () => {
     expect(
       filterRows(fleet, { duplicate: true, vendor: "hp" }).map((r) => r.name),
     ).toEqual(["ocp4-five-compute-06"]);
+  });
+
+  it("keeps only rows whose membership is contested", () => {
+    const fleet = [
+      row({ name: "a", contested_with: "mce-b" }),
+      row({ name: "b" }),
+    ];
+    expect(filterRows(fleet, { contested: true }).map((r) => r.name)).toEqual([
+      "a",
+    ]);
   });
 
   it("finds nothing when no name repeats", () => {

@@ -113,6 +113,7 @@ _ROW_PROJECTION: dict[str, int] = {
     "openshift.cluster_name": 1,
     "openshift.mce_name": 1,
     "openshift.reported_name": 1,
+    "openshift.contested_with": 1,
     "profile_template.name": 1,
     "last_seen_at": 1,
     "updated_at": 1,
@@ -544,6 +545,10 @@ class MongoServerRepository:
                         {"$match": {"openshift.reported_name": {"$type": "string"}}},
                         {"$count": "count"},
                     ],
+                    "openshift_contested": [
+                        {"$match": {"openshift.contested_with": {"$type": "string"}}},
+                        {"$count": "count"},
+                    ],
                 }
             }
         ]
@@ -584,6 +589,9 @@ class MongoServerRepository:
             ),
             openshift_name_mismatches=int(
                 next(iter(result.get("openshift_name_mismatches", [])), {}).get("count", 0)
+            ),
+            openshift_contested=int(
+                next(iter(result.get("openshift_contested", [])), {}).get("count", 0)
             ),
         )
 

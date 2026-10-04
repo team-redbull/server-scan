@@ -35,6 +35,10 @@ _AVAILABLE_SHARE = 0.2
 # and filter have data against a fleet with no real cluster to point at.
 _NAME_MISMATCH_SHARE = 0.02
 
+# Seeded share of INSTALLED servers a second job is also claiming (ADR-0041),
+# so the inventory's Duplicate Server filter and the gauge have data.
+_CONTESTED_SHARE = 0.01
+
 
 def _mce_for(site_id: str | None) -> str:
     """
@@ -69,7 +73,7 @@ def _reported_name(rng: random.Random, server: Server) -> str | None:
     return "-".join(tokens).lower()
 
 
-def openshift_for(server: Server) -> OpenShiftLifecycle:
+def _membership_for(server: Server, rng: random.Random) -> OpenShiftLifecycle:
     """
     What OpenShift would report about one server.
 
@@ -78,13 +82,13 @@ def openshift_for(server: Server) -> OpenShiftLifecycle:
 
     Args:
         server (Server): The stored server to report on.
+        rng (random.Random): The server's own deterministic generator.
 
     Returns:
         OpenShiftLifecycle: Its membership. `AVAILABLE` for the share of
             the fleet no cluster holds — the default state, never a
             "nothing reported" one.
     """
-    rng = random.Random(server.id)  # noqa: S311 - deterministic fake data
     now = utcnow()
     mce = _mce_for(server.site_id)
     draw = rng.random()
@@ -132,3 +136,25 @@ def openshift_for(server: Server) -> OpenShiftLifecycle:
         reported_by_agent_id=mce,
         reported_name=_reported_name(rng, server),
     )
+
+
+def openshift_for(server: Server) -> OpenShiftLifecycle:
+    """
+    What OpenShift would report about one server, a small share also contested.
+
+    Args:
+        server (Server): The stored server to report on.
+
+    Returns:
+        OpenShiftLifecycle: Its membership; about 1% of installed servers carry
+            `contested_with`, naming the other job claiming them (ADR-0041).
+    """
+    rng = random.Random(server.id)  # noqa: S311 - deterministic fake data
+    membership = _membership_for(server, rng)
+    if membership.lifecycle_state is OpenShiftState.AVAILABLE or rng.random() >= _CONTESTED_SHARE:
+        return membership
+    mce = _mce_for(server.site_id)
+    other = f"upi-{server.site_id or 'unassigned'}"
+    membership.contested_with = other if membership.reported_by_agent_id == mce else mce
+    membership.contested_name = f"{server.name}-old" if rng.random() < 0.5 else server.name
+    return membership

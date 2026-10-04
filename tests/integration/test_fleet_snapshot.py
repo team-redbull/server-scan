@@ -198,6 +198,7 @@ async def test_fleet_snapshot_on_an_empty_fleet(mongo_holder: MongoClientHolder)
     assert snapshot.duplicate_name_groups == 0
     assert snapshot.duplicate_name_servers == 0
     assert snapshot.openshift_name_mismatches == 0
+    assert snapshot.openshift_contested == 0
 
 
 async def test_fleet_snapshot_counts_duplicate_names(mongo_holder: MongoClientHolder) -> None:
@@ -256,6 +257,22 @@ async def test_fleet_snapshot_counts_openshift_name_mismatches(
 
     snapshot = await repo.fleet_snapshot(stale_before=utcnow() - timedelta(hours=12))
     assert snapshot.openshift_name_mismatches == 1
+
+
+async def test_fleet_snapshot_counts_contested_servers(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """ADR-0041: a server two OpenShift jobs keep flipping between."""
+    repo = MongoServerRepository(mongo_holder, cursor_secret="t")
+    contested = _server(
+        "ocp4-tlv-compute-01", provider="UCS_CENTRAL", seen_ago=timedelta(0), cluster="ocp4-tlv"
+    )
+    contested.openshift.contested_with = "mce-tlv"
+    await repo.upsert(contested)
+    await repo.upsert(_server("ocp4-tlv-compute-02", provider="UCS_CENTRAL", seen_ago=timedelta(0)))
+
+    snapshot = await repo.fleet_snapshot(stale_before=utcnow() - timedelta(hours=12))
+    assert snapshot.openshift_contested == 1
 
 
 async def test_fleet_snapshot_reads_documents_written_before_the_new_fields(

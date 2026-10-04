@@ -24,14 +24,15 @@ token; mutations need the admin token. Generated from the app's own OpenAPI sche
 classification{installation_type, matched_rule_name, matched_pattern, matched_field},
 health{overall, memory, storage, network, connectivity, power, gpu, bmc, reasons[], active_policy_keys[]},
 maintenance{enabled, reason, created_by, created_at, expected_end},
-openshift{lifecycle_state, cluster_name, mce_name, last_reported_at, reported_name},
+openshift{lifecycle_state, cluster_name, mce_name, last_reported_at, reported_name, previous_reporter,
+claim_changed_at, contested_with},
 connectivity, last_seen_at, stale, reachable, unreachable_since, unreachable_reason, updated_at`.
 
 `GET /api/v1/servers/rows` - whole fleet as flat rows, `{items: [ServerRow], generated_at}`.
 Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, model, site_id, source_provider, installation_type, health,
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
-profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
+contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
 Note `health` here is the overall severity string, not an object.
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail`: hardware (CPU, memory, storage,

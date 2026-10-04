@@ -174,6 +174,7 @@ def apply_snapshot(
     metrics.duplicate_name_groups.set(snapshot.duplicate_name_groups)
     metrics.duplicate_name_servers.set(snapshot.duplicate_name_servers)
     metrics.openshift_name_mismatch_servers.set(snapshot.openshift_name_mismatches)
+    metrics.openshift_contested_servers.set(snapshot.openshift_contested)
 
     for manager in managers:
         run = manager.last_run

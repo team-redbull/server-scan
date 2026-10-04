@@ -73,6 +73,8 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       last_reported_at: null,
       reported_by_agent_id: null,
       reported_name: null,
+      contested_with: null,
+      contested_name: null,
     },
     tags: [],
     created_at: "2026-08-13T10:00:00Z",
@@ -265,6 +267,23 @@ describe("OverviewTab OpenShift membership", () => {
 
     expect(screen.getByText("Name mismatch")).toBeInTheDocument();
     expect(screen.getByText("ocp-tomer-compute-01")).toBeInTheDocument();
+  });
+
+  it("names the other claimant, and the hostname it uses, when a server is contested", () => {
+    const server = makeServer();
+    server.openshift = {
+      ...server.openshift,
+      lifecycle_state: "INSTALLED",
+      cluster_name: "ocp4-tlv",
+      contested_with: "upi-tlv",
+      contested_name: "ocp-old-node-07",
+    };
+
+    render(<OverviewTab server={server} />);
+
+    expect(screen.getByText("Duplicate server")).toBeInTheDocument();
+    expect(screen.getByText("upi-tlv")).toBeInTheDocument();
+    expect(screen.getByText("ocp-old-node-07")).toBeInTheDocument();
   });
 
   it("shows no mismatch chip when the reported name agrees", () => {

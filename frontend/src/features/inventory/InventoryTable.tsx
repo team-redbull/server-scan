@@ -115,7 +115,14 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
     id: "cluster_name",
     header: "Cluster",
     cell: (info) => (
-      <span className="text-[var(--text-secondary)]">{info.getValue() || "—"}</span>
+      <span className="inline-flex flex-wrap items-center gap-1.5 text-[var(--text-secondary)]">
+        {info.getValue() || "—"}
+        {info.row.original.contested_with && (
+          <span className="inline-flex items-center rounded-full bg-[var(--tint-warning)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-warning)]">
+            Contested with {info.row.original.contested_with}
+          </span>
+        )}
+      </span>
     ),
     enableSorting: true,
   }),

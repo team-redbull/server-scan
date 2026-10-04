@@ -22,6 +22,7 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     cluster_name: "ocp4-tlv",
     mce_name: null,
     openshift_reported_name: null,
+    contested_with: null,
     profile_template_name: null,
     last_seen_at: "2026-08-12T10:00:00Z",
     stale: false,
@@ -265,7 +266,7 @@ describe("InventoryPage", () => {
     expect(screen.getByLabelText(/^Maintenance$/)).not.toBeChecked();
   });
 
-  it("keeps only rows sharing a name when Duplicate is ticked", async () => {
+  it("keeps only rows sharing a name when Duplicate Name is ticked", async () => {
     mockRows(() =>
       jsonResponse(
         rowsResponse([
@@ -282,14 +283,41 @@ describe("InventoryPage", () => {
       expect(screen.getAllByText("ocp4-five-compute-06")).toHaveLength(2);
     });
 
-    fireEvent.click(screen.getByLabelText(/^Duplicate/));
+    fireEvent.click(screen.getByLabelText(/^Duplicate Name/));
 
     await waitFor(() => {
       expect(router.state.location.search).toContain("duplicate=true");
     });
     expect(screen.getAllByText("ocp4-five-compute-06")).toHaveLength(2);
     expect(screen.queryByText("ocp4-five-compute-07")).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/^Duplicate \(2\)/)).toBeChecked();
+    expect(screen.getByLabelText(/^Duplicate Name \(2\)/)).toBeChecked();
+  });
+
+  it("keeps only contested rows when Duplicate Server is ticked", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ id: "a", name: "srv-a", contested_with: "mce-b" }),
+          makeServer({ id: "b", name: "srv-b" }),
+        ]),
+      ),
+    );
+
+    const { router } = renderInventoryPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("srv-b")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Contested with mce-b")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/^Duplicate Server/));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("contested=true");
+    });
+    expect(screen.getByText("srv-a")).toBeInTheDocument();
+    expect(screen.queryByText("srv-b")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Duplicate Server \(1\)/)).toBeChecked();
   });
 
   it("keeps only rows OpenShift reports under a different name when Name mismatch is ticked (ADR-0036)", async () => {

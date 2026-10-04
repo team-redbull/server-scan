@@ -19,6 +19,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     cluster_name: null,
     mce_name: null,
     openshift_reported_name: null,
+    contested_with: null,
     profile_template_name: null,
     last_seen_at: null,
     stale: false,
@@ -34,7 +35,7 @@ describe("rowsToCsv", () => {
   it("writes the header row in the documented column order", () => {
     const [header] = rowsToCsv([]).split("\r\n");
     expect(header).toBe(
-      "Name,Vendor,BMC address,Installation,Installing to,MCE,Cluster,OpenShift reported name,Model,Serial,SPT,State",
+      "Name,Vendor,BMC address,Installation,Installing to,MCE,Cluster,OpenShift reported name,Contested with,Model,Serial,SPT,State",
     );
   });
 
@@ -47,6 +48,7 @@ describe("rowsToCsv", () => {
         mce_name: "mce-1",
         cluster_name: "ocp4-tlv",
         openshift_reported_name: "ocp-tomer-compute-01",
+        contested_with: "mce-2",
         model: "PowerEdge R760",
         serial: "SN001",
         profile_template_name: "gold-template",
@@ -56,9 +58,9 @@ describe("rowsToCsv", () => {
     ]);
     const [, first, second] = csv.split("\r\n");
     expect(first).toBe(
-      "srv-a,dell,10.0.0.9,INSTALLED,,mce-1,ocp4-tlv,ocp-tomer-compute-01,PowerEdge R760,SN001,gold-template,CRITICAL",
+      "srv-a,dell,10.0.0.9,INSTALLED,,mce-1,ocp4-tlv,ocp-tomer-compute-01,mce-2,PowerEdge R760,SN001,gold-template,CRITICAL",
     );
-    expect(second).toBe("srv-b,dell,,AVAILABLE,,,,,R760,SN1,,HEALTHY");
+    expect(second).toBe("srv-b,dell,,AVAILABLE,,,,,,R760,SN1,,HEALTHY");
   });
 
   it("quotes a field containing a comma and doubles embedded quotes", () => {

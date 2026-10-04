@@ -107,6 +107,8 @@ export interface ServerRow {
   /** Set only when OpenShift reports a hostname that differs from `name` —
    * a vendor-side rename after install (ADR-0036). */
   openshift_reported_name: string | null;
+  /** The other cluster/MCE claiming the same physical server; null when uncontested. */
+  contested_with: string | null;
   profile_template_name: string | null;
   last_seen_at: string | null;
   /** Unseen for longer than `INVENTORY_STALE_AFTER_SECONDS`, or never (ADR-0029). */
@@ -311,4 +313,8 @@ export interface OpenShiftLifecycle {
   /** Set only when it differs from `Server.name` — a vendor-side rename
    * after install (ADR-0036). */
   reported_name: string | null;
+  /** The other cluster or MCE also claiming this server, and the hostname it
+   * reports for it (ADR-0041). */
+  contested_with: string | null;
+  contested_name: string | null;
 }

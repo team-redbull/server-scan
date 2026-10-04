@@ -1789,6 +1789,15 @@ unreachable node was found blocking release of an entire cluster). Full
 mechanism and the alternatives it ruled out (BareMetalHost, `oc debug`,
 the UCS service-profile UUID): `docs/adr/0036-openshift-membership-serial-fallback.md`.
 
+**Contested claims (ADR-0041).** `openshift` holds one membership, so a stale
+artifact left by a reinstall (an old Agent CR on an MCE, a NotReady node) makes two
+jobs claim one server and flip it every cron period. `OpenShiftMembershipService`
+keeps `previous_reporter`/`claim_changed_at`; a writer that held the server before
+the current claimant, within one hour, sets `contested_with`. A single move never
+flips back and is never flagged. Detection only: it logs
+`openshift.contested_claim`, sets the `server_scan_openshift_contested_servers`
+gauge and `ServerRow.contested_with` (inventory filter "Duplicate Server").
+
 ### CI supply chain
 
 Every GitHub Action is pinned to a commit SHA rather than a tag, because

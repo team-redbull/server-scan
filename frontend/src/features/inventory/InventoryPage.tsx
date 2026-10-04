@@ -69,6 +69,7 @@ export function InventoryPage() {
   const maintenanceOnly = searchParams.get("maintenance") === "true";
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
+  const contestedOnly = searchParams.get("contested") === "true";
   const nameMismatchOnly = searchParams.get("name_mismatch") === "true";
   const donorOnly = searchParams.get("donor") === "true";
   const sortParam = searchParams.get("sort") ?? "";
@@ -97,6 +98,7 @@ export function InventoryPage() {
     if (maintenanceOnly) next.maintenance = true;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
+    if (contestedOnly) next.contested = true;
     if (nameMismatchOnly) next.nameMismatch = true;
     if (donorOnly) next.donor = true;
     if (mceSel.length) next.mce = mceSel;
@@ -113,6 +115,7 @@ export function InventoryPage() {
     maintenanceOnly,
     staleOnly,
     duplicateOnly,
+    contestedOnly,
     nameMismatchOnly,
     donorOnly,
     mceSel,
@@ -260,7 +263,9 @@ export function InventoryPage() {
     });
   if (staleOnly) activeFilters.push({ key: "stale", label: "Stale" });
   if (duplicateOnly)
-    activeFilters.push({ key: "duplicate", label: "Duplicate" });
+    activeFilters.push({ key: "duplicate", label: "Duplicate Name" });
+  if (contestedOnly)
+    activeFilters.push({ key: "contested", label: "Duplicate Server" });
   if (nameMismatchOnly)
     activeFilters.push({ key: "name_mismatch", label: "Name mismatch" });
   if (donorOnly) activeFilters.push({ key: "donor", label: "Donor" });
@@ -277,6 +282,7 @@ export function InventoryPage() {
       maintenance: null,
       stale: null,
       duplicate: null,
+      contested: null,
       name_mismatch: null,
       donor: null,
       mce: null,
@@ -522,7 +528,25 @@ export function InventoryPage() {
                       });
                     }}
                   />
-                  Duplicate{duplicateOnly && facets ? ` (${facets.total})` : ""}
+                  Duplicate Name
+                  {duplicateOnly && facets ? ` (${facets.total})` : ""}
+                </label>
+
+                <label
+                  className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+                  title="Claimed by two OpenShift clusters at once — one physical server in two memberships"
+                >
+                  <input
+                    type="checkbox"
+                    checked={contestedOnly}
+                    onChange={(e) => {
+                      updateFilters({
+                        contested: e.target.checked ? "true" : null,
+                      });
+                    }}
+                  />
+                  Duplicate Server
+                  {contestedOnly && facets ? ` (${facets.total})` : ""}
                 </label>
 
                 <label

@@ -8,6 +8,27 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-03 — README shortened, CLAUDE.md condensed, `server-scan-api` skill added
+(uncommitted when written).** Moved to `docs/notes/session-log.md`: the ADR-0037
+BMC-reachability unit.
+
+**Shipped:** `README.md` cut from 647 to ~130 lines (what it is, architecture sketch, quick
+start, API/auth/config/deploy pointers); the seeded-fleet section moved verbatim to
+`docs/fake-data.md`; `CLAUDE.md` condensed 657 -> ~415 lines with the full prior text in
+`docs/notes/2026-10-03-claude-md-archive.md`; `.claude/skills/server-scan-api` (SKILL.md +
+`references/endpoints.md`) teaches Claude to query the REST API, with `BASE_URL`/`VIEW_TOKEN`
+lines the operator edits in the air gap.
+
+**Also done (`.claude/` audit):** hook `timeout` values are seconds (5/5/30); the trailer
+hook covers `gh pr create|edit` and `-F`/`--body-file`; `settings.local.json` is untracked;
+`/gate` is user-invoked only; shared `permissions.allow` for ruff/ty/pytest/npm.
+
+**Login throttle (ADR-0039, uncommitted):** per-username Redis counter on `POST /auth/login`,
+429 + `Retry-After` before any LDAP bind, fails open without Redis; `INVENTORY_LOGIN_MAX_FAILURES`
+/ `_LOCKOUT_SECONDS` (Helm `auth.loginMaxFailures` / `loginLockoutSeconds`); tests on `tests/fake_redis.py`.
+Open: parked recheck concurrency cap; operator is checking the OneView probe and that cap.
+
+
 **2026-10-01 — BMC reachability is a health category (ADR-0037).** Moved to
 `docs/notes/session-log.md`: ADR-0036's scoped freeze-on-unresolved unit.
 

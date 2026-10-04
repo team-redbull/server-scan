@@ -12,6 +12,7 @@ const COLUMNS: { header: string; value: (row: ServerRow) => string }[] = [
   { header: "MCE", value: (r) => r.mce_name ?? "" },
   { header: "Cluster", value: (r) => r.cluster_name ?? "" },
   { header: "OpenShift reported name", value: (r) => r.openshift_reported_name ?? "" },
+  { header: "Contested with", value: (r) => r.contested_with ?? "" },
   { header: "Model", value: (r) => r.model ?? "" },
   { header: "Serial", value: (r) => r.serial ?? "" },
   { header: "SPT", value: (r) => r.profile_template_name ?? "" },
