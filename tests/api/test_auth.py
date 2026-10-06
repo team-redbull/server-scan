@@ -17,8 +17,13 @@ import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
+from structlog.testing import capture_logs
 from tests.fake_redis import FakeRedisHolder
+from tests.uncached_logger import UncachedLogger
 
+import app.api.v1.auth as auth_module
+import app.dependencies as dependencies_module
+import app.exception_handlers as handlers_module
 from app.api.v1.auth import _auth_service
 from app.config import get_settings
 from app.config.settings import Settings
@@ -260,6 +265,65 @@ class TestLogin:
             logout = await client.post("/api/v1/auth/logout")
             assert logout.status_code == 204
             assert (await client.get("/api/v1/auth/me")).json()["authenticated"] is False
+
+
+@pytest.fixture(autouse=True)
+def _live_loggers(monkeypatch: pytest.MonkeyPatch) -> None:
+    for module in (auth_module, handlers_module, dependencies_module):
+        monkeypatch.setattr(module, "logger", UncachedLogger())
+
+
+class TestLoginLogging:
+    """Every login ends in one `auth.login` line; a 503 names the failing dependency and why."""
+
+    async def test_a_503_log_line_names_the_dependency_and_reason(self) -> None:
+        down = ServiceUnavailableError("read timed out", dependency="ad_api", reason="read_timeout")
+        app = _auth_enabled_app(down)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            with capture_logs() as logs:
+                resp = await client.post(
+                    "/api/v1/auth/login", json={"username": "u", "password": "x"}
+                )
+        assert resp.status_code == 503
+        failure = next(line for line in logs if line["event"] == "request.app_error")
+        assert failure["dependency"] == "ad_api"
+        assert failure["reason"] == "read_timeout"
+        assert failure["detail"] == "read timed out"
+        summary = next(line for line in logs if line["event"] == "auth.login")
+        assert summary["outcome"] == "unavailable"
+        assert summary["log_level"] == "warning"
+
+    async def test_outcomes_are_logged_and_the_password_never_is(self) -> None:
+        app = _auth_enabled_app(None)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            with capture_logs() as logs:
+                await client.post(
+                    "/api/v1/auth/login", json={"username": "Bob", "password": "hunter2-secret"}
+                )
+        summary = next(line for line in logs if line["event"] == "auth.login")
+        assert summary["outcome"] == "wrong_password"
+        assert "hunter2-secret" not in repr(logs)
+
+    async def test_a_rejected_bearer_token_is_logged_without_the_token(self) -> None:
+        app = _auth_enabled_app(None, api_token_admin=SecretStr("right-token"))
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            with capture_logs() as logs:
+                resp = await client.get(
+                    "/api/v1/servers", headers={"Authorization": "Bearer wrong-token"}
+                )
+        assert resp.status_code == 401
+        rejected = next(line for line in logs if line["event"] == "auth.rejected")
+        assert rejected["reason"] == "bearer_token_mismatch"
+        assert "wrong-token" not in repr(logs)
 
 
 class TestMaintenanceRoleGate:

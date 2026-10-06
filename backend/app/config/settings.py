@@ -204,7 +204,16 @@ class Settings(BaseSettings):
     ad_api_client_id: SecretStr = SecretStr("")
     ad_api_ca_bundle: str = ""
     ad_api_verify_tls: bool = True
-    auth_request_timeout_seconds: float = 15.0
+    # Per-attempt AD API read/write timeout; connect is `auth_connect_timeout_seconds`
+    # (docs/adr/0042). The AD API answers in ~50 ms, so 4 s is generous.
+    auth_request_timeout_seconds: float = Field(default=4.0, gt=0)
+    auth_connect_timeout_seconds: float = Field(default=3.0, gt=0)
+    # Whole seconds: ldap3 packs it with `struct.pack('LL', ...)`, which rejects a float.
+    ldap_receive_timeout_seconds: int = Field(default=5, ge=1)
+    ad_api_retries: int = Field(default=1, ge=0, le=3)
+    auth_login_deadline_seconds: float = Field(default=10.0, gt=0)
+    # Recursive group membership cached in Redis, shared by every user; 0 disables.
+    auth_group_cache_ttl_seconds: int = Field(default=120, ge=0)
 
     # Comma-separated `sAMAccountName`/group lists, matched case-insensitively.
     # Admin is checked before viewer, and a user's own list is checked

@@ -15,7 +15,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from structlog.testing import capture_logs
+from tests.uncached_logger import UncachedLogger
 
+import app.application.services.available_servers as available_servers_module
 from app.application.services.available_servers import (
     AvailableServersNotFoundError,
     AvailableServersService,
@@ -291,6 +294,31 @@ class TestLiveRecheckReplacement:
         assert len(outcome.items) == 1
         assert outcome.items[0].server.name == "ocp-replace-02"
         assert outcome.items[0].live_recheck_performed is True
+
+
+class _ExplodingProvider(FakeProvider):
+    async def get_one(self, identity: object) -> ProviderServer | None:
+        raise RuntimeError("vendor manager returned garbage")
+
+
+class TestRecheckLogging:
+    async def test_a_failing_recheck_is_logged_with_its_manager_and_still_raises(
+        self, mongo_holder: MongoClientHolder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(available_servers_module, "logger", UncachedLogger())
+        server = _server(0, name="ocp-log-boom", external_id="ext-log-boom")
+        await _seed(mongo_holder, server)
+        provider = _ExplodingProvider(
+            seed=1, count=1, provider_type=ManagerType.REDFISH_STANDALONE.value
+        )
+        service = _service(mongo_holder, provider_factory=lambda _mt: provider)
+
+        with capture_logs() as logs, pytest.raises(RuntimeError):
+            await service.lookup_by_name("ocp-log-boom", extra_filters={})
+
+        events = {line["event"]: line for line in logs}
+        assert events["available.recheck_failed"]["manager_type"] == "REDFISH_STANDALONE"
+        assert events["available.recheck"]["outcome"] == "failed"
 
 
 class TestNameMode:

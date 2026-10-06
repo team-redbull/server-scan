@@ -11,10 +11,12 @@ rather than failing the request.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
+import structlog
 from pydantic import TypeAdapter
 
 from app.application.services.ingest import IngestService
@@ -25,7 +27,10 @@ from app.domain.ports.provider import ServerIdentity, ServerInventoryProvider
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.normalize import normalize_text
 from app.domain.value_objects.capacity_aliases import CapacityAliasCatalog
+from app.observability.metrics import dependency_call_duration_seconds
 from app.utils.timeutil import utcnow
+
+logger = structlog.get_logger(__name__)
 
 # Best to worst; never CRITICAL, and UNKNOWN (never evaluated) is excluded too (ADR-0027).
 SELECTABLE_TIERS: tuple[HealthSeverity, ...] = (
@@ -412,6 +417,7 @@ class AvailableServersService:
         """
         selected: list[AvailableServerResult] = []
         tried_ids: set[str] = set()
+        disqualified = 0
 
         for tier in tiers:
             remaining = count - len(selected)
@@ -432,9 +438,18 @@ class AvailableServersService:
                 for candidate in candidates:
                     tried_ids.add(candidate.id)
                     rechecked, live_recheck_performed = await self._recheck(candidate)
-                    if rechecked is not None and server_still_qualifies(
+                    qualifies = rechecked is not None and server_still_qualifies(
                         rechecked, tiers=tiers, min_nic_macs=min_nic_macs
-                    ):
+                    )
+                    if not qualifies:
+                        disqualified += 1
+                        logger.info(
+                            "available.candidate_rejected",
+                            server=candidate.name,
+                            tier=tier.value,
+                            gone_from_manager=rechecked is None,
+                        )
+                    if rechecked is not None and qualifies:
                         selected.append(
                             AvailableServerResult(
                                 server=rechecked, live_recheck_performed=live_recheck_performed
@@ -442,6 +457,13 @@ class AvailableServersService:
                         )
                         if len(selected) >= count:
                             break
+        logger.info(
+            "available.filled",
+            requested=count,
+            returned=len(selected),
+            candidates_tried=len(tried_ids),
+            rejected_after_recheck=disqualified,
+        )
         return selected
 
     async def _recheck(self, server: Server) -> tuple[Server | None, bool]:
@@ -460,11 +482,18 @@ class AvailableServersService:
                 whether a live recheck actually ran.
         """
         if server.source_provider is None:
+            logger.info("available.recheck", server=server.name, outcome="skipped_no_source")
             return server, False
 
         manager_type = ManagerType(server.source_provider)
         provider = self._provider_for(manager_type)
         if provider is None:
+            logger.info(
+                "available.recheck",
+                server=server.name,
+                manager_type=manager_type.value,
+                outcome="skipped_not_configured",
+            )
             return server, False
 
         identity = ServerIdentity(
@@ -473,11 +502,34 @@ class AvailableServersService:
             host=server.network.bmc.host,
             name=server.name,
         )
-        fresh = await provider.get_one(identity)
-        if fresh is None:
-            return None, True
-        updated = await self._ingest.ingest_one(fresh, provider_type=manager_type.value)
-        return updated, True
+        started = time.monotonic()
+        outcome = "failed"
+        try:
+            fresh = await provider.get_one(identity)
+            if fresh is None:
+                outcome = "not_found"
+                return None, True
+            updated = await self._ingest.ingest_one(fresh, provider_type=manager_type.value)
+        except Exception:
+            logger.exception(
+                "available.recheck_failed", server=server.name, manager_type=manager_type.value
+            )
+            raise
+        else:
+            outcome = "verified"
+            return updated, True
+        finally:
+            elapsed = time.monotonic() - started
+            dependency_call_duration_seconds.labels(
+                dependency=f"vendor_{manager_type.value.lower()}", outcome=outcome
+            ).observe(elapsed)
+            logger.info(
+                "available.recheck",
+                server=server.name,
+                manager_type=manager_type.value,
+                outcome=outcome,
+                duration_ms=round(elapsed * 1000, 1),
+            )
 
     def _provider_for(self, manager_type: ManagerType) -> ServerInventoryProvider | None:
         """

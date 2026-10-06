@@ -20,6 +20,7 @@ from __future__ import annotations
 import hmac
 from typing import Annotated
 
+import structlog
 from fastapi import Depends, Request
 
 from app.config import Settings, get_settings
@@ -28,6 +29,8 @@ from app.domain.services.session import SESSION_COOKIE_NAME, decode_session
 from app.errors import ForbiddenError, UnauthorizedError
 from app.infrastructure.mongodb import MongoClientHolder
 from app.infrastructure.redis import RedisClientHolder
+
+logger = structlog.get_logger(__name__)
 
 
 async def get_mongo_holder(request: Request) -> MongoClientHolder:
@@ -101,7 +104,8 @@ async def get_current_actor(
         return _DEV_ACTOR
 
     authorization = request.headers.get("Authorization", "")
-    if authorization.startswith("Bearer "):
+    bearer_presented = authorization.startswith("Bearer ")
+    if bearer_presented:
         token = authorization.removeprefix("Bearer ").strip()
         admin_token = settings.api_token_admin.get_secret_value()
         if admin_token and hmac.compare_digest(token, admin_token):
@@ -115,6 +119,10 @@ async def get_current_actor(
     if claims is not None:
         return Actor(type=ActorType.USER, id=claims.username, role=claims.role)
 
+    if bearer_presented:
+        logger.warning("auth.rejected", reason="bearer_token_mismatch", path=request.url.path)
+    elif cookie:
+        logger.info("auth.rejected", reason="session_invalid_or_expired", path=request.url.path)
     raise UnauthorizedError("Login required.")
 
 

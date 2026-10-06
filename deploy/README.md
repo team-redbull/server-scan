@@ -283,11 +283,14 @@ metrics:
     enabled: true          # ServerScanCollectorSilent, ServerScanServersStale,
                            # ServerScanClusterSilent, ServerScanCollectorRunPartial,
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
-                           # ServerScanMembershipUnmatched
+                           # ServerScanMembershipUnmatched, ServerScanLoginDependencyFailing,
+                           # ServerScanLoginSlow, ServerScanAvailableRecheckFailing
     staleServersThreshold: 10
     silentForSeconds: 21600            # vendor collectors only — 2x their 3h schedule
     membershipSilentForSeconds: 1800   # nodes-status jobs only — 2x their 15min schedule
     membershipUnmatchedThreshold: 0
+    loginDependencyFailureRatio: 0.2   # LDAP / AD API / vendor-recheck failure fraction over 10m
+    loginSlowSeconds: 3                # POST /auth/login p95
 ```
 
 **`silentForSeconds` and `membershipSilentForSeconds` are two separate
@@ -394,6 +397,19 @@ no arithmetic, `server_scan:collector_silent_seconds`,
 Metrics and autocomplete lists them. The alerts read these too; an alert
 on a raw series would fire once per replica.
 
+**Login and external-call rules (ADR-0042).** Unlike the fleet gauges these come from per-request
+counters and histograms, so the `server-scan.auth.rules` group *sums* across replicas:
+`server_scan:auth_logins:rate5m{outcome}`, `server_scan:login_duration_seconds:p95`/`:p99` (the
+login route alone, since a fleet-wide latency panel hides a few slow logins),
+`server_scan:dependency_calls:rate5m{dependency,outcome}`,
+`server_scan:dependency_call_duration_seconds:p95`/`:p99` and
+`server_scan:dependency_failure_ratio:rate10m` for `dependency` = `ldap`, `ad_api` and
+`vendor_<manager>` (`GET /servers/available`'s live recheck). `ServerScanLoginDependencyFailing`
+and `ServerScanAvailableRecheckFailing` fire on that ratio, `ServerScanLoginSlow` on the login p95;
+all three read their thresholds with `default`, so a values file that predates them still renders.
+The matching log lines (`ldap.bind_failed`, `ad_api.attempt_failed`, `available.recheck_failed`)
+carry the `reason`.
+
 **Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
 producing fresh servers at all — check `oc get jobs` and the newest pod's
 logs. `ServerScanServersStale` means it *is* running but some servers are
@@ -417,7 +433,8 @@ never ingested — the newest pod's log lists which ones.
 → Dashboards → New → Import → Upload JSON), point its `Prometheus`
 datasource variable at your instance, and it covers fleet totals, per-
 collector staleness/run health, the membership-job run gauges above, top
-firing health policies, and the API's own HTTP/Mongo/Redis metrics. It is
+firing health policies, the login and external-call panels (outcomes, login latency, per-dependency
+latency and failures), and the API's own HTTP/Mongo/Redis metrics. It is
 not wired into the chart — nothing here deploys Grafana dashboards as
 Kubernetes objects yet (no `GrafanaDashboard` CR, for instance); it is a
 plain export to import by hand or via your own GitOps path for
@@ -641,6 +658,15 @@ leave blank to disable each independently of AD entirely.
 limit. Keep the limit below AD's own lockout threshold. If Redis is down the throttle is
 skipped, not failed. The template renders these only when the keys exist, so a downstream
 `values.yaml` that predates them still renders.
+
+The login path is bounded (ADR-0042): `auth.connectTimeoutSeconds` (3; LDAP and the AD API),
+`auth.requestTimeoutSeconds` (4; the AD API's per-attempt read timeout, down from 15),
+`auth.ldapReceiveTimeoutSeconds` (5, whole seconds), `auth.adApiRetries` (1; timeouts,
+connection errors and 502/503/504 only) and `auth.loginDeadlineSeconds` (10, the whole attempt).
+`auth.groupCacheTtlSeconds` (120; 0 disables) caches each group's recursive members in Redis, so a
+role change takes up to that long to apply on a pod that already cached it. A 503 on `/auth/login`
+is logged with `dependency` and `reason` (`request.app_error`), and `auth.login` logs the outcome of
+every attempt. Keys render only when present, like the throttle's.
 
 These render into `<release>-auth-credentials`
 (`templates/backend-auth-secret.yaml`), the same `existingSecret` escape

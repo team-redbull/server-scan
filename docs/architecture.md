@@ -209,7 +209,13 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   the operator's own REST "AD API" for recursive group membership.
   Infrastructure failures (LDAP or the AD API down) always raise
   `ServiceUnavailableError` (503); they are never reported as a wrong
-  password (401).
+  password (401). Every call is bounded (ADR-0042): ldap3 gets
+  `connect_timeout`/`receive_timeout` (without them its sync `recv()` blocks
+  forever) and runs on `run_abandonable`; the AD API gets separate connect and
+  read timeouts and one retry on a timeout, connection error or 502/503/504;
+  the whole attempt has a deadline; recursive group membership is cached in
+  Redis per group (`CachedGroupMembership`), never stale-on-error. The 503
+  carries `dependency` and `reason`, logged by the exception handler.
 - **The frontend shadows rather than hides.** A viewer sees the same
   maintenance button an admin does, disabled via `aria-disabled` (not the
   native `disabled` attribute, which would suppress the hover tooltip) with
@@ -252,6 +258,13 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   (`GET /a1`, `/a2`, ...) on both the Counter and the Histogram. The
   unmatched case now gets the fixed sentinel `<unmatched>`, bounding
   cardinality to the routes this app declares, plus one.
+- **External calls are timed and named in the log.** `dependency_call_duration_seconds
+  {dependency,outcome}` (`ldap`, `ad_api`, `vendor_<manager>` for `/servers/available`'s live
+  recheck) and `auth_logins_total{outcome}` exist because a fleet-wide p95 hides a few slow
+  logins among thousands of probes (2026-10-06 incident). Log events to grep: `auth.login`
+  (one per attempt: outcome, duration), `ldap.bind`/`ldap.bind_failed`, `ad_api.group_members`/
+  `ad_api.attempt_failed`, `auth.group_cache`, `auth.role_resolved`, `auth.rejected`,
+  `available.recheck`/`available.filled`/`available.candidate_rejected`.
 - **Log scrubbing is recursive.** `logging.config._scrub` drops
   `_SENSITIVE_KEYS` (`password`, `token`, `authorization`, `secret`,
   `api_key`, `credential`) at any nesting depth, lists included. A

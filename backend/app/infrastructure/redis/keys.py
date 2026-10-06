@@ -95,3 +95,17 @@ def login_failure_key(username: str) -> str:
     """
     digest = hashlib.sha256(username.encode()).hexdigest()[:32]
     return f"si:{_NAMESPACE_VERSION}:loginfail:{digest}"
+
+
+def group_members_key(group_sam: str) -> str:
+    """
+    The cache key for one AD group's recursive member list.
+
+    Args:
+        group_sam (str): The group's `sAMAccountName`, already lower-cased.
+
+    Returns:
+        str: The key.
+    """
+    digest = hashlib.sha256(group_sam.encode()).hexdigest()[:32]
+    return f"si:{_NAMESPACE_VERSION}:adgroup:{digest}"

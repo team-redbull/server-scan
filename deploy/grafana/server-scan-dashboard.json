@@ -1,7 +1,7 @@
 {
   "title": "Server Scan — Fleet & Collectors",
   "uid": "server-scan-fleet",
-  "description": "Fleet health, vendor collectors and OpenShift membership jobs for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml (ADR-0029). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
+  "description": "Fleet health, vendor collectors and OpenShift membership jobs for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml (ADR-0029, ADR-0042). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
   "tags": ["server-scan", "fleet", "adr-0029"],
   "style": "dark",
   "editable": true,
@@ -414,6 +414,55 @@
     {"id": 108, "type": "row", "title": "Fleet size over time and pruned servers", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 103}},
     {"id": 109, "type": "timeseries", "title": "Total servers (and by collector)", "description": "Fleet count over time: the total line plus one line per source_provider, from server_scan_servers (MongoDB count, ADR-0029). A step down is a prune or a removed collector.", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 104}, "targets": [{"expr": "sum(server_scan:servers:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "Total", "refId": "A"}, {"expr": "server_scan:servers:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}", "legendFormat": "{{source_provider}}", "refId": "B"}], "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 0}, "unit": "short"}, "overrides": [{"matcher": {"id": "byName", "options": "Total"}, "properties": [{"id": "custom.lineWidth", "value": 3}]}]}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}, "tooltip": {"mode": "multi"}}},
     {"id": 110, "type": "timeseries", "title": "Servers pruned (last 24h window)", "description": "Servers deleted by the prune tool in the trailing 24h, per collector, from audit events of type SERVER_PRUNED (server_scan_servers_pruned_24h). WHICH servers: Prometheus carries no names. Query GET /api/v1/events?event_type=SERVER_PRUNED (name, serial, vendor, manager, last_seen_at, reason are in each event's data), or grep the server.pruned log line.", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 104}, "targets": [{"expr": "server_scan:servers_pruned_24h:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}", "legendFormat": "{{source_provider}}", "refId": "A"}], "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 60, "stacking": {"mode": "normal"}}, "unit": "short"}, "overrides": []}, "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}},
-    {"id": 111, "type": "text", "title": "Which servers were pruned?", "description": "", "gridPos": {"h": 4, "w": 24, "x": 0, "y": 112}, "options": {"mode": "markdown", "content": "Server names are deliberately not Prometheus labels (cardinality). Look them up in the audit log: `GET /api/v1/events?event_type=SERVER_PRUNED` (newest first, paged; each event's `data` holds name, serial, vendor, source_provider, manager_id, listed_at, last_seen_at, reason). The same facts are in the `server.pruned` structlog line in the collector/prune job logs."}}
+    {"id": 111, "type": "text", "title": "Which servers were pruned?", "description": "", "gridPos": {"h": 4, "w": 24, "x": 0, "y": 112}, "options": {"mode": "markdown", "content": "Server names are deliberately not Prometheus labels (cardinality). Look them up in the audit log: `GET /api/v1/events?event_type=SERVER_PRUNED` (newest first, paged; each event's `data` holds name, serial, vendor, source_provider, manager_id, listed_at, last_seen_at, reason). The same facts are in the `server.pruned` structlog line in the collector/prune job logs."}},
+    { "id": 113, "type": "row", "title": "Login and external calls (ADR-0042)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 116 }, "collapsed": false, "panels": [] },
+    {
+      "id": 114, "type": "timeseries", "title": "Logins by outcome",
+      "description": "server_scan:auth_logins:rate5m — success, wrong_password, no_permission, throttled, unavailable (LDAP or the AD API failed), error.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 117 },
+      "targets": [{ "expr": "server_scan:auth_logins:rate5m{namespace=~\"$namespace\"}", "legendFormat": "{{outcome}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 115, "type": "timeseries", "title": "POST /auth/login latency (p95 / p99)",
+      "description": "The login route alone. The fleet-wide HTTP latency panel hides a few slow logins among thousands of probes and polls (2026-10-06 incident).",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 117 },
+      "targets": [
+        { "expr": "server_scan:login_duration_seconds:p95{namespace=~\"$namespace\"}", "legendFormat": "p95", "refId": "A" },
+        { "expr": "server_scan:login_duration_seconds:p99{namespace=~\"$namespace\"}", "legendFormat": "p99", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 116, "type": "stat", "title": "Logins refused with 503 (15m)",
+      "description": "auth_logins_total{outcome=unavailable}: LDAP, the AD API or the login deadline failed. A wrong password is 401 and never counts here.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 117 },
+      "targets": [{ "expr": "sum(increase(auth_logins_total{namespace=~\"$namespace\", outcome=\"unavailable\"}[15m])) or vector(0)", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "id": 117, "type": "timeseries", "title": "External call latency p95 by dependency",
+      "description": "ldap, ad_api, and vendor_<manager> (GET /servers/available's live recheck). server_scan:dependency_call_duration_seconds:p95.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 125 },
+      "targets": [{ "expr": "server_scan:dependency_call_duration_seconds:p95{namespace=~\"$namespace\"}", "legendFormat": "{{dependency}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 118, "type": "timeseries", "title": "External call failures by dependency and reason",
+      "description": "server_scan:dependency_calls:rate5m without the non-failure outcomes (ok, invalid_credentials, verified, not_found, cancelled). The outcome is the reason: connect_timeout, read_timeout, http_503, receive_timeout, failed, ...",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 125 },
+      "targets": [{ "expr": "server_scan:dependency_calls:rate5m{namespace=~\"$namespace\", outcome!~\"ok|invalid_credentials|verified|not_found|cancelled\"}", "legendFormat": "{{dependency}} {{outcome}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 50 }, "unit": "ops" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    }
   ]
 }

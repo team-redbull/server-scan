@@ -6,6 +6,7 @@ case-insensitive throughout, infra failures always propagate.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -191,3 +192,19 @@ class TestLiveFileOverridesTheStaticList:
 
         path.write_text("someone-else")
         assert await service.authenticate("jdoe", "x") is LoginResult.NO_PERMISSION
+
+
+class _HungAdApi:
+    async def group_members(self, group_sam: str) -> set[str]:
+        await asyncio.sleep(30)
+        return set()
+
+
+class TestLoginDeadline:
+    async def test_a_hung_dependency_is_cut_off_as_service_unavailable(self) -> None:
+        settings = _settings().model_copy(update={"auth_login_deadline_seconds": 0.05})
+        service = AuthService(settings, _HungAdApi())
+        with pytest.raises(ServiceUnavailableError) as raised:
+            await service.authenticate("jdoe", "pw")
+        assert raised.value.dependency == "auth"
+        assert raised.value.reason == "login_deadline"

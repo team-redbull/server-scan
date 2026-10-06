@@ -198,6 +198,27 @@ class ServiceUnavailableError(AppError):
     status_code = 503
     code = ErrorCode.SERVICE_UNAVAILABLE
 
+    def __init__(
+        self,
+        detail: str,
+        *,
+        details: dict[str, Any] | None = None,
+        dependency: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """
+        Build the error.
+
+        Args:
+            detail (str): Human-readable explanation.
+            details (dict[str, Any] | None): Extra machine-readable context, or None.
+            dependency (str | None): Which dependency failed (`ldap`, `ad_api`), for the log only.
+            reason (str | None): Why, as a slug (`read_timeout`, `http_503`), for the log only.
+        """
+        super().__init__(detail, details=details)
+        self.dependency = dependency
+        self.reason = reason
+
 
 class UnknownFilterError(AppError):
     """400: a `?filter` query param names a field `/servers` doesn't filter on."""

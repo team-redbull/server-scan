@@ -333,6 +333,11 @@ metrics:
     # silentForSeconds above, which meant 12h of silence on a job that
     # runs every 15 minutes before anything fired).
     membershipSilentForSeconds: 1800
+    # ServerScanLoginDependencyFailing / ServerScanAvailableRecheckFailing fire when this fraction of
+    # LDAP, AD API or vendor-recheck calls failed over 10m; ServerScanLoginSlow when POST /auth/login
+    # p95 exceeds loginSlowSeconds (ADR-0042). Both fall back to these values if the key is absent.
+    loginDependencyFailureRatio: 0.2
+    loginSlowSeconds: 3
     # A `nodes-status` job (`nodes`/`agents`) whose last real run left this many
     # hostnames unmatched fires ServerScanMembershipUnmatched. 0 means any
     # unmatched hostname is worth investigating (ADR-0029's 2026-09-24
@@ -973,6 +978,19 @@ auth:
   # any LDAP bind. Keep it below AD's own lockout threshold. 0 disables.
   loginMaxFailures: 5
   loginLockoutSeconds: 900
+
+  # Login timeouts, retries and group cache (docs/adr/0042). connectTimeoutSeconds covers LDAP and
+  # the AD API; requestTimeoutSeconds is the AD API's per-attempt read timeout (it answers in
+  # ~50 ms); ldapReceiveTimeoutSeconds must be whole seconds; adApiRetries retries only
+  # timeouts/connection errors/502-504; loginDeadlineSeconds caps the whole attempt;
+  # groupCacheTtlSeconds caches group membership in Redis (0 disables; a role change takes up to
+  # this long to apply).
+  connectTimeoutSeconds: 3
+  requestTimeoutSeconds: 4
+  ldapReceiveTimeoutSeconds: 5
+  adApiRetries: 1
+  loginDeadlineSeconds: 10
+  groupCacheTtlSeconds: 120
 
   # Static bearer tokens for a machine caller (e.g. the BMH generator) that
   # can't do an interactive AD login — `Authorization: Bearer <token>`

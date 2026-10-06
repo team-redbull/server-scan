@@ -72,12 +72,20 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
-        logger.info(
+        fields: dict[str, object] = {}
+        if exc.status_code >= 500:
+            fields = {
+                "detail": exc.detail[:300],
+                "dependency": getattr(exc, "dependency", None),
+                "reason": getattr(exc, "reason", None),
+            }
+        (logger.warning if exc.status_code >= 500 else logger.info)(
             "request.app_error",
             error_code=exc.code,
             status_code=exc.status_code,
             path=request.url.path,
             request_id=_request_id(request),
+            **fields,
         )
         return _problem_response(
             request=request,

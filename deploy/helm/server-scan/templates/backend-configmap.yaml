@@ -50,3 +50,22 @@ data:
   {{- if hasKey $auth "loginLockoutSeconds" }}
   INVENTORY_LOGIN_LOCKOUT_SECONDS: {{ $auth.loginLockoutSeconds | quote }}
   {{- end }}
+  {{- /* Login timeouts/retries/cache (docs/adr/0042); absent keys keep the backend defaults. */}}
+  {{- if hasKey $auth "connectTimeoutSeconds" }}
+  INVENTORY_AUTH_CONNECT_TIMEOUT_SECONDS: {{ $auth.connectTimeoutSeconds | quote }}
+  {{- end }}
+  {{- if hasKey $auth "requestTimeoutSeconds" }}
+  INVENTORY_AUTH_REQUEST_TIMEOUT_SECONDS: {{ $auth.requestTimeoutSeconds | quote }}
+  {{- end }}
+  {{- if hasKey $auth "ldapReceiveTimeoutSeconds" }}
+  INVENTORY_LDAP_RECEIVE_TIMEOUT_SECONDS: {{ $auth.ldapReceiveTimeoutSeconds | quote }}
+  {{- end }}
+  {{- if hasKey $auth "adApiRetries" }}
+  INVENTORY_AD_API_RETRIES: {{ $auth.adApiRetries | quote }}
+  {{- end }}
+  {{- if hasKey $auth "loginDeadlineSeconds" }}
+  INVENTORY_AUTH_LOGIN_DEADLINE_SECONDS: {{ $auth.loginDeadlineSeconds | quote }}
+  {{- end }}
+  {{- if hasKey $auth "groupCacheTtlSeconds" }}
+  INVENTORY_AUTH_GROUP_CACHE_TTL_SECONDS: {{ $auth.groupCacheTtlSeconds | quote }}
+  {{- end }}

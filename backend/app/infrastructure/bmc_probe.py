@@ -10,10 +10,13 @@ from collections.abc import AsyncGenerator
 from types import TracebackType
 
 import httpx
+import structlog
 
 from app.domain.enums import UnreachableReason
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.domain.value_objects.bmc_address import parse_bmc_address
+
+logger = structlog.get_logger(__name__)
 
 PROBE_CONCURRENCY = 64
 PROBE_TIMEOUT_SECONDS = 5.0
@@ -98,7 +101,10 @@ class BmcProbe:
                 return False, UnreachableReason.NETWORK_UNREACHABLE
             except httpx.HTTPError:
                 return True, None  # the peer spoke (protocol error, reset mid-response)
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "bmc_probe.unexpected_error", host=host, error_type=type(exc).__name__
+                )
                 return False, UnreachableReason.NETWORK_UNREACHABLE
         return True, None
 

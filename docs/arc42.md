@@ -11,7 +11,7 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — records 0001 to 0041, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0042, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
@@ -547,6 +547,7 @@ of it.
 | 0039 | `POST /auth/login` is throttled per username in Redis (default 5 failures / 15 min, then 429 before any LDAP bind); fails open if Redis is down |
 | 0040 | `/docs` and `/redoc` load Swagger UI / ReDoc from bundles vendored in the image (`/api/docs-assets`), not a CDN, so they render air-gapped |
 | 0041 | A server two OpenShift jobs keep flipping between within an hour is flagged `contested_with`: log, `server_scan_openshift_contested_servers` gauge, inventory "Duplicate Server" filter; detection only |
+| 0042 | The login path is bounded and observable: ldap3 connect/receive timeouts on a daemon thread, AD API connect/read timeouts with one retry, an overall deadline, a per-group Redis membership cache (never stale-on-error), and 503s that log `dependency`/`reason` |
 
 ---
 

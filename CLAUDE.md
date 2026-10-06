@@ -263,6 +263,10 @@ long form of each entry is in the 2026-09-13 archive.
   `REDFISH_STANDALONE`'s per-host TOML files (CronJob-only, so BMC passwords
   stay out of the Route-exposed pod). No reservation/lock: concurrent callers
   can draw the same server (accepted in the ADR).
+- **Every call on the login path has a timeout, and a 503 says why** (ADR-0042). ldap3's sync
+  `recv()` blocks forever without `receive_timeout`; never put a bare float there (`struct.error`),
+  never go back to `get_info=ALL` (a schema download per login), never serve stale group membership on
+  an AD API error. Retry only a timeout/connection error/502-504, never a bad password or a 4xx.
 - **`POST /auth/login` is throttled per username in Redis and fails open** (ADR-0039):
   `LoginThrottle` counts wrong passwords (not 403/503), returns 429 + `Retry-After` before any
   LDAP bind, and skips itself on any Redis error. Do not make it fail closed: Redis is a cache here.
@@ -337,7 +341,7 @@ long form of each entry is in the 2026-09-13 archive.
   env-based manager connections 0012; CI pinning without Dependabot 0013; the
   provider ABC 0023; search tokens 0025; nullable cursors and retired indexes
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
-  releases 0031; AD login and roles 0034; login throttle 0039.
+  releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042.
 
 ## Verifying your work
 
@@ -402,18 +406,22 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-05 — contested OpenShift claims (ADR-0041) and the `/redoc` proxy fix.**
-Moved to `docs/notes/session-log.md`: the README / login-throttle unit.
+**2026-10-06 — bounded, observable login path (ADR-0042).** Moved to `docs/notes/session-log.md`:
+the ADR-0041 contested-claims and `/redoc` proxy unit.
 
-**Shipped:** (1) `/redoc` and `/docs` were blank on OpenShift because the SPA nginx's
-`location ~* \.(css|js|svg|woff2?)$` beat the chart's plain `/api/` prefix and 404'd
-`/api/docs-assets/*.js`; the proxy locations are now `^~` (commit 6253a6f), and Swagger UI gets
-`validatorUrl: null` for the air gap. (2) A server two jobs keep flipping between (2026-10-04: a stale
-unbound Agent CR vs the real node) is flagged `OpenShiftLifecycle.contested_with` when the writer is
-the one who held it before the current claimant, within an hour; a single move is never flagged.
-Surfaced as the `openshift.contested_claim` log, gauge `server_scan_openshift_contested_servers`,
-`ServerRow.contested_with` and the inventory's **Duplicate Server** filter (`?contested=true`) beside
-**Duplicate Name** (`?duplicate=true`). Detection only, no precedence rule.
+**Shipped:** after a 25 s login caused by one AD API stall (15 s timeout, no retry, 503 log without
+its cause), the login path is bounded: ldap3 `connect_timeout`/`receive_timeout` (an **int**, ldap3
+`struct.pack`s it) on `run_abandonable` with `get_info=NONE`; the AD API gets connect/read timeouts
+(3 s/4 s) and one jittered retry on a timeout, connection error or 502-504; `auth_login_deadline_seconds`
+caps the attempt; group membership is cached in Redis per group (`CachedGroupMembership`, 120 s, never
+stale-on-error, so a role change takes up to the TTL). A 503 logs `dependency` and `reason`; one
+`auth.login` line per attempt; metrics `dependency_call_duration_seconds` and `auth_logins_total`.
+Same outcome/timing logs on `/servers/available`'s live recheck, `auth.rejected` in
+`get_current_actor`, and the Redis ping and BMC probe failure paths. New `INVENTORY_*` settings are in
+`.env.example` and Helm `auth.*` (rendered only when present). Deployed with the metrics: a
+`server-scan.auth.rules` recording-rule group, three alerts (`ServerScanLoginDependencyFailing`,
+`ServerScanLoginSlow`, `ServerScanAvailableRecheckFailing`) and a dashboard row.
 
-**Open:** the operator still has to delete the stale Agent CR / NotReady node (outside this repo);
-parked recheck concurrency cap; operator is checking the OneView probe and that cap.
+**Open:** the operator should look at the AD API's own logs for 2026-10-05 17:26 UTC (which backend
+stalled; the old logs cannot say connect vs read); still to delete the stale Agent CR / NotReady node
+(outside this repo); parked recheck concurrency cap; operator is checking the OneView probe and that cap.

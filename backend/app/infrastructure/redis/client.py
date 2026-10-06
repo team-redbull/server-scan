@@ -54,8 +54,8 @@ class RedisClientHolder:
         try:
             await self._client.ping()
             logger.info("redis.connected")
-        except RedisError:
-            logger.warning("redis.connect_failed_at_startup")
+        except RedisError as exc:
+            logger.warning("redis.connect_failed_at_startup", error=f"{type(exc).__name__}: {exc}")
 
     async def close(self) -> None:
         """Close the connection pool and release it, if connected."""
@@ -90,7 +90,8 @@ class RedisClientHolder:
             return False
         try:
             await self._client.ping()
-        except RedisError:
+        except RedisError as exc:
+            logger.warning("redis.ping_failed", error=f"{type(exc).__name__}: {exc}")
             return False
         else:
             return True

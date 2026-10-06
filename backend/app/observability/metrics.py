@@ -33,6 +33,19 @@ cache_operations_total = Counter(
     labelnames=("operation", "outcome"),
 )
 
+dependency_call_duration_seconds = Histogram(
+    "dependency_call_duration_seconds",
+    "Duration of one call to an external dependency, by outcome",
+    labelnames=("dependency", "outcome"),
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5, 8, 12, 20),
+)
+
+auth_logins_total = Counter(
+    "auth_logins_total",
+    "POST /auth/login attempts by outcome",
+    labelnames=("outcome",),
+)
+
 # Fleet gauges, refreshed from MongoDB on scrape — see ADR-0029 and
 # `app.observability.fleet_gauges`. The `_timestamp_seconds` pair follow
 # the Prometheus naming convention for "when", so `time() - metric` is age.

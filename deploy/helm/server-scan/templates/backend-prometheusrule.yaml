@@ -19,6 +19,13 @@ only OpenShift's PrometheusRule admission webhook rejected, at sync time.
 {{- $silent := required "metrics.prometheusRule.silentForSeconds must be set — check the values file's nesting" .Values.metrics.prometheusRule.silentForSeconds }}
 {{- $membershipSilent := required "metrics.prometheusRule.membershipSilentForSeconds must be set — check the values file's nesting" .Values.metrics.prometheusRule.membershipSilentForSeconds }}
 {{- $membershipUnmatched := required "metrics.prometheusRule.membershipUnmatchedThreshold must be set — check the values file's nesting" .Values.metrics.prometheusRule.membershipUnmatchedThreshold }}
+{{- /*
+The login/dependency alerts below (ADR-0042) read their thresholds with `default`, not `required`:
+the Deploy job renders this template against redbull-platform's own values.yaml, which predates
+these keys, and a `required` would fail every deploy until that file is updated.
+*/ -}}
+{{- $loginFailRatio := .Values.metrics.prometheusRule.loginDependencyFailureRatio | default 0.2 }}
+{{- $loginSlow := .Values.metrics.prometheusRule.loginSlowSeconds | default 3 }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -105,6 +112,55 @@ spec:
           expr: time() - max by (namespace, cluster) (server_scan_cluster_last_reported_timestamp_seconds)
         - record: server_scan:membership_run_silent_seconds
           expr: time() - max by (namespace, kind, reported_by) (server_scan_membership_last_run_timestamp_seconds)
+
+    # Login and external-dependency calls (ADR-0042). Unlike the fleet gauges these are per-request
+    # counters and histograms, so they are SUMMED across replicas, not `max`ed. `outcome` values
+    # that are not failures: ok, invalid_credentials (a wrong password), verified, not_found, and
+    # cancelled (the caller went away) — everything else is a timeout or an error.
+    - name: server-scan.auth.rules
+      interval: 30s
+      rules:
+        - record: server_scan:auth_logins:rate5m
+          expr: sum by (namespace, outcome) (rate(auth_logins_total[5m]))
+        - record: server_scan:login_duration_seconds:p95
+          expr: histogram_quantile(0.95, sum by (namespace, le) (rate(http_request_duration_seconds_bucket{path="/api/v1/auth/login"}[5m])))
+        - record: server_scan:login_duration_seconds:p99
+          expr: histogram_quantile(0.99, sum by (namespace, le) (rate(http_request_duration_seconds_bucket{path="/api/v1/auth/login"}[5m])))
+        - record: server_scan:dependency_calls:rate5m
+          expr: sum by (namespace, dependency, outcome) (rate(dependency_call_duration_seconds_count[5m]))
+        - record: server_scan:dependency_call_duration_seconds:p95
+          expr: histogram_quantile(0.95, sum by (namespace, dependency, le) (rate(dependency_call_duration_seconds_bucket[5m])))
+        - record: server_scan:dependency_call_duration_seconds:p99
+          expr: histogram_quantile(0.99, sum by (namespace, dependency, le) (rate(dependency_call_duration_seconds_bucket[5m])))
+        - record: server_scan:dependency_failure_ratio:rate10m
+          expr: sum by (namespace, dependency) (rate(dependency_call_duration_seconds_count{outcome!~"ok|invalid_credentials|verified|not_found|cancelled"}[10m])) / sum by (namespace, dependency) (rate(dependency_call_duration_seconds_count{outcome!="cancelled"}[10m]))
+
+    - name: server-scan.auth
+      rules:
+        - alert: ServerScanLoginDependencyFailing
+          expr: server_scan:dependency_failure_ratio:rate10m{dependency=~"ldap|ad_api"} > {{ $loginFailRatio }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ "{{ $labels.dependency }}" }} calls on the login path are failing ({{ "{{ $value | humanizePercentage }}" }} over 10m)"
+            description: "Logins are returning 503 or needing retries. The API log's `ldap.bind_failed` / `ad_api.attempt_failed` lines carry `reason` (connect_timeout, read_timeout, http_503, ...). `server_scan:dependency_calls:rate5m` splits it by outcome."
+        - alert: ServerScanLoginSlow
+          expr: server_scan:login_duration_seconds:p95 > {{ $loginSlow }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "POST /auth/login p95 is {{ "{{ $value | humanizeDuration }}" }} (normal is well under 1s)"
+            description: "A fleet-wide HTTP latency panel hides this; this reads the login route alone. `server_scan:dependency_call_duration_seconds:p95{dependency=~\"ldap|ad_api\"}` says which hop is slow."
+        - alert: ServerScanAvailableRecheckFailing
+          expr: server_scan:dependency_failure_ratio:rate10m{dependency=~"vendor_.*"} > {{ $loginFailRatio }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GET /servers/available live rechecks against {{ "{{ $labels.dependency }}" }} are failing"
+            description: "The vendor manager is not answering the per-server recheck; callers get an error or a stale-trusting result. The API log's `available.recheck_failed` lines name the server and the exception."
 
     - name: server-scan.fleet
       rules:

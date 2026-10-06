@@ -10,17 +10,26 @@ Rules (docs/adr/0034, from the operator's own AD-integration spec):
 3. Matching is case-insensitive throughout.
 4. `ServiceUnavailableError` (LDAP or the AD API down) always propagates —
    it must never be reported as a wrong password.
+5. The whole attempt has a deadline (`auth_login_deadline_seconds`), so
+   per-call timeouts and retries can never add up to a hung login.
 """
 
 from __future__ import annotations
 
+import asyncio
+import time
 from pathlib import Path
 from typing import Protocol
+
+import structlog
 
 from app.config.settings import Settings
 from app.domain.models.audit_event import Role
 from app.domain.services.authz import LoginResult, split_csv_lower
+from app.errors import ServiceUnavailableError
 from app.infrastructure.ad.client import ldap_validate
+
+logger = structlog.get_logger(__name__)
 
 
 class GroupMembershipLookup(Protocol):
@@ -64,19 +73,63 @@ class AuthService:
             ServiceUnavailableError: LDAP or the AD API is unreachable or
                 misbehaved — never conflated with a wrong password.
         """
+        try:
+            async with asyncio.timeout(self._settings.auth_login_deadline_seconds):
+                return await self._authenticate(username, password)
+        except TimeoutError as exc:
+            logger.warning(
+                "auth.deadline_exceeded", deadline_s=self._settings.auth_login_deadline_seconds
+            )
+            raise ServiceUnavailableError(
+                "Login timed out waiting for the directory.",
+                dependency="auth",
+                reason="login_deadline",
+            ) from exc
+
+    async def _authenticate(self, username: str, password: str) -> Role | LoginResult | None:
+        """
+        Run the bind and the role checks, logging how the role was decided.
+
+        Args:
+            username (str): The `sAMAccountName` to bind and look up.
+            password (str): The password to bind with.
+
+        Returns:
+            Role | LoginResult | None: As `authenticate`.
+        """
         if not await ldap_validate(self._settings, username, password):
             return None
 
+        started = time.monotonic()
         uname = username.strip().lower()
         admin_users = split_csv_lower(self._list("admin_users"))
-        if uname in admin_users or await self._member_of_any(self._list("admin_groups"), uname):
+        if uname in admin_users:
+            self._log_role(Role.ADMIN, "admin_users", started)
+            return Role.ADMIN
+        if group := await self._first_matching_group(self._list("admin_groups"), uname):
+            self._log_role(Role.ADMIN, f"group:{group}", started)
             return Role.ADMIN
 
         viewer_users = split_csv_lower(self._list("viewer_users"))
-        if uname in viewer_users or await self._member_of_any(self._list("view_groups"), uname):
+        if uname in viewer_users:
+            self._log_role(Role.VIEWER, "viewer_users", started)
+            return Role.VIEWER
+        if group := await self._first_matching_group(self._list("view_groups"), uname):
+            self._log_role(Role.VIEWER, f"group:{group}", started)
             return Role.VIEWER
 
+        self._log_role(None, "no_match", started)
         return LoginResult.NO_PERMISSION
+
+    @staticmethod
+    def _log_role(role: Role | None, via: str, started: float) -> None:
+        """Log the role decision and which list or group decided it."""
+        logger.info(
+            "auth.role_resolved",
+            role=role.value if role else None,
+            via=via,
+            duration_ms=round((time.monotonic() - started) * 1000, 1),
+        )
 
     def _list(self, field: str) -> str:
         """
@@ -100,9 +153,9 @@ class AuthService:
                 pass
         return getattr(self._settings, field)
 
-    async def _member_of_any(self, groups_csv: str, uname: str) -> bool:
-        """Check `uname` against each configured group, stopping at the first match."""
+    async def _first_matching_group(self, groups_csv: str, uname: str) -> str | None:
+        """Return the first configured group `uname` is a member of, or None."""
         for group in split_csv_lower(groups_csv):
             if uname in await self._ad_api.group_members(group):
-                return True
-        return False
+                return group
+        return None

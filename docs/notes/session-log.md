@@ -8,6 +8,19 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-05 — contested OpenShift claims (ADR-0041) and the `/redoc` proxy fix.**
+Moved to `docs/notes/session-log.md`: the README / login-throttle unit.
+
+**Shipped:** (1) `/redoc` and `/docs` were blank on OpenShift because the SPA nginx's
+`location ~* \.(css|js|svg|woff2?)$` beat the chart's plain `/api/` prefix and 404'd
+`/api/docs-assets/*.js`; the proxy locations are now `^~` (commit 6253a6f), and Swagger UI gets
+`validatorUrl: null` for the air gap. (2) A server two jobs keep flipping between (2026-10-04: a stale
+unbound Agent CR vs the real node) is flagged `OpenShiftLifecycle.contested_with` when the writer is
+the one who held it before the current claimant, within an hour; a single move is never flagged.
+Surfaced as the `openshift.contested_claim` log, gauge `server_scan_openshift_contested_servers`,
+`ServerRow.contested_with` and the inventory's **Duplicate Server** filter (`?contested=true`) beside
+**Duplicate Name** (`?duplicate=true`). Detection only, no precedence rule.
+
 **2026-10-03 — README shortened, CLAUDE.md condensed, `server-scan-api` skill added
 (uncommitted when written).** Moved to `docs/notes/session-log.md`: the ADR-0037
 BMC-reachability unit.
