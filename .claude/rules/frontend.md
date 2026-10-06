@@ -69,6 +69,14 @@ Loaded only when a `frontend/` file is open.
   URL a tick after the click and `check()` reads the state at once.
   `BmcLink` (`components/`) is the one BMC anchor: icon-only in the table,
   `labeled` in the detail header.
+- **`CopyButton` (`components/`, 2026-10-06) copies a server name**: `size-7` in the detail
+  header next to the name; in the inventory it ends the Name cell (`compact`, `size-6`, hidden
+  until row hover/focus, always shown on touch) and `stopPropagation`s so the row's
+  click-to-open does not fire. It costs ~28 px of Name-column width (measured at 1440 with MCE
+  showing: wrapper overflow 105 -> 133 px on the long seeded names) — a second added control
+  there needs the same measurement. `navigator.clipboard` is secure-context only, so
+  `lib/clipboard.ts` falls back to `execCommand`. Its label ("Copy name of X") deliberately
+  avoids the words "maintenance" and a link role, which E2E queries match on.
 - **The inventory's filter block is one unit in the table's column**
   (2026-09-21): Search and the six selects on one row, the three toggles
   beneath, then the "Filtered by" chips — left and right edges equal to

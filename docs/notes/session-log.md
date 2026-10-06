@@ -8,6 +8,23 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-06 — bounded, observable login path (ADR-0042).** Moved earlier to `docs/notes/session-log.md`:
+the ADR-0041 contested-claims and `/redoc` proxy unit. Same day: pymongo 4.18.2 and `source-map-js`
+fixes after CI's audits failed, and CLAUDE.md convention 7 now requires the three audits before every push.
+
+**Shipped:** after a 25 s login caused by one AD API stall (15 s timeout, no retry, 503 log without
+its cause), the login path is bounded: ldap3 `connect_timeout`/`receive_timeout` (an **int**, ldap3
+`struct.pack`s it) on `run_abandonable` with `get_info=NONE`; the AD API gets connect/read timeouts
+(3 s/4 s) and one jittered retry on a timeout, connection error or 502-504; `auth_login_deadline_seconds`
+caps the attempt; group membership is cached in Redis per group (`CachedGroupMembership`, 120 s, never
+stale-on-error, so a role change takes up to the TTL). A 503 logs `dependency` and `reason`; one
+`auth.login` line per attempt; metrics `dependency_call_duration_seconds` and `auth_logins_total`.
+Same outcome/timing logs on `/servers/available`'s live recheck, `auth.rejected` in
+`get_current_actor`, and the Redis ping and BMC probe failure paths. New `INVENTORY_*` settings are in
+`.env.example` and Helm `auth.*` (rendered only when present). Deployed with the metrics: a
+`server-scan.auth.rules` recording-rule group, three alerts (`ServerScanLoginDependencyFailing`,
+`ServerScanLoginSlow`, `ServerScanAvailableRecheckFailing`) and a dashboard row.
+
 **2026-10-05 — contested OpenShift claims (ADR-0041) and the `/redoc` proxy fix.**
 Moved to `docs/notes/session-log.md`: the README / login-throttle unit.
 

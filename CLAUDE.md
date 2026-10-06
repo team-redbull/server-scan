@@ -416,21 +416,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-06 — bounded, observable login path (ADR-0042).** Moved to `docs/notes/session-log.md`:
-the ADR-0041 contested-claims and `/redoc` proxy unit.
+**2026-10-06 — copy-server-name button.** Moved to `docs/notes/session-log.md`: the ADR-0042 login unit.
 
-**Shipped:** after a 25 s login caused by one AD API stall (15 s timeout, no retry, 503 log without
-its cause), the login path is bounded: ldap3 `connect_timeout`/`receive_timeout` (an **int**, ldap3
-`struct.pack`s it) on `run_abandonable` with `get_info=NONE`; the AD API gets connect/read timeouts
-(3 s/4 s) and one jittered retry on a timeout, connection error or 502-504; `auth_login_deadline_seconds`
-caps the attempt; group membership is cached in Redis per group (`CachedGroupMembership`, 120 s, never
-stale-on-error, so a role change takes up to the TTL). A 503 logs `dependency` and `reason`; one
-`auth.login` line per attempt; metrics `dependency_call_duration_seconds` and `auth_logins_total`.
-Same outcome/timing logs on `/servers/available`'s live recheck, `auth.rejected` in
-`get_current_actor`, and the Redis ping and BMC probe failure paths. New `INVENTORY_*` settings are in
-`.env.example` and Helm `auth.*` (rendered only when present). Deployed with the metrics: a
-`server-scan.auth.rules` recording-rule group, three alerts (`ServerScanLoginDependencyFailing`,
-`ServerScanLoginSlow`, `ServerScanAvailableRecheckFailing`) and a dashboard row.
+**Shipped:** `CopyButton` (`frontend/src/components/`, `lib/clipboard.ts` with an `execCommand` fallback
+for a non-secure context): in the server detail header beside the name, and in the inventory's Name
+cell (`compact`, hidden until row hover or focus, always shown on touch, `stopPropagation` so the row
+does not open). Built with the apple-design skill: press feedback on pointer-down, no overshoot, a plain
+fade under reduced motion. It costs ~28 px of Name-column width (measured, see `.claude/rules/frontend.md`).
+Frontend only: no API, stored-shape or fake-provider change.
 
 **Open:** the operator should look at the AD API's own logs for 2026-10-05 17:26 UTC (which backend
 stalled; the old logs cannot say connect vs read); still to delete the stale Agent CR / NotReady node

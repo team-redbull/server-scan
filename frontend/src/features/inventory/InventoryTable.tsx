@@ -10,6 +10,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 
 import type { SortableField } from "@/features/inventory/sorting";
 import { BmcLink } from "@/components/BmcLink";
+import { CopyButton } from "@/components/CopyButton";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { ReservationBadge } from "@/components/ReservationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
@@ -19,7 +20,8 @@ import type { ServerRow } from "@/types/server";
 
 /**
  * The inventory columns. Name is left-aligned, everything else centred;
- * MCE renders only when a row on the page has one; BMC opens the vendor's
+ * MCE renders only when a row on the page has one; the Name cell ends in a
+ * copy button shown on row hover; BMC opens the vendor's
  * own console in a new tab and renders nothing for a server with no BMC
  * host read; the maintenance switch is the rightmost column and, with
  * BMC, one of only two cells whose click does not open the server. Rows
@@ -63,13 +65,21 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
       // A real anchor; the row's `onClick` is a convenience on top of it.
       // `state.from` is this page's own URL (filters included), so the
       // detail page's "Back to inventory" returns to the same filtered view.
-      <Link
-        to={`/servers/${info.row.original.id}`}
-        state={{ from }}
-        className="font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
-      >
-        {info.getValue()}
-      </Link>
+      <span className="inline-flex items-center gap-1">
+        <Link
+          to={`/servers/${info.row.original.id}`}
+          state={{ from }}
+          className="font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
+        >
+          {info.getValue()}
+        </Link>
+        <CopyButton
+          text={info.getValue()}
+          label={`Copy name of ${info.getValue()}`}
+          revealOnRowHover
+          compact
+        />
+      </span>
     ),
     enableSorting: true,
   }),

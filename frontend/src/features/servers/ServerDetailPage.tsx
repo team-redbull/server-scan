@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router";
 
 import { ApiError } from "@/api/client";
 import { BmcLink } from "@/components/BmcLink";
+import { CopyButton } from "@/components/CopyButton";
 import { HistoryTab } from "@/features/events/HistoryTab";
 import { ConnectivityTab } from "@/features/servers/ConnectivityTab";
 import { HardwareTab } from "@/features/servers/HardwareTab";
@@ -69,7 +70,10 @@ export function ServerDetailPage() {
       {data && (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold">{data.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold">{data.name}</h1>
+              <CopyButton text={data.name} label="Copy server name" />
+            </div>
             <BmcLink host={data.network.bmc.host} serverName={data.name} labeled />
           </div>
           <p className="text-sm text-gray-500">{data.model ?? modelHint(data.hardware.gpus)}</p>
