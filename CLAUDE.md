@@ -85,8 +85,18 @@ Explicit user instructions; violating one is a real mistake, not style.
    hand-fix. **CI also audits dependencies** (`uv run --with pip-audit
    pip-audit --skip-editable`, `deptry`, `npm audit` in `frontend/`) and fails
    on advisories published after your last green run with no code change.
-   **After every push to `main`, run `gh run watch` (or `gh run list`) and
-   report the CI result**; red CI also blocks release (publish and deploy are
+   **Before every push, run the three audits locally** — they are the part of CI that
+   fails with no code change, because an advisory landed since the last green run
+   (2026-10-06: pymongo CVEs, then `source-map-js` via `npm audit`, both failed a push of
+   an unrelated login change): `uv run --with pip-audit pip-audit --skip-editable`,
+   `uv run --with deptry deptry .`, `cd frontend && npm audit`. **Fix, do not wait:** for a
+   Python advisory raise the exact pin in `pyproject.toml` to the fix version (`uv lock`,
+   `uv sync --all-groups`, then re-export `requirements.txt` and `pylock.toml`, see
+   `docs/air-gap.md`) and rerun the tests; for npm run `npm audit fix` in `frontend/`
+   (commits `package-lock.json`) and rerun lint, typecheck, build. Commit it as
+   `fix(deps): ...` naming the package and the advisory. **After every push to `main`,
+   run `gh run watch` (or `gh run list`) and report the CI result — and when it is red on an
+   audit, reproduce it locally and fix it in the same session;** red CI also blocks release (publish and deploy are
    skipped). The Deploy job renders our templates with redbull-platform's own
    `values.yaml` (syncs only `templates/` and `files/`), so a template must
    tolerate a new `.Values` key being absent (`default`). **`/gate` runs all of

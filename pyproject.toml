@@ -19,7 +19,7 @@ dependencies = [
     "starlette==1.6.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.15.0",
-    "pymongo==4.17.0",
+    "pymongo==4.18.2",
     # 8.0.1, not the newest 8.x: the newest version this platform's actual
     # air-gapped mirror carries. Only `redis.asyncio.Redis` and
     # `redis.exceptions.RedisError` are used anywhere in this codebase —
