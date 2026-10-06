@@ -89,7 +89,7 @@ Explicit user instructions; violating one is a real mistake, not style.
    fails with no code change, because an advisory landed since the last green run
    (2026-10-06: pymongo CVEs, then `source-map-js` via `npm audit`, both failed a push of
    an unrelated login change): `uv run --with pip-audit pip-audit --skip-editable`,
-   `uv run --with deptry deptry .`, `cd frontend && npm audit`. **Fix, do not wait:** for a
+   `uv run --with deptry==0.24.0 deptry . --known-first-party app` (CI's exact command), `cd frontend && npm audit`. **Fix, do not wait:** for a
    Python advisory raise the exact pin in `pyproject.toml` to the fix version (`uv lock`,
    `uv sync --all-groups`, then re-export `requirements.txt` and `pylock.toml`, see
    `docs/air-gap.md`) and rerun the tests; for npm run `npm audit fix` in `frontend/`
