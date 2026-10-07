@@ -338,6 +338,15 @@ metrics:
     # p95 exceeds loginSlowSeconds (ADR-0042). Both fall back to these values if the key is absent.
     loginDependencyFailureRatio: 0.2
     loginSlowSeconds: 3
+    # ServerScanAuditRetentionBehind (ADR-0045) fires when the oldest audit event is older than
+    # collectors.auditRetention.retentionDays plus this many days. Rendered only once
+    # collectors.auditRetention.reportOnly is false; falls back to 14 if the key is absent.
+    auditRetentionSlackDays: 14
+    # ServerScanApiRestarting / ServerScanFrontendRestarting fire above this many container restarts in
+    # 30m; ServerScan*MemoryNearLimit when the working set exceeds this fraction of the memory limit.
+    # Both fall back to these values if the key is absent. The frontend rules need frontend.enabled.
+    podRestartsThreshold: 3
+    podMemoryLimitRatio: 0.9
     # A `nodes-status` job (`nodes`/`agents`) whose last real run left this many
     # hostnames unmatched fires ServerScanMembershipUnmatched. 0 means any
     # unmatched hostname is worth investigating (ADR-0029's 2026-09-24

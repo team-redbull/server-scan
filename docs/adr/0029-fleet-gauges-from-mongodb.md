@@ -342,3 +342,58 @@ names (cardinality), so which servers were pruned is answered by
 `GET /api/v1/events?event_type=SERVER_PRUNED` (already filterable; events older than
 `auditRetention.retentionDays`, 180 by default, are deleted, ADR-0045) and the
 `server.pruned` log line; there is no Loki datasource in this repo's setup.
+
+## Update (2026-10-07): audit-trail size, retention health and the ingest skip rate
+
+Three more signals, all derived from MongoDB for the same reason as the rest (a CronJob cannot be scraped):
+
+- `server_scan_audit_events` (estimated document count, collection metadata) and
+  `server_scan_audit_oldest_event_timestamp_seconds` (the oldest `created_at`; an empty trail reads "now" (the last refresh), an
+  age of about 0, because an unlabelled gauge cannot be absent and `Gauge.clear()` does nothing on one). Source:
+  `MongoAuditEventRepository.audit_stats()`, passed to the refresher as `audit=`; a failed query is the same
+  counted refresh failure as the others. Recording rules `server_scan:audit_events:max` and
+  `server_scan:audit_oldest_event_age_seconds`.
+- Alert `ServerScanAuditRetentionBehind` (warning, 6 h): the oldest event is older than `retentionDays` +
+  `metrics.prometheusRule.auditRetentionSlackDays` (default 14). Rendered only when the retention CronJob is
+  enabled, **not report-only** and `retentionDays` > 0, with every `collectors.auditRetention` key read with
+  `hasKey` (the platform repo's older `values.yaml` has none of them). A failing, suspended or never-run job
+  was otherwise silent (ADR-0045). It fires once, by design, after `reportOnly` is set to false while a backlog
+  older than the window is still being drained by the first weekly runs.
+- `ManagerRun.servers_unchanged` (stored, additive, default 0) feeds
+  `server_scan_collector_last_run_servers_unchanged{source_provider}`, with recording rules
+  `server_scan:collector_last_run_servers_unchanged:max` and `server_scan:collector_last_run_unchanged_ratio`
+  (unchanged / fetched). It is how the ADR-0044 skip rate is seen on the real fleet, and a ratio that drops to
+  0 after a deploy means a new per-run stamp is missing from the volatile list. No alert: real data can
+  legitimately change.
+
+Dashboard: a row "Audit trail and access" (events stored, oldest event age, size and age over time, and 403
+responses by path, so a client still using a viewer token on `/api/v1/events` after ADR-0043 shows up) and a
+row "Ingest skip rate". Not added, on purpose: a counter of retried write conflicts (a collector cannot be
+scraped; a conflict that exhausts its retries already counts in `ingest_errors`, which
+`ServerScanCollectorRunPartial` alerts on).
+
+## Update (2026-10-07, later): API and frontend pod health
+
+The API exposes `/metrics` (ServiceMonitor), but the frontend is nginx with no metrics endpoint (and none was
+added: a `stub_status` location and a second ServiceMonitor buy little over what the platform already knows
+about a pod), so the pods are watched with the **platform's** series: kube-state-metrics
+(`kube_deployment_*`, `kube_pod_container_*`) and cAdvisor (`container_*`), selected by Deployment
+(`<release>-api`, `<release>-frontend`) or by the ReplicaSet-hash pod name `<release>-api-<hash>-<id>`.
+
+- Recording rules `server_scan:{api,frontend}_replicas_available:ratio`,
+  `_container_restarts:increase30m` and `_memory_limit_ratio:max`.
+- Alerts: `ServerScanApiReplicasUnavailable` (15 m) and `ServerScanApiDown` (5 m), `ServerScanApiScrapeDown`
+  (every replica failing the scrape, 10 m), `ServerScan{Api,Frontend}Restarting` (more than
+  `podRestartsThreshold` = 3 restarts in 30 m), `ServerScanPodWaiting` (CrashLoopBackOff, ImagePullBackOff,
+  ErrImagePull, CreateContainerConfigError, 10 m), `ServerScanPodOOMKilled`, `ServerScan{Api,Frontend}MemoryNearLimit`
+  (`podMemoryLimitRatio` = 0.9 of the limit, 15 m), and the frontend replica/down alerts only when
+  `frontend.enabled`. Deliberately not alerted: one restart, per-pod `up`, a `Pending` pod during a rollout,
+  CPU throttling (the chart sets no CPU limit), and a Deployment scaled to zero on purpose (the Down alerts
+  and the replica ratio require `spec.replicas > 0`).
+- **Unverified assumption.** The OpenShift documentation says a user-defined rule evaluated by Thanos Ruler can use
+  platform metrics for its own namespace, but does not name these series. Every expression is therefore a
+  comparison on an existing series: if one is not queryable the alert is silently inert, never spurious. The
+  dashboard row "API & frontend pods" doubles as the check; after the first deploy query each recording rule in
+  Observe -> Metrics. Do not add the `leaf-prometheus` evaluation-scope label: it restricts a rule to
+  user-workload metrics.
+

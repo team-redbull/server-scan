@@ -48,6 +48,7 @@ from app.domain.models.audit_event import (
     AuditEvent,
     decode_legacy_event_type,
 )
+from app.domain.ports.repository import AuditStats
 from app.domain.services.normalize import normalize_text
 from app.errors import CursorInvalidError
 from app.infrastructure.mongodb.client import MongoClientHolder
@@ -206,6 +207,20 @@ class MongoAuditEventRepository:
             )
             renamed += result.modified_count
         return renamed
+
+    async def audit_stats(self) -> AuditStats:
+        """
+        Count the stored events and find the oldest one, for the audit-trail gauges.
+
+        Returns:
+            AuditStats: An estimated total (collection metadata, not a scan) and the oldest
+                `created_at` string, `None` when the collection is empty.
+        """
+        total = await self._collection.estimated_document_count()
+        oldest = await self._collection.find_one(
+            {}, projection={"created_at": 1}, sort=[("created_at", 1), ("_id", 1)]
+        )
+        return AuditStats(total=total, oldest_created_at=oldest["created_at"] if oldest else None)
 
     async def preview_before(self, cutoff: datetime) -> RetentionPreview:
         """

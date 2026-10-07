@@ -284,13 +284,22 @@ metrics:
                            # ServerScanClusterSilent, ServerScanCollectorRunPartial,
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched, ServerScanLoginDependencyFailing,
-                           # ServerScanLoginSlow, ServerScanAvailableRecheckFailing
+                           # ServerScanLoginSlow, ServerScanAvailableRecheckFailing,
+                           # ServerScanApiReplicasUnavailable, ServerScanApiDown, ServerScanApiScrapeDown,
+                           # ServerScanApiRestarting, ServerScanPodWaiting, ServerScanPodOOMKilled,
+                           # ServerScanApiMemoryNearLimit (+ the ServerScanFrontend* ones while
+                           # frontend.enabled), see "API and frontend pod rules",
+                           # ServerScanAuditRetentionBehind (only while the retention job is
+                           # enabled, not report-only and retentionDays > 0)
     staleServersThreshold: 10
     silentForSeconds: 21600            # vendor collectors only — 2x their 3h schedule
     membershipSilentForSeconds: 1800   # nodes-status jobs only — 2x their 15min schedule
     membershipUnmatchedThreshold: 0
+    auditRetentionSlackDays: 14        # ServerScanAuditRetentionBehind: retentionDays + this
     loginDependencyFailureRatio: 0.2   # LDAP / AD API / vendor-recheck failure fraction over 10m
     loginSlowSeconds: 3                # POST /auth/login p95
+    podRestartsThreshold: 3            # container restarts in 30m before ServerScan*Restarting fires
+    podMemoryLimitRatio: 0.9           # working set / memory limit before ServerScan*MemoryNearLimit fires
 ```
 
 **`silentForSeconds` and `membershipSilentForSeconds` are two separate
@@ -390,10 +399,11 @@ first two — it has — and only the webhook catches it.
 API replica exports the same fleet-wide gauges, so the raw series come
 back once per pod. The `PrometheusRule` records one de-duplicated series
 per gauge — `server_scan:servers_stale:max`, `server_scan:servers:max`,
-`server_scan:servers_by_health:max`, and so on — plus three ages that need
+`server_scan:servers_by_health:max`, and so on — plus ages that need
 no arithmetic, `server_scan:collector_silent_seconds`,
-`server_scan:cluster_silent_seconds` and
-`server_scan:membership_run_silent_seconds`. Type `server_scan:` in Observe →
+`server_scan:cluster_silent_seconds`,
+`server_scan:membership_run_silent_seconds` and
+`server_scan:audit_oldest_event_age_seconds`. Type `server_scan:` in Observe →
 Metrics and autocomplete lists them. The alerts read these too; an alert
 on a raw series would fire once per replica.
 
@@ -409,6 +419,40 @@ and `ServerScanAvailableRecheckFailing` fire on that ratio, `ServerScanLoginSlow
 all three read their thresholds with `default`, so a values file that predates them still renders.
 The matching log lines (`ldap.bind_failed`, `ad_api.attempt_failed`, `available.recheck_failed`)
 carry the `reason`.
+
+**Audit retention and ingest-skip rules (ADR-0044, ADR-0045).** Fleet-style, `max`ed across replicas:
+`server_scan:audit_events:max`, `server_scan:audit_oldest_event_age_seconds` (about 0 while there are
+no events), `server_scan:collector_last_run_servers_unchanged:max{source_provider}` and
+`server_scan:collector_last_run_unchanged_ratio` (unchanged / fetched, only where fetched > 0).
+`ServerScanAuditRetentionBehind` (group `server-scan.audit`, warning, for 6h) fires when the oldest
+audit event is older than `collectors.auditRetention.retentionDays` plus
+`metrics.prometheusRule.auditRetentionSlackDays` (default 14): the `prune-events` CronJob is not
+running, failing or suspended; read the newest Job's logs for `audit_retention.failed`. It is rendered
+only when that CronJob is enabled, **not** report-only and `retentionDays` > 0, because a report-only
+job deletes nothing; a values file without `collectors.auditRetention` therefore renders no alert.
+**Expect it to fire once** after you set `reportOnly: false` if the trail already holds events older than the
+window plus slack: it clears when the first weekly runs (up to 1M events each) have drained the backlog.
+
+**API and frontend pod rules.** Group `server-scan.pods.rules` records
+`server_scan:api_replicas_available:ratio`, `server_scan:api_container_restarts:increase30m` and
+`server_scan:api_memory_limit_ratio:max`, plus the same three as `server_scan:frontend_*` while
+`frontend.enabled`. Group `server-scan.pods` alerts (all warning) on: fewer replicas available than desired
+for 15m or none for 5m (`ServerScanApiReplicasUnavailable`/`ServerScanApiDown`, and the `Frontend` pair);
+every replica failing the `/metrics` scrape for 10m (`ServerScanApiScrapeDown`, API only; the `job` label
+must equal the Service name, otherwise the alert is inert); more than `podRestartsThreshold` restarts in
+30m; a container waiting in `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull` or
+`CreateContainerConfigError` for 10m (`ServerScanPodWaiting`); an OOM kill followed by a restart
+(`ServerScanPodOOMKilled`); and memory above `podMemoryLimitRatio` of the limit for 15m. Deliberately
+**not** alerted: a single restart, one pod's `up` flapping, and CPU (neither Deployment has a CPU limit,
+so there is no throttling to see; the dashboard shows CPU use). The frontend is nginx and exposes no
+metrics endpoint (no ServiceMonitor), so its rules use only kube-state-metrics and cAdvisor series. Those
+platform series must be queryable from user-namespace rules evaluated by Thanos Ruler, which needs user
+workload monitoring plus platform-metric access and is **not confirmed in the OpenShift docs**: after the
+first deploy, query each `server_scan:api_*` / `server_scan:frontend_*` recording rule in Observe ->
+Metrics. An empty result means the matching alert is inert (the rules avoid `absent()` and
+`or vector(0)`, so a missing series never fires one spuriously). Do **not** add the
+`openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` label to this PrometheusRule: it would
+move the whole rule to the platform Prometheus, which cannot see the `server_scan_*` series.
 
 **Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
 producing fresh servers at all — check `oc get jobs` and the newest pod's
@@ -434,7 +478,9 @@ never ingested — the newest pod's log lists which ones.
 datasource variable at your instance, and it covers fleet totals, per-
 collector staleness/run health, the membership-job run gauges above, top
 firing health policies, the login and external-call panels (outcomes, login latency, per-dependency
-latency and failures), and the API's own HTTP/Mongo/Redis metrics. It is
+latency and failures), an audit-trail row (events stored, oldest event age, 403 responses by path, which
+shows a client still sending a viewer token to `/api/v1/events`), an ingest-skip row (the unchanged
+share of each collector's last run, fetched vs unchanged), an API & frontend pods row (replicas, restarts, memory vs limit, CPU, waiting or OOM-killed pods), and the API's own HTTP/Mongo/Redis metrics. It is
 not wired into the chart — nothing here deploys Grafana dashboards as
 Kubernetes objects yet (no `GrafanaDashboard` CR, for instance); it is a
 plain export to import by hand or via your own GitOps path for

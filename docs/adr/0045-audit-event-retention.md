@@ -52,7 +52,9 @@ reachable only from `tools/prune_events.py`, never from a request path:
 - A viewer's or auditor's Events page and a server's History tab lose events older than the window.
 - Pre-check before the first real run: legacy rows whose `created_at` does not end in `Z` would compare
   wrongly. `db.audit_events.countDocuments({created_at: {$not: /Z$/}})` should be 0 (deploy/README.md).
-- No new metrics, alerts or dashboard: the job's log lines and the `AUDIT_PURGED` event are the signal.
+- The job's log lines and the `AUDIT_PURGED` event are the first signal. Since 2026-10-07 the trail's size and
+  oldest event are gauges with dashboard panels, and `ServerScanAuditRetentionBehind` fires once `reportOnly` is
+  false and the oldest event outlives the window by the slack (ADR-0029, 2026-10-07 update).
 - Backups are out of scope; deleted events are gone.
 
 ## Notes from review (2026-10-07)

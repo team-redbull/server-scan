@@ -12,7 +12,12 @@ from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager, ManagerRun
 from app.domain.models.openshift import MembershipRun
-from app.domain.ports.repository import ClusterSnapshotRow, FleetSnapshot, ProviderSnapshotRow
+from app.domain.ports.repository import (
+    AuditStats,
+    ClusterSnapshotRow,
+    FleetSnapshot,
+    ProviderSnapshotRow,
+)
 from app.observability import metrics
 from app.observability.fleet_gauges import FleetGaugeRefresher, apply_snapshot
 
@@ -82,6 +87,7 @@ RUN = ManagerRun(
     servers_fetched=800,
     servers_created=0,
     servers_updated=800,
+    servers_unchanged=760,
     ingest_errors=0,
     collection_errors=3,
     partial=False,
@@ -216,6 +222,10 @@ def test_apply_snapshot_sets_every_gauge() -> None:
         _value("server_scan_collector_last_run_duration_seconds", source_provider="OPENMANAGE")
         == 120
     )
+    assert (
+        _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
+        == 760
+    )
     assert _value("server_scan_collector_last_run_partial", source_provider="OPENMANAGE") == 0
     assert _value(
         "server_scan_collector_last_run_timestamp_seconds", source_provider="OPENMANAGE"
@@ -321,3 +331,71 @@ def test_pruned_gauge_follows_the_audit_counts_and_clears() -> None:
 
     apply_snapshot(_snapshot(), [], [], {})
     assert _value("server_scan_servers_pruned_24h", source_provider="ONEVIEW") is None
+
+
+def test_audit_gauges_follow_the_trail_and_read_an_age_of_zero_when_it_is_empty() -> None:
+    apply_snapshot(
+        _snapshot(), [], [], audit=AuditStats(total=1200, oldest_created_at="2026-04-01T00:00:00Z")
+    )
+    assert _value("server_scan_audit_events") == 1200
+    assert _value("server_scan_audit_oldest_event_timestamp_seconds") == pytest.approx(
+        datetime(2026, 4, 1, tzinfo=UTC).timestamp()
+    )
+
+    apply_snapshot(_snapshot(), [], [], audit=None)
+    assert _value("server_scan_audit_events") == 1200
+
+    apply_snapshot(_snapshot(), [], [], audit=AuditStats(total=0, oldest_created_at=None))
+    assert _value("server_scan_audit_events") == 0
+    assert _value("server_scan_audit_oldest_event_timestamp_seconds") == pytest.approx(
+        datetime.now(UTC).timestamp(), abs=5
+    )
+
+
+def test_a_run_recorded_before_the_unchanged_count_existed_reads_as_zero() -> None:
+    stored = RUN.model_dump(mode="json")
+    del stored["servers_unchanged"]
+    assert ManagerRun.model_validate(stored).servers_unchanged == 0
+
+
+class _Audit:
+    """An audit source stub that serves one `AuditStats` or raises."""
+
+    def __init__(self, result: AuditStats | Exception) -> None:
+        self.result = result
+
+    async def audit_stats(self) -> AuditStats:
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+async def test_a_failed_audit_query_is_a_counted_refresh_failure() -> None:
+    apply_snapshot(_snapshot(), [], [], audit=AuditStats(total=5, oldest_created_at=None))
+    before = metrics.fleet_snapshot_failures_total._value.get()
+    refresher = FleetGaugeRefresher(
+        _Repo(_snapshot()),
+        _Managers([]),
+        _MembershipRuns([]),
+        audit=_Audit(RuntimeError("mongo down")),
+        stale_after_seconds=60,
+        min_interval_seconds=0,
+    )
+
+    assert await refresher.maybe_refresh() is False
+    assert _value("server_scan_audit_events") == 5
+    assert metrics.fleet_snapshot_failures_total._value.get() == before + 1
+
+
+def test_a_vanished_manager_drops_its_unchanged_sample() -> None:
+    apply_snapshot(_snapshot(), [_manager(RUN)], [])
+    assert (
+        _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
+        == 760
+    )
+
+    apply_snapshot(_snapshot(), [], [])
+    assert (
+        _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
+        is None
+    )

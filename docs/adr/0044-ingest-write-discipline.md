@@ -84,6 +84,8 @@ revision and threw away its Redis detail-cache key, although the content was ide
   reclassify/health endpoints replace the whole document on `revision`, which `touch_seen` does not move, so
   they can write back the previous `last_seen_at`/`listed_at`/`health.evaluated_at`. Bounded and self-healing
   (the next run touches them again); no content is lost and the prune cutoff is days wide.
-- `ManagerRun.servers_unchanged` is not stored: `unchanged` is in the console line and the `ingest.completed`
-  log. Add it if the Grafana dashboard should show churn.
+- `ManagerRun.servers_unchanged` is stored (additive, default 0) and exported as
+  `server_scan_collector_last_run_servers_unchanged` with a dashboard row (ADR-0029, 2026-10-07 update), as well as
+  in the console line and the `ingest.completed` log. A run recorded before the field existed reads 0 until
+  the collector next runs, which looks like a full rewrite on the dashboard.
 - The detail page's `updated_at` field is now labelled "Last changed".

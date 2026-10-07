@@ -58,6 +58,7 @@ async def test_events_are_never_updatable_or_deletable_via_this_repository() -> 
         "list_actors",
         "count_by_provider_since",
         "rename_legacy_event_types",
+        "audit_stats",
         "preview_before",
         "purge_before",
     }
@@ -281,3 +282,24 @@ async def test_rename_legacy_event_types_is_idempotent(mongo_holder: MongoClient
     stored = mongo_holder.db[AUDIT_EVENTS_COLLECTION]
     assert await stored.count_documents({"event_type": "HEALTH_STATUS_CHANGED"}) == 0
     assert await stored.count_documents({"event_type": "HEALTH_CHANGED"}) == 2
+
+
+async def test_audit_stats_reports_the_oldest_event_and_an_empty_trail(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    await mongo_holder.db[AUDIT_EVENTS_COLLECTION].delete_many({})
+    repo = MongoAuditEventRepository(mongo_holder)
+
+    empty = await repo.audit_stats()
+    assert (empty.total, empty.oldest_created_at) == (0, None)
+
+    oldest = datetime(2025, 3, 1, 8, 30, tzinfo=UTC)
+    await repo.record(_event(event_type=EventType.SERVER_DELETED, created_at=utcnow()))
+    await repo.record(_event(event_type=EventType.SERVER_DELETED, created_at=oldest))
+    await repo.record(_event(event_type=EventType.SERVER_DELETED, created_at=utcnow()))
+
+    stats = await repo.audit_stats()
+    assert stats.total == 3
+    assert stats.oldest_created_at is not None
+    assert datetime.fromisoformat(stats.oldest_created_at) == oldest
+    await mongo_holder.db[AUDIT_EVENTS_COLLECTION].delete_many({})

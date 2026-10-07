@@ -160,6 +160,7 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
                     servers_fetched=summary.fetched,
                     servers_created=summary.created,
                     servers_updated=summary.updated + summary.unchanged,
+                    servers_unchanged=summary.unchanged,
                     ingest_errors=summary.errors,
                     collection_errors=len(provider.collection_errors),
                     partial=bool(summary.errors),

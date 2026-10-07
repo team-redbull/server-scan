@@ -14,7 +14,7 @@ import structlog
 
 from app.domain.models.manager import Manager
 from app.domain.models.openshift import MembershipRun
-from app.domain.ports.repository import FleetSnapshot
+from app.domain.ports.repository import AuditStats, FleetSnapshot
 from app.observability import metrics
 from app.utils.timeutil import utcnow
 
@@ -66,6 +66,19 @@ class PrunedSource(Protocol):
         ...
 
 
+class AuditStatsSource(Protocol):
+    """The one audit-repository method the audit-trail gauges need."""
+
+    async def audit_stats(self) -> AuditStats:
+        """
+        How many audit events are stored and when the oldest one was created.
+
+        Returns:
+            AuditStats: The estimated total and the oldest `created_at`, if any.
+        """
+        ...
+
+
 class FleetSnapshotSource(Protocol):
     """The one repository method the refresher needs."""
 
@@ -102,6 +115,7 @@ def apply_snapshot(
     managers: list[Manager],
     membership_runs: list[MembershipRun],
     pruned: dict[str, int] | None = None,
+    audit: AuditStats | None = None,
 ) -> None:
     """
     Write one snapshot into the gauges, clearing label sets it no longer names.
@@ -113,6 +127,8 @@ def apply_snapshot(
             recent run, for the membership run gauges.
         pruned (dict[str, int] | None): Servers pruned in the last 24h per
             provider; `None` leaves the pruned gauge untouched.
+        audit (AuditStats | None): The audit trail's size and oldest event;
+            `None` leaves the audit gauges untouched.
     """
     for gauge in (
         metrics.servers_total,
@@ -124,6 +140,7 @@ def apply_snapshot(
         metrics.collector_last_run_timestamp,
         metrics.collector_last_run_duration,
         metrics.collector_last_run_fetched,
+        metrics.collector_last_run_unchanged,
         metrics.collector_last_run_ingest_errors,
         metrics.collector_last_run_collection_errors,
         metrics.collector_last_run_partial,
@@ -140,6 +157,12 @@ def apply_snapshot(
         metrics.membership_last_run_unresolved,
     ):
         gauge.clear()
+
+    if audit is not None:
+        metrics.audit_events_stored.set(audit.total)
+        oldest = _epoch(audit.oldest_created_at)
+        # An unlabelled gauge cannot be absent, so an empty trail reads "now": an age of 0.
+        metrics.audit_oldest_event_timestamp.set(oldest if oldest is not None else time.time())
 
     if pruned is not None:
         metrics.servers_pruned_24h.clear()
@@ -184,6 +207,7 @@ def apply_snapshot(
         metrics.collector_last_run_timestamp.labels(**labels).set(run.finished_at.timestamp())
         metrics.collector_last_run_duration.labels(**labels).set(run.duration_seconds)
         metrics.collector_last_run_fetched.labels(**labels).set(run.servers_fetched)
+        metrics.collector_last_run_unchanged.labels(**labels).set(run.servers_unchanged)
         metrics.collector_last_run_ingest_errors.labels(**labels).set(run.ingest_errors)
         metrics.collector_last_run_collection_errors.labels(**labels).set(run.collection_errors)
         metrics.collector_last_run_partial.labels(**labels).set(int(run.partial))
@@ -210,6 +234,7 @@ class FleetGaugeRefresher:
         membership_runs: MembershipRunSource,
         *,
         pruned: PrunedSource | None = None,
+        audit: AuditStatsSource | None = None,
         stale_after_seconds: int,
         min_interval_seconds: float,
     ) -> None:
@@ -223,6 +248,8 @@ class FleetGaugeRefresher:
                 jobs' run records are.
             pruned (PrunedSource | None): Audit source for the pruned gauge;
                 `None` disables it.
+            audit (AuditStatsSource | None): Audit source for the audit-trail
+                size and oldest-event gauges; `None` disables them.
             stale_after_seconds (int): Age past which a server is stale.
             min_interval_seconds (float): Shortest gap between two queries.
         """
@@ -230,6 +257,7 @@ class FleetGaugeRefresher:
         self._managers = managers
         self._membership_runs = membership_runs
         self._pruned = pruned
+        self._audit = audit
         self._stale_after = timedelta(seconds=stale_after_seconds)
         self._min_interval = min_interval_seconds
         self._last_refresh: float | None = None
@@ -262,10 +290,11 @@ class FleetGaugeRefresher:
                     if self._pruned
                     else None
                 )
+                audit = await self._audit.audit_stats() if self._audit else None
             except Exception as exc:
                 metrics.fleet_snapshot_failures_total.inc()
                 logger.warning("metrics.fleet_snapshot_failed", error=str(exc))
                 return False
-            apply_snapshot(snapshot, managers, membership_runs, pruned)
+            apply_snapshot(snapshot, managers, membership_runs, pruned, audit)
             self._last_refresh = now
             return True

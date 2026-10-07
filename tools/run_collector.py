@@ -403,6 +403,7 @@ async def _record_run(
         servers_fetched=summary.fetched,
         servers_created=summary.created,
         servers_updated=summary.updated + summary.unchanged,
+        servers_unchanged=summary.unchanged,
         ingest_errors=summary.errors,
         collection_errors=collection_errors,
         partial=partial,

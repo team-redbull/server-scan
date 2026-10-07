@@ -1,7 +1,7 @@
 {
   "title": "Server Scan — Fleet & Collectors",
   "uid": "server-scan-fleet",
-  "description": "Fleet health, vendor collectors and OpenShift membership jobs for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml (ADR-0029, ADR-0042). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
+  "description": "Fleet health, vendor collectors, OpenShift membership jobs, login and external calls, the audit trail, the ingest skip rate and the API and frontend pods for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml (ADR-0029 incl. its 2026-10-07 updates, ADR-0042, ADR-0043..0045). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
   "tags": ["server-scan", "fleet", "adr-0029"],
   "style": "dark",
   "editable": true,
@@ -463,6 +463,142 @@
       "targets": [{ "expr": "server_scan:dependency_calls:rate5m{namespace=~\"$namespace\", outcome!~\"ok|invalid_credentials|verified|not_found|cancelled\"}", "legendFormat": "{{dependency}} {{outcome}}", "refId": "A" }],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 50 }, "unit": "ops" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    { "id": 119, "type": "row", "title": "Audit trail and access (ADR-0043, ADR-0045)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 133 }, "collapsed": false, "panels": [] },
+    {
+      "id": 120, "type": "stat", "title": "Audit events stored",
+      "description": "server_scan:audit_events:max: audit events in MongoDB (ADR-0045 deletes those older than collectors.auditRetention.retentionDays).",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 134 },
+      "targets": [{ "expr": "server_scan:audit_events:max{namespace=~\"$namespace\"}", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "id": 121, "type": "stat", "title": "Oldest audit event age",
+      "description": "server_scan:audit_oldest_event_age_seconds in days. Reads about 0 when there are no events (an unlabelled gauge cannot be absent). Should stay under retentionDays once the retention job is out of report-only.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 134 },
+      "targets": [{ "expr": "server_scan:audit_oldest_event_age_seconds{namespace=~\"$namespace\"} / 86400", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "d", "decimals": 1 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "id": 122, "type": "timeseries", "title": "Audit trail size and oldest event age",
+      "description": "Events stored (left axis) and the oldest event's age in days (right axis). A flat age above the retention window means the prune-events CronJob is not deleting.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 134 },
+      "targets": [
+        { "expr": "server_scan:audit_events:max{namespace=~\"$namespace\"}", "legendFormat": "events", "refId": "A" },
+        { "expr": "server_scan:audit_oldest_event_age_seconds{namespace=~\"$namespace\"} / 86400", "legendFormat": "oldest event (days)", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [{ "matcher": { "id": "byName", "options": "oldest event (days)" }, "properties": [{ "id": "custom.axisPlacement", "value": "right" }, { "id": "unit", "value": "d" }] }] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 123, "type": "timeseries", "title": "403 responses by path",
+      "description": "Every 403: a client still using a viewer token on /api/v1/events after ADR-0043 (the audit trail is admin/auditor only), a viewer or auditor calling a write endpoint, or a valid login with no permission on /api/v1/auth/login.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 142 },
+      "targets": [
+        { "expr": "sum by (path) (rate(http_requests_total{namespace=~\"$namespace\", status=\"403\"}[5m]))", "legendFormat": "{{path}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "reqps" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    { "id": 124, "type": "row", "title": "Ingest skip rate (ADR-0044)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 150 }, "collapsed": false, "panels": [] },
+    {
+      "id": 125, "type": "timeseries", "title": "Unchanged share of the last run, per collector",
+      "description": "server_scan:collector_last_run_unchanged_ratio: the fraction of fetched servers the last run found unchanged and did not rewrite (ADR-0044). Low on a collector that should be quiet means something is churning stored content.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 151 },
+      "targets": [
+        { "expr": "server_scan:collector_last_run_unchanged_ratio{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}", "legendFormat": "{{source_provider}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 126, "type": "timeseries", "title": "Servers fetched vs unchanged, per collector",
+      "description": "The last run's fetched count and how many of those were unchanged and not rewritten. A collector whose last run predates ADR-0044 shows 0 unchanged until it next runs.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 151 },
+      "targets": [
+        { "expr": "server_scan:collector_last_run_servers_fetched:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}", "legendFormat": "fetched {{source_provider}}", "refId": "A" },
+        { "expr": "server_scan:collector_last_run_servers_unchanged:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}", "legendFormat": "unchanged {{source_provider}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    { "id": 127, "type": "row", "title": "API & frontend pods", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 159 }, "collapsed": false, "panels": [] },
+    {
+      "id": 128, "type": "stat", "title": "API replicas available / desired",
+      "description": "server_scan:api_replicas_available:ratio: below 100% means a pod is not ready. These platform series (kube-state-metrics, cAdvisor) also show whether they are queryable from this Grafana datasource: an empty panel means they are not.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 160 },
+      "targets": [{ "expr": "server_scan:api_replicas_available:ratio{namespace=~\"$namespace\"}", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 129, "type": "stat", "title": "Frontend replicas available / desired",
+      "description": "server_scan:frontend_replicas_available:ratio. No data when frontend.enabled is false. These platform series (kube-state-metrics, cAdvisor) also show whether they are queryable from this Grafana datasource: an empty panel means they are not.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 160 },
+      "targets": [{ "expr": "server_scan:frontend_replicas_available:ratio{namespace=~\"$namespace\"}", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 130, "type": "timeseries", "title": "Container restarts in 30m",
+      "description": "Restarts of the api and frontend containers over the last 30 minutes (the ServerScan*Restarting alerts fire above podRestartsThreshold). These platform series (kube-state-metrics, cAdvisor) also show whether they are queryable from this Grafana datasource: an empty panel means they are not.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 168 },
+      "targets": [
+        { "expr": "server_scan:api_container_restarts:increase30m{namespace=~\"$namespace\"}", "legendFormat": "api", "refId": "A" },
+        { "expr": "server_scan:frontend_container_restarts:increase30m{namespace=~\"$namespace\"}", "legendFormat": "frontend", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 131, "type": "timeseries", "title": "Memory vs limit",
+      "description": "Working set as a fraction of the memory limit, worst pod per container (alert above podMemoryLimitRatio). These platform series (kube-state-metrics, cAdvisor) also show whether they are queryable from this Grafana datasource: an empty panel means they are not.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 168 },
+      "targets": [
+        { "expr": "server_scan:api_memory_limit_ratio:max{namespace=~\"$namespace\"}", "legendFormat": "api", "refId": "A" },
+        { "expr": "server_scan:frontend_memory_limit_ratio:max{namespace=~\"$namespace\"}", "legendFormat": "frontend", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 132, "type": "timeseries", "title": "CPU usage by pod (cores)",
+      "description": "Per-pod CPU use; there is no CPU limit, so this is the only CPU signal. These platform series (kube-state-metrics, cAdvisor) also show whether they are queryable from this Grafana datasource: an empty panel means they are not.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 176 },
+      "targets": [
+        { "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",container=~\"api|frontend\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}[5m]))", "legendFormat": "{{pod}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 133, "type": "table", "title": "Pods waiting or OOMKilled",
+      "description": "Containers currently waiting in CrashLoopBackOff, ImagePullBackOff and similar, and containers whose last termination was OOMKilled (that row stays until the pod is replaced or ends for another reason). Empty is healthy. These platform series (kube-state-metrics, cAdvisor) also show whether they are queryable from this Grafana datasource: an empty panel means they are not.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 176 },
+      "targets": [
+        { "expr": "kube_pod_container_status_waiting_reason{namespace=~\"$namespace\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"} == 1", "refId": "A", "format": "table", "instant": true },
+        { "expr": "kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\",namespace=~\"$namespace\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"} == 1", "refId": "B", "format": "table", "instant": true }
+      ],
+      "transformations": [
+        { "id": "merge" },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "endpoint": true, "service": true, "prometheus": true, "Value": true }, "indexByName": {} } }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true }
     }
   ]
 }

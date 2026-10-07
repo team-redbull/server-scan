@@ -123,6 +123,14 @@ class FleetSnapshot:
     openshift_contested: int
 
 
+@dataclass(frozen=True, slots=True)
+class AuditStats:
+    """How big the audit trail is and how far back it goes."""
+
+    total: int
+    oldest_created_at: str | None
+
+
 class ServerRepository(Protocol):
     """The persistence operations the application layer depends on, implemented by MongoDB."""
 

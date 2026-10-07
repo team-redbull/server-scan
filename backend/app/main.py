@@ -110,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         MongoManagerRepository(mongo),
         MongoMembershipRunRepository(mongo),
         pruned=MongoAuditEventRepository(mongo),
+        audit=MongoAuditEventRepository(mongo),
         stale_after_seconds=settings.stale_after_seconds,
         min_interval_seconds=settings.metrics_fleet_refresh_seconds,
     )

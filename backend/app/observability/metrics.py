@@ -89,6 +89,11 @@ collector_last_run_fetched = Gauge(
     "Servers the most recent run fetched from the vendor",
     labelnames=("source_provider",),
 )
+collector_last_run_unchanged = Gauge(
+    "server_scan_collector_last_run_servers_unchanged",
+    "Servers the most recent run found unchanged and did not rewrite (ADR-0044)",
+    labelnames=("source_provider",),
+)
 collector_last_run_ingest_errors = Gauge(
     "server_scan_collector_last_run_ingest_errors",
     "Servers the most recent run fetched but could not ingest",
@@ -148,6 +153,14 @@ servers_pruned_24h = Gauge(
     "server_scan_servers_pruned_24h",
     "Servers deleted by the prune tool in the last 24h, from audit events",
     labelnames=("source_provider",),
+)
+audit_events_stored = Gauge(
+    "server_scan_audit_events",
+    "Audit events stored in MongoDB",
+)
+audit_oldest_event_timestamp = Gauge(
+    "server_scan_audit_oldest_event_timestamp_seconds",
+    "Unix time of the oldest stored audit event; the last refresh time when there are none",
 )
 fleet_snapshot_failures_total = Counter(
     "server_scan_fleet_snapshot_failures_total",

@@ -248,7 +248,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   `/metrics`. `http_requests_total` and `http_request_duration_seconds`
   are recorded for every request; domain-specific counters (cache hit/miss,
   classification timeouts, etc.) are added alongside the engines that need
-  them.
+  them. The fleet-style gauges include the audit trail's size and oldest event
+  (`audit_stats`, ADR-0029's 2026-10-07 update) and each collector run's
+  unchanged-server count (ADR-0044).
 - **Health**: `/health/live` (process liveness, no dependency checks) and
   `/health/ready` (MongoDB required, Redis reported but non-blocking) are
   deliberately unversioned — they're consumed by the container

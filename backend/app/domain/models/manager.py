@@ -25,6 +25,9 @@ class ManagerRun(BaseModel):
     servers_fetched: int
     servers_created: int
     servers_updated: int
+    # Of `servers_updated`, how many were unchanged and not rewritten (ADR-0044); 0 on a run
+    # recorded before that existed.
+    servers_unchanged: int = 0
     ingest_errors: int
     collection_errors: int
     partial: bool  # exit 3: tools.run_collector's PARTIAL decision
