@@ -142,8 +142,8 @@ smaller facts that each cost a real finding.
   end to end and the evaluator's own sort runs over an already-ordered
   stream. The single-field `scope.*`/`policy_key`/`category` indexes back
   admin filtering ("every rule scoped to this site"), not resolution.
-- **`audit_events` is unbounded and append-only** — it grows for the
-  deployment's lifetime and every read is "most recent N, optionally
+- **`audit_events` is append-only** — it grows until the retention job
+  (ADR-0045, default 180 days) trims it, and every read is "most recent N, optionally
   filtered" — so all four of its indexes end in `(created_at DESC, _id
   DESC)`, the keyset pagination's fixed sort (ADR-0006). Global feed, one
   server's history, one event type and one actor's history are each an

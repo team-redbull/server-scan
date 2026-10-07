@@ -1,10 +1,9 @@
-"""The `audit_events` collection: an immutable, append-only log of every platform mutation.
+"""The `audit_events` collection: an append-only log of every platform mutation.
 
-Append-only is enforced by construction, not by a database permission
-alone: `MongoAuditEventRepository` (infrastructure layer) exposes only
-`record()`, which only ever calls `insert_one` — there is no `update`/
-`delete` method on that repository at all, so no code path in this
-codebase can alter or remove a recorded event, not even by accident.
+Append-only from every request path: `record()` is the only write the API
+can reach. The two documented exceptions in `MongoAuditEventRepository` are
+`rename_legacy_event_types` (startup) and the age-based retention purge, called
+only from `tools/prune_events.py` (docs/adr/0045).
 
 `EventType` is a closed, append-only registry (mirroring `ErrorCode`'s own
 convention in `app.errors`): new values are added at the end, existing
@@ -78,6 +77,7 @@ class EventType(StrEnum):
     MANAGER_CREATED = "MANAGER_CREATED"
     MANAGER_UPDATED = "MANAGER_UPDATED"
     SITE_CREATED = "SITE_CREATED"
+    AUDIT_PURGED = "AUDIT_PURGED"
     SITE_UPDATED = "SITE_UPDATED"
 
 
@@ -100,7 +100,7 @@ def decode_legacy_event_type(value: object) -> object:
 
 
 class AuditEvent(BaseModel):
-    """One immutable, append-only record in the `audit_events` collection."""
+    """One append-only record in the `audit_events` collection (age-based retention aside)."""
 
     id: str = Field(alias="_id")
     event_type: EventType

@@ -132,7 +132,8 @@ Loaded only when a `frontend/` file is open.
   server running.
 - **The audit trail UI is `features/events/`** (History tab + `/events`):
   `describeEvent`'s sentences mirror the `data` keys each backend writer
-  records (ingest, maintenance, reservation, openshift_membership, prune);
+  records (ingest, maintenance, reservation, openshift_membership, prune, audit
+  retention `AUDIT_PURGED`);
   a new `EventType` or renamed `data` key needs a case and test there and
   an entry in `WRITTEN_EVENT_TYPES`. The Events page filters (Event type, Server, User, Time range,
   in that order) are all API params in the URL: `server_name` is a

@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     prune_max_fraction: float = 0.2
     prune_max_run_age_seconds: int = 21600
 
+    # --- Audit retention (tools/prune_events.py, ADR-0045) ---
+    audit_retention_days: int = 180
+    audit_retention_report_only: bool = True
+    audit_retention_batch_size: int = 5000
+    audit_retention_max_batches: int = Field(default=200, ge=1)
+
     # --- Collectors (tools/run_collector.py, not the API process) ---
     ucs_manager_username: str = ""
     ucs_manager_password: SecretStr = SecretStr("")
@@ -249,6 +255,44 @@ class Settings(BaseSettings):
     api_token_admin: SecretStr = SecretStr("")
     api_token_viewer: SecretStr = SecretStr("")
     api_token_auditor: SecretStr = SecretStr("")
+
+    @field_validator("audit_retention_days")
+    @classmethod
+    def _audit_retention_days_is_zero_or_a_week_plus(cls, value: int) -> int:
+        """
+        Reject a retention shorter than a week; 0 means keep forever.
+
+        Args:
+            value (int): The configured number of days.
+
+        Returns:
+            int: The same value.
+
+        Raises:
+            ValueError: If it is negative or 1-6.
+        """
+        if value != 0 and value < 7:
+            raise ValueError("audit_retention_days must be 0 (keep forever) or at least 7")
+        return value
+
+    @field_validator("audit_retention_batch_size")
+    @classmethod
+    def _audit_retention_batch_size_in_range(cls, value: int) -> int:
+        """
+        Keep the delete batch between 100 and 50000 events.
+
+        Args:
+            value (int): The configured batch size.
+
+        Returns:
+            int: The same value.
+
+        Raises:
+            ValueError: If it is outside 100..50000.
+        """
+        if not 100 <= value <= 50000:
+            raise ValueError("audit_retention_batch_size must be between 100 and 50000")
+        return value
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

@@ -33,6 +33,11 @@ describe("describeEvent", () => {
       "Pruned: no longer listed by its manager",
     ],
     [
+      "AUDIT_PURGED",
+      { deleted: 1200, retention_days: 180 },
+      "Purged 1200 audit events older than 180 days",
+    ],
+    [
       "HEALTH_CHANGED",
       { from: "HEALTHY", to: "CRITICAL" },
       "HEALTHY → CRITICAL",

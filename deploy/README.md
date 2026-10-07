@@ -584,6 +584,22 @@ what it would delete. It runs at 03/09/15/21h, three hours after every other
 `maxRunAgeSeconds` (6 h) are its guards. By hand: dry-run by default,
 `--apply` to delete.
 
+Audit events older than a retention window are deleted by the weekly
+`collectors.auditRetention` CronJob (`python -m tools.prune_events`, ADR-0045),
+**enabled but report-only**: it runs Sundays 03:30 and logs one
+`audit_retention.report_only` line with `would_delete`, `oldest`, `newest`,
+`cutoff` and `retention_days`, deleting nothing. Read it (`kubectl logs` of
+the latest `<release>-prune-events` job), then set
+`collectors.auditRetention.reportOnly: false` to delete; each real run logs
+`audit_retention.purged` and writes one `AUDIT_PURGED` event. `retentionDays`
+is 180 (at least 7); `0` keeps every event forever. The window covers every
+event type, `SERVER_PRUNED` included, and one run deletes at most
+`batchSize * maxBatches` (5000 * 200) events, the rest on the next run.
+Before the first real run check for legacy rows whose date is not a `Z`
+string: `db.audit_events.countDocuments({created_at: {$not: /Z$/}})` should be
+0. Every key is optional in the platform repo's `values.yaml`: absent means
+enabled, report-only, 180 days.
+
 `collectors.fake` is the sixth CronJob and the one that reaches no vendor
 at all: it runs `tools/seed_inventory.py`, for a cluster with no UCS,
 OneView, OME, Intersight or BMC to talk to — a demo, a UI environment, or

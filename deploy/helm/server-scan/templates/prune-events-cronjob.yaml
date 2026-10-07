@@ -1,0 +1,71 @@
+{{- /* Older platform values.yaml lack `collectors.auditRetention`: read every key with hasKey (`default` treats false and 0 as empty). Absent means runs, report-only, 180 days (ADR-0045). */ -}}
+{{- $ar := .Values.collectors.auditRetention | default dict }}
+{{- $enabled := ternary $ar.enabled true (hasKey $ar "enabled") }}
+{{- $reportOnly := ternary $ar.reportOnly true (hasKey $ar "reportOnly") }}
+{{- $days := ternary $ar.retentionDays 180 (hasKey $ar "retentionDays") }}
+{{- if $enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-prune-events
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-prune-events
+    app.kubernetes.io/component: maintenance
+    app.kubernetes.io/part-of: server-scan
+spec:
+  schedule: {{ $ar.schedule | default "30 3 * * 0" | quote }}
+  {{- with .Values.collectors.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ $ar.suspend | default false }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if .Values.collectors.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.collectors.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $ar.backoffLimit | default 0 }}
+      activeDeadlineSeconds: {{ $ar.activeDeadlineSeconds | default 1800 }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: prune-events
+              image: {{ include "serverScan.apiImage" . | quote }}
+              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              command:
+                - python3
+                - -m
+                - tools.prune_events
+              env:
+                - name: INVENTORY_ENVIRONMENT
+                  value: production
+                # Report-only unless reportOnly is false (docs/adr/0045).
+                - name: INVENTORY_AUDIT_RETENTION_DAYS
+                  value: {{ $days | quote }}
+                - name: INVENTORY_AUDIT_RETENTION_REPORT_ONLY
+                  value: {{ $reportOnly | quote }}
+                - name: INVENTORY_AUDIT_RETENTION_BATCH_SIZE
+                  value: {{ $ar.batchSize | default 5000 | quote }}
+                - name: INVENTORY_AUDIT_RETENTION_MAX_BATCHES
+                  value: {{ $ar.maxBatches | default 200 | quote }}
+                {{- include "serverScan.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ .Release.Name }}-api-config
+                - secretRef:
+                    name: {{ (.Values.auth | default dict).existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
+              resources:
+                {{- toYaml ($ar.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+{{- end }}

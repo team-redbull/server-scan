@@ -194,7 +194,8 @@ current schedule).
   `SYSTEM`, id `prune`) whose `data` carries `server_id`, `name`, `serial`,
   `vendor`, `source_provider`, `manager_id`, `listed_at`, `last_seen_at`,
   `reason`, plus a `server.pruned` log line. Operators list them with
-  `GET /api/v1/events?event_type=SERVER_PRUNED`.
+  `GET /api/v1/events?event_type=SERVER_PRUNED` (kept for `auditRetention.retentionDays`,
+  180 by default, ADR-0045).
 - **Metrics.** `server_scan_servers_pruned_24h{source_provider}` is derived
   from those audit events (ADR-0029 pattern); the Grafana dashboard gains
   total-servers and pruned-servers panels. Prometheus carries counts only;

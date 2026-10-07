@@ -1034,7 +1034,7 @@ groups rather than assuming exactly two.
 health policy engine and policies API (see above), wired into ingestion
 and exposed via reclassify/recalculate endpoints.
 
-**Slice 4**: maintenance and an immutable audit trail.
+**Slice 4**: maintenance and an append-only audit trail (age-based retention: ADR-0045).
 
 - `PUT`/`DELETE /api/v1/servers/{id}/maintenance` enable/disable a
   server's maintenance window (`app.application.services.
@@ -1059,10 +1059,14 @@ and exposed via reclassify/recalculate endpoints.
   one flow to audit. It is the only cell in the table whose click does
   not open the server, so it stops propagation itself rather than
   relying on the row handler's anchor check.
-- `audit_events` is append-only by construction, not by convention:
-  `MongoAuditEventRepository` exposes only `record()` — no `update`/
-  `delete` method exists on the class at all, so no code path in this
-  codebase *can* alter or remove a recorded event. `AuditService.record()`
+- `audit_events` is append-only from every request path: `record()` is the
+  only write the API and UI can reach. The two documented exceptions are
+  `rename_legacy_event_types` (startup) and `purge_before`, the weekly
+  age-based retention of ADR-0045 (`tools/prune_events.py`, the
+  `collectors.auditRetention` CronJob, 180 days, report-only until
+  `reportOnly: false`, one `AUDIT_PURGED` event per purge); a unit test
+  keeps the purge out of `app/api`, `app/application` and `app/domain`.
+  `AuditService.record()`
   is the one place every mutation (maintenance changes, and real
   classification/health transitions from `reclassify`/`recalculate`/
   ingestion) goes through. Classification-rule and health-policy CRUD are

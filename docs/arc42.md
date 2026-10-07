@@ -11,7 +11,7 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — records 0001 to 0044, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0045, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
@@ -138,6 +138,7 @@ read-only, and that is a safety property rather than a missing feature.
 | **Collectors** (`tools/run_collector.py` + a provider) | One process per manager type, on a schedule. Reads a vendor, normalises, ingests. Never serves traffic. |
 | **nodes-status jobs** (`tools/collect_openshift.py`, chart `deploy/helm/nodes-status`) | Two per cluster at most, on a schedule. Run *inside* each OpenShift cluster, not beside the API, and deployed from their own chart. Read that cluster's own Kubernetes API and write only `Server.openshift`. Never contact a vendor, never serve traffic, never use `IngestService`. |
 | **Prune tool** (`tools/prune_servers.py`) | Helm CronJob `collectors.prune`, off and report-only by default (or run by hand). Deletes servers no manager has listed for `INVENTORY_PRUNE_AFTER_SECONDS` (`listed_at`), dry-run unless `--apply`, guarded by a per-manager clean-run check and a deletion cap, one `SERVER_PRUNED` audit event each (ADR-0037). |
+| **Audit retention tool** (`tools/prune_events.py`) | Helm CronJob `collectors.auditRetention`, weekly, report-only until `reportOnly: false`. Deletes audit events (any type, `SERVER_PRUNED` included) older than `retentionDays` (default 180, 0 keeps everything), in bounded batches, and records one `AUDIT_PURGED` event (ADR-0045). |
 | **Frontend** (`frontend/`) | React admin UI. Talks only to the backend API. |
 | **MongoDB** | Source of truth. |
 | **Redis** | Cache only, cache-aside, never authoritative. |
@@ -371,6 +372,9 @@ OpenShift namespace                        (chart: deploy/helm/server-scan)
 │      all five: envFrom the SAME api-config ConfigMap + the collector Secret
 ├── CronJob  prune-servers                  (03/09/15/21h, opt-in, report-only
 │      until collectors.prune.apply; deletes unlisted servers, ADR-0037)
+├── CronJob  prune-events                   (weekly, report-only until
+│      collectors.auditRetention.reportOnly=false; deletes audit events past
+│      retentionDays, ADR-0045)
 ├── Secret   <release>-collector-credentials  (rendered from values, or bring your own)
 ├── MongoDB  ─┐  platform-provided, not deployed by this chart
 └── Redis    ─┘
@@ -551,6 +555,7 @@ of it.
 | 0042 | The login path is bounded and observable: ldap3 connect/receive timeouts on a daemon thread, AD API connect/read timeouts with one retry, an overall deadline, a per-group Redis membership cache (never stale-on-error), and 503s that log `dependency`/`reason` |
 | 0043 | A third role, `AUDITOR` (read-only plus the audit trail), from `auth.auditorGroups`/`auditorUsers` or `auth.apiTokens.auditor`; the events endpoints and the UI's Events page and History tab are admin/auditor only, enforced in the API; the three API tokens must differ |
 | 0044 | Ingest writes an existing server with a revision compare-and-set (retry up to 3 times) instead of a blind replace that could overwrite a maintenance, reservation or membership write made mid-run, and skips a server whose content did not change (`touch_seen` refreshes only the last-confirmed stamps; `revision`/`updated_at` mean "content changed") |
+| 0045 | Audit events older than a retention window (default 180 days, minimum 7, 0 = keep forever) are deleted by a weekly CronJob that is report-only until `reportOnly: false` (`collectors.auditRetention`, `tools/prune_events.py`), recording one `AUDIT_PURGED` event; `purge_before` joins `rename_legacy_event_types` as the repository's second non-`record()` write |
 
 ---
 

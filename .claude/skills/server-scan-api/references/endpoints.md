@@ -64,7 +64,7 @@ Auditor or admin token only.
 Event: `id, event_type, server_id, server_name, actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED`,
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
-`SERVER_CREATED|UPDATED|DELETED|PRUNED`, plus rule/policy/site/manager events.
+`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), plus rule/policy/site/manager events.
 
 ## Sites
 

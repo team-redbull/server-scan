@@ -93,6 +93,15 @@ class TestCursorSecretProductionFailFast:
         assert settings.cursor_secret == "dev-insecure-cursor-secret-change-in-production"
 
 
+class TestAuditRetentionBatches:
+    def test_zero_max_batches_is_rejected_not_a_silent_no_op(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("INVENTORY_AUDIT_RETENTION_MAX_BATCHES", "0")
+        with pytest.raises(ValidationError):
+            _settings()
+
+
 class TestApiTokensMustDiffer:
     def test_two_roles_sharing_a_token_refuse_to_start(
         self, monkeypatch: pytest.MonkeyPatch
@@ -157,3 +166,35 @@ class TestSessionSecretProductionFailFast:
             auth_enabled=False,
         )
         assert settings.session_secret == "dev-insecure-session-secret-change-in-production"
+
+
+class TestAuditRetention:
+    def test_defaults_are_180_days_report_only(self) -> None:
+        settings = _settings()
+        assert settings.audit_retention_days == 180
+        assert settings.audit_retention_report_only is True
+        assert settings.audit_retention_batch_size == 5000
+        assert settings.audit_retention_max_batches == 200
+
+    @pytest.mark.parametrize("days", ["0", "7", "365"])
+    def test_zero_and_a_week_or_more_are_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, days: str
+    ) -> None:
+        monkeypatch.setenv("INVENTORY_AUDIT_RETENTION_DAYS", days)
+        assert _settings().audit_retention_days == int(days)
+
+    @pytest.mark.parametrize("days", ["1", "6", "-1", "-180"])
+    def test_one_to_six_and_negative_are_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, days: str
+    ) -> None:
+        monkeypatch.setenv("INVENTORY_AUDIT_RETENTION_DAYS", days)
+        with pytest.raises(ValidationError):
+            _settings()
+
+    @pytest.mark.parametrize("size", ["99", "50001", "0"])
+    def test_batch_size_outside_100_to_50000_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, size: str
+    ) -> None:
+        monkeypatch.setenv("INVENTORY_AUDIT_RETENTION_BATCH_SIZE", size)
+        with pytest.raises(ValidationError):
+            _settings()

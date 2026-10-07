@@ -20,6 +20,7 @@ const TYPE_TINT: [prefix: string, tint: string][] = [
   ["HEALTH_", "--tint-warning"],
   ["MAINTENANCE_", "--tint-maintenance"],
   ["SERVER_PRUNED", "--tint-critical"],
+  ["AUDIT_PURGED", "--surface-hover"],
   ["SERVER_RESERVATION_REFUSED", "--tint-critical"],
   ["SERVER_RES", "--tint-info"],
   ["SERVER_RELEASED", "--tint-info"],

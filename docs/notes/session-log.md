@@ -8,6 +8,18 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-07 — auditor role and audit-trail access (ADR-0043).** Moved to `docs/notes/session-log.md`:
+the copy-server-name button unit.
+
+**Shipped:** a third role `AUDITOR` (read-only plus the audit trail) beside `ADMIN` and `VIEWER`, from
+`auth.auditorGroups`/`auditorUsers` (Helm; `INVENTORY_AUDITOR_*`, live-mounted `_FILE` variants) or
+`auth.apiTokens.auditor`; precedence admin > auditor > viewer. `events_router` is mounted with
+`require_audit_access`, so `/events`, `/events/actors` and `/servers/{id}/events` are 403 for a viewer
+(API-enforced, not just hidden); the SPA hides the Events link, guards `/events` (`AuditGate`) and drops the
+History tab (`useCanReadAudit`). The three `INVENTORY_API_TOKEN_*` must differ. The `server-scan-api`
+skill now uses `AUDITOR_TOKEN` (was `VIEW_TOKEN`) and its wrong `/auth/me`-checks-a-token line is fixed.
+Rules & Policies and Architecture stay open to every role (operator's call).
+
 **2026-10-06 — copy-server-name button.** Moved to `docs/notes/session-log.md`: the ADR-0042 login unit.
 
 **Shipped:** `CopyButton` (`frontend/src/components/`, `lib/clipboard.ts` with an `execCommand` fallback

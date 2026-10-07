@@ -291,6 +291,11 @@ long form of each entry is in the 2026-09-13 archive.
   Events link, `/events` (`AuditGate`) and the History tab. A new endpoint that returns audit data
   must join that router or add the dependency; a UI-only hide is not a control. The three
   `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise).
+- **Audit events are deleted weekly by `tools.prune_events`** (`collectors.auditRetention`, ADR-0045):
+  180 days by default, **report-only until `reportOnly: false`**, any event type (`SERVER_PRUNED`
+  included), one `AUDIT_PURGED` event per purge (also a partial one, `complete: false`). `created_at` is
+  a string, so there is no TTL index. `purge_before` must never be referenced under `backend/app`
+  outside its repository (a unit test enforces it); the Helm template reads every key with `hasKey`.
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
@@ -363,7 +368,7 @@ long form of each entry is in the 2026-09-13 archive.
   provider ABC 0023; search tokens 0025; nullable cursors and retired indexes
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
-  role and audit-trail access 0043.
+  role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045.
 
 ## Verifying your work
 
@@ -428,18 +433,22 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-07 — auditor role and audit-trail access (ADR-0043).** Moved to `docs/notes/session-log.md`:
-the copy-server-name button unit.
+**2026-10-07 — ingest write discipline (ADR-0044) and audit-event retention (ADR-0045).** Moved to
+`docs/notes/session-log.md`: the auditor-role unit.
 
-**Shipped:** a third role `AUDITOR` (read-only plus the audit trail) beside `ADMIN` and `VIEWER`, from
-`auth.auditorGroups`/`auditorUsers` (Helm; `INVENTORY_AUDITOR_*`, live-mounted `_FILE` variants) or
-`auth.apiTokens.auditor`; precedence admin > auditor > viewer. `events_router` is mounted with
-`require_audit_access`, so `/events`, `/events/actors` and `/servers/{id}/events` are 403 for a viewer
-(API-enforced, not just hidden); the SPA hides the Events link, guards `/events` (`AuditGate`) and drops the
-History tab (`useCanReadAudit`). The three `INVENTORY_API_TOKEN_*` must differ. The `server-scan-api`
-skill now uses `AUDITOR_TOKEN` (was `VIEW_TOKEN`) and its wrong `/auth/me`-checks-a-token line is fixed.
-Rules & Policies and Architecture stay open to every role (operator's call).
+**Shipped:** (1) ingest writes an existing server with a revision CAS (3 retries, then `ConflictError`),
+so a maintenance/reservation/membership write made mid-run is never overwritten; (2) a server whose
+content is unchanged is only `touch_seen`d (`_stable_view` minus the per-run stamps; `revision`/
+`updated_at` now mean "content changed"; old-shape documents are rewritten via `_has_unset_fields`;
+`IngestSummary.unchanged`, `unchanged=` in the logs; rows `generated_at` = newest of `updated_at`/
+`last_seen_at`; detail page label "Last changed"); (3) `tools/prune_events.py` + CronJob
+`collectors.auditRetention` (Sun 03:30, 180 days, **report-only**, 0 = forever, `AUDIT_PURGED` event,
+UI `describeEvent` case). Each change was reviewed by independent agents (code, stored-shape, docs, Helm)
+before its commit. Also earlier today: pymongo 4.18.2 / `source-map-js` audit fixes and the pre-push
+audit rule in convention 7.
 
-**Open:** the operator should look at the AD API's own logs for 2026-10-05 17:26 UTC (which backend
-stalled; the old logs cannot say connect vs read); still to delete the stale Agent CR / NotReady node
+**Open:** the operator reads the first `audit_retention.report_only` log line (after checking
+`countDocuments({created_at: {$not: /Z$/}})` is 0), then sets `collectors.auditRetention.reportOnly:
+false`; the new `unchanged` count shows the real skip rate after the first runs; the AD API's own logs
+for 2026-10-05 17:26 UTC (which backend stalled); still to delete the stale Agent CR / NotReady node
 (outside this repo); parked recheck concurrency cap; operator is checking the OneView probe and that cap.

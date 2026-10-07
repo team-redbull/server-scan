@@ -1,7 +1,8 @@
 """`GET /api/v1/events`, `GET /api/v1/servers/{server_id}/events`.
 
-Read-only by design: there is deliberately no `POST /events` — the only
-way an event is created is a side effect of a real mutation
+Read-only by design (only the retention job in `tools/` deletes, ADR-0045): there
+is deliberately no `POST /events` — the only way an event is created is a side
+effect of a real mutation
 (`app.application.services.audit_service.AuditService.record`, called
 from the services that own each mutation), never a direct API write. That
 is what makes "the audit log reflects what actually happened" true instead

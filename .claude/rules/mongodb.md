@@ -28,6 +28,10 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   enforcing it forever (ADR-0026). `PolicyScope`'s old `scope.manager_type`
   key is still folded in the same way — do not remove while any pre-1.1.0
   database exists (ADR-0030).
+- **`audit_events` has exactly two non-`record()` writes** (`rename_legacy_event_types`, and
+  `purge_before` for retention, ADR-0045): the purge compares the `created_at` *string* with `_iso()`
+  (no TTL index is possible), takes only a cutoff, refuses one inside 7 days, and must stay out of
+  `app/api`, `app/application` and `app/domain` (a unit test fails otherwise).
 - **Sorting on a nullable field needs the null-aware cursor** (ADR-0026):
   `{$gt: null}` matches nothing and `{$lt: "abc"}` skips every null while
   the sort orders nulls first — a naive keyset clause drops rows with no

@@ -1,11 +1,10 @@
 """MongoDB implementation for the `audit_events` collection.
 
-`record()` is the only write method on this class — deliberately no
-`update`/`delete` of any kind. That is what makes "audit events are
-immutable" a structural property of the codebase rather than a policy
-someone has to remember: nothing in this codebase *can* call
-`update_one`/`delete_one` against this collection, because no method here
-exposes that capability.
+`record()` is the only write reachable from the API and UI: no `update`/`delete`
+is exposed to a request. The two documented exceptions are
+`rename_legacy_event_types` (startup) and `purge_before` (age-based retention,
+ADR-0045). Only startup calls the first and only `tools/prune_events.py` the
+second; a unit test asserts nothing else under `backend/app` references the purge.
 
 Pagination is a simpler keyset cursor than `app.domain.services.cursor`'s
 HMAC-signed one for `servers`: the sort order here is always
@@ -38,7 +37,7 @@ import binascii
 import json
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -53,11 +52,13 @@ from app.domain.services.normalize import normalize_text
 from app.errors import CursorInvalidError
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.indexes import AUDIT_EVENTS_COLLECTION, SERVERS_COLLECTION
+from app.utils.timeutil import utcnow
 
 _Document = dict[str, Any]
 
 _NAME_MATCH_ID_CAP = 5000
 _ACTOR_LIMIT = 200
+_MIN_PURGE_AGE = timedelta(days=7)
 
 
 def _iso(value: datetime) -> str:
@@ -82,6 +83,36 @@ class ActorSummary:
     type: str
     display: str | None
     event_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionPreview:
+    """What an age cutoff would delete: how many events and their `created_at` span."""
+
+    count: int
+    oldest: str | None
+    newest: str | None
+
+
+@dataclass(slots=True)
+class PurgeProgress:
+    """Running totals of one `purge_before`, readable by the caller even if it raises midway."""
+
+    deleted: int = 0
+    batches: int = 0
+    oldest: str | None = None
+    newest: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PurgeResult:
+    """What one `purge_before` call deleted."""
+
+    deleted: int
+    batches: int
+    truncated: bool
+    oldest: str | None
+    newest: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +160,7 @@ def _decode_cursor(cursor: str) -> tuple[str, str]:
 
 
 class MongoAuditEventRepository:
-    """MongoDB-backed store for immutable audit events."""
+    """MongoDB-backed store for append-only audit events (age-based retention aside, ADR-0045)."""
 
     def __init__(self, mongo: MongoClientHolder) -> None:
         """
@@ -175,6 +206,86 @@ class MongoAuditEventRepository:
             )
             renamed += result.modified_count
         return renamed
+
+    async def preview_before(self, cutoff: datetime) -> RetentionPreview:
+        """
+        Count the events older than `cutoff` and report their oldest and newest `created_at`.
+
+        Args:
+            cutoff (datetime): Events strictly older than this would be purged.
+
+        Returns:
+            RetentionPreview: The count and span; both ends `None` when nothing matches.
+        """
+        query = {"created_at": {"$lt": _iso(cutoff)}}
+        count = await self._collection.count_documents(query)
+        if count == 0:
+            return RetentionPreview(count=0, oldest=None, newest=None)
+        oldest = await self._collection.find_one(query, sort=[("created_at", 1), ("_id", 1)])
+        newest = await self._collection.find_one(query, sort=[("created_at", -1), ("_id", -1)])
+        return RetentionPreview(
+            count=count,
+            oldest=oldest["created_at"] if oldest else None,
+            newest=newest["created_at"] if newest else None,
+        )
+
+    async def purge_before(
+        self,
+        cutoff: datetime,
+        *,
+        batch_size: int,
+        max_batches: int,
+        progress: PurgeProgress | None = None,
+    ) -> PurgeResult:
+        """
+        Delete events older than `cutoff`, oldest first, in bounded batches (ADR-0045).
+
+        Args:
+            cutoff (datetime): Events strictly older than this are deleted.
+            batch_size (int): Events per delete.
+            max_batches (int): Most batches one call may run.
+            progress (PurgeProgress | None): Updated after every batch, so a caller can still
+                account for what was deleted if a later batch raises.
+
+        Returns:
+            PurgeResult: Totals, whether the cap stopped it with events left, and the span.
+
+        Raises:
+            ValueError: If `cutoff` is within the last 7 days.
+        """
+        if cutoff > utcnow() - _MIN_PURGE_AGE:
+            raise ValueError("refusing to purge audit events newer than 7 days")
+        query = {"created_at": {"$lt": _iso(cutoff)}}
+        progress = progress if progress is not None else PurgeProgress()
+        truncated = False
+        while True:
+            if progress.batches >= max_batches:
+                truncated = await self._collection.find_one(query, {"_id": 1}) is not None
+                break
+            docs = await (
+                self._collection.find(query, {"created_at": 1})
+                .sort([("created_at", 1), ("_id", 1)])
+                .limit(batch_size)
+                .to_list(length=batch_size)
+            )
+            if not docs:
+                break
+            result = await self._collection.delete_many(
+                {"_id": {"$in": [d["_id"] for d in docs]}, **query}
+            )
+            progress.batches += 1
+            progress.deleted += result.deleted_count
+            progress.oldest = progress.oldest or docs[0]["created_at"]
+            progress.newest = docs[-1]["created_at"]
+            if len(docs) < batch_size:
+                break
+        return PurgeResult(
+            deleted=progress.deleted,
+            batches=progress.batches,
+            truncated=truncated,
+            oldest=progress.oldest,
+            newest=progress.newest,
+        )
 
     async def list_page(
         self,

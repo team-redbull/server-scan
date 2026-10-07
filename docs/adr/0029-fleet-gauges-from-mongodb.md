@@ -339,5 +339,6 @@ same `fleet_snapshot_failures_total` path. Recording rule
 Dashboard: a "Total servers (and by collector)" time series, a "Servers
 pruned" bar panel and a text panel. Prometheus labels carry no server
 names (cardinality), so which servers were pruned is answered by
-`GET /api/v1/events?event_type=SERVER_PRUNED` (already filterable) and the
+`GET /api/v1/events?event_type=SERVER_PRUNED` (already filterable; events older than
+`auditRetention.retentionDays`, 180 by default, are deleted, ADR-0045) and the
 `server.pruned` log line; there is no Loki datasource in this repo's setup.

@@ -16,10 +16,15 @@ export const WRITTEN_EVENT_TYPES = [
   "SERVER_RESERVED",
   "SERVER_RESERVATION_REFUSED",
   "SERVER_RELEASED",
+  "AUDIT_PURGED",
 ] as const;
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+function count(value: unknown): string {
+  return typeof value === "number" ? String(value) : "?";
 }
 
 /** " (x)" when `value` is a non-empty string, else "". */
@@ -99,6 +104,8 @@ export function describeEvent(event: AuditEventResponse): string {
       return "Server discovered";
     case "SERVER_PRUNED":
       return "Pruned: no longer listed by its manager";
+    case "AUDIT_PURGED":
+      return `Purged ${count(d.deleted)} audit events older than ${count(d.retention_days)} days`;
     case "HEALTH_CHANGED":
       return transition(d);
     case "CLASSIFICATION_CHANGED":

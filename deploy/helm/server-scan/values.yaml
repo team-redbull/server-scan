@@ -488,6 +488,27 @@ collectors:
       limits:
         memory: 512Mi
 
+  # Audit-event retention (tools/prune_events.py, ADR-0045). Weekly. REPORT-ONLY until
+  # reportOnly is false: the job logs `audit_retention.report_only` with the count it would
+  # delete and deletes nothing. retentionDays 0 keeps every event forever; otherwise >= 7.
+  # Every event older than the window goes, of any type (SERVER_PRUNED included).
+  auditRetention:
+    enabled: true
+    reportOnly: true
+    retentionDays: 180
+    batchSize: 5000
+    maxBatches: 200
+    suspend: false
+    schedule: "30 3 * * 0"
+    backoffLimit: 0
+    activeDeadlineSeconds: 1800
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
   # Cisco UCS Manager — a login, and deliberately no endpoint.
   #
   # There is no UCS Manager CronJob. The ucsCentral collector below is
