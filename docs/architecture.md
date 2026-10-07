@@ -870,7 +870,7 @@ default (`enabled`, `apply`); it can also be run by hand.
 ## Ingestion wires both engines together (slice 2 + 3 integration)
 
 `app.application.services.ingest.IngestService` classifies and
-health-evaluates a server in the *same* upsert that ingests it — not a
+health-evaluates a server in the *same* upsert that ingests it (a revision-checked write for an existing server, ADR-0044) — not a
 second write — when `classification_service`/`health_service` are
 supplied (both optional, defaulting to `None`, so ingestion still works
 before either engine exists and tests of the pipeline in isolation don't
@@ -957,11 +957,15 @@ Smaller ingest facts, moved here from `ingest.py`'s comments 2026-09-13:
   and pollute every per-vendor count with. `ingest()`'s per-server
   handler logs the string, counts it in `IngestSummary.errors` and moves
   on.
-- **A `DuplicateKeyError` on upsert is recovered, not fatal.** It can
-  only come from `uniq_vendor_serial` — `system_uuid` has been
-  non-unique since 2026-09-09 (ADR-0026) — so it means a concurrent
-  ingest of the same server; the real owner is looked up again and
-  updated in place.
+- **A write conflict is retried, not fatal** (ADR-0044). An existing
+  server is written with `upsert_with_revision_check`, so a maintenance,
+  reservation, membership or prune write that lands between ingest's read
+  and its write is never overwritten. A `DuplicateKeyError` (a concurrent
+  insert on `uniq_vendor_serial`; `system_uuid` has been non-unique since
+  2026-09-09, ADR-0026), `RevisionConflictError` or `NotFoundError` makes
+  `_ingest_one` re-read and rebuild, up to 3 attempts (`ingest.write_conflict`
+  logged per retry); the last attempt re-raises and counts in
+  `IngestSummary.errors`.
 - **Only two transitions are audited**: a server seen for the first time,
   and an engine verdict that actually changed — the same selectivity
   `POST /servers/{id}/reclassify` and `.../health/recalculate` apply.

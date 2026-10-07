@@ -88,6 +88,7 @@ from app.domain.value_objects.bmc_address import parse_bmc_address
 from app.domain.value_objects.gpu_catalog import GpuCatalog
 from app.domain.value_objects.mac_address import normalize_mac
 from app.domain.value_objects.site import SiteCatalog, parse_site_code
+from app.errors import ConflictError, NotFoundError, RevisionConflictError
 from app.utils.ids import new_id
 from app.utils.timeutil import utcnow
 
@@ -98,6 +99,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 _BMC_MATCHED_PROVIDER = ManagerType.REDFISH_STANDALONE.value
+
+# Bounds the read-build-write loop when another writer keeps moving the document (ADR-0044).
+_MAX_WRITE_ATTEMPTS = 3
 
 
 class SiteRepositoryPort(Protocol):
@@ -546,54 +550,62 @@ class IngestService:
             ) from exc
 
         serial_normalized = normalize_text(ps.serial)
-        existing = (
-            await self._find_by_vendor_serial(vendor, serial_normalized)
-            if serial_normalized
-            else None
-        )
-        if existing is None and provider_type == _BMC_MATCHED_PROVIDER:
-            existing = await self._find_by_bmc_host(ps, has_serial=bool(serial_normalized))
-        if existing is not None and not serial_normalized:
-            vendor = existing.identity.vendor
 
-        server, state = await self._build_server(
-            ps,
-            vendor=vendor,
-            serial_normalized=serial_normalized,
-            existing=existing,
-            provider_type=provider_type,
-            ruleset=ruleset,
-            policies=policies,
-        )
-
-        try:
-            await self._server_repo.upsert(server)
-        except DuplicateKeyError:
-            # A concurrent insert collided on `uniq_vendor_serial`, the only
-            # unique index left (ADR-0026): update the real owner in place.
-            refetched = (
+        for attempt in range(1, _MAX_WRITE_ATTEMPTS + 1):
+            existing = (
                 await self._find_by_vendor_serial(vendor, serial_normalized)
                 if serial_normalized
                 else None
             )
-            if refetched is None:
-                raise
-            existing = refetched
+            if existing is None and provider_type == _BMC_MATCHED_PROVIDER:
+                existing = await self._find_by_bmc_host(ps, has_serial=bool(serial_normalized))
+            doc_vendor = (
+                existing.identity.vendor
+                if existing is not None and not serial_normalized
+                else vendor
+            )
+
             server, state = await self._build_server(
                 ps,
-                vendor=vendor,
+                vendor=doc_vendor,
                 serial_normalized=serial_normalized,
-                existing=refetched,
+                existing=existing,
                 provider_type=provider_type,
                 ruleset=ruleset,
                 policies=policies,
             )
-            await self._server_repo.upsert(server)
-            await self._emit_transition_events(existing, server, state, policies)
-            return server, False
 
-        await self._emit_transition_events(existing, server, state, policies)
-        return server, existing is None
+            try:
+                if existing is None:
+                    await self._server_repo.upsert(server)
+                else:
+                    await self._server_repo.upsert_with_revision_check(
+                        server, expected_revision=existing.revision
+                    )
+            except (DuplicateKeyError, RevisionConflictError, NotFoundError) as exc:
+                # The document moved under us (docs/adr/0044): a concurrent insert on
+                # `uniq_vendor_serial`, or maintenance/reservation/membership/prune writing
+                # between our read and our write. Re-read and rebuild; never overwrite it.
+                logger.info(
+                    "ingest.write_conflict",
+                    external_id=ps.external_id,
+                    attempt=attempt,
+                    reason=type(exc).__name__,
+                )
+                if attempt < _MAX_WRITE_ATTEMPTS:
+                    continue
+                if isinstance(exc, DuplicateKeyError):
+                    raise
+                # A 404/409 from the repository would be misleading to a caller of
+                # `GET /servers/available`; say what actually happened.
+                raise ConflictError(
+                    f"Server {ps.name!r} kept changing while it was being ingested; try again."
+                ) from exc
+
+            await self._emit_transition_events(existing, server, state, policies)
+            return server, existing is None
+
+        raise AssertionError("unreachable: the last failed attempt re-raises")  # pragma: no cover
 
     async def _emit_transition_events(
         self,

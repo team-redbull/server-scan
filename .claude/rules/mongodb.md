@@ -72,6 +72,10 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   label set is cleared each refresh; `servers_partial` ignores a field
   unread on *every* one of a collector's servers. **`Manager.last_run`
   survives `upsert`** because that is a `$set`, not a replace — keep it so.
+  **A server is replaced whole, so every writer must be a revision CAS** (ADR-0044): ingest
+  once did a blind `replace_one` and silently overwrote maintenance/reservation/membership
+  writes made mid-run. `ingest` now uses `upsert_with_revision_check` and retries (3 attempts);
+  a new writer of a server document does the same, never a bare `upsert`.
   **`duplicate_name_groups`/`_servers`** (2026-09-16) are one more facet
   in the same `$facet` pipeline — `$group` by `name`, `$match` on
   `count > 1` — deliberately unlabeled like `servers_in_maintenance`,
