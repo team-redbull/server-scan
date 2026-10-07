@@ -9,7 +9,7 @@ Mongo-specific cursor/query mechanics (`app.domain.services.search`,
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -159,6 +159,25 @@ class ServerRepository(Protocol):
             RevisionConflictError: The document's stored revision has
                 already moved past `expected_revision`, or the document no
                 longer exists.
+        """
+        ...
+
+    async def touch_seen(
+        self, server_id: str, *, expected_revision: int, fields: Mapping[str, object]
+    ) -> bool:
+        """
+        Refresh "last confirmed" stamps on an unchanged server, if its revision still matches.
+
+        Never bumps `revision` or `updated_at` (ADR-0044).
+
+        Args:
+            server_id (str): The server's `_id`.
+            expected_revision (int): The `revision` the caller last read.
+            fields (Mapping[str, object]): Dotted path -> new value.
+
+        Returns:
+            bool: True if the document matched and was touched, False if its revision moved
+                (or it is gone), in which case the caller must rebuild from a fresh read.
         """
         ...
 

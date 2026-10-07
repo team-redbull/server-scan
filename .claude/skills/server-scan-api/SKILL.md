@@ -65,7 +65,7 @@ Values are case-sensitive:
 Paging: `page_size` defaults to 50, max 200. The response has `page.next_cursor` and
 `page.has_more`; pass `cursor=<next_cursor>` with the same filters until `has_more` is
 false. Add `with_count=true` for a total. Sort with `sort` (`name` default, `serial`, `model`,
-`updated_at`, `last_seen_at`, `openshift_state`, `cluster_name`, `mce_name`) and `sort_desc=true`.
+`updated_at` (last content change), `last_seen_at` (last confirmed by a collector), `openshift_state`, `cluster_name`, `mce_name`) and `sort_desc=true`.
 When the user wants "all" servers, loop on the cursor rather than silently returning page one.
 
 ## Recipes

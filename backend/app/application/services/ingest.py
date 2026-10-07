@@ -38,9 +38,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import structlog
+from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from app.application.services.audit_service import SYSTEM_INGEST_ACTOR, AuditService
@@ -103,6 +104,108 @@ _BMC_MATCHED_PROVIDER = ManagerType.REDFISH_STANDALONE.value
 # Bounds the read-build-write loop when another writer keeps moving the document (ADR-0044).
 _MAX_WRITE_ATTEMPTS = 3
 
+# Per-run stamps `_build_server` writes fresh every run; anything NOT listed that differs forces a
+# full write, so a new one costs an optimisation, never an update (ADR-0044, guard test
+# `tests/integration/test_ingest_skip_unchanged.py`).
+_VOLATILE_TOP_LEVEL = ("revision", "updated_at", "last_seen_at", "listed_at")
+
+IngestOutcome = Literal["created", "updated", "unchanged"]
+
+
+class _ServerMoved(Exception):
+    """The conditional touch of an unchanged server matched nothing: the document moved."""
+
+
+def _stable_view(server: Server) -> dict[str, Any]:
+    """
+    Reduce a server to what a collector run can actually change.
+
+    Args:
+        server (Server): A built or stored server.
+
+    Returns:
+        dict[str, Any]: Its JSON form without the per-run stamps and counters.
+    """
+    view = server.model_dump(by_alias=True, mode="json")
+    for key in _VOLATILE_TOP_LEVEL:
+        view.pop(key, None)
+    view["health"].pop("evaluated_at", None)
+    view["classification"].pop("classified_at", None)
+    view["classification"].pop("classification_version", None)
+    for attachment in view["connectivity"]["attachments"]:
+        attachment.pop("last_seen", None)
+    return view
+
+
+def _has_unset_fields(model: BaseModel) -> bool:
+    """
+    Whether a stored document predates a field, so it must be rewritten even if unchanged.
+
+    A document written by current code carries every field (`model_dump` keeps `None`s), so a field
+    that validation had to fill from its default means the document is older than the model.
+
+    Args:
+        model (BaseModel): A model validated from a stored document, or one of its parts.
+
+    Returns:
+        bool: True if this model or any nested model has a field missing from the stored form.
+    """
+    if model.model_fields_set != set(type(model).model_fields):
+        return True
+    for name in model.model_fields_set:
+        value = getattr(model, name)
+        children = value if isinstance(value, list) else [value]
+        if any(isinstance(c, BaseModel) and _has_unset_fields(c) for c in children):
+            return True
+    return False
+
+
+def _seen_fields(
+    server: Server, *, runs_health: bool, runs_classification: bool
+) -> dict[str, object]:
+    """
+    The "last confirmed" stamps to refresh on an unchanged server.
+
+    Args:
+        server (Server): The freshly built server (its stamps are this run's).
+        runs_health (bool): Whether the health engine ran, so its stamp is real.
+        runs_classification (bool): Whether the classification engine ran, so its stamp is real.
+
+    Returns:
+        dict[str, object]: Dotted path -> new value for `ServerRepository.touch_seen`.
+    """
+    fields: dict[str, object] = {"listed_at": server.listed_at}
+    if server.last_seen_at is not None:
+        fields["last_seen_at"] = server.last_seen_at
+    if runs_health and server.health.evaluated_at is not None:
+        fields["health.evaluated_at"] = server.health.evaluated_at
+    if runs_classification and server.classification.classified_at is not None:
+        fields["classification.classified_at"] = server.classification.classified_at
+    if server.connectivity.attachments:
+        fields["connectivity.attachments.$[].last_seen"] = server.connectivity.attachments[
+            0
+        ].last_seen
+    return fields
+
+
+def _as_stored(server: Server, existing: Server) -> Server:
+    """
+    Make a skipped server's in-memory copy match what is in Mongo.
+
+    Args:
+        server (Server): The freshly built (but not written) server.
+        existing (Server): The stored server it equals in content.
+
+    Returns:
+        Server: `server` with the stored `revision`, `updated_at` and classification counter.
+    """
+    server.revision = existing.revision
+    server.updated_at = existing.updated_at
+    server.classification = server.classification.model_copy(
+        update={"classification_version": existing.classification.classification_version}
+    )
+    return server
+
 
 class SiteRepositoryPort(Protocol):
     """
@@ -148,6 +251,7 @@ class IngestSummary:
     fetched: int = 0
     created: int = 0
     updated: int = 0
+    unchanged: int = 0
     errors: int = 0
 
 
@@ -414,7 +518,7 @@ class IngestService:
         async for provider_server in provider.collect():
             summary.fetched += 1
             try:
-                _server, created = await self._ingest_one(
+                _server, outcome = await self._ingest_one(
                     provider_server,
                     provider_type=provider.provider_type,
                     ruleset=ruleset,
@@ -429,8 +533,10 @@ class IngestService:
                 summary.errors += 1
                 continue
 
-            if created:
+            if outcome == "created":
                 summary.created += 1
+            elif outcome == "unchanged":
+                summary.unchanged += 1
             else:
                 summary.updated += 1
 
@@ -439,6 +545,7 @@ class IngestService:
             fetched=summary.fetched,
             created=summary.created,
             updated=summary.updated,
+            unchanged=summary.unchanged,
             errors=summary.errors,
         )
         return summary
@@ -464,7 +571,7 @@ class IngestService:
         policies = (
             await self._health_service.load_policies() if self._health_service is not None else []
         )
-        server, _created = await self._ingest_one(
+        server, _outcome = await self._ingest_one(
             ps, provider_type=provider_type, ruleset=ruleset, policies=policies
         )
         return server
@@ -522,7 +629,7 @@ class IngestService:
         provider_type: str,
         ruleset: list[ClassificationRule],
         policies: list[HealthPolicy],
-    ) -> tuple[Server, bool]:
+    ) -> tuple[Server, IngestOutcome]:
         """
         Normalize, correlate and upsert one provider record.
 
@@ -537,8 +644,9 @@ class IngestService:
                 load_policies`'s docstring for why.
 
         Returns:
-            tuple[Server, bool]: The persisted server, and `True` if it
-                was newly created, `False` if an existing one was updated.
+            tuple[Server, IngestOutcome]: The persisted server, and whether it was
+                `created`, `updated` (content changed, full write) or `unchanged` (only
+                the "last confirmed" stamps were refreshed, ADR-0044).
         """
         # No fallback vendor: an unrecognized value is a provider bug to surface.
         try:
@@ -575,14 +683,31 @@ class IngestService:
                 policies=policies,
             )
 
+            unchanged = (
+                existing is not None
+                and not _has_unset_fields(existing)
+                and _stable_view(server) == _stable_view(existing)
+            )
             try:
                 if existing is None:
                     await self._server_repo.upsert(server)
+                elif unchanged:
+                    touched = await self._server_repo.touch_seen(
+                        existing.id,
+                        expected_revision=existing.revision,
+                        fields=_seen_fields(
+                            server,
+                            runs_health=self._health_service is not None,
+                            runs_classification=self._classification_service is not None,
+                        ),
+                    )
+                    if not touched:
+                        raise _ServerMoved
                 else:
                     await self._server_repo.upsert_with_revision_check(
                         server, expected_revision=existing.revision
                     )
-            except (DuplicateKeyError, RevisionConflictError, NotFoundError) as exc:
+            except (DuplicateKeyError, RevisionConflictError, NotFoundError, _ServerMoved) as exc:
                 # The document moved under us (docs/adr/0044): a concurrent insert on
                 # `uniq_vendor_serial`, or maintenance/reservation/membership/prune writing
                 # between our read and our write. Re-read and rebuild; never overwrite it.
@@ -602,8 +727,10 @@ class IngestService:
                     f"Server {ps.name!r} kept changing while it was being ingested; try again."
                 ) from exc
 
+            if existing is not None and unchanged:
+                return _as_stored(server, existing), "unchanged"
             await self._emit_transition_events(existing, server, state, policies)
-            return server, existing is None
+            return server, "created" if existing is None else "updated"
 
         raise AssertionError("unreachable: the last failed attempt re-raises")  # pragma: no cover
 

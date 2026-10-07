@@ -33,3 +33,57 @@ run on independent schedules and overlap.
   retry never double-records a transition.
 - The test `tests/integration/test_ingest_write_conflict.py` makes another writer win the first race and asserts
   its maintenance write survives and the revision ends at 3.
+
+## Decision 2: a server whose content did not change is not rewritten
+
+Re-ingesting identical input still changed every document: `revision`, `updated_at`, `last_seen_at`,
+`listed_at`, `health.evaluated_at`, `classification.classified_at`, the counter
+`classification.classification_version`, and, for Cisco servers, `connectivity.attachments[].last_seen`.
+(Measured on 300 seeded servers, 2026-10-07.) Every run therefore replaced every document, bumped its
+revision and threw away its Redis detail-cache key, although the content was identical.
+
+- `ingest._stable_view(server)` is the JSON form without exactly those fields (`_VOLATILE_TOP_LEVEL` plus the
+  three nested ones and the attachment stamps). Everything else is compared, including `unread_fields`,
+  `reachable`/`unreachable_*`, `maintenance`, `reservation` and `openshift`, which are carried forward and so
+  equal on both sides unless something really changed.
+- If the new and stored stable views are equal, ingest does not replace the document. It calls
+  `ServerRepository.touch_seen(id, expected_revision, fields)`: a `$set` of the "last confirmed" stamps
+  (`last_seen_at`, `listed_at`, and `health.evaluated_at` / `classification.classified_at` /
+  `connectivity.attachments.$[].last_seen` when those are produced) conditional on the revision. `revision`,
+  `updated_at` and `classification_version` do not move, and no transition audit event is emitted (none was
+  due: `installation_type` and `health.overall` are in the compared content). A touch that matches nothing
+  rebuilds through the same bounded loop as a revision conflict.
+- **Default is to write.** A field that is not on the volatile list and differs forces the full write, so a new
+  per-run stamp added to `_build_server` costs the optimisation, never a lost update.
+  `tests/integration/test_ingest_skip_unchanged.py` re-ingests the whole fake fleet twice with the engines on
+  and fails if anything is "updated"; `tests/unit/application/services/test_ingest_stable_view.py` pins which
+  fields are ignored and which are seen.
+- `IngestSummary.unchanged` and the `ingest.completed` log line report how many were skipped. `updated` now
+  means "content changed and was written"; `ManagerRun.servers_updated` (stored) keeps meaning "existing
+  servers ingested", so it is `updated + unchanged`.
+
+### Consequences of decision 2
+
+- `revision` and `updated_at` now mean "the content last changed", not "an ingest run touched it".
+  `classification_version` counts real reclassifications instead of runs. `last_seen_at`, `listed_at`
+  (prune) and the staleness gauges are unaffected: they are still refreshed on every run.
+- The inventory's "Updated ..." time (`generated_at` of `GET /servers/rows`) is now the newest of `updated_at`
+  and `last_seen_at`, so it still advances when a collector confirms an unchanged fleet.
+- A cached server detail (60 s TTL, keyed by revision) can show a `last_seen_at` / `health.evaluated_at` up to
+  60 s old after a touch, where it used to be invalidated by every run. In exchange its key now survives
+  between runs.
+- Writes, oplog volume and index updates drop by the share of unchanged servers; the log line says how many.
+  Expect most of the fleet to skip, but this is measured only on the fake fleet until the first real runs.
+- **A document written before a field existed is rewritten, not touched.** Both sides of the comparison go
+  through the `Server` model, so a stored document missing a newly added defaulted field would compare equal
+  and never be back-filled (it would stay unchanged in Mongo and be invisible to raw `$match`/projection
+  readers). `_has_unset_fields` checks `model_fields_set` recursively: current code stores every field, so a
+  field that validation had to default means the document is older than the model, and it gets the full write.
+  No migration is needed when a field is added.
+- **A CAS writer can regress a touched stamp by up to one run.** Maintenance, reservation, membership and the
+  reclassify/health endpoints replace the whole document on `revision`, which `touch_seen` does not move, so
+  they can write back the previous `last_seen_at`/`listed_at`/`health.evaluated_at`. Bounded and self-healing
+  (the next run touches them again); no content is lost and the prune cutoff is days wide.
+- `ManagerRun.servers_unchanged` is not stored: `unchanged` is in the console line and the `ingest.completed`
+  log. Add it if the Grafana dashboard should show churn.
+- The detail page's `updated_at` field is now labelled "Last changed".

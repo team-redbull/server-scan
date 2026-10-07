@@ -101,7 +101,9 @@ endpoint and does everything else locally.
   ETag** (`W/"blake2b(body)"` — weak because gzip changes the bytes but
   not the representation, RFC 9110 §8.8.1). A client whose
   `If-None-Match` matches gets a bodiless 304.
-- `generated_at` is the newest `updated_at` among the rows, **not the
+- `generated_at` is the newest `updated_at` among the rows (since ADR-0044 the newest
+  of `updated_at` and `last_seen_at`, because an unchanged server no longer moves
+  `updated_at`), **not the
   build time**: an unchanged fleet must yield byte-identical bodies or
   no poller ever sees a 304. The first implementation stamped `utcnow()`
   and was caught by the benchmark's idle window (two full 187 KB bodies

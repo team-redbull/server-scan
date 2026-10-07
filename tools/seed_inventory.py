@@ -148,7 +148,7 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
             )
             fetched += summary.fetched
             created += summary.created
-            updated += summary.updated
+            updated += summary.updated + summary.unchanged
             errors += summary.errors
             # So the seeded cluster shows the `collector_last_run_*` gauges (ADR-0029).
             await manager_repo.record_run(
@@ -159,7 +159,7 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
                     duration_seconds=time.monotonic() - started,
                     servers_fetched=summary.fetched,
                     servers_created=summary.created,
-                    servers_updated=summary.updated,
+                    servers_updated=summary.updated + summary.unchanged,
                     ingest_errors=summary.errors,
                     collection_errors=len(provider.collection_errors),
                     partial=bool(summary.errors),

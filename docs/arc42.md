@@ -288,7 +288,7 @@ CronJob fires
         normalize → ProviderServer
         name filter (INVENTORY_COLLECTOR_NAME_PATTERN)
         parse site from name (fallback: UCS org DN)
-        correlate → classify → health-evaluate → upsert     ← ONE write per server (revision-checked, ≤3 attempts)
+        correlate → classify → health-evaluate → upsert     ← ONE write per server (revision-checked, ≤3 attempts; unchanged → `touch_seen` only)
         audit only a new server or a changed verdict
   → write the Manager projection
   → exit 0 (complete) | 2 (not configured) | 3 (PARTIAL) | 1 (failed)
@@ -550,7 +550,7 @@ of it.
 | 0041 | A server two OpenShift jobs keep flipping between within an hour is flagged `contested_with`: log, `server_scan_openshift_contested_servers` gauge, inventory "Duplicate Server" filter; detection only |
 | 0042 | The login path is bounded and observable: ldap3 connect/receive timeouts on a daemon thread, AD API connect/read timeouts with one retry, an overall deadline, a per-group Redis membership cache (never stale-on-error), and 503s that log `dependency`/`reason` |
 | 0043 | A third role, `AUDITOR` (read-only plus the audit trail), from `auth.auditorGroups`/`auditorUsers` or `auth.apiTokens.auditor`; the events endpoints and the UI's Events page and History tab are admin/auditor only, enforced in the API; the three API tokens must differ |
-| 0044 | Ingest writes an existing server with a revision compare-and-set and retries up to 3 times on a conflict, instead of a blind replace that could overwrite a maintenance, reservation or membership write made mid-run |
+| 0044 | Ingest writes an existing server with a revision compare-and-set (retry up to 3 times) instead of a blind replace that could overwrite a maintenance, reservation or membership write made mid-run, and skips a server whose content did not change (`touch_seen` refreshes only the last-confirmed stamps; `revision`/`updated_at` mean "content changed") |
 
 ---
 

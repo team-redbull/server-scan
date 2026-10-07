@@ -284,8 +284,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   never `Server.model_validate` (618 ms for 2,504 documents vs 27 ms) —
   cached as wire bytes under the same ADR-0028 invalidation, served with a
   weak ETag and `Cache-Control: no-cache`, and polled every 30 s (a 304
-  when unchanged; `generated_at` is the newest `updated_at`, not the build
-  time, precisely so the body is byte-stable). Filter, sort, substring
+  when unchanged; `generated_at` is the newest `updated_at` or `last_seen_at`
+  (ADR-0044), not the build time, precisely so the body is byte-stable between
+  runs). Filter, sort, substring
   search, facet counts and paging then happen in the browser — including
   the left sidebar's MCE / hosted-cluster / UPI-cluster lists, which are
   read off the same rows, so a new cluster needs no configuration
@@ -966,6 +967,13 @@ Smaller ingest facts, moved here from `ingest.py`'s comments 2026-09-13:
   `_ingest_one` re-read and rebuild, up to 3 attempts (`ingest.write_conflict`
   logged per retry); the last attempt re-raises and counts in
   `IngestSummary.errors`.
+- **An unchanged server is not rewritten** (ADR-0044). `_stable_view` drops the per-run
+  stamps (`revision`, `updated_at`, `last_seen_at`, `listed_at`, `health.evaluated_at`,
+  `classification.classified_at`/`classification_version`, `connectivity.attachments[].last_seen`);
+  if the rest is equal, `touch_seen` refreshes only the "last confirmed" stamps, conditional
+  on the revision, and `revision`/`updated_at` stay put (they now mean "content last
+  changed"). Anything not on that list that differs forces the full write.
+  `IngestSummary.unchanged` and the `ingest.completed` log say how many were skipped.
 - **Only two transitions are audited**: a server seen for the first time,
   and an engine verdict that actually changed — the same selectivity
   `POST /servers/{id}/reclassify` and `.../health/recalculate` apply.

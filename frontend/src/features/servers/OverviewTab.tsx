@@ -132,7 +132,7 @@ export function OverviewTab({ server }: OverviewTabProps) {
             }
           />
         )}
-        <Field label="Updated" value={formatTimestamp(server.updated_at)} />
+        <Field label="Last changed" value={formatTimestamp(server.updated_at)} />
       </dl>
     </div>
   );

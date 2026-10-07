@@ -402,7 +402,7 @@ async def _record_run(
         duration_seconds=duration,
         servers_fetched=summary.fetched,
         servers_created=summary.created,
-        servers_updated=summary.updated,
+        servers_updated=summary.updated + summary.unchanged,
         ingest_errors=summary.errors,
         collection_errors=collection_errors,
         partial=partial,
@@ -797,7 +797,8 @@ async def _run(
             summary = outcome.summary
             print(
                 f"manager={manager.name} fetched={summary.fetched} "
-                f"created={summary.created} updated={summary.updated} errors={summary.errors} "
+                f"created={summary.created} updated={summary.updated} "
+                f"unchanged={summary.unchanged} errors={summary.errors} "
                 f"took={_format_duration(run_duration)}"
             )
             hard_errors = [
@@ -819,6 +820,7 @@ async def _run(
                 fetched=summary.fetched,
                 created=summary.created,
                 updated=summary.updated,
+                unchanged=summary.unchanged,
                 errors=summary.errors,
                 seconds=run_duration,
                 took=_format_duration(run_duration),

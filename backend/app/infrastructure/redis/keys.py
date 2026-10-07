@@ -9,7 +9,8 @@ malformed payloads to a newer app version.
 explicit cache-invalidation call on update: a write bumps `revision`
 (`AuditFields`), which changes the key, so the old entry is simply never
 read again and expires on its own TTL — no invalidation path to get wrong
-or forget.
+or forget. A refresh of an unchanged server (`touch_seen`, ADR-0044) does not bump it,
+so a cached detail can show a `last_seen_at` up to its own TTL old.
 """
 
 from __future__ import annotations

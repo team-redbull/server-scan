@@ -27,9 +27,10 @@ health{overall, memory, storage, network, connectivity, power, gpu, bmc, reasons
 maintenance{enabled, reason, created_by, created_at, expected_end},
 openshift{lifecycle_state, cluster_name, mce_name, last_reported_at, reported_name, previous_reporter,
 claim_changed_at, contested_with},
-connectivity, last_seen_at, stale, reachable, unreachable_since, unreachable_reason, updated_at`.
+connectivity, last_seen_at, stale, reachable, unreachable_since, unreachable_reason, updated_at`. `updated_at` and `revision` move only when a server's content
+changes, not on every collector run; `last_seen_at` is the per-run "confirmed" stamp.
 
-`GET /api/v1/servers/rows` - whole fleet as flat rows, `{items: [ServerRow], generated_at}`.
+`GET /api/v1/servers/rows` - whole fleet as flat rows, `{items: [ServerRow], generated_at}` (`generated_at` = newest `updated_at` or `last_seen_at`).
 Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, model, site_id, source_provider, installation_type, health,
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,

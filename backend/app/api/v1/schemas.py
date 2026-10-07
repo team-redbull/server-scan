@@ -319,8 +319,7 @@ class ServerRowsResponse(BaseModel):
         """
         Build the response.
 
-        `generated_at` is the newest `updated_at`, so an unchanged fleet
-        yields byte-identical bodies and therefore one ETag.
+        `generated_at` is the newest `updated_at` or `last_seen_at` (ADR-0044).
 
         Args:
             docs (list[dict[str, Any]]): Projected documents from `list_rows`.
@@ -329,7 +328,9 @@ class ServerRowsResponse(BaseModel):
         Returns:
             ServerRowsResponse: The response.
         """
-        stamps: list[str] = [doc["updated_at"] for doc in docs if doc.get("updated_at")]
+        stamps: list[str] = [
+            doc[key] for doc in docs for key in ("updated_at", "last_seen_at") if doc.get(key)
+        ]
         newest = max(stamps, default=None)
         return cls(
             items=[ServerRow.from_doc(doc, stale_before=stale_before) for doc in docs],

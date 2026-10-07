@@ -74,12 +74,14 @@ class _DuplicateOnInsertRepo(MongoServerRepository):
         return await super().upsert(server)
 
 
-def _provider_server() -> ProviderServer:
+def _provider_server(model: str = "UCSB-B200-M5") -> ProviderServer:
+    """The same server; a different `model` is a real content change, forcing a full write."""
     return ProviderServer(
         external_id="ucsm://domain-1/sys/chassis-1/blade-9",
         vendor="cisco",
         name="ocp4-prod-tlv-infra-09",
         serial=_SERIAL,
+        model=model,
     )
 
 
@@ -101,7 +103,9 @@ async def test_a_maintenance_write_made_during_ingest_survives(
     await _service(mongo_holder, plain).ingest(_OneShotProvider(_provider_server()))
 
     racing = _RacingRepo(mongo_holder, cursor_secret=_CURSOR_SECRET)
-    summary = await _service(mongo_holder, racing).ingest(_OneShotProvider(_provider_server()))
+    summary = await _service(mongo_holder, racing).ingest(
+        _OneShotProvider(_provider_server("UCSB-B200-M6"))
+    )
 
     page = await plain.list_page(
         filters={"identity.serial": _SERIAL},
@@ -142,7 +146,9 @@ async def test_a_server_that_keeps_changing_is_an_error_not_an_overwrite(
     await _service(mongo_holder, plain).ingest(_OneShotProvider(_provider_server()))
 
     racing = _RacingRepo(mongo_holder, cursor_secret=_CURSOR_SECRET, races=3)
-    summary = await _service(mongo_holder, racing).ingest(_OneShotProvider(_provider_server()))
+    summary = await _service(mongo_holder, racing).ingest(
+        _OneShotProvider(_provider_server("UCSB-B200-M6"))
+    )
 
     assert summary.errors == 1
     assert racing.raced == 3

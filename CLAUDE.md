@@ -259,9 +259,14 @@ long form of each entry is in the 2026-09-13 archive.
 - **A fleet-sized response never goes through `Server.model_validate`**
   (ADR-0033: 544 ms vs 16 ms for 2,504 servers). `GET /servers/rows` reads a
   Mongo projection into a flat `ServerRow`; its body must be byte-stable for
-  an unchanged fleet (`generated_at` = newest `updated_at`, never `utcnow()`)
+  an unchanged fleet (`generated_at` = newest `updated_at` or `last_seen_at`, never `utcnow()`)
   or the weak ETag never yields a 304 and every 30 s poll re-downloads.
   `GET /servers` remains for API callers; `/servers/facets` was deleted.
+- **Ingest writes a server with a revision CAS and skips an unchanged one** (ADR-0044): a collector
+  run never overwrites a maintenance/reservation/membership write made mid-run (3 retries, then an
+  error), and a server whose content is identical is only `touch_seen`d, so `revision`/`updated_at`
+  mean "content changed", not "a run happened". A new per-run stamp in `_build_server` must be added
+  to `_VOLATILE_TOP_LEVEL`/`_stable_view` (a guard test fails otherwise).
 - **`GET /servers/available` is the one endpoint that talks to a vendor
   manager** (ADR-0032): ranks in Mongo, live-rechecks only the few returned via
   `get_one()`, persists through `IngestService.ingest_one`; an unconfigured

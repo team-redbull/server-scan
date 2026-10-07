@@ -12,7 +12,7 @@ on to stay an IXSCAN at every page.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -204,6 +204,30 @@ class MongoServerRepository:
                 current_revision=current["revision"],
             )
         return server
+
+    async def touch_seen(
+        self, server_id: str, *, expected_revision: int, fields: Mapping[str, object]
+    ) -> bool:
+        """
+        Refresh "last confirmed" stamps on an unchanged server, if its revision still matches.
+
+        Args:
+            server_id (str): The server's `_id`.
+            expected_revision (int): The `revision` the caller last read.
+            fields (Mapping[str, object]): Dotted path -> new value; datetimes become ISO strings.
+
+        Returns:
+            bool: True if the document matched and was touched, False if its revision moved
+                (or it is gone).
+        """
+        update = {
+            path: _stored_form(value) if isinstance(value, datetime) else value
+            for path, value in fields.items()
+        }
+        result = await self._collection.update_one(
+            {"_id": server_id, "revision": expected_revision}, {"$set": update}
+        )
+        return result.matched_count == 1
 
     async def get_by_id(self, server_id: str) -> Server | None:
         """

@@ -52,13 +52,19 @@ async def _ingest_all(
         count (int): How many servers the whole fake fleet holds.
 
     Returns:
-        tuple[int, int, int, int]: Summed `(fetched, created, updated, errors)`.
+        tuple[int, int, int, int]: Summed `(fetched, created, updated, errors)`; `updated`
+            counts every existing server ingested, changed or `unchanged` (ADR-0044).
     """
     totals = [0, 0, 0, 0]
     for provider in fake_providers(seed=seed, count=count):
         summary = await service.ingest(provider, sites=list_sites(), managers=list_managers())
         for i, value in enumerate(
-            (summary.fetched, summary.created, summary.updated, summary.errors)
+            (
+                summary.fetched,
+                summary.created,
+                summary.updated + summary.unchanged,
+                summary.errors,
+            )
         ):
             totals[i] += value
     return totals[0], totals[1], totals[2], totals[3]
