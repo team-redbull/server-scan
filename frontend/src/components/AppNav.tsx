@@ -1,13 +1,13 @@
 import { Link, useLocation } from "react-router";
 
-import { useAuth, useLogoutMutation } from "@/features/auth/useAuth";
+import { useAuth, useCanReadAudit, useLogoutMutation } from "@/features/auth/useAuth";
 
 const LINKS = [
-  { to: "/", label: "Sites" },
-  { to: "/servers", label: "Servers" },
-  { to: "/events", label: "Events" },
-  { to: "/rules", label: "Rules & Policies" },
-  { to: "/architecture", label: "Architecture" },
+  { to: "/", label: "Sites", audit: false },
+  { to: "/servers", label: "Servers", audit: false },
+  { to: "/events", label: "Events", audit: true },
+  { to: "/rules", label: "Rules & Policies", audit: false },
+  { to: "/architecture", label: "Architecture", audit: false },
 ];
 
 /** The signed-in username, role badge and "Log out" — only when
@@ -45,6 +45,8 @@ function AccountMenu() {
  * not light up on `/`; a nested route therefore does not light its parent. */
 export function AppNav() {
   const location = useLocation();
+  const canReadAudit = useCanReadAudit();
+  const links = LINKS.filter((link) => canReadAudit || !link.audit);
 
   return (
     <nav className="border-b border-[var(--border-subtle)] bg-[var(--surface-raised)]">
@@ -54,7 +56,7 @@ export function AppNav() {
         <Link to="/" className="-ml-2 flex shrink-0 items-center py-1">
           <img src="/redbull-logo.svg" alt="Red Bull" className="h-14 w-auto" />
         </Link>
-        {LINKS.map((link) => {
+        {links.map((link) => {
           const isActive =
             link.to === "/" ? location.pathname === "/" : location.pathname.startsWith(link.to);
           return (

@@ -44,6 +44,8 @@ def _settings(
     view_groups: str = "Viewers",
     admin_users: str = "",
     viewer_users: str = "",
+    auditor_groups: str = "",
+    auditor_users: str = "",
 ) -> Settings:
     return Settings(
         _env_file=None,
@@ -54,6 +56,8 @@ def _settings(
         view_groups=view_groups,
         admin_users=admin_users,
         viewer_users=viewer_users,
+        auditor_groups=auditor_groups,
+        auditor_users=auditor_users,
     )
 
 
@@ -110,6 +114,29 @@ class TestAdminBeforeViewer:
     async def test_second_admin_group_matches(self) -> None:
         ad_api = _FakeAdApi({"admins-a": set(), "admins-b": {"jdoe"}})
         service = AuthService(_settings(admin_groups="Admins-A,Admins-B"), ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.ADMIN
+
+
+class TestAuditorBetweenAdminAndViewer:
+    async def test_auditor_group_member_is_auditor(self) -> None:
+        ad_api = _FakeAdApi({"admins": set(), "auditors": {"jdoe"}})
+        service = AuthService(_settings(auditor_groups="Auditors"), ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.AUDITOR
+
+    async def test_auditor_user_list_skips_the_viewer_groups(self) -> None:
+        ad_api = _FakeAdApi({"admins": set()})
+        service = AuthService(_settings(auditor_users="jdoe"), ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.AUDITOR
+        assert ad_api.queried == ["admins"]
+
+    async def test_a_member_of_auditor_and_viewer_groups_is_auditor(self) -> None:
+        ad_api = _FakeAdApi({"auditors": {"jdoe"}, "viewers": {"jdoe"}})
+        service = AuthService(_settings(auditor_groups="Auditors"), ad_api)
+        assert await service.authenticate("jdoe", "x") is Role.AUDITOR
+
+    async def test_admin_still_beats_auditor(self) -> None:
+        ad_api = _FakeAdApi({"admins": {"jdoe"}, "auditors": {"jdoe"}})
+        service = AuthService(_settings(auditor_groups="Auditors"), ad_api)
         assert await service.authenticate("jdoe", "x") is Role.ADMIN
 
 

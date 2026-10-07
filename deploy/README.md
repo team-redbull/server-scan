@@ -647,11 +647,19 @@ Off by default (`auth.enabled: false`) — every request auto-admits as
 admin, exactly as before this feature existed. Turning it on requires a
 real LDAP server and the operator's own REST "AD API" reachable from the
 API pod; set `auth.ldap.*` and `auth.adApi.*`, plus at least one of
-`auth.adminGroups`/`auth.adminUsers` (checked before
-`auth.viewGroups`/`auth.viewerUsers`) or every login resolves to "no
-permission". `auth.apiTokens.admin`/`.viewer` are static bearer tokens for
-a machine caller (the BMH generator) that can't do an interactive login —
-leave blank to disable each independently of AD entirely.
+`auth.adminGroups`/`auth.adminUsers` (checked first, then
+`auth.auditorGroups`/`auth.auditorUsers`, then `auth.viewGroups`/`auth.viewerUsers`)
+or every login resolves to "no permission". **Three roles (ADR-0043):** admin does
+everything; auditor is read-only *plus* the audit trail (the Events page, a server's
+History tab and the `/events` endpoints); viewer is read-only without the audit trail
+(a viewer gets 403 there). A user in several lists gets the most privileged role.
+`auth.apiTokens.admin`/`.auditor`/`.viewer` are static bearer tokens for
+a machine caller (the BMH generator; the `server-scan-api` skill uses the auditor one)
+that can't do an interactive login — leave blank to disable each independently of AD
+entirely; the three must differ or the API refuses to start. The auditor keys render with
+`default ""`, so a downstream `values.yaml` that predates them still renders. **Upgrading
+takes the audit trail away from every existing viewer** — add them to `auth.auditorGroups`
+if they should keep it.
 
 `auth.loginMaxFailures` (default 5) and `auth.loginLockoutSeconds` (default 900) throttle
 `POST /auth/login` per username, in Redis, before any LDAP bind (ADR-0039); 0 disables the

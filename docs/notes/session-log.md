@@ -8,6 +8,15 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-06 — copy-server-name button.** Moved to `docs/notes/session-log.md`: the ADR-0042 login unit.
+
+**Shipped:** `CopyButton` (`frontend/src/components/`, `lib/clipboard.ts` with an `execCommand` fallback
+for a non-secure context): in the server detail header beside the name, and in the inventory's Name
+cell (`compact`, hidden until row hover or focus, always shown on touch, `stopPropagation` so the row
+does not open). Built with the apple-design skill: press feedback on pointer-down, no overshoot, a plain
+fade under reduced motion. It costs ~28 px of Name-column width (measured, see `.claude/rules/frontend.md`).
+Frontend only: no API, stored-shape or fake-provider change.
+
 **2026-10-06 — bounded, observable login path (ADR-0042).** Moved earlier to `docs/notes/session-log.md`:
 the ADR-0041 contested-claims and `/redoc` proxy unit. Same day: pymongo 4.18.2 and `source-map-js`
 fixes after CI's audits failed, and CLAUDE.md convention 7 now requires the three audits before every push.

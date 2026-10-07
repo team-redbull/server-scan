@@ -45,8 +45,8 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
   const { data: me } = useAuth();
   // Undefined/ADMIN both read as admin — `AppLayout` has already resolved
   // `/auth/me` by the time this renders, and auth-disabled deployments
-  // (this repo's own default) never see a `VIEWER` role at all.
-  const isAdmin = me?.role !== "VIEWER";
+  // (this repo's own default) never see a `VIEWER` or `AUDITOR` role at all.
+  const isAdmin = me?.role !== "VIEWER" && me?.role !== "AUDITOR";
   const toggle = useToggleMaintenanceMutation();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");

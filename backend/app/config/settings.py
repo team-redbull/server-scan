@@ -222,6 +222,9 @@ class Settings(BaseSettings):
     view_groups: str = ""
     admin_users: str = ""
     viewer_users: str = ""
+    # Read-only plus the audit trail (docs/adr/0043); checked after admin, before viewer.
+    auditor_groups: str = ""
+    auditor_users: str = ""
 
     # A live-mounted file (ConfigMap volume, not envFrom) holding the same
     # CSV list, re-read on every login instead of once at startup — see
@@ -230,6 +233,8 @@ class Settings(BaseSettings):
     view_groups_file: str = ""
     admin_users_file: str = ""
     viewer_users_file: str = ""
+    auditor_groups_file: str = ""
+    auditor_users_file: str = ""
 
     session_secret: str = _INSECURE_DEV_SESSION_SECRET
     session_ttl_seconds: int = 28_800
@@ -239,9 +244,11 @@ class Settings(BaseSettings):
     login_lockout_seconds: int = Field(default=900, gt=0)
 
     # A machine caller (e.g. the BMH generator) sends `Authorization: Bearer
-    # <token>` instead of logging in. Blank disables that token.
+    # <token>` instead of logging in. Blank disables that token. Viewer reads everything but the
+    # audit trail; auditor is read-only plus the audit trail (docs/adr/0043).
     api_token_admin: SecretStr = SecretStr("")
     api_token_viewer: SecretStr = SecretStr("")
+    api_token_auditor: SecretStr = SecretStr("")
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
@@ -292,6 +299,35 @@ class Settings(BaseSettings):
                 "deployment-specific secret — see deploy/helm/server-scan's "
                 "auth.sessionSecret value."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _api_tokens_must_differ(self) -> Settings:
+        """
+        Refuse two roles sharing one bearer token.
+
+        Returns:
+            Settings: `self`, unchanged, once the check passes.
+
+        Raises:
+            ValueError: Two non-blank `INVENTORY_API_TOKEN_*` values are equal, which would
+                silently grant the first-checked (more privileged) role to both holders.
+        """
+        tokens = {
+            "ADMIN": self.api_token_admin.get_secret_value(),
+            "VIEWER": self.api_token_viewer.get_secret_value(),
+            "AUDITOR": self.api_token_auditor.get_secret_value(),
+        }
+        seen: dict[str, str] = {}
+        for role, value in tokens.items():
+            if not value:
+                continue
+            if value in seen:
+                raise ValueError(
+                    f"INVENTORY_API_TOKEN_{seen[value]} and INVENTORY_API_TOKEN_{role} are the "
+                    "same value; every role needs its own token."
+                )
+            seen[value] = role
         return self
 
     @model_validator(mode="after")

@@ -30,10 +30,15 @@ class ActorType(StrEnum):
 
 
 class Role(StrEnum):
-    """An authenticated caller's permission level; see docs/adr/0034 for `NO_PERMISSION`."""
+    """An authenticated caller's permission level; see docs/adr/0034 for `NO_PERMISSION`.
+
+    `AUDITOR` (docs/adr/0043) is read-only like `VIEWER` but may also read the audit trail;
+    only the static `api_token_auditor` resolves to it, never an AD login.
+    """
 
     ADMIN = "ADMIN"
     VIEWER = "VIEWER"
+    AUDITOR = "AUDITOR"
 
 
 class Actor(BaseModel):

@@ -113,6 +113,9 @@ async def get_current_actor(
         viewer_token = settings.api_token_viewer.get_secret_value()
         if viewer_token and hmac.compare_digest(token, viewer_token):
             return Actor(type=ActorType.TOKEN, id="api-token-viewer", role=Role.VIEWER)
+        auditor_token = settings.api_token_auditor.get_secret_value()
+        if auditor_token and hmac.compare_digest(token, auditor_token):
+            return Actor(type=ActorType.TOKEN, id="api-token-auditor", role=Role.AUDITOR)
 
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     claims = decode_session(cookie, secret=settings.session_secret) if cookie else None
@@ -141,4 +144,22 @@ async def require_admin(actor: Annotated[Actor, Depends(get_current_actor)]) -> 
     """
     if actor.role is not Role.ADMIN:
         raise ForbiddenError("Only admins can do this.")
+    return actor
+
+
+async def require_audit_access(actor: Annotated[Actor, Depends(get_current_actor)]) -> Actor:
+    """
+    Require the resolved caller to be allowed to read the audit trail (docs/adr/0043).
+
+    Args:
+        actor (Actor): The already-authenticated caller.
+
+    Returns:
+        Actor: `actor`, unchanged.
+
+    Raises:
+        ForbiddenError: `actor.role` is `Role.VIEWER` (or any role but admin/auditor).
+    """
+    if actor.role not in (Role.ADMIN, Role.AUDITOR):
+        raise ForbiddenError("The audit trail is available to admins and auditors only.")
     return actor

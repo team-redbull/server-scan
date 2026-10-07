@@ -38,7 +38,7 @@ from app.application.services.bootstrap import (
     ensure_default_health_policies,
 )
 from app.config import get_settings
-from app.dependencies import get_current_actor
+from app.dependencies import get_current_actor, require_audit_access
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.site import site_catalog
@@ -205,7 +205,8 @@ def create_app() -> FastAPI:
     app.include_router(servers_router, dependencies=_authenticated)
     app.include_router(classification_rules_router, dependencies=_authenticated)
     app.include_router(health_policies_router, dependencies=_authenticated)
-    app.include_router(events_router, dependencies=_authenticated)
+    # The audit trail is admin/auditor only (docs/adr/0043); a viewer is 403.
+    app.include_router(events_router, dependencies=[*_authenticated, Depends(require_audit_access)])
     app.include_router(sites_router, dependencies=_authenticated)
 
     if settings.metrics_enabled:

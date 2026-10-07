@@ -45,6 +45,10 @@ spec:
               value: /etc/server-scan/config/INVENTORY_ADMIN_USERS
             - name: INVENTORY_VIEWER_USERS_FILE
               value: /etc/server-scan/config/INVENTORY_VIEWER_USERS
+            - name: INVENTORY_AUDITOR_GROUPS_FILE
+              value: /etc/server-scan/config/INVENTORY_AUDITOR_GROUPS
+            - name: INVENTORY_AUDITOR_USERS_FILE
+              value: /etc/server-scan/config/INVENTORY_AUDITOR_USERS
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-api-config

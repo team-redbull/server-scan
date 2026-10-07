@@ -965,6 +965,10 @@ auth:
   viewGroups: ""
   adminUsers: ""
   viewerUsers: ""
+  # Read-only plus the audit trail (Events, a server's History); checked after admin and before
+  # view (docs/adr/0043). A viewer sees everything else but not the audit trail.
+  auditorGroups: ""
+  auditorUsers: ""
 
   # Signs the login session cookie. Blank keeps the backend's own
   # committed dev-insecure default, which it refuses to start with once
@@ -994,10 +998,12 @@ auth:
 
   # Static bearer tokens for a machine caller (e.g. the BMH generator) that
   # can't do an interactive AD login — `Authorization: Bearer <token>`
-  # gets admin or read-only access respectively. Blank disables each.
+  # gets admin, auditor (read-only plus the audit trail) or viewer (read-only,
+  # no audit trail) access. Blank disables each; the three must differ.
   apiTokens:
     admin: ""
     viewer: ""
+    auditor: ""
 
   # Name of a Secret managed outside this chart, holding the same
   # INVENTORY_* keys (see templates/backend-auth-secret.yaml). Set it and

@@ -16,7 +16,7 @@ This file is loaded every session, so it stays short.
   `bash .claude/skills/gate/gate.sh` directly), `/docs-sweep` (convention 11 as a
   checklist), `server-scan-api` (`.claude/skills/server-scan-api`: teaches
   Claude to query the Server Scan REST API; the user edits its `BASE_URL` /
-  `VIEW_TOKEN` lines in the air-gapped environment).
+  `AUDITOR_TOKEN` lines in the air-gapped environment).
 - Agents (`.claude/agents/`): `docs-drift-checker`, `stored-shape-reviewer`
   (read-only diff reviewers), `vendor-api-researcher` (primary-source vendor
   API research into `docs/notes/`, never production code).
@@ -71,9 +71,10 @@ Explicit user instructions; violating one is a real mistake, not style.
    resolves an AD-backed session cookie or a static bearer token.
    **`auth.enabled` is false by default** (no AD reachable in dev/test), which
    admits every caller as admin with no login page; only a deployment that
-   enables it needs `INVENTORY_LDAP_*`/`INVENTORY_AD_API_*`. Two roles,
-   `Role.ADMIN`/`Role.VIEWER`, from four configured group/user lists, admin
-   checked first; a login matching neither is rejected (403), never silently
+   enables it needs `INVENTORY_LDAP_*`/`INVENTORY_AD_API_*`. Three roles
+   (ADR-0043): `Role.ADMIN`, `Role.AUDITOR` (read-only plus the audit trail) and
+   `Role.VIEWER` (read-only, **no audit trail**), from six configured group/user lists, checked
+   in that order; a login matching neither is rejected (403), never silently
    read-only. Verified against a real LDAP in the air-gapped estate 2026-10-04.
 7. **Run the full local gate on every touched file before calling work done**
    (CI runs these as separate steps; skipping `ruff format --check` once
@@ -280,6 +281,11 @@ long form of each entry is in the 2026-09-13 archive.
 - **`POST /auth/login` is throttled per username in Redis and fails open** (ADR-0039):
   `LoginThrottle` counts wrong passwords (not 403/503), returns 429 + `Retry-After` before any
   LDAP bind, and skips itself on any Redis error. Do not make it fail closed: Redis is a cache here.
+- **The audit trail is admin/auditor only, enforced in the API** (ADR-0043): `events_router` is
+  mounted with `require_audit_access` (viewer = 403), and the SPA's `useCanReadAudit()` hides the
+  Events link, `/events` (`AuditGate`) and the History tab. A new endpoint that returns audit data
+  must join that router or add the dependency; a UI-only hide is not a control. The three
+  `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise).
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
@@ -351,7 +357,8 @@ long form of each entry is in the 2026-09-13 archive.
   env-based manager connections 0012; CI pinning without Dependabot 0013; the
   provider ABC 0023; search tokens 0025; nullable cursors and retired indexes
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
-  releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042.
+  releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
+  role and audit-trail access 0043.
 
 ## Verifying your work
 
@@ -416,14 +423,17 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-06 — copy-server-name button.** Moved to `docs/notes/session-log.md`: the ADR-0042 login unit.
+**2026-10-07 — auditor role and audit-trail access (ADR-0043).** Moved to `docs/notes/session-log.md`:
+the copy-server-name button unit.
 
-**Shipped:** `CopyButton` (`frontend/src/components/`, `lib/clipboard.ts` with an `execCommand` fallback
-for a non-secure context): in the server detail header beside the name, and in the inventory's Name
-cell (`compact`, hidden until row hover or focus, always shown on touch, `stopPropagation` so the row
-does not open). Built with the apple-design skill: press feedback on pointer-down, no overshoot, a plain
-fade under reduced motion. It costs ~28 px of Name-column width (measured, see `.claude/rules/frontend.md`).
-Frontend only: no API, stored-shape or fake-provider change.
+**Shipped:** a third role `AUDITOR` (read-only plus the audit trail) beside `ADMIN` and `VIEWER`, from
+`auth.auditorGroups`/`auditorUsers` (Helm; `INVENTORY_AUDITOR_*`, live-mounted `_FILE` variants) or
+`auth.apiTokens.auditor`; precedence admin > auditor > viewer. `events_router` is mounted with
+`require_audit_access`, so `/events`, `/events/actors` and `/servers/{id}/events` are 403 for a viewer
+(API-enforced, not just hidden); the SPA hides the Events link, guards `/events` (`AuditGate`) and drops the
+History tab (`useCanReadAudit`). The three `INVENTORY_API_TOKEN_*` must differ. The `server-scan-api`
+skill now uses `AUDITOR_TOKEN` (was `VIEW_TOKEN`) and its wrong `/auth/me`-checks-a-token line is fixed.
+Rules & Policies and Architecture stay open to every role (operator's call).
 
 **Open:** the operator should look at the AD API's own logs for 2026-10-05 17:26 UTC (which backend
 stalled; the old logs cannot say connect vs read); still to delete the stale Agent CR / NotReady node

@@ -3,10 +3,10 @@
 Rules (docs/adr/0034, from the operator's own AD-integration spec):
 
 1. The LDAP bind happens first — a bad password never reaches the group checks.
-2. Admin is checked before viewer, and a user's own allow-list is checked
-   before its groups, so a listed user costs no AD API call. If a user is
-   in both an admin and a viewer group, admin wins because admin is
-   checked first and returns immediately.
+2. Admin is checked first, then auditor (read-only plus the audit trail,
+   docs/adr/0043), then viewer, and a user's own allow-list is checked
+   before its groups, so a listed user costs no AD API call. A user in
+   several lists gets the first match: the most privileged role wins.
 3. Matching is case-insensitive throughout.
 4. `ServiceUnavailableError` (LDAP or the AD API down) always propagates —
    it must never be reported as a wrong password.
@@ -64,7 +64,7 @@ class AuthService:
             password (str): The password to bind with.
 
         Returns:
-            Role | LoginResult | None: `Role.ADMIN` or `Role.VIEWER` if
+            Role | LoginResult | None: `Role.ADMIN`, `Role.AUDITOR` or `Role.VIEWER` if
                 authenticated and permitted, `LoginResult.NO_PERMISSION` if
                 authenticated but listed nowhere, or None for a wrong
                 username/password.
@@ -110,6 +110,14 @@ class AuthService:
             self._log_role(Role.ADMIN, f"group:{group}", started)
             return Role.ADMIN
 
+        auditor_users = split_csv_lower(self._list("auditor_users"))
+        if uname in auditor_users:
+            self._log_role(Role.AUDITOR, "auditor_users", started)
+            return Role.AUDITOR
+        if group := await self._first_matching_group(self._list("auditor_groups"), uname):
+            self._log_role(Role.AUDITOR, f"group:{group}", started)
+            return Role.AUDITOR
+
         viewer_users = split_csv_lower(self._list("viewer_users"))
         if uname in viewer_users:
             self._log_role(Role.VIEWER, "viewer_users", started)
@@ -136,8 +144,8 @@ class AuthService:
         Resolve one admin/viewer group-or-user CSV list, live file first.
 
         Args:
-            field (str): `Settings` field name (`admin_groups`,
-                `view_groups`, `admin_users` or `viewer_users`).
+            field (str): `Settings` field name (`admin_groups`, `auditor_groups`,
+                `view_groups`, `admin_users`, `auditor_users` or `viewer_users`).
 
         Returns:
             str: The mounted file's content if `<field>_file` is set and

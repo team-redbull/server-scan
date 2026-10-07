@@ -11,7 +11,7 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — records 0001 to 0042, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0043, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
@@ -479,8 +479,9 @@ collector does, and never call this platform's API.
 ### Authentication — the honest current state
 
 **Real authentication landed 2026-09-22** (ADR-0034), after being
-deliberately deferred through every earlier slice. AD login with two
-roles (`ADMIN`/`VIEWER`) resolved from four configured group/user lists,
+deliberately deferred through every earlier slice. AD login with
+roles (`ADMIN`/`VIEWER`, plus `AUDITOR` since ADR-0043, which alone among the read roles may see the audit trail)
+resolved from the configured group/user lists,
 a stateless HMAC-signed session cookie, and two static API tokens for a
 machine caller like the BMH generator. `app.dependencies.
 get_current_actor` resolves the caller — the dev bypass, a bearer token,
@@ -548,6 +549,7 @@ of it.
 | 0040 | `/docs` and `/redoc` load Swagger UI / ReDoc from bundles vendored in the image (`/api/docs-assets`), not a CDN, so they render air-gapped |
 | 0041 | A server two OpenShift jobs keep flipping between within an hour is flagged `contested_with`: log, `server_scan_openshift_contested_servers` gauge, inventory "Duplicate Server" filter; detection only |
 | 0042 | The login path is bounded and observable: ldap3 connect/receive timeouts on a daemon thread, AD API connect/read timeouts with one retry, an overall deadline, a per-group Redis membership cache (never stale-on-error), and 503s that log `dependency`/`reason` |
+| 0043 | A third role, `AUDITOR` (read-only plus the audit trail), from `auth.auditorGroups`/`auditorUsers` or `auth.apiTokens.auditor`; the events endpoints and the UI's Events page and History tab are admin/auditor only, enforced in the API; the three API tokens must differ |
 
 ---
 

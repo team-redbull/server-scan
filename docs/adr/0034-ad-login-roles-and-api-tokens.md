@@ -1,7 +1,7 @@
 # ADR-0034: AD login with admin/viewer roles, a stateless session cookie, and two API tokens
 
 Date: 2026-09-22
-Status: Accepted
+Status: Accepted (a third role, `AUDITOR`, and audit-trail gating were added by ADR-0043)
 
 ## Context
 

@@ -1,7 +1,8 @@
 # Server Scan API reference
 
 All paths are under `$BASE_URL`. JSON everywhere. Read endpoints work with the viewer
-token; mutations need the admin token. Generated from the app's own OpenAPI schema -
+or auditor token (the events endpoints need the auditor or admin token, a viewer gets `403`);
+mutations need the admin token. Generated from the app's own OpenAPI schema -
 `$BASE_URL/openapi.json` is authoritative if this drifts.
 
 ## Contents
@@ -54,6 +55,7 @@ Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern),
 
 ## Events
 
+Auditor or admin token only.
 `GET /api/v1/events` - audit trail, newest first. Parameters: `server_id`, `server_name`,
 `event_type`, `actor_id`, `since`, `until` (ISO 8601), `cursor`, `page_size`.
 `GET /api/v1/events/actors` - who has acted, with event counts (for the `actor_id` filter).
@@ -77,7 +79,8 @@ they ship with the platform.
 
 ## Auth and health
 
-`GET /api/v1/auth/me` - who the token resolves to and its role (a cheap token check).
+`GET /api/v1/auth/me` - the browser session's identity and role; it reads the cookie only, so a bearer token always
+looks unauthenticated here. To check a token, make a cheap read such as `GET /api/v1/sites`.
 `POST /api/v1/auth/login|logout` - browser session only; machine callers use the bearer token.
 Login answers `429 RATE_LIMITED` with a `Retry-After` header after repeated wrong passwords
 for one username; wait it out, do not retry.

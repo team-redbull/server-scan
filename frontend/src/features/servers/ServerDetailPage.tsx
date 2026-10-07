@@ -4,6 +4,7 @@ import { Link, useLocation, useParams } from "react-router";
 import { ApiError } from "@/api/client";
 import { BmcLink } from "@/components/BmcLink";
 import { CopyButton } from "@/components/CopyButton";
+import { useCanReadAudit } from "@/features/auth/useAuth";
 import { HistoryTab } from "@/features/events/HistoryTab";
 import { ConnectivityTab } from "@/features/servers/ConnectivityTab";
 import { HardwareTab } from "@/features/servers/HardwareTab";
@@ -41,6 +42,8 @@ export function ServerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const canReadAudit = useCanReadAudit();
+  const tabs = TABS.filter((tab) => tab !== "history" || canReadAudit);
 
   const { data, isPending, isError, error } = useServerDetailQuery(id ?? "");
 
@@ -80,7 +83,7 @@ export function ServerDetailPage() {
 
           <div className="mt-6 border-b border-gray-200 dark:border-gray-700">
             <nav className="-mb-px flex gap-4" aria-label="Server detail tabs">
-              {TABS.map((tab) => (
+              {tabs.map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -115,7 +118,7 @@ export function ServerDetailPage() {
               />
             )}
             {activeTab === "connectivity" && <ConnectivityTab connectivity={data.connectivity} />}
-            {activeTab === "history" && <HistoryTab serverId={data.id} />}
+            {activeTab === "history" && canReadAudit && <HistoryTab serverId={data.id} />}
           </div>
         </>
       )}

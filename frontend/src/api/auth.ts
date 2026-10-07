@@ -1,6 +1,6 @@
 import { apiFetch } from "@/api/client";
 
-export type Role = "ADMIN" | "VIEWER";
+export type Role = "ADMIN" | "AUDITOR" | "VIEWER";
 
 export interface Me {
   login_required: boolean;

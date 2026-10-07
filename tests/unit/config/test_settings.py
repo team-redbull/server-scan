@@ -93,6 +93,22 @@ class TestCursorSecretProductionFailFast:
         assert settings.cursor_secret == "dev-insecure-cursor-secret-change-in-production"
 
 
+class TestApiTokensMustDiffer:
+    def test_two_roles_sharing_a_token_refuse_to_start(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("INVENTORY_API_TOKEN_VIEWER", "same")
+        monkeypatch.setenv("INVENTORY_API_TOKEN_AUDITOR", "same")
+        with pytest.raises(ValidationError, match="same value"):
+            _settings()
+
+    def test_distinct_and_blank_tokens_are_fine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("INVENTORY_API_TOKEN_ADMIN", "a")
+        monkeypatch.setenv("INVENTORY_API_TOKEN_VIEWER", "v")
+        monkeypatch.setenv("INVENTORY_API_TOKEN_AUDITOR", "")
+        assert _settings().api_token_auditor.get_secret_value() == ""
+
+
 class TestAuthEnabledRequiresAdConfig:
     """`INVENTORY_AUTH_ENABLED=true` with no AD reachable must fail at
     startup, not serve every request as a 503 (docs/adr/0034).

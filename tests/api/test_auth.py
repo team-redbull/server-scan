@@ -326,6 +326,59 @@ class TestLoginLogging:
         assert "wrong-token" not in repr(logs)
 
 
+class TestAuditTrailAccess:
+    """Events and a server's history are admin/auditor only (docs/adr/0043); a viewer is 403."""
+
+    _PATHS = ("/api/v1/events", "/api/v1/events/actors", "/api/v1/servers/srv_x/events")
+
+    async def test_tokens_by_role(self) -> None:
+        app = _auth_enabled_app(
+            LoginResult.NO_PERMISSION,
+            api_token_admin=SecretStr("admin-token"),
+            api_token_viewer=SecretStr("viewer-token"),
+            api_token_auditor=SecretStr("auditor-token"),
+        )
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            for path in self._PATHS:
+                viewer = await client.get(path, headers={"Authorization": "Bearer viewer-token"})
+                assert viewer.status_code == 403, path
+                assert viewer.json()["code"] == "FORBIDDEN"
+                for token in ("admin-token", "auditor-token"):
+                    resp = await client.get(path, headers={"Authorization": f"Bearer {token}"})
+                    assert resp.status_code in (200, 404), (path, token, resp.status_code)
+                assert (await client.get(path)).status_code == 401
+
+    async def test_an_auditor_reads_everything_but_writes_nothing(self) -> None:
+        app = _auth_enabled_app(
+            LoginResult.NO_PERMISSION, api_token_auditor=SecretStr("auditor-token")
+        )
+        headers = {"Authorization": "Bearer auditor-token"}
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            assert (await client.get("/api/v1/servers", headers=headers)).status_code == 200
+            assert (await client.get("/api/v1/events", headers=headers)).status_code == 200
+            write = await client.put(
+                "/api/v1/servers/srv_x/maintenance", json={"reason": "x"}, headers=headers
+            )
+            assert write.status_code == 403
+
+    async def test_login_sessions_by_role(self) -> None:
+        for role, expected in ((Role.VIEWER, 403), (Role.AUDITOR, 200), (Role.ADMIN, 200)):
+            app = _auth_enabled_app(role)
+            async with (
+                AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+                app.router.lifespan_context(app),
+            ):
+                await client.post("/api/v1/auth/login", json={"username": "u", "password": "x"})
+                resp = await client.get("/api/v1/events")
+                assert resp.status_code == expected, role
+
+
 class TestMaintenanceRoleGate:
     """`PUT`/`DELETE .../maintenance` require `Role.ADMIN` — a viewer session
     or token reads everything but can't toggle it.

@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 
 import { AppLayout } from "@/components/AppLayout";
+import { AuditGate } from "@/components/AuditGate";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
 import { EventsPage } from "@/features/events/EventsPage";
@@ -29,7 +30,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "/events",
-        element: <EventsPage />,
+        element: (
+          <AuditGate>
+            <EventsPage />
+          </AuditGate>
+        ),
       },
       {
         // Read-only on purpose (docs/architecture.md, "Slice 5").

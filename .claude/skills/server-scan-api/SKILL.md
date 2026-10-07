@@ -15,22 +15,24 @@ fleet questions by building `curl` requests, never by guessing.
 
 ```
 BASE_URL=https://server-scan.example.internal
-VIEW_TOKEN=REPLACE_WITH_VIEWER_TOKEN
+AUDITOR_TOKEN=REPLACE_WITH_AUDITOR_TOKEN
 ```
 
 The values above are placeholders. In the air-gapped environment, replace both lines
-here (do not commit the real token). Treat `VIEW_TOKEN` as a secret: pass it only in the
+here (do not commit the real token). Treat `AUDITOR_TOKEN` as a secret: pass it only in the
 `Authorization` header and never echo it back to the user or print it in command output.
 If the token is still the placeholder, ask the user for it before calling anything. If the
 deployment has auth turned off, the header is simply ignored.
 
 ```bash
-api() { curl -sS -H "Authorization: Bearer $VIEW_TOKEN" -H "Accept: application/json" "$BASE_URL$1"; }
+api() { curl -sS -H "Authorization: Bearer $AUDITOR_TOKEN" -H "Accept: application/json" "$BASE_URL$1"; }
 api "/api/v1/servers?vendor=dell&site_id=tlv&page_size=200" | jq '.items[] | {name, model, health: .health.overall}'
 ```
 
-The viewer token is read-only. Stay on GET: the write endpoints (maintenance, reservation,
-reclassify) need the admin token, and you only use them when the user explicitly asks.
+The auditor token is read-only and, unlike the viewer token, may read the audit trail (the
+events endpoints). Stay on GET: the write endpoints (maintenance, reservation, reclassify) need
+the admin token, and you only use them when the user explicitly asks. If this holds a viewer
+token, everything works except events, which answer `403`.
 
 ## Choose the endpoint
 
@@ -94,7 +96,7 @@ grouping, counting or filtering on a field the list endpoint lacks.
 - **`/servers/available` is not a pure read.** It live-queries the vendor manager for the few candidates it returns and writes the refreshed data back, and concurrent callers can be handed the same server. Use it only when the user is picking servers to provision, always give exactly one of `name` (exact) or `pattern` (regex), and keep `count` small (max 20). Otherwise answer "which are free" with the `openshift_state=AVAILABLE` filter above.
 - **Health is a verdict, not a reading.** `UNKNOWN` means nothing could be read, not "fine". A server with `reachable=false` (BMC down) is `CRITICAL`. `stale=true` means the collectors have not seen it for 12 h - say so rather than presenting old data as current.
 - **Availability is about clusters, not names.** A server named `ocp4-prod-...` can be `AVAILABLE`; trust `openshift_state`.
-- **Errors are RFC 9457 JSON** (`application/problem+json`) with a stable `code`. Read `code` and `detail`, fix the request, and retry once: `UNKNOWN_FILTER`, `PAGE_SIZE_TOO_LARGE`, `CURSOR_FILTER_MISMATCH` (cursor reused with different filters), `NOT_FOUND`. `401` means the token is wrong or expired; `403` means a write was attempted with the viewer token. Do not retry either - tell the user.
+- **Errors are RFC 9457 JSON** (`application/problem+json`) with a stable `code`. Read `code` and `detail`, fix the request, and retry once: `UNKNOWN_FILTER`, `PAGE_SIZE_TOO_LARGE`, `CURSOR_FILTER_MISMATCH` (cursor reused with different filters), `NOT_FOUND`. `401` means the token is wrong or expired; `403` means a write was attempted with a read-only token, or events were read with a viewer token. Do not retry either - tell the user.
 - Keep output small: pipe through `jq` to the fields the user asked about instead of dumping full documents.
 
 ## More detail

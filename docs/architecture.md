@@ -189,12 +189,15 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   three ways, in order: `Settings.auth_enabled=false` (this repo's own
   default — no AD reachable here) returns a fixed dev-admin `Actor` with no
   further checks; a `Authorization: Bearer` header matching
-  `api_token_admin`/`api_token_viewer` (`hmac.compare_digest`) resolves to
+  `api_token_admin`/`api_token_auditor`/`api_token_viewer` (`hmac.compare_digest`) resolves to
   a `TOKEN` actor at that role, for a machine caller like the BMH generator
   that can't do an interactive AD login; otherwise a session cookie is
   verified. Anything else is 401. `require_admin` layers `role is
   Role.ADMIN` on top, applied to the four mutation endpoints in
-  `servers.py`.
+  `servers.py`. **The audit trail is admin/auditor only** (ADR-0043):
+  `events_router` carries `require_audit_access`, so a viewer gets 403 on `/events`,
+  `/events/actors` and `/servers/{id}/events`; `AUDITOR` is read-only plus that. The SPA
+  mirrors it with `useCanReadAudit()` (nav link, `AuditGate` on `/events`, the History tab).
 - **The session is a stateless, HMAC-signed cookie** (`app.domain.services.
   session`), the same scheme `app.domain.services.cursor` already uses for
   pagination cursors, with its own secret. Chosen over a Redis-backed
