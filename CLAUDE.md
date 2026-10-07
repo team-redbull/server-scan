@@ -443,7 +443,7 @@ content is unchanged is only `touch_seen`d (`_stable_view` minus the per-run sta
 `IngestSummary.unchanged`, `unchanged=` in the logs; rows `generated_at` = newest of `updated_at`/
 `last_seen_at`; detail page label "Last changed"); (3) `tools/prune_events.py` + CronJob
 `collectors.auditRetention` (Sun 03:30, 180 days, **report-only**, 0 = forever, `AUDIT_PURGED` event,
-UI `describeEvent` case). Each change was reviewed by independent agents (code, stored-shape, docs, Helm)
+UI `describeEvent` case); (4) the Hardware tab lists drives smallest first (`features/servers/drives.ts`). Each change was reviewed by independent agents (code, stored-shape, docs, Helm)
 before its commit. Also earlier today: pymongo 4.18.2 / `source-map-js` audit fixes and the pre-push
 audit rule in convention 7.
 

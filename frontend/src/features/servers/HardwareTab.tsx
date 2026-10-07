@@ -1,6 +1,7 @@
 import { HealthBadge } from "@/components/HealthBadge";
 import { NOT_READ_TITLE, Reported, STALE_TITLE, UnconfirmedMarker } from "@/components/Reported";
 import { isHealthSeverity } from "@/components/severity";
+import { sortDrivesByCapacity } from "@/features/servers/drives";
 import type { ComponentHealth, HardwareInfo } from "@/types/server";
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
@@ -107,7 +108,7 @@ export function HardwareTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {storage.drives.map((drive) => (
+                {sortDrivesByCapacity(storage.drives).map((drive) => (
                   <tr key={drive.id}>
                     <td className="py-1 pr-4">{drive.model ?? "—"}</td>
                     <td className="py-1 pr-4">{drive.serial ?? "—"}</td>

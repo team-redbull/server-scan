@@ -312,4 +312,38 @@ describe("a component's health reason, alongside its severity", () => {
     expect(screen.getByText("(inoperable)")).toBeInTheDocument();
     expect(screen.getByText("(Critical)")).toBeInTheDocument();
   });
+
+  it("lists the drives smallest first, biggest last", () => {
+    const hardware = ilo4Hardware();
+    const make = (id: string, serial: string, capacity_bytes: number | null) => ({
+      id,
+      model: "DISK",
+      serial,
+      media_type: "SSD",
+      capacity_bytes,
+      health: "HEALTHY" as const,
+      health_detail: null,
+    });
+    hardware.storage = {
+      total_bytes: 0,
+      drives: [
+        make("d1", "BIG", 4 * 1024 ** 4),
+        make("d2", "UNREAD", null),
+        make("d3", "SMALL", 480 * 1024 ** 3),
+        make("d4", "MID", 960 * 1024 ** 3),
+      ],
+    };
+    render(<HardwareTab hardware={hardware} />);
+
+    const rows = screen
+      .getAllByRole("row")
+      .map((row) => row.textContent ?? "")
+      .filter((text) => text.includes("DISK"));
+    expect(rows.map((t) => ["SMALL", "MID", "BIG", "UNREAD"].find((s) => t.includes(s)))).toEqual([
+      "SMALL",
+      "MID",
+      "BIG",
+      "UNREAD",
+    ]);
+  });
 });

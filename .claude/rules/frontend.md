@@ -69,6 +69,10 @@ Loaded only when a `frontend/` file is open.
   URL a tick after the click and `check()` reads the state at once.
   `BmcLink` (`components/`) is the one BMC anchor: icon-only in the table,
   `labeled` in the detail header.
+- **The Hardware tab lists drives smallest first** (`features/servers/drives.ts`
+  `sortDrivesByCapacity`, 2026-10-07): an unread (`null`) capacity sorts last, never as a
+  zero at the top, and equal capacities keep the collector's order. Any new view of
+  `storage.drives` should reuse it.
 - **`CopyButton` (`components/`, 2026-10-06) copies a server name**: `size-7` in the detail
   header next to the name; in the inventory it ends the Name cell (`compact`, `size-6`, hidden
   until row hover/focus, always shown on touch) and `stopPropagation`s so the row's
