@@ -38,7 +38,7 @@ The API's `/metrics` endpoint exposes gauges derived from MongoDB:
 | `server_scan_servers_stale` | `source_provider` | How many servers has it stopped seeing? `last_seen_at` older than `INVENTORY_STALE_AFTER_SECONDS`, or absent — a never-seen server is stale, not exempt |
 | `server_scan_servers_unreachable` | `source_provider` | Of those, how many are a BMC that did not answer (`reachable=False`) |
 | `server_scan_servers` | `source_provider` | Fleet size per collector — the denominator |
-| `server_scan_cluster_last_reported_timestamp_seconds` | `cluster` | Is the membership job alive? `max(openshift.last_reported_at)` |
+| `server_scan_cluster_last_reported_timestamp_seconds` | `cluster` | When a membership last CHANGED, `max(openshift.last_reported_at)`: not liveness (see the 2026-10-07 night update) |
 | `server_scan_cluster_servers_held` | `cluster` | How many servers it holds |
 | `server_scan_servers_by_health` | `severity` | The fleet's health mix over time |
 | `server_scan_servers_in_maintenance` | — | |
@@ -380,7 +380,9 @@ about a pod), so the pods are watched with the **platform's** series: kube-state
 (`kube_deployment_*`, `kube_pod_container_*`) and cAdvisor (`container_*`), selected by Deployment
 (`<release>-api`, `<release>-frontend`) or by the ReplicaSet-hash pod name `<release>-api-<hash>-<id>`.
 
-- Recording rules `server_scan:{api,frontend}_replicas_available:ratio`,
+- **In `thanos-ruler` mode only** (the default leaf mode renders `ServerScanApiReplicasUnavailable`,
+  `ServerScanApiDown`, `ServerScanApiScrapeDown` and `ServerScanApiRestarting` on `up` and `process_start_time_seconds`: see the next
+  section): recording rules `server_scan:{api,frontend}_replicas_available:ratio`,
   `_container_restarts:increase30m` and `_memory_limit_ratio:max`.
 - Alerts: `ServerScanApiReplicasUnavailable` (15 m) and `ServerScanApiDown` (5 m), `ServerScanApiScrapeDown`
   (every replica failing the scrape, 10 m), `ServerScan{Api,Frontend}Restarting` (more than
@@ -390,10 +392,52 @@ about a pod), so the pods are watched with the **platform's** series: kube-state
   `frontend.enabled`. Deliberately not alerted: one restart, per-pod `up`, a `Pending` pod during a rollout,
   CPU throttling (the chart sets no CPU limit), and a Deployment scaled to zero on purpose (the Down alerts
   and the replica ratio require `spec.replicas > 0`).
-- **Unverified assumption.** The OpenShift documentation says a user-defined rule evaluated by Thanos Ruler can use
-  platform metrics for its own namespace, but does not name these series. Every expression is therefore a
-  comparison on an existing series: if one is not queryable the alert is silently inert, never spurious. The
-  dashboard row "API & frontend pods" doubles as the check; after the first deploy query each recording rule in
-  Observe -> Metrics. Do not add the `leaf-prometheus` evaluation-scope label: it restricts a rule to
-  user-workload metrics.
+- **Superseded the same day** (next section): the whole rule set above is rendered only in `thanos-ruler`
+  mode, the assumption that user-namespace rules can read platform
+  series, and the advice not to add the `leaf-prometheus` label, were wrong for the operator's cluster.
+
+## Update (2026-10-07, evening): which evaluator runs the rules, and duplicated series
+
+Found live on the operator's air-gapped OpenShift, three weeks after the rules and dashboard shipped: every
+panel was empty although the PrometheusRule existed.
+
+- **Rule evaluation is split by label.** User-workload rules labelled
+  `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` are evaluated by the user-workload ("leaf")
+  Prometheus; unlabelled ones go to **Thanos Ruler**. On that cluster Thanos Ruler has no Alertmanager and no
+  remote-write, so every result was discarded and nothing in `oc get prometheusrule` showed it. The chart now
+  labels the rule by default: `metrics.prometheusRule.evaluationScope` = `leaf-prometheus` (default, label
+  added) or `thanos-ruler` (no label).
+- **The leaf Prometheus scrapes only user namespaces**: it has our app metrics (`up`, `process_*`,
+  `server_scan_*`, `http_request*`, `auth_logins_*`, `dependency_call_*`) but no kube-state-metrics (`kube_*`) and
+  no cAdvisor (`container_*`). In the default mode the API pod rules therefore use `up{job="<release>-api"}`
+  (replicas up over `backend.replicaCount`, `absent_over_time` for a total outage, scrape down) and
+  `changes(process_start_time_seconds)` (restarts);
+  the memory, OOMKilled, waiting-pod and every frontend rule (the frontend exports no metrics) are rendered only
+  in `thanos-ruler` mode. This reverses the earlier "do not add the label" advice.
+- **`kube_deployment_status_replicas_available` does not exist** in the operator's kube-state-metrics; it exports
+  `_ready` and `_spec_replicas`. The thanos-ruler-mode rules use `_ready`. Verify series names against the
+  cluster's kube-state-metrics before baking them into rules.
+- **Every series is duplicated by the HA Prometheus pair** in the central store (distinguished only by
+  `prometheus_replica`/`prometheus`), which multiplied sums and broke binary expressions ("duplicate time series
+  on the left side"). Every dashboard expression now reduces first with
+  `max without (prometheus, prometheus_replica) (...)` (around `rate()`/`increase()` too, so per-pod series
+  survive and only the replica copies collapse). Template variables stay plain series selectors, because Grafana
+  runs `label_values` as a series match and rejects expressions.
+- **The dashboard's namespace is a hidden constant variable** (`server-scan`), edited once per environment; the
+  "OpenShift name mismatches" row was merged into Fleet overview next to "Fleet size by collector".
+
+## Update (2026-10-07, night): ServerScanClusterSilent read the wrong timestamp
+
+The moment the rules were evaluated, `ServerScanClusterSilent` went pending for 70 of 72 clusters. Cause: it was
+`time() - max(openshift.last_reported_at)`, but the membership writer deliberately skips a write when the
+membership is unchanged (otherwise every server's `revision` would bump four times an hour), and the skip
+comparison excludes the timestamp. On a stable cluster the stamp therefore ages for days or weeks: the "silence"
+measured the time since the last membership *change*, not since the job last ran. `server_scan:cluster_silent_seconds`
+(and the alert and dashboard panel 22 built on it) now come from the membership **run record**
+(`server_scan_membership_last_run_timestamp_seconds`, written on every real run, ADR-0029's 2026-09-24 update),
+aggregated per cluster across `nodes` and `agents` with `label_replace(reported_by -> cluster)`.
+`ServerScanMembershipRunSilent` remains the per-job view. `server_scan_cluster_last_reported_timestamp_seconds`
+is kept, and documented as "last change". Not done: refreshing `openshift.last_reported_at` on an unchanged
+membership with a conditional `$set` (as ADR-0044 does for ingest): about 10,000 extra small writes an hour for
+a stamp nothing needs once the alert reads the run record.
 

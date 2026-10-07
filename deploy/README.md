@@ -270,8 +270,9 @@ each `nodes-status` job (`nodes`/`agents`)'s most recent run — observed,
 matched, unmatched hostnames, duration, and whether it exited PARTIAL —
 the same shape as the collector run gauges above, and written even when
 every hostname was unmatched, which `server_scan_cluster_last_reported_
-timestamp_seconds` cannot see since that gauge is only ever set on a
-match.
+timestamp_seconds` cannot see (that gauge only moves when a membership
+changes, so on a stable cluster it ages for days and is not a liveness
+signal).
 
 The chart ships the two Prometheus Operator objects for them:
 
@@ -285,12 +286,16 @@ metrics:
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched, ServerScanLoginDependencyFailing,
                            # ServerScanLoginSlow, ServerScanAvailableRecheckFailing,
-                           # ServerScanApiReplicasUnavailable, ServerScanApiDown, ServerScanApiScrapeDown,
-                           # ServerScanApiRestarting, ServerScanPodWaiting, ServerScanPodOOMKilled,
-                           # ServerScanApiMemoryNearLimit (+ the ServerScanFrontend* ones while
-                           # frontend.enabled), see "API and frontend pod rules",
+                           # ServerScanApiReplicasUnavailable, ServerScanApiDown,
+                           # ServerScanApiScrapeDown, ServerScanApiRestarting (default leaf mode, on
+                           # `up` / process_start_time_seconds); evaluationScope: thanos-ruler uses
+                           # kube-state-metrics for those and adds ServerScanPodWaiting,
+                           # ServerScanPodOOMKilled, ServerScanApiMemoryNearLimit and every
+                           # ServerScanFrontend* alert (the frontend ones while frontend.enabled),
+                           # see "API and frontend pod rules",
                            # ServerScanAuditRetentionBehind (only while the retention job is
                            # enabled, not report-only and retentionDays > 0)
+    evaluationScope: leaf-prometheus   # or thanos-ruler, see "API and frontend pod rules"
     staleServersThreshold: 10
     silentForSeconds: 21600            # vendor collectors only — 2x their 3h schedule
     membershipSilentForSeconds: 1800   # nodes-status jobs only — 2x their 15min schedule
@@ -298,8 +303,8 @@ metrics:
     auditRetentionSlackDays: 14        # ServerScanAuditRetentionBehind: retentionDays + this
     loginDependencyFailureRatio: 0.2   # LDAP / AD API / vendor-recheck failure fraction over 10m
     loginSlowSeconds: 3                # POST /auth/login p95
-    podRestartsThreshold: 3            # container restarts in 30m before ServerScan*Restarting fires
-    podMemoryLimitRatio: 0.9           # working set / memory limit before ServerScan*MemoryNearLimit fires
+    podRestartsThreshold: 3            # restarts in 30m before ServerScanApiRestarting (and the frontend one, thanos-ruler mode) fires
+    podMemoryLimitRatio: 0.9           # memory limit fraction for ServerScan*MemoryNearLimit (thanos-ruler mode only)
 ```
 
 **`silentForSeconds` and `membershipSilentForSeconds` are two separate
@@ -433,26 +438,46 @@ job deletes nothing; a values file without `collectors.auditRetention` therefore
 **Expect it to fire once** after you set `reportOnly: false` if the trail already holds events older than the
 window plus slack: it clears when the first weekly runs (up to 1M events each) have drained the backlog.
 
-**API and frontend pod rules.** Group `server-scan.pods.rules` records
-`server_scan:api_replicas_available:ratio`, `server_scan:api_container_restarts:increase30m` and
-`server_scan:api_memory_limit_ratio:max`, plus the same three as `server_scan:frontend_*` while
-`frontend.enabled`. Group `server-scan.pods` alerts (all warning) on: fewer replicas available than desired
-for 15m or none for 5m (`ServerScanApiReplicasUnavailable`/`ServerScanApiDown`, and the `Frontend` pair);
-every replica failing the `/metrics` scrape for 10m (`ServerScanApiScrapeDown`, API only; the `job` label
-must equal the Service name, otherwise the alert is inert); more than `podRestartsThreshold` restarts in
-30m; a container waiting in `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull` or
-`CreateContainerConfigError` for 10m (`ServerScanPodWaiting`); an OOM kill followed by a restart
-(`ServerScanPodOOMKilled`); and memory above `podMemoryLimitRatio` of the limit for 15m. Deliberately
-**not** alerted: a single restart, one pod's `up` flapping, and CPU (neither Deployment has a CPU limit,
-so there is no throttling to see; the dashboard shows CPU use). The frontend is nginx and exposes no
-metrics endpoint (no ServiceMonitor), so its rules use only kube-state-metrics and cAdvisor series. Those
-platform series must be queryable from user-namespace rules evaluated by Thanos Ruler, which needs user
-workload monitoring plus platform-metric access and is **not confirmed in the OpenShift docs**: after the
-first deploy, query each `server_scan:api_*` / `server_scan:frontend_*` recording rule in Observe ->
-Metrics. An empty result means the matching alert is inert (the rules avoid `absent()` and
-`or vector(0)`, so a missing series never fires one spuriously). Do **not** add the
-`openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` label to this PrometheusRule: it would
-move the whole rule to the platform Prometheus, which cannot see the `server_scan_*` series.
+**API and frontend pod rules.** Groups `server-scan.pods.rules` (recording) and `server-scan.pods` (alerts, all
+warning) depend on `metrics.prometheusRule.evaluationScope`, default `leaf-prometheus`; a values file without
+the key renders leaf. Deliberately **not** alerted in either mode: a single restart, one pod's `up` flapping,
+and CPU (neither Deployment has a CPU limit).
+
+| Rule | `leaf-prometheus` (default) | `thanos-ruler` |
+| --- | --- | --- |
+| PrometheusRule label | `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` (not duplicated if already in `metrics.prometheusRule.labels`) | none |
+| `server_scan:api_replicas_available:ratio` | `count by (namespace) (up{job="<rel>-api"} == 1) / backend.replicaCount` (Helm injects the count) | `kube_deployment_status_replicas_ready / kube_deployment_spec_replicas` |
+| `server_scan:api_container_restarts:increase30m` | `changes(process_start_time_seconds{job="<rel>-api"}[30m])` | kube-state-metrics container restarts |
+| `ServerScanApiReplicasUnavailable` (15m) | ratio < 1 | ready < desired |
+| `ServerScanApiDown` (5m) | `absent_over_time(up{...}[10m])`: no API target at all | ready == 0 while desired > 0 |
+| `ServerScanApiScrapeDown` (10m) | yes (`up`) | yes (`up`) |
+| `ServerScanApiRestarting` (5m) | above `podRestartsThreshold` | above `podRestartsThreshold` |
+| `ServerScanPodWaiting`, `ServerScanPodOOMKilled`, `ServerScanApiMemoryNearLimit` and the memory recording rule | not rendered | yes (kube-state-metrics, cAdvisor) |
+| `ServerScanFrontend*` and `server_scan:frontend_*` | not rendered | yes, while `frontend.enabled` |
+
+**Why leaf is the default.** An unlabeled user-workload PrometheusRule is evaluated by Thanos Ruler, which
+may have no Alertmanager and no remote-write configured; its results then go nowhere, and nothing in
+`oc get prometheusrule` shows it (on the operator's cluster the dashboard stayed empty for 20 days). The
+labeled rule is evaluated by the user-workload ("leaf") Prometheus, whose alerts reach the cluster
+Alertmanager. The trade-off: that Prometheus scrapes only user namespaces, so it has the app's own series
+(`up`, `process_start_time_seconds`, `server_scan_*`, `http_request*`, `auth_logins_*`, `dependency_call_*`)
+but no `kube_*` or `container_*` series, which is why leaf mode drops the pod-state and memory rules. The
+frontend is nginx and exports no metrics, so it has no leaf-visible data and no frontend rules are rendered
+in leaf mode. Use `thanos-ruler` only when Thanos Ruler is wired to an Alertmanager and a store, and
+kube-state-metrics exports `kube_deployment_status_replicas_ready` and `kube_deployment_spec_replicas`.
+Under leaf mode `ServerScanApiReplicasUnavailable` follows `backend.replicaCount`, so a manual `oc scale`
+reads as unavailable replicas, and `ServerScanApiDown` also fires when the API is scaled to zero on purpose.
+All leaf rules select `job="<release>-api"` (the Service name, since the ServiceMonitor sets no `jobLabel`):
+if a ServiceMonitor yields another job label they go inert, so check `up` in Observe -> Metrics. A
+`metrics.prometheusRule.labels` entry for the scope label must agree with `evaluationScope` or the render fails.
+
+**Checking a cluster.** See which Prometheus picks up the label with
+`oc get prometheus -n openshift-user-workload-monitoring -o jsonpath='{.items[0].spec.ruleSelector}'`. For
+Thanos Ruler, inspect the ThanosRuler spec (`oc get thanosruler -n openshift-user-workload-monitoring -o yaml`)
+for an Alertmanager configuration and remote write; with neither, unlabeled rules evaluate to nowhere. After
+a deploy, query each `server_scan:api_*` recording rule in Observe -> Metrics: an empty result means the
+matching alert is inert (the rules avoid `absent()` and `or vector(0)`, so a missing series never fires one
+spuriously).
 
 **Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
 producing fresh servers at all — check `oc get jobs` and the newest pod's
@@ -461,13 +486,13 @@ not being read; `server_scan_servers_unreachable` on the same label says
 how many of those are a BMC that did not answer (the rest are rejected
 logins or hosts the manager dropped). `ServerScanClusterSilent` is the one
 that matters most for the membership jobs: without it a cluster that
-stopped reporting leaves its servers `INSTALLED` forever. `ServerScan
-ClusterSilent` only sees a *matched* report, though — a job that runs
-successfully every time but never matches a single hostname (a broken
-node-naming convention, say) never sets that gauge at all, from day one,
-and an alert on an absent series never fires. `ServerScanMembershipRunSilent`
-closes that gap: it fires off the job's own run record, present the
-moment it completes its first real run whatever it matched.
+stopped reporting leaves its servers `INSTALLED` forever. It reads the
+membership job's own **run record** (`server_scan_membership_last_run_timestamp_seconds`),
+which every real run writes whether or not anything matched or changed, so it fires only
+when none of a cluster's jobs has completed a run — never merely because nothing changed (an
+earlier version read `openshift.last_reported_at`, which only moves on a change, and fired on
+healthy stable clusters). `ServerScanMembershipRunSilent` is the same signal per job
+(`nodes` and `agents` separately).
 `ServerScanMembershipUnmatched` is the complementary alert for a job that
 *is* running fine but keeps reporting hosts the vendor collectors have
 never ingested — the newest pod's log lists which ones.
@@ -480,7 +505,7 @@ collector staleness/run health, the membership-job run gauges above, top
 firing health policies, the login and external-call panels (outcomes, login latency, per-dependency
 latency and failures), an audit-trail row (events stored, oldest event age, 403 responses by path, which
 shows a client still sending a viewer token to `/api/v1/events`), an ingest-skip row (the unchanged
-share of each collector's last run, fetched vs unchanged), an API & frontend pods row (replicas, restarts, memory vs limit, CPU, waiting or OOM-killed pods), and the API's own HTTP/Mongo/Redis metrics. It is
+share of each collector's last run, fetched vs unchanged), an API & frontend pods row (API replicas and restarts always; memory vs limit, CPU, frontend and waiting or OOM-killed pods only when the central store has the platform `kube_*`/`container_*` series and the rules run with `evaluationScope: thanos-ruler`), and the API's own HTTP/Mongo/Redis metrics. It is
 not wired into the chart — nothing here deploys Grafana dashboards as
 Kubernetes objects yet (no `GrafanaDashboard` CR, for instance); it is a
 plain export to import by hand or via your own GitOps path for

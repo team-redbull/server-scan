@@ -841,9 +841,11 @@ leaves the gauges at their last values and increments
 `server_scan_fleet_snapshot_failures_total`. The Helm chart ships a
 `ServiceMonitor` and a `PrometheusRule` for them, both opt-in.
 
-`openshift.last_reported_at` is only ever set on a *matched* hostname, so
-a membership job that runs correctly but matches nobody never sets it —
-invisible to `cluster_last_reported_timestamp_seconds`. ADR-0029's
+`openshift.last_reported_at` is only ever set on a *matched* hostname and only
+when the membership changes (an unchanged one is not rewritten), so a job that
+runs correctly but matches nobody or finds nothing new never advances it —
+invisible to `cluster_last_reported_timestamp_seconds`, which is therefore not
+a liveness signal. ADR-0029's
 2026-09-24 update closes that: `tools.collect_openshift._record_run`
 writes a `MembershipRun` into a new `membership_runs` collection on every
 real run, read via a third source (`MembershipRunSource`, alongside

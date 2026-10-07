@@ -80,7 +80,8 @@ class ClusterSnapshotRow:
         cluster_name (str): The stored `openshift.cluster_name`.
         held (int): Servers the cluster currently holds.
         last_reported_at (str | None): The newest `openshift.
-            last_reported_at` across them, raw ISO string.
+            last_reported_at` across them, raw ISO string: when a membership
+            last changed, not when a job last ran.
     """
 
     cluster_name: str

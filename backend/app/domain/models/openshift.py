@@ -75,10 +75,10 @@ class OpenShiftLifecycle(BaseModel):
             including across MCEs.
         mce_name (str | None): The MCE that reported it. Set by the MCE job
             only; `None` on a plain cluster node, which no MCE knows about.
-        last_reported_at (datetime | None): When a job last claimed this
-            server. Diagnostic rather than load-bearing: the reconcile is
-            set-based, so nothing infers availability from this going
-            stale.
+        last_reported_at (datetime | None): When a job last wrote this
+            membership. An unchanged membership is not rewritten, so on a
+            stable cluster it does not advance: diagnostic only, never a
+            liveness signal (use the `membership_runs` record, ADR-0029).
         reported_by_agent_id (str | None): Which job instance wrote this,
             for tracing a wrong value back to the cluster that reported it.
         reported_name (str | None): The hostname OpenShift reported, set

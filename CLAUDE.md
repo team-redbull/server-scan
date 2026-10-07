@@ -291,6 +291,12 @@ long form of each entry is in the 2026-09-13 archive.
   Events link, `/events` (`AuditGate`) and the History tab. A new endpoint that returns audit data
   must join that router or add the dependency; a UI-only hide is not a control. The three
   `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise).
+- **A PrometheusRule is evaluated by exactly one of two components, chosen by label** (ADR-0029): with
+  `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` the user-workload Prometheus (sees only user
+  namespaces: no `kube_*`/`container_*`), without it a Thanos Ruler that may have no Alertmanager or remote-write.
+  Nothing in `oc get prometheusrule` shows which. Verify every series name a rule uses against the evaluator, and
+  assume every series is duplicated per HA replica in the central store: dashboards reduce with
+  `max without (prometheus, prometheus_replica)` before any sum or join.
 - **Audit events are deleted weekly by `tools.prune_events`** (`collectors.auditRetention`, ADR-0045):
   180 days by default, **report-only until `reportOnly: false`**, any event type (`SERVER_PRUNED`
   included), one `AUDIT_PURGED` event per purge (also a partial one, `complete: false`). `created_at` is
@@ -443,7 +449,7 @@ content is unchanged is only `touch_seen`d (`_stable_view` minus the per-run sta
 `IngestSummary.unchanged`, `unchanged=` in the logs; rows `generated_at` = newest of `updated_at`/
 `last_seen_at`; detail page label "Last changed"); (3) `tools/prune_events.py` + CronJob
 `collectors.auditRetention` (Sun 03:30, 180 days, **report-only**, 0 = forever, `AUDIT_PURGED` event,
-UI `describeEvent` case); (4) the Hardware tab lists drives smallest first (`features/servers/drives.ts`). (5) Grafana/Prometheus for the above: gauges `server_scan_audit_events`, `server_scan_audit_oldest_event_timestamp_seconds`, `server_scan_collector_last_run_servers_unchanged`, alert `ServerScanAuditRetentionBehind` (only rendered once retention is not report-only), two dashboard rows incl. 403s by path. (6) API/frontend pod rules and a dashboard row from kube-state-metrics/cAdvisor (e.g. `ServerScanApiDown`, `ServerScanApiReplicasUnavailable`, `ServerScanApiScrapeDown`, `ServerScanApiRestarting`, `ServerScanPodWaiting`, `ServerScanPodOOMKilled`, `ServerScanApiMemoryNearLimit`, and the `ServerScanFrontend*` ones when `frontend.enabled`); **unverified**: after deploy query each `server_scan:api_*`/`frontend_*` recording rule, an empty result means that alert is inert. Each change was reviewed by independent agents (code, stored-shape, docs, Helm)
+UI `describeEvent` case); (4) the Hardware tab lists drives smallest first (`features/servers/drives.ts`). (5) Grafana/Prometheus for the above: gauges `server_scan_audit_events`, `server_scan_audit_oldest_event_timestamp_seconds`, `server_scan_collector_last_run_servers_unchanged`, alert `ServerScanAuditRetentionBehind` (only rendered once retention is not report-only), two dashboard rows incl. 403s by path. (6) API/frontend pod rules, then corrected the same evening after the operator's live finding (ADR-0029, 2026-10-07 evening): the PrometheusRule now carries `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` by default (`metrics.prometheusRule.evaluationScope`; unlabelled rules go to a Thanos Ruler that may evaluate into a void), the default pod rules use only app-visible series (`up`, `absent_over_time(up)`, `process_start_time_seconds`), the kube-state-metrics rules (`_ready`, not the non-existent `_available`) render only with `thanos-ruler`, and every dashboard expression dedupes the HA Prometheus pair with `max without (prometheus, prometheus_replica)`; the namespace is a hidden constant variable. Each change was reviewed by independent agents (code, stored-shape, docs, Helm)
 before its commit. Also earlier today: pymongo 4.18.2 / `source-map-js` audit fixes and the pre-push
 audit rule in convention 7.
 

@@ -37,16 +37,37 @@ older platform values.yaml lack `collectors.auditRetention`, which means report-
 {{- $arDays := ternary $ar.retentionDays 180 (hasKey $ar "retentionDays") | int }}
 {{- $arSlack := .Values.metrics.prometheusRule.auditRetentionSlackDays | default 14 | int }}
 {{- /*
-The pod rules read kube-state-metrics and cAdvisor series (README "API and frontend pod rules"), so
-every threshold is read with `default` like the login ones above. The frontend exposes no metrics
-endpoint: its rules exist only while frontend.enabled, and a series that is missing makes an alert
-inert, never firing (no absent(), no `or vector(0)`).
+The pod rules (README "API and frontend pod rules") have two modes, metrics.prometheusRule.evaluationScope.
+`leaf-prometheus` (default) labels the PrometheusRule so the user-workload Prometheus evaluates it, and
+the pod rules then read only series that Prometheus scrapes (`up`, `process_start_time_seconds`).
+`thanos-ruler` leaves the rule unlabeled and reads kube-state-metrics and cAdvisor series. Every threshold
+is read with `default` like the login ones above. The frontend exposes no metrics endpoint: its rules
+exist only in thanos-ruler mode while frontend.enabled. A missing series makes an alert inert, never
+firing (no `or vector(0)`); the one deliberate `absent_over_time` is leaf mode's ServerScanApiDown, because
+`up` itself vanishes when every API pod is gone.
 */ -}}
+{{- $scope := (.Values.metrics.prometheusRule.evaluationScope | default "leaf-prometheus") }}
+{{- if not (has $scope (list "leaf-prometheus" "thanos-ruler")) }}
+{{- fail (printf "metrics.prometheusRule.evaluationScope must be \"leaf-prometheus\" or \"thanos-ruler\", got %q" (toString $scope)) }}
+{{- end }}
+{{- $leaf := eq $scope "leaf-prometheus" }}
+{{- $userLabels := .Values.metrics.prometheusRule.labels | default dict }}
+{{- $scopeKey := "openshift.io/prometheus-rule-evaluation-scope" }}
+{{- if hasKey $userLabels $scopeKey }}
+{{- $userScope := get $userLabels $scopeKey }}
+{{- if and $leaf (ne $userScope "leaf-prometheus") }}
+{{- fail (printf "metrics.prometheusRule.labels sets %s=%q but evaluationScope is leaf-prometheus" $scopeKey (toString $userScope)) }}
+{{- end }}
+{{- if and (not $leaf) (eq $userScope "leaf-prometheus") }}
+{{- fail (printf "metrics.prometheusRule.labels sets %s=leaf-prometheus but evaluationScope is thanos-ruler: its kube-state-metrics rules would never see their series" $scopeKey) }}
+{{- end }}
+{{- end }}
 {{- $restarts := .Values.metrics.prometheusRule.podRestartsThreshold | default 3 }}
 {{- $memRatio := .Values.metrics.prometheusRule.podMemoryLimitRatio | default 0.9 }}
+{{- $apiReplicas := .Values.backend.replicaCount | default 1 | int }}
 {{- $a := printf "%s-api" .Release.Name }}
 {{- $f := printf "%s-frontend" .Release.Name }}
-{{- $feOn := and .Values.frontend (.Values.frontend.enabled | default false) }}
+{{- $feOn := and (not $leaf) .Values.frontend (.Values.frontend.enabled | default false) }}
 {{- $podRe := printf "%s-[a-z0-9]+-[a-z0-9]+" $a }}
 {{- if $feOn }}{{ $podRe = printf "%s|%s-[a-z0-9]+-[a-z0-9]+" $podRe $f }}{{ end }}
 apiVersion: monitoring.coreos.com/v1
@@ -57,6 +78,9 @@ metadata:
     app.kubernetes.io/name: {{ .Release.Name }}-api
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: server-scan
+    {{- if and $leaf (not (hasKey $userLabels "openshift.io/prometheus-rule-evaluation-scope")) }}
+    openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus
+    {{- end }}
     {{- with .Values.metrics.prometheusRule.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -139,8 +163,11 @@ spec:
           expr: time() - max by (namespace) (server_scan_audit_oldest_event_timestamp_seconds)
         - record: server_scan:collector_silent_seconds
           expr: time() - max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)
+        # From the membership job's RUN record, which every real run writes. Not from
+        # server_scan_cluster_last_reported_timestamp_seconds: openshift.last_reported_at only moves when a
+        # membership CHANGES (an unchanged one is not rewritten), so on a stable cluster it ages for weeks.
         - record: server_scan:cluster_silent_seconds
-          expr: time() - max by (namespace, cluster) (server_scan_cluster_last_reported_timestamp_seconds)
+          expr: time() - max by (namespace, cluster) (label_replace(server_scan_membership_last_run_timestamp_seconds, "cluster", "$1", "reported_by", "(.*)"))
         - record: server_scan:membership_run_silent_seconds
           expr: time() - max by (namespace, kind, reported_by) (server_scan_membership_last_run_timestamp_seconds)
 
@@ -217,8 +244,8 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Cluster {{ "{{ $labels.cluster }}" }}'s membership job has not reported for over {{ $membershipSilent }}s"
-            description: "Its servers stay INSTALLED forever and nothing else notices. Check the nodes-status release in that cluster."
+            summary: "No membership job for {{ "{{ $labels.cluster }}" }} has completed a run for over {{ $membershipSilent }}s"
+            description: "Neither its nodes nor its agents job has finished a run (the run record is written on every real run, matched or not, changed or not), so its servers stay INSTALLED forever and nothing else notices. Check the nodes-status release in that cluster."
         - alert: ServerScanCollectorRunPartial
           expr: server_scan:collector_last_run_partial:max == 1
           for: 5m
@@ -242,7 +269,7 @@ spec:
             severity: warning
           annotations:
             summary: "The {{ "{{ $labels.kind }}" }} membership job for {{ "{{ $labels.reported_by }}" }} has not completed a run for over {{ $membershipSilent }}s"
-            description: "Its CronJob is failing, suspended, or never ran — and it has never reported a single matched hostname either, or ServerScanClusterSilent would already have fired. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
+            description: "Its CronJob is failing, suspended, or never ran. This is the per-job view: ServerScanClusterSilent fires only when none of a cluster's jobs has completed a run. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
         - alert: ServerScanMembershipUnmatched
           expr: server_scan:membership_last_run_unmatched:max > {{ $membershipUnmatched }}
           for: 60m
@@ -252,44 +279,70 @@ spec:
             summary: "{{ "{{ $value }}" }} hostname(s) the {{ "{{ $labels.kind }}" }} job for {{ "{{ $labels.reported_by }}" }} reports have no matching server"
             description: "The job itself is running fine (see ServerScanMembershipRunSilent for that), but it is reporting hosts the vendor collectors have never ingested — a naming mismatch, a not-yet-collected server, or a host that should be in INVENTORY_OPENSHIFT_EXCLUDE_NAME_PARTS. The newest pod's log lists the hostnames."
 
-    # API and frontend pods. These read kube-state-metrics and cAdvisor series, which this
-    # namespace's own Prometheus may not expose to Thanos Ruler; if so the alerts stay inert.
+    # API and frontend pods, see README "API and frontend pod rules".
     - name: server-scan.pods.rules
       interval: 30s
       rules:
+{{- if $leaf }}
+        # Leaf mode: desired count is backend.replicaCount, injected by Helm (no kube-state-metrics).
         - record: server_scan:api_replicas_available:ratio
-          expr: kube_deployment_status_replicas_available{deployment="{{ $a }}"} / (kube_deployment_spec_replicas{deployment="{{ $a }}"} > 0)
+          expr: count by (namespace) (up{job="{{ $a }}"} == 1) / {{ $apiReplicas }}
+        - record: server_scan:api_container_restarts:increase30m
+          expr: sum by (namespace) (changes(process_start_time_seconds{job="{{ $a }}"}[30m]))
+{{- else }}
+        - record: server_scan:api_replicas_available:ratio
+          expr: kube_deployment_status_replicas_ready{deployment="{{ $a }}"} / (kube_deployment_spec_replicas{deployment="{{ $a }}"} > 0)
         - record: server_scan:api_container_restarts:increase30m
           expr: sum by (namespace) (increase(kube_pod_container_status_restarts_total{pod=~"{{ $a }}-[a-z0-9]+-[a-z0-9]+",container="api"}[30m]))
         - record: server_scan:api_memory_limit_ratio:max
           expr: max by (namespace) (container_memory_working_set_bytes{container="api",pod=~"{{ $a }}-[a-z0-9]+-[a-z0-9]+"} / on (namespace,pod,container) kube_pod_container_resource_limits{resource="memory"})
 {{- if $feOn }}
         - record: server_scan:frontend_replicas_available:ratio
-          expr: kube_deployment_status_replicas_available{deployment="{{ $f }}"} / (kube_deployment_spec_replicas{deployment="{{ $f }}"} > 0)
+          expr: kube_deployment_status_replicas_ready{deployment="{{ $f }}"} / (kube_deployment_spec_replicas{deployment="{{ $f }}"} > 0)
         - record: server_scan:frontend_container_restarts:increase30m
           expr: sum by (namespace) (increase(kube_pod_container_status_restarts_total{pod=~"{{ $f }}-[a-z0-9]+-[a-z0-9]+",container="frontend"}[30m]))
         - record: server_scan:frontend_memory_limit_ratio:max
           expr: max by (namespace) (container_memory_working_set_bytes{container="frontend",pod=~"{{ $f }}-[a-z0-9]+-[a-z0-9]+"} / on (namespace,pod,container) kube_pod_container_resource_limits{resource="memory"})
 {{- end }}
+{{- end }}
 
     - name: server-scan.pods
       rules:
+{{- if $leaf }}
         - alert: ServerScanApiReplicasUnavailable
-          expr: kube_deployment_status_replicas_available{deployment="{{ $a }}"} < kube_deployment_spec_replicas{deployment="{{ $a }}"}
+          expr: server_scan:api_replicas_available:ratio < 1
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "{{ "{{ $value }}" }} of the desired {{ $a }} replicas are available in {{ "{{ $labels.namespace }}" }}"
-            description: "Fewer API pods are ready than the Deployment asks for, for 15 minutes: a failing readiness probe (/health/ready), a stuck rollout or an unschedulable pod. Check `oc get pods -n {{ .Release.Namespace }}`."
+            summary: "Only {{ "{{ $value | humanizePercentage }}" }} of the {{ $apiReplicas }} desired {{ $a }} replicas are scraped as up in {{ "{{ $labels.namespace }}" }}"
+            description: "Signal: `up{job=\"{{ $a }}\"} == 1` counted against backend.replicaCount ({{ $apiReplicas }}, injected by Helm: keep it in step with the Deployment). A pod is failing its metrics scrape, or a rollout is stuck. Check `oc get pods -n {{ .Release.Namespace }}`. If every replica is down see ServerScanApiScrapeDown."
         - alert: ServerScanApiDown
-          expr: kube_deployment_status_replicas_available{deployment="{{ $a }}"} == 0 and on (namespace, deployment) kube_deployment_spec_replicas{deployment="{{ $a }}"} > 0
+          expr: absent_over_time(up{job="{{ $a }}", namespace="{{ .Release.Namespace }}"}[10m])
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "No {{ $a }} replica is available in {{ "{{ $labels.namespace }}" }}"
-            description: "The API and the UI behind it are unreachable. This series exists whenever the Deployment does, so it is the one alert here that does not depend on a scrape. It stays quiet when the Deployment is scaled to zero on purpose."
+            summary: "No {{ $a }} target has reported `up` for 10 minutes in {{ .Release.Namespace }}"
+            description: "Signal: `up` has no series at all: every API pod is gone (deleted, or scaled to zero, which also fires this), the ServiceMonitor target vanished, or the `job` label differs from the Service name {{ $a }}. ServerScanApiScrapeDown covers targets that exist but fail the scrape."
+{{- else }}
+        - alert: ServerScanApiReplicasUnavailable
+          expr: kube_deployment_status_replicas_ready{deployment="{{ $a }}"} < kube_deployment_spec_replicas{deployment="{{ $a }}"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ "{{ $value }}" }} of the desired {{ $a }} replicas are ready in {{ "{{ $labels.namespace }}" }}"
+            description: "Signal: kube-state-metrics `kube_deployment_status_replicas_ready` / `_spec_replicas` (the exporter must expose both). Fewer API pods are ready than the Deployment asks for, for 15 minutes: a failing readiness probe (/health/ready), a stuck rollout or an unschedulable pod. Check `oc get pods -n {{ .Release.Namespace }}`."
+        - alert: ServerScanApiDown
+          expr: kube_deployment_status_replicas_ready{deployment="{{ $a }}"} == 0 and on (namespace, deployment) kube_deployment_spec_replicas{deployment="{{ $a }}"} > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No {{ $a }} replica is ready in {{ "{{ $labels.namespace }}" }}"
+            description: "Signal: kube-state-metrics `kube_deployment_status_replicas_ready` (the exporter must expose it and `_spec_replicas`). The API and the UI behind it are unreachable. This series exists whenever the Deployment does, so it does not depend on a scrape. It stays quiet when the Deployment is scaled to zero on purpose."
+{{- end }}
         - alert: ServerScanApiScrapeDown
           expr: max by (namespace) (up{job="{{ $a }}"}) == 0
           for: 10m
@@ -297,24 +350,24 @@ spec:
             severity: warning
           annotations:
             summary: "Prometheus cannot scrape any {{ $a }} replica in {{ "{{ $labels.namespace }}" }}"
-            description: "All replicas fail the /metrics scrape (not one pod). The `job` label equals the Service name, {{ $a }}; if the ServiceMonitor yields another job label this alert is inert, so check `up` in Observe -> Metrics. The fleet alerts above go silent too."
+            description: "Signal: `up`. All replicas fail the /metrics scrape (not one pod). The `job` label equals the Service name, {{ $a }}; if the ServiceMonitor yields another job label this alert is inert, so check `up` in Observe -> Metrics. The fleet alerts above go silent too."
 {{- if $feOn }}
         - alert: ServerScanFrontendReplicasUnavailable
-          expr: kube_deployment_status_replicas_available{deployment="{{ $f }}"} < kube_deployment_spec_replicas{deployment="{{ $f }}"}
+          expr: kube_deployment_status_replicas_ready{deployment="{{ $f }}"} < kube_deployment_spec_replicas{deployment="{{ $f }}"}
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "{{ "{{ $value }}" }} of the desired {{ $f }} replicas are available in {{ "{{ $labels.namespace }}" }}"
-            description: "Fewer frontend pods are ready than the Deployment asks for, for 15 minutes. Check `oc get pods -n {{ .Release.Namespace }}`."
+            summary: "{{ "{{ $value }}" }} of the desired {{ $f }} replicas are ready in {{ "{{ $labels.namespace }}" }}"
+            description: "Signal: kube-state-metrics `kube_deployment_status_replicas_ready` / `_spec_replicas`. Fewer frontend pods are ready than the Deployment asks for, for 15 minutes. Check `oc get pods -n {{ .Release.Namespace }}`."
         - alert: ServerScanFrontendDown
-          expr: kube_deployment_status_replicas_available{deployment="{{ $f }}"} == 0 and on (namespace, deployment) kube_deployment_spec_replicas{deployment="{{ $f }}"} > 0
+          expr: kube_deployment_status_replicas_ready{deployment="{{ $f }}"} == 0 and on (namespace, deployment) kube_deployment_spec_replicas{deployment="{{ $f }}"} > 0
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "No {{ $f }} replica is available in {{ "{{ $labels.namespace }}" }}"
-            description: "The UI is unreachable; the API may be fine."
+            summary: "No {{ $f }} replica is ready in {{ "{{ $labels.namespace }}" }}"
+            description: "Signal: kube-state-metrics `kube_deployment_status_replicas_ready`. The UI is unreachable; the API may be fine."
 {{- end }}
         - alert: ServerScanApiRestarting
           expr: server_scan:api_container_restarts:increase30m > {{ $restarts }}
@@ -323,7 +376,7 @@ spec:
             severity: warning
           annotations:
             summary: "The API container restarted {{ "{{ $value | humanize }}" }} times in 30m"
-            description: "A crash loop or repeated OOM kills. A single restart is deliberately not alerted. `oc logs --previous` on the newest pod."
+            description: "{{ if $leaf }}Signal: changes in `process_start_time_seconds` (a process restart, whatever the cause). {{ else }}Signal: kube-state-metrics container restarts. {{ end }}A crash loop or repeated OOM kills. A single restart is deliberately not alerted. `oc logs --previous` on the newest pod."
 {{- if $feOn }}
         - alert: ServerScanFrontendRestarting
           expr: server_scan:frontend_container_restarts:increase30m > {{ $restarts }}
@@ -332,8 +385,9 @@ spec:
             severity: warning
           annotations:
             summary: "The frontend container restarted {{ "{{ $value | humanize }}" }} times in 30m"
-            description: "A crash loop or repeated OOM kills. `oc logs --previous` on the newest pod."
+            description: "Signal: kube-state-metrics container restarts. A crash loop or repeated OOM kills. `oc logs --previous` on the newest pod."
 {{- end }}
+{{- if not $leaf }}
         - alert: ServerScanPodWaiting
           expr: max by (namespace, pod, reason) (kube_pod_container_status_waiting_reason{pod=~"{{ $podRe }}",reason=~"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError"}) == 1
           for: 10m
@@ -341,7 +395,7 @@ spec:
             severity: warning
           annotations:
             summary: "Pod {{ "{{ $labels.pod }}" }} has been waiting with {{ "{{ $labels.reason }}" }} for 10m"
-            description: "The container cannot start: a crash loop, an image that cannot be pulled (mirror or pull secret) or a missing ConfigMap/Secret key. `oc describe pod {{ "{{ $labels.pod }}" }} -n {{ .Release.Namespace }}`."
+            description: "Signal: kube-state-metrics waiting reason. The container cannot start: a crash loop, an image that cannot be pulled (mirror or pull secret) or a missing ConfigMap/Secret key. `oc describe pod {{ "{{ $labels.pod }}" }} -n {{ .Release.Namespace }}`."
         - alert: ServerScanPodOOMKilled
           expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled",pod=~"{{ $podRe }}"} == 1 and on (namespace,pod,container) increase(kube_pod_container_status_restarts_total{pod=~"{{ $podRe }}"}[10m]) > 0
           for: 0m
@@ -349,7 +403,7 @@ spec:
             severity: warning
           annotations:
             summary: "Container {{ "{{ $labels.container }}" }} in {{ "{{ $labels.pod }}" }} was OOM-killed and restarted"
-            description: "The memory limit was hit (512Mi API, 128Mi frontend by default). Compare with `server_scan:api_memory_limit_ratio:max` and raise the limit if the growth is legitimate."
+            description: "Signal: kube-state-metrics last-terminated reason. The memory limit was hit (512Mi API, 128Mi frontend by default). Compare with `server_scan:api_memory_limit_ratio:max` and raise the limit if the growth is legitimate."
         - alert: ServerScanApiMemoryNearLimit
           expr: server_scan:api_memory_limit_ratio:max > {{ $memRatio }}
           for: 15m
@@ -357,7 +411,7 @@ spec:
             severity: warning
           annotations:
             summary: "An API pod uses {{ "{{ $value | humanizePercentage }}" }} of its memory limit"
-            description: "The working set is close to the limit, so an OOM kill is likely. Raise backend.resources limits.memory or find the growth."
+            description: "Signal: cAdvisor working set over the kube-state-metrics memory limit. The working set is close to the limit, so an OOM kill is likely. Raise backend.resources limits.memory or find the growth."
 {{- if $feOn }}
         - alert: ServerScanFrontendMemoryNearLimit
           expr: server_scan:frontend_memory_limit_ratio:max > {{ $memRatio }}
@@ -366,7 +420,8 @@ spec:
             severity: warning
           annotations:
             summary: "A frontend pod uses {{ "{{ $value | humanizePercentage }}" }} of its memory limit"
-            description: "The working set is close to the limit, so an OOM kill is likely."
+            description: "Signal: cAdvisor working set over the kube-state-metrics memory limit. The working set is close to the limit, so an OOM kill is likely."
+{{- end }}
 {{- end }}
 {{- if and $arEnabled (not $arReportOnly) (gt $arDays 0) }}
 
