@@ -81,6 +81,8 @@ Loaded only when a `frontend/` file is open.
   there needs the same measurement. `navigator.clipboard` is secure-context only, so
   `lib/clipboard.ts` falls back to `execCommand`. Its label ("Copy name of X") deliberately
   avoids the words "maintenance" and a link role, which E2E queries match on.
+  A click also fires `lib/toast.ts`'s `showToast` ("Copied <name>", bottom right); `Toaster` is
+  mounted once in `AppLayout` and is `aria-hidden` because the button's own live region announces it.
 - **The inventory's filter block is one unit in the table's column**
   (2026-09-21): Search and the six selects on one row, the three toggles
   beneath, then the "Filtered by" chips — left and right edges equal to

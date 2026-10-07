@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 
 import { copyText } from "@/lib/clipboard";
+import { showToast } from "@/lib/toast";
 
 const RESET_AFTER_MS = 1600;
 
@@ -70,6 +71,7 @@ export function CopyButton({
     event.stopPropagation();
     void copyText(text).then((ok) => {
       setState(ok ? "copied" : "failed");
+      showToast({ title: ok ? "Copied" : "Couldn't copy", detail: text, ok });
       clearTimeout(timer.current);
       timer.current = setTimeout(() => {
         setState("idle");

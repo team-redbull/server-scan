@@ -2,6 +2,7 @@ import { Outlet } from "react-router";
 
 import { AppFooter } from "@/components/AppFooter";
 import { AppNav } from "@/components/AppNav";
+import { Toaster } from "@/components/Toaster";
 import { useAuth } from "@/features/auth/useAuth";
 import { LoginPage } from "@/features/auth/LoginPage";
 
@@ -31,6 +32,7 @@ export function AppLayout() {
         <Outlet />
       </div>
       <AppFooter />
+      <Toaster />
     </div>
   );
 }
