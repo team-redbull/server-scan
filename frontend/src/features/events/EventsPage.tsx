@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
+import { ActorCombobox } from "@/features/events/ActorCombobox";
 import { EventList } from "@/features/events/EventList";
 import { WRITTEN_EVENT_TYPES } from "@/features/events/describeEvent";
 import {
@@ -12,7 +13,6 @@ import {
   useEventActorsQuery,
   useEventsInfiniteQuery,
 } from "@/features/events/hooks";
-import { actorLabel } from "@/lib/actor";
 import { parseIsraelInput } from "@/lib/datetime";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
@@ -104,21 +104,15 @@ export function EventsPage() {
         </div>
         <div className="flex min-w-48 flex-1 flex-col">
           <label htmlFor="events-actor">User</label>
-          <select
+          <ActorCombobox
             id="events-actor"
+            actors={actors}
             value={actorId}
-            onChange={(e) => {
-              setParam("actor_id", e.target.value);
+            onChange={(id) => {
+              setParam("actor_id", id);
             }}
             className={FIELD_CLASS}
-          >
-            <option value="">All</option>
-            {actors.map((a) => (
-              <option key={a.id} value={a.id}>
-                {actorLabel(a).label}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         <div className="flex min-w-48 flex-1 flex-col">
           <label htmlFor="events-range">Time range</label>

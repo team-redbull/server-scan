@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -133,48 +139,99 @@ describe("events UI", () => {
     expect(urlsOf(fetchMock).some((u) => u.includes("server_id="))).toBe(false);
   });
 
-  it("the User select lists actors with human labels and filters by id", async () => {
+  const ACTORS = {
+    items: [
+      { id: "alice", type: "USER", display: "Alice A", event_count: 3 },
+      { id: "api-token-admin", type: "TOKEN", display: null, event_count: 2 },
+      { id: "api-token-viewer", type: "TOKEN", display: null, event_count: 1 },
+      { id: "ingest", type: "SYSTEM", display: null, event_count: 9 },
+    ],
+  };
+
+  function renderWithActors(path = "/events") {
     fetchMock.mockImplementation((url: string) =>
-      url.includes("/events/actors")
-        ? json({
-            items: [
-              { id: "alice", type: "USER", display: "Alice A", event_count: 3 },
-              {
-                id: "api-token-admin",
-                type: "TOKEN",
-                display: null,
-                event_count: 2,
-              },
-              {
-                id: "api-token-viewer",
-                type: "TOKEN",
-                display: null,
-                event_count: 1,
-              },
-              { id: "ingest", type: "SYSTEM", display: null, event_count: 9 },
-            ],
-          })
-        : json(page([ev("e1")])),
+      url.includes("/events/actors") ? json(ACTORS) : json(page([ev("e1")])),
     );
-    renderAt(<EventsPage />, "/events");
-    for (const label of [
-      "Alice A",
-      "API token (admin)",
-      "API token (viewer)",
-      "System (ingest)",
-    ]) {
-      expect(
-        await screen.findByRole("option", { name: label }),
-      ).toBeInTheDocument();
-    }
-    fireEvent.change(screen.getByLabelText("User"), {
-      target: { value: "api-token-admin" },
-    });
+    renderAt(<EventsPage />, path);
+  }
+
+  async function openUserList() {
+    const input = await screen.findByRole("combobox", { name: "User" });
+    fireEvent.focus(input);
+    const list = await screen.findByRole("listbox", { name: "Users" });
+    await within(list).findByRole("option", { name: /Alice A/ });
+    return { input, list };
+  }
+
+  function labelsIn(list: HTMLElement) {
+    return within(list)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+  }
+
+  it("the User field is a combobox listing All first, then actors with labels and counts", async () => {
+    renderWithActors();
+    const { list } = await openUserList();
+    expect(labelsIn(list)).toEqual([
+      "All",
+      "Alice A3",
+      "API token (admin)2",
+      "API token (viewer)1",
+      "System (ingest)9",
+    ]);
+  });
+
+  it("typing narrows the list by label or id, and picking one filters by its id", async () => {
+    renderWithActors();
+    const { input, list } = await openUserList();
+    fireEvent.change(input, { target: { value: "TOK" } });
+    expect(labelsIn(list)).toEqual(["API token (admin)2", "API token (viewer)1"]);
+
+    fireEvent.change(input, { target: { value: "ingest" } });
+    expect(labelsIn(list)).toEqual(["System (ingest)9"]);
+
+    fireEvent.change(input, { target: { value: "api-token-adm" } });
+    fireEvent.click(
+      within(list).getByRole("option", { name: /API token \(admin\)/ }),
+    );
     await waitFor(() => {
       expect(
         urlsOf(fetchMock).some((u) => u.includes("actor_id=api-token-admin")),
       ).toBe(true);
     });
+    expect(input).toHaveValue("API token (admin)");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("says so when nothing matches, and Enter picks the highlighted match", async () => {
+    renderWithActors();
+    const { input } = await openUserList();
+    fireEvent.change(input, { target: { value: "zzz" } });
+    expect(screen.getByText("No matching user")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "alice" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(urlsOf(fetchMock).some((u) => u.includes("actor_id=alice"))).toBe(
+        true,
+      );
+    });
+    expect(input).toHaveValue("Alice A");
+  });
+
+  it("shows the selected user's label, and All clears the filter", async () => {
+    renderWithActors("/events?actor_id=alice");
+    const { input, list } = await openUserList();
+    expect(input).toHaveValue("Alice A");
+
+    fireEvent.click(within(list).getByRole("option", { name: "All" }));
+    await waitFor(() => {
+      expect(input).toHaveValue("");
+    });
+    const eventUrls = urlsOf(fetchMock).filter((u) =>
+      u.includes("/api/v1/events?"),
+    );
+    expect(eventUrls[eventUrls.length - 1]).not.toContain("actor_id");
   });
 
   it("changing the type select updates the URL-driven filter", async () => {

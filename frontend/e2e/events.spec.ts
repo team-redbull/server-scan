@@ -88,15 +88,17 @@ test.describe("Events page", () => {
 
   test("the user filter offers readable labels", async ({ page }) => {
     await page.goto("/events");
-    const options = page.locator("#events-actor option");
+    const user = page.getByRole("combobox", { name: "User" });
+    await user.click();
+    const options = page
+      .getByRole("listbox", { name: "Users" })
+      .getByRole("option");
     await expect(options.filter({ hasText: "System (ingestion)" })).toHaveCount(
       1,
     );
-    const label = (await options.allInnerTexts()).find(
-      (t) => t !== "All" && !t.startsWith("System"),
-    );
-    expect(label).toBeTruthy();
-    await page.getByLabel("User").selectOption({ label: "System (ingestion)" });
+    await user.fill("ingest");
+    await expect(options).toHaveCount(1);
+    await options.filter({ hasText: "System (ingestion)" }).click();
     await expect(page).toHaveURL(/actor_id=ingestion/);
     await expect(page.locator("tbody tr").first()).toBeVisible();
     for (const text of await page
