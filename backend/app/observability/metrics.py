@@ -40,11 +40,24 @@ dependency_call_duration_seconds = Histogram(
     buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5, 8, 12, 20),
 )
 
+LOGIN_OUTCOMES = (
+    "success",
+    "wrong_password",
+    "no_permission",
+    "throttled",
+    "unavailable",
+    "error",
+)
+
 auth_logins_total = Counter(
     "auth_logins_total",
     "POST /auth/login attempts by outcome",
     labelnames=("outcome",),
 )
+# A labelled counter has no series until its first increment, so a rare outcome would be absent from
+# dashboards and `rate()` would miss its first event; create every outcome at 0 on startup.
+for _outcome in LOGIN_OUTCOMES:
+    auth_logins_total.labels(outcome=_outcome)
 
 # Fleet gauges, refreshed from MongoDB on scrape — see ADR-0029 and
 # `app.observability.fleet_gauges`. The `_timestamp_seconds` pair follow

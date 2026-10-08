@@ -1,8 +1,8 @@
 {
   "title": "Server Scan — Fleet & Collectors",
   "uid": "server-scan-fleet",
-  "description": "Fleet health, vendor collectors, OpenShift membership jobs, login and external calls, the audit trail, the ingest skip rate and the API and frontend pods for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml (ADR-0029 incl. its 2026-10-07 updates, ADR-0042, ADR-0043..0045). Every panel de-duplicates the HA Prometheus pair with max without (prometheus, prometheus_replica). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
-  "tags": ["server-scan", "fleet", "adr-0029"],
+  "description": "Fleet health, vendor collectors, OpenShift membership jobs, login and external calls, the audit trail, the ingest skip rate and the API and frontend pods for the server-scan inventory platform. Built from app.observability.metrics + the server_scan: recording rules in deploy/helm/server-scan/templates/backend-prometheusrule.yaml. Every panel de-duplicates the HA Prometheus pair with max without (prometheus, prometheus_replica). Requires metrics.serviceMonitor.enabled and metrics.prometheusRule.enabled on the Helm chart.",
+  "tags": ["server-scan", "fleet"],
   "style": "dark",
   "editable": true,
   "graphTooltip": 1,
@@ -104,7 +104,7 @@
     },
     {
       "id": 3, "type": "stat", "title": "Duplicate name groups",
-      "description": "Distinct names shared by more than one document (docs/adr/0016's duplicate-server update).",
+      "description": "Distinct names shared by more than one document.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:duplicate_name_groups:max{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
@@ -139,7 +139,7 @@
 
     {
       "id": 107, "type": "stat", "title": "Servers installed under a different name",
-      "description": "server_scan:openshift_name_mismatch_servers:max — servers whose OpenShift-reported hostname differs from their current inventory name (a vendor-manager rename after install). See docs/adr/0036.",
+      "description": "server_scan:openshift_name_mismatch_servers:max — servers whose OpenShift-reported hostname differs from their current inventory name (a vendor-manager rename after install).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 4, "x": 0, "y": 5 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:openshift_name_mismatch_servers:max{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
@@ -148,7 +148,7 @@
     },
     {
       "id": 112, "type": "stat", "title": "Contested servers (claimed by two OpenShift jobs)",
-      "description": "server_scan:openshift_contested_servers:max — servers two clusters or MCEs keep flipping between within an hour (the inventory's Duplicate Server filter). See docs/adr/0041.",
+      "description": "server_scan:openshift_contested_servers:max — servers two clusters or MCEs keep flipping between within an hour (the inventory's Duplicate Server filter).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 4, "x": 4, "y": 5 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:openshift_contested_servers:max{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
@@ -408,10 +408,10 @@
     },
 
     {"id": 108, "type": "row", "title": "Fleet size over time and pruned servers", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 98}},
-    {"id": 109, "type": "timeseries", "title": "Total servers (and by collector)", "description": "Fleet count over time: the total line plus one line per source_provider, from server_scan_servers (MongoDB count, ADR-0029). A step down is a prune or a removed collector.", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 99}, "targets": [{"expr": "sum(max without (prometheus, prometheus_replica) (server_scan:servers:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}))", "legendFormat": "Total", "refId": "A"}, {"expr": "max without (prometheus, prometheus_replica) (server_scan:servers:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "{{source_provider}}", "refId": "B"}], "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 0}, "unit": "short"}, "overrides": [{"matcher": {"id": "byName", "options": "Total"}, "properties": [{"id": "custom.lineWidth", "value": 3}]}]}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}, "tooltip": {"mode": "multi"}}},
+    {"id": 109, "type": "timeseries", "title": "Total servers (and by collector)", "description": "Fleet count over time: the total line plus one line per source_provider, from server_scan_servers (MongoDB count). A step down is a prune or a removed collector.", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 99}, "targets": [{"expr": "sum(max without (prometheus, prometheus_replica) (server_scan:servers:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"}))", "legendFormat": "Total", "refId": "A"}, {"expr": "max without (prometheus, prometheus_replica) (server_scan:servers:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "{{source_provider}}", "refId": "B"}], "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 0}, "unit": "short"}, "overrides": [{"matcher": {"id": "byName", "options": "Total"}, "properties": [{"id": "custom.lineWidth", "value": 3}]}]}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}, "tooltip": {"mode": "multi"}}},
     {"id": 110, "type": "timeseries", "title": "Servers pruned (last 24h window)", "description": "Servers deleted by the prune tool in the trailing 24h, per collector, from audit events of type SERVER_PRUNED (server_scan_servers_pruned_24h). WHICH servers: Prometheus carries no names. Query GET /api/v1/events?event_type=SERVER_PRUNED (name, serial, vendor, manager, last_seen_at, reason are in each event's data), or grep the server.pruned log line.", "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 99}, "targets": [{"expr": "max without (prometheus, prometheus_replica) (server_scan:servers_pruned_24h:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "{{source_provider}}", "refId": "A"}], "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 60, "stacking": {"mode": "normal"}}, "unit": "short"}, "overrides": []}, "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}},
     {"id": 111, "type": "text", "title": "Which servers were pruned?", "description": "", "gridPos": {"h": 4, "w": 24, "x": 0, "y": 107}, "options": {"mode": "markdown", "content": "Server names are deliberately not Prometheus labels (cardinality). Look them up in the audit log: `GET /api/v1/events?event_type=SERVER_PRUNED` (newest first, paged; each event's `data` holds name, serial, vendor, source_provider, manager_id, listed_at, last_seen_at, reason). The same facts are in the `server.pruned` structlog line in the collector/prune job logs."}},
-    { "id": 113, "type": "row", "title": "Login and external calls (ADR-0042)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 111 }, "collapsed": false, "panels": [] },
+    { "id": 113, "type": "row", "title": "Login and external calls", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 111 }, "collapsed": false, "panels": [] },
     {
       "id": 114, "type": "timeseries", "title": "Logins by outcome",
       "description": "server_scan:auth_logins:rate5m — success, wrong_password, no_permission, throttled, unavailable (LDAP or the AD API failed), error.",
@@ -460,12 +460,21 @@
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 50 }, "unit": "ops" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
-    { "id": 119, "type": "row", "title": "Audit trail and access (ADR-0043, ADR-0045)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 128 }, "collapsed": false, "panels": [] },
+    {
+      "id": 134, "type": "bargauge", "title": "Logins by outcome (last 24h)",
+      "description": "auth_logins_total over 24 hours, per outcome: success, wrong_password, no_permission (valid login but the account is in no admin, auditor or viewer list), throttled, unavailable (LDAP, the AD API or the login deadline failed) and error. A rare outcome is invisible as a per-second rate; this counts it. Every outcome starts at 0 when the API starts, so a missing bar means that pod has not been scraped yet.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 128 },
+      "targets": [{ "expr": "sum by (outcome) (max without (prometheus, prometheus_replica) (increase(auth_logins_total{namespace=~\"$namespace\"}[24h])))", "legendFormat": "{{outcome}}", "refId": "A", "instant": true }],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "decimals": 0, "min": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true }
+    },
+    { "id": 119, "type": "row", "title": "Audit trail and access", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 134 }, "collapsed": false, "panels": [] },
     {
       "id": 120, "type": "stat", "title": "Audit events stored",
-      "description": "server_scan:audit_events:max: audit events in MongoDB (ADR-0045 deletes those older than collectors.auditRetention.retentionDays).",
+      "description": "server_scan:audit_events:max: audit events in MongoDB (events older than collectors.auditRetention.retentionDays are deleted).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 129 },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 135 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_events:max{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
@@ -474,7 +483,7 @@
       "id": 121, "type": "stat", "title": "Oldest audit event age",
       "description": "server_scan:audit_oldest_event_age_seconds in days. Reads about 0 when there are no events (an unlabelled gauge cannot be absent). Should stay under retentionDays once the retention job is out of report-only.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 129 },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 135 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_oldest_event_age_seconds{namespace=~\"$namespace\"}) / 86400", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "unit": "d", "decimals": 1 }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
@@ -483,7 +492,7 @@
       "id": 122, "type": "timeseries", "title": "Audit trail size and oldest event age",
       "description": "Events stored (left axis) and the oldest event's age in days (right axis). A flat age above the retention window means the prune-events CronJob is not deleting.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 129 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 135 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_events:max{namespace=~\"$namespace\"})", "legendFormat": "events", "refId": "A" },
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_oldest_event_age_seconds{namespace=~\"$namespace\"}) / 86400", "legendFormat": "oldest event (days)", "refId": "B" }
@@ -493,21 +502,21 @@
     },
     {
       "id": 123, "type": "timeseries", "title": "403 responses by path",
-      "description": "Every 403: a client still using a viewer token on /api/v1/events after ADR-0043 (the audit trail is admin/auditor only), a viewer or auditor calling a write endpoint, or a valid login with no permission on /api/v1/auth/login.",
+      "description": "Every 403: a client still using a viewer token on /api/v1/events (the audit trail is admin/auditor only), a viewer or auditor calling a write endpoint, or a valid login with no permission on /api/v1/auth/login.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 137 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 143 },
       "targets": [
         { "expr": "sum by (path) (max without (prometheus, prometheus_replica) (rate(http_requests_total{namespace=~\"$namespace\", status=\"403\"}[5m])))", "legendFormat": "{{path}}", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "reqps" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
-    { "id": 124, "type": "row", "title": "Ingest skip rate (ADR-0044)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 145 }, "collapsed": false, "panels": [] },
+    { "id": 124, "type": "row", "title": "Ingest skip rate", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 151 }, "collapsed": false, "panels": [] },
     {
       "id": 125, "type": "timeseries", "title": "Unchanged share of the last run, per collector",
-      "description": "server_scan:collector_last_run_unchanged_ratio: the fraction of fetched servers the last run found unchanged and did not rewrite (ADR-0044). Low on a collector that should be quiet means something is churning stored content.",
+      "description": "server_scan:collector_last_run_unchanged_ratio: the fraction of fetched servers the last run found unchanged and did not rewrite. Low on a collector that should be quiet means something is churning stored content.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 146 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 152 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:collector_last_run_unchanged_ratio{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "{{source_provider}}", "refId": "A" }
       ],
@@ -516,9 +525,9 @@
     },
     {
       "id": 126, "type": "timeseries", "title": "Servers fetched vs unchanged, per collector",
-      "description": "The last run's fetched count and how many of those were unchanged and not rewritten. A collector whose last run predates ADR-0044 shows 0 unchanged until it next runs.",
+      "description": "The last run's fetched count and how many of those were unchanged and not rewritten. A collector whose last run was recorded before this count existed shows 0 unchanged until it next runs.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 146 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 152 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:collector_last_run_servers_fetched:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "fetched {{source_provider}}", "refId": "A" },
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:collector_last_run_servers_unchanged:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "unchanged {{source_provider}}", "refId": "B" }
@@ -526,12 +535,12 @@
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
-    { "id": 127, "type": "row", "title": "API & frontend pods", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 154 }, "collapsed": false, "panels": [] },
+    { "id": 127, "type": "row", "title": "API & frontend pods", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 160 }, "collapsed": false, "panels": [] },
     {
       "id": 128, "type": "stat", "title": "API replicas available / desired",
       "description": "server_scan:api_replicas_available:ratio: API pods scraped as up over backend.replicaCount (leaf mode, the default) or ready over desired (thanos-ruler mode); below 100% means a pod is down or not ready. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 155 },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 161 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:api_replicas_available:ratio{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
@@ -540,7 +549,7 @@
       "id": 129, "type": "stat", "title": "Frontend replicas available / desired",
       "description": "server_scan:frontend_replicas_available:ratio. No data when frontend.enabled is false. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 155 },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 161 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:frontend_replicas_available:ratio{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
@@ -549,7 +558,7 @@
       "id": 130, "type": "timeseries", "title": "Container restarts in 30m",
       "description": "Restarts of the api and frontend containers over the last 30 minutes (the ServerScan*Restarting alerts fire above podRestartsThreshold). Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 159 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 165 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:api_container_restarts:increase30m{namespace=~\"$namespace\"})", "legendFormat": "api", "refId": "A" },
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:frontend_container_restarts:increase30m{namespace=~\"$namespace\"})", "legendFormat": "frontend", "refId": "B" }
@@ -561,7 +570,7 @@
       "id": 131, "type": "timeseries", "title": "Memory vs limit",
       "description": "Working set as a fraction of the memory limit, worst pod per container (alert above podMemoryLimitRatio). Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 159 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 165 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:api_memory_limit_ratio:max{namespace=~\"$namespace\"})", "legendFormat": "api", "refId": "A" },
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:frontend_memory_limit_ratio:max{namespace=~\"$namespace\"})", "legendFormat": "frontend", "refId": "B" }
@@ -573,7 +582,7 @@
       "id": 132, "type": "timeseries", "title": "CPU usage by pod (cores)",
       "description": "Per-pod CPU use; there is no CPU limit, so this is the only CPU signal. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 167 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 173 },
       "targets": [
         { "expr": "sum by (pod) (max without (prometheus, prometheus_replica) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",container=~\"api|frontend\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}[5m])))", "legendFormat": "{{pod}}", "refId": "A" }
       ],
@@ -584,7 +593,7 @@
       "id": 133, "type": "table", "title": "Pods waiting or OOMKilled",
       "description": "Containers currently waiting in CrashLoopBackOff, ImagePullBackOff and similar, and containers whose last termination was OOMKilled (that row stays until the pod is replaced or ends for another reason). Empty is healthy. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 167 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 173 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (kube_pod_container_status_waiting_reason{namespace=~\"$namespace\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}) == 1", "refId": "A", "format": "table", "instant": true },
         { "expr": "max without (prometheus, prometheus_replica) (kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\",namespace=~\"$namespace\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}) == 1", "refId": "B", "format": "table", "instant": true }

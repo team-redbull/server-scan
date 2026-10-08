@@ -441,3 +441,14 @@ is kept, and documented as "last change". Not done: refreshing `openshift.last_r
 membership with a conditional `$set` (as ADR-0044 does for ingest): about 10,000 extra small writes an hour for
 a stamp nothing needs once the alert reads the run record.
 
+## Update (2026-10-08): login outcomes are visible before they happen
+
+`auth_logins_total{outcome}` is a labelled counter, so an outcome had no series until its first increment: a rare
+one such as `no_permission` (a valid login, but the account is in no admin, auditor or viewer list) never showed
+on the dashboard, and `rate()` also missed the first event. Every outcome in `LOGIN_OUTCOMES` is now created at 0
+when the API starts (a unit test also fails if the login route assigns an outcome that list lacks), and the
+"Login and external calls" row gained "Logins by outcome (last 24h)", an `increase()` over 24 hours that counts
+a rare outcome instead of drawing it as a vanishing per-second rate. To see `no_permission` on purpose, log in
+with an AD account that is in none of `auth.adminGroups`, `auditorGroups` or `viewGroups` (or their user lists).
+The dashboard itself no longer cites ADR numbers in titles, descriptions or tags.
+
