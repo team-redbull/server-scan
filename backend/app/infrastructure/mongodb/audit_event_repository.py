@@ -48,7 +48,7 @@ from app.domain.models.audit_event import (
     AuditEvent,
     decode_legacy_event_type,
 )
-from app.domain.ports.repository import AuditStats
+from app.domain.ports.repository import ActorEventCount, AuditStats
 from app.domain.services.normalize import normalize_text
 from app.errors import CursorInvalidError
 from app.infrastructure.mongodb.client import MongoClientHolder
@@ -453,6 +453,35 @@ class MongoAuditEventRepository:
             )
             async for row in cursor
         ]
+
+    async def count_by_actor(self, since: datetime | None = None) -> list[ActorEventCount]:
+        """
+        Count audit events per actor, busiest first, for the per-user gauges.
+
+        Args:
+            since (datetime | None): Inclusive lower bound on `created_at`; `None` counts every
+                stored event.
+
+        Returns:
+            list[ActorEventCount]: One row per `(actor.type, actor.id)`, at most 200; an event
+                with no actor id counts under `unknown`.
+        """
+        pipeline: list[_Document] = []
+        if since is not None:
+            pipeline.append({"$match": {"created_at": {"$gte": _iso(since)}}})
+        pipeline += [
+            {"$group": {"_id": {"id": "$actor.id", "type": "$actor.type"}, "n": {"$sum": 1}}},
+            {"$sort": {"n": -1, "_id.id": 1}},
+            {"$limit": _ACTOR_LIMIT},
+        ]
+        cursor = await self._collection.aggregate(pipeline)
+        # A missing and a null id (or type) are different groups in Mongo but one label set here.
+        merged: dict[tuple[str, str], int] = {}
+        async for row in cursor:
+            key = (row["_id"].get("type") or "SYSTEM", row["_id"].get("id") or "unknown")
+            merged[key] = merged.get(key, 0) + row["n"]
+        ranked = sorted(merged.items(), key=lambda item: (-item[1], item[0][1]))
+        return [ActorEventCount(actor_type=t, actor=a, count=n) for (t, a), n in ranked]
 
     async def count_by_provider_since(self, event_type: str, since: datetime) -> dict[str, int]:
         """

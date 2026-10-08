@@ -426,7 +426,9 @@ The matching log lines (`ldap.bind_failed`, `ad_api.attempt_failed`, `available.
 carry the `reason`.
 
 **Audit retention and ingest-skip rules (ADR-0044, ADR-0045).** Fleet-style, `max`ed across replicas:
-`server_scan:audit_events:max`, `server_scan:audit_oldest_event_age_seconds` (about 0 while there are
+`server_scan:audit_events:max`, `server_scan:audit_events_by_actor:max` and
+`server_scan:audit_events_by_actor_24h:max` (`{actor_type, actor}`: USER, TOKEN or SYSTEM, and the AD login name,
+token id or job name), `server_scan:audit_oldest_event_age_seconds` (about 0 while there are
 no events), `server_scan:collector_last_run_servers_unchanged:max{source_provider}` and
 `server_scan:collector_last_run_unchanged_ratio` (unchanged / fetched, only where fetched > 0).
 `ServerScanAuditRetentionBehind` (group `server-scan.audit`, warning, for 6h) fires when the oldest
@@ -437,6 +439,13 @@ only when that CronJob is enabled, **not** report-only and `retentionDays` > 0, 
 job deletes nothing; a values file without `collectors.auditRetention` therefore renders no alert.
 **Expect it to fire once** after you set `reportOnly: false` if the trail already holds events older than the
 window plus slack: it clears when the first weekly runs (up to 1M events each) have drained the backlog.
+
+**Events per user (by name).** `server_scan_audit_events_by_actor` and `..._24h` (recording rules
+`server_scan:audit_events_by_actor:max` and `server_scan:audit_events_by_actor_24h:max`) feed the "Events per user"
+panels. They carry usernames as metric labels (AD logins, `api-token-admin|viewer|auditor`, system jobs such as
+`ingestion`, `prune` and `openshift:<cluster>`), so anyone who can open the Grafana datasource can see which users
+did how many audited actions, although the audit trail itself is admin/auditor only. The all-time count is
+recomputed at most every 5 minutes.
 
 **API and frontend pod rules.** Groups `server-scan.pods.rules` (recording) and `server-scan.pods` (alerts, all
 warning) depend on `metrics.prometheusRule.evaluationScope`, default `leaf-prometheus`; a values file without
@@ -503,7 +512,7 @@ never ingested — the newest pod's log lists which ones.
 datasource variable at your instance, and it covers fleet totals, per-
 collector staleness/run health, the membership-job run gauges above, top
 firing health policies, the login and external-call panels (outcomes per second and over 24 hours, login latency, per-dependency
-latency and failures), an audit-trail row (events stored, oldest event age, 403 responses by path, which
+latency and failures), an audit-trail row (events stored, oldest event age, events per user over 24 hours and over all stored events as two bar gauges, 403 responses by path, which
 shows a client still sending a viewer token to `/api/v1/events`), an ingest-skip row (the unchanged
 share of each collector's last run, fetched vs unchanged), an API & frontend pods row (API replicas and restarts always; memory and CPU as usage per pod against the request and limit lines, frontend and waiting or OOM-killed pods only when the central store has the platform `kube_*`/`container_*` series and the rules run with `evaluationScope: thanos-ruler`), and the API's own HTTP/Mongo/Redis metrics. It is
 not wired into the chart — nothing here deploys Grafana dashboards as

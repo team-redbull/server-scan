@@ -13,6 +13,8 @@ from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager, ManagerRun
 from app.domain.models.openshift import MembershipRun
 from app.domain.ports.repository import (
+    ActorEventCount,
+    AuditActorCounts,
     AuditStats,
     ClusterSnapshotRow,
     FleetSnapshot,
@@ -359,15 +361,27 @@ def test_a_run_recorded_before_the_unchanged_count_existed_reads_as_zero() -> No
 
 
 class _Audit:
-    """An audit source stub that serves one `AuditStats` or raises."""
+    """An audit source stub that serves one `AuditStats` and per-actor counts, or raises."""
 
-    def __init__(self, result: AuditStats | Exception) -> None:
+    def __init__(
+        self,
+        result: AuditStats | Exception,
+        actors: list[ActorEventCount] | Exception | None = None,
+    ) -> None:
         self.result = result
+        self.actors = actors or []
+        self.actor_calls: list[bool] = []
 
     async def audit_stats(self) -> AuditStats:
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
+
+    async def count_by_actor(self, since: datetime | None = None) -> list[ActorEventCount]:
+        self.actor_calls.append(since is None)
+        if isinstance(self.actors, Exception):
+            raise self.actors
+        return self.actors
 
 
 async def test_a_failed_audit_query_is_a_counted_refresh_failure() -> None:
@@ -398,4 +412,102 @@ def test_a_vanished_manager_drops_its_unchanged_sample() -> None:
     assert (
         _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
         is None
+    )
+
+
+def _counts(*rows: tuple[str, str, int]) -> list[ActorEventCount]:
+    return [ActorEventCount(actor_type=t, actor=a, count=n) for t, a, n in rows]
+
+
+def test_per_actor_gauges_follow_the_counts_and_drop_vanished_actors() -> None:
+    both = AuditActorCounts(
+        all_stored=_counts(("USER", "alice.cohen", 13), ("SYSTEM", "ingestion", 306)),
+        last_24h=_counts(("USER", "alice.cohen", 2)),
+    )
+    apply_snapshot(_snapshot(), [], [], actors=both)
+    assert _value("server_scan_audit_events_by_actor", actor_type="USER", actor="alice.cohen") == 13
+    assert (
+        _value("server_scan_audit_events_by_actor", actor_type="SYSTEM", actor="ingestion") == 306
+    )
+    assert (
+        _value("server_scan_audit_events_by_actor_24h", actor_type="USER", actor="alice.cohen") == 2
+    )
+
+    apply_snapshot(_snapshot(), [], [], actors=None)
+    assert _value("server_scan_audit_events_by_actor", actor_type="USER", actor="alice.cohen") == 13
+
+    apply_snapshot(
+        _snapshot(),
+        [],
+        [],
+        actors=AuditActorCounts(all_stored=_counts(("USER", "bob.levi", 4)), last_24h=[]),
+    )
+    assert (
+        _value("server_scan_audit_events_by_actor", actor_type="USER", actor="alice.cohen") is None
+    )
+    assert _value("server_scan_audit_events_by_actor", actor_type="USER", actor="bob.levi") == 4
+    assert (
+        _value("server_scan_audit_events_by_actor_24h", actor_type="USER", actor="alice.cohen")
+        is None
+    )
+
+
+async def test_the_all_time_actor_count_refreshes_slower_than_the_24h_one() -> None:
+    audit = _Audit(AuditStats(total=1, oldest_created_at=None), _counts(("USER", "alice.cohen", 1)))
+    refresher = FleetGaugeRefresher(
+        _Repo(_snapshot()),
+        _Managers([]),
+        _MembershipRuns([]),
+        audit=audit,
+        stale_after_seconds=60,
+        min_interval_seconds=0,
+    )
+
+    assert await refresher.maybe_refresh() is True
+    assert await refresher.maybe_refresh() is True
+    assert audit.actor_calls == [False, True, False]
+
+
+async def test_a_failing_actor_query_keeps_the_other_gauges_fresh() -> None:
+    apply_snapshot(
+        _snapshot(),
+        [],
+        [],
+        actors=AuditActorCounts(all_stored=_counts(("USER", "alice.cohen", 13)), last_24h=[]),
+    )
+    before = metrics.fleet_snapshot_failures_total._value.get()
+    refresher = FleetGaugeRefresher(
+        _Repo(_snapshot(in_maintenance=7)),
+        _Managers([]),
+        _MembershipRuns([]),
+        audit=_Audit(AuditStats(total=1, oldest_created_at=None), RuntimeError("slow")),
+        stale_after_seconds=60,
+        min_interval_seconds=0,
+    )
+
+    assert await refresher.maybe_refresh() is True
+    assert _value("server_scan_servers_in_maintenance") == 7
+    assert _value("server_scan_audit_events_by_actor", actor_type="USER", actor="alice.cohen") == 13
+    assert metrics.fleet_snapshot_failures_total._value.get() == before
+
+
+async def test_the_24h_counts_survive_when_only_the_all_time_query_fails() -> None:
+    class _TotalsFail(_Audit):
+        async def count_by_actor(self, since: datetime | None = None) -> list[ActorEventCount]:
+            if since is None:
+                raise RuntimeError("scan too slow")
+            return _counts(("USER", "alice.cohen", 2))
+
+    refresher = FleetGaugeRefresher(
+        _Repo(_snapshot()),
+        _Managers([]),
+        _MembershipRuns([]),
+        audit=_TotalsFail(AuditStats(total=1, oldest_created_at=None)),
+        stale_after_seconds=60,
+        min_interval_seconds=0,
+    )
+
+    assert await refresher.maybe_refresh() is True
+    assert (
+        _value("server_scan_audit_events_by_actor_24h", actor_type="USER", actor="alice.cohen") == 2
     )

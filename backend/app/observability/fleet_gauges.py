@@ -14,13 +14,21 @@ import structlog
 
 from app.domain.models.manager import Manager
 from app.domain.models.openshift import MembershipRun
-from app.domain.ports.repository import AuditStats, FleetSnapshot
+from app.domain.ports.repository import (
+    ActorEventCount,
+    AuditActorCounts,
+    AuditStats,
+    FleetSnapshot,
+)
 from app.observability import metrics
 from app.utils.timeutil import utcnow
 
 logger = structlog.get_logger(__name__)
 
 PRUNED_EVENT_TYPE = "SERVER_PRUNED"
+
+# The all-time per-actor count scans every stored event, so it refreshes more slowly than the rest.
+_ACTOR_TOTALS_EVERY_SECONDS = 300.0
 
 
 class ManagerSource(Protocol):
@@ -67,7 +75,19 @@ class PrunedSource(Protocol):
 
 
 class AuditStatsSource(Protocol):
-    """The one audit-repository method the audit-trail gauges need."""
+    """The audit-repository methods the audit-trail gauges need."""
+
+    async def count_by_actor(self, since: datetime | None = None) -> list[ActorEventCount]:
+        """
+        Count audit events per actor.
+
+        Args:
+            since (datetime | None): Inclusive lower bound on `created_at`, or `None` for all.
+
+        Returns:
+            list[ActorEventCount]: One row per actor, busiest first.
+        """
+        ...
 
     async def audit_stats(self) -> AuditStats:
         """
@@ -116,6 +136,7 @@ def apply_snapshot(
     membership_runs: list[MembershipRun],
     pruned: dict[str, int] | None = None,
     audit: AuditStats | None = None,
+    actors: AuditActorCounts | None = None,
 ) -> None:
     """
     Write one snapshot into the gauges, clearing label sets it no longer names.
@@ -129,6 +150,8 @@ def apply_snapshot(
             provider; `None` leaves the pruned gauge untouched.
         audit (AuditStats | None): The audit trail's size and oldest event;
             `None` leaves the audit gauges untouched.
+        actors (AuditActorCounts | None): Audit events per actor; `None` leaves the
+            per-actor gauges untouched.
     """
     for gauge in (
         metrics.servers_total,
@@ -163,6 +186,15 @@ def apply_snapshot(
         oldest = _epoch(audit.oldest_created_at)
         # An unlabelled gauge cannot be absent, so an empty trail reads "now": an age of 0.
         metrics.audit_oldest_event_timestamp.set(oldest if oldest is not None else time.time())
+
+    if actors is not None:
+        for gauge, rows in (
+            (metrics.audit_events_by_actor, actors.all_stored),
+            (metrics.audit_events_by_actor_24h, actors.last_24h),
+        ):
+            gauge.clear()
+            for row in rows:
+                gauge.labels(actor_type=row.actor_type, actor=row.actor).set(row.count)
 
     if pruned is not None:
         metrics.servers_pruned_24h.clear()
@@ -258,6 +290,9 @@ class FleetGaugeRefresher:
         self._membership_runs = membership_runs
         self._pruned = pruned
         self._audit = audit
+        self._actor_totals: list[ActorEventCount] | None = None
+        self._actor_totals_at = 0.0
+        self._actor_24h: list[ActorEventCount] | None = None
         self._stale_after = timedelta(seconds=stale_after_seconds)
         self._min_interval = min_interval_seconds
         self._last_refresh: float | None = None
@@ -295,6 +330,40 @@ class FleetGaugeRefresher:
                 metrics.fleet_snapshot_failures_total.inc()
                 logger.warning("metrics.fleet_snapshot_failed", error=str(exc))
                 return False
-            apply_snapshot(snapshot, managers, membership_runs, pruned, audit)
+            actors = await self._actor_counts(now)
+            apply_snapshot(snapshot, managers, membership_runs, pruned, audit, actors)
             self._last_refresh = now
             return True
+
+    async def _actor_counts(self, now: float) -> AuditActorCounts | None:
+        """
+        Read the per-actor audit counts, keeping the last totals between slow refreshes.
+
+        Its own error handling: a failing audit aggregation keeps that window's previous counts
+        instead of freezing every other fleet gauge.
+
+        Args:
+            now (float): The refresh's `time.monotonic()` reading.
+
+        Returns:
+            AuditActorCounts | None: The counts, or `None` when there is no audit source or the
+                query failed.
+        """
+        if self._audit is None:
+            return None
+        try:
+            self._actor_24h = await self._audit.count_by_actor(utcnow() - timedelta(hours=24))
+        except Exception as exc:
+            logger.warning("metrics.audit_actor_counts_failed", window="24h", error=str(exc))
+        try:
+            if (
+                self._actor_totals is None
+                or now - self._actor_totals_at >= _ACTOR_TOTALS_EVERY_SECONDS
+            ):
+                self._actor_totals = await self._audit.count_by_actor(None)
+                self._actor_totals_at = now
+        except Exception as exc:
+            logger.warning("metrics.audit_actor_counts_failed", window="all", error=str(exc))
+        if self._actor_24h is None and self._actor_totals is None:
+            return None
+        return AuditActorCounts(all_stored=self._actor_totals or [], last_24h=self._actor_24h or [])

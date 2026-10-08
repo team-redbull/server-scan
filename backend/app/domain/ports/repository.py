@@ -125,6 +125,23 @@ class FleetSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class ActorEventCount:
+    """How many audit events one actor wrote."""
+
+    actor_type: str
+    actor: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AuditActorCounts:
+    """Audit events per actor, over everything stored and over the last 24 hours."""
+
+    all_stored: list[ActorEventCount]
+    last_24h: list[ActorEventCount]
+
+
+@dataclass(frozen=True, slots=True)
 class AuditStats:
     """How big the audit trail is and how far back it goes."""
 

@@ -154,6 +154,10 @@ spec:
           expr: max by (namespace, kind, reported_by) (server_scan_membership_last_run_unresolved)
         - record: server_scan:audit_events:max
           expr: max by (namespace) (server_scan_audit_events)
+        - record: server_scan:audit_events_by_actor:max
+          expr: max by (namespace, actor_type, actor) (server_scan_audit_events_by_actor)
+        - record: server_scan:audit_events_by_actor_24h:max
+          expr: max by (namespace, actor_type, actor) (server_scan_audit_events_by_actor_24h)
         - record: server_scan:collector_last_run_servers_unchanged:max
           expr: max by (namespace, source_provider) (server_scan_collector_last_run_servers_unchanged)
         - record: server_scan:collector_last_run_unchanged_ratio

@@ -489,22 +489,40 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
     },
     {
+      "id": 135, "type": "bargauge", "title": "Events per user (last 24h)",
+      "description": "Audit events per actor in the last 24 hours: AD users who logged in and changed things (maintenance, reservations, reclassify), the admin/auditor/viewer API tokens, and system jobs (ingestion, prune, audit retention, one per OpenShift cluster or MCE membership job). Shows who and what is writing.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 143 },
+      "targets": [{ "expr": "sort_desc(max without (prometheus, prometheus_replica) (server_scan:audit_events_by_actor_24h:max{namespace=~\"$namespace\"}))", "legendFormat": "{{actor_type}} · {{actor}}", "refId": "A", "instant": true, "format": "time_series" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "minVizHeight": 18, "maxVizHeight": 40 }
+    },
+    {
+      "id": 136, "type": "bargauge", "title": "Events per user (all stored)",
+      "description": "The same per actor over every stored event (the numbers beside each name in the Events page User filter); events older than collectors.auditRetention.retentionDays are deleted.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 143 },
+      "targets": [{ "expr": "sort_desc(max without (prometheus, prometheus_replica) (server_scan:audit_events_by_actor:max{namespace=~\"$namespace\"}))", "legendFormat": "{{actor_type}} · {{actor}}", "refId": "A", "instant": true, "format": "time_series" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "minVizHeight": 18, "maxVizHeight": 40 }
+    },
+    {
       "id": 123, "type": "timeseries", "title": "403 responses by path",
       "description": "Every 403: a client still using a viewer token on /api/v1/events (the audit trail is admin/auditor only), a viewer or auditor calling a write endpoint, or a valid login with no permission on /api/v1/auth/login.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 143 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 153 },
       "targets": [
         { "expr": "sum by (path) (max without (prometheus, prometheus_replica) (rate(http_requests_total{namespace=~\"$namespace\", status=\"403\"}[5m])))", "legendFormat": "{{path}}", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "reqps" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
-    { "id": 124, "type": "row", "title": "Ingest skip rate", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 151 }, "collapsed": false, "panels": [] },
+    { "id": 124, "type": "row", "title": "Ingest skip rate", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 161 }, "collapsed": false, "panels": [] },
     {
       "id": 125, "type": "timeseries", "title": "Unchanged share of the last run, per collector",
       "description": "server_scan:collector_last_run_unchanged_ratio: the fraction of fetched servers the last run found unchanged and did not rewrite. Low on a collector that should be quiet means something is churning stored content.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 152 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 162 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:collector_last_run_unchanged_ratio{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "{{source_provider}}", "refId": "A" }
       ],
@@ -515,7 +533,7 @@
       "id": 126, "type": "timeseries", "title": "Servers fetched vs unchanged, per collector",
       "description": "The last run's fetched count and how many of those were unchanged and not rewritten. A collector whose last run was recorded before this count existed shows 0 unchanged until it next runs.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 152 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 162 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:collector_last_run_servers_fetched:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "fetched {{source_provider}}", "refId": "A" },
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:collector_last_run_servers_unchanged:max{namespace=~\"$namespace\", source_provider=~\"$source_provider\"})", "legendFormat": "unchanged {{source_provider}}", "refId": "B" }
@@ -523,12 +541,12 @@
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
-    { "id": 127, "type": "row", "title": "API & frontend pods", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 160 }, "collapsed": false, "panels": [] },
+    { "id": 127, "type": "row", "title": "API & frontend pods", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 170 }, "collapsed": false, "panels": [] },
     {
       "id": 128, "type": "stat", "title": "API replicas available / desired",
       "description": "server_scan:api_replicas_available:ratio: API pods scraped as up over backend.replicaCount (leaf mode, the default) or ready over desired (thanos-ruler mode); below 100% means a pod is down or not ready. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 161 },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 171 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:api_replicas_available:ratio{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
@@ -537,7 +555,7 @@
       "id": 129, "type": "stat", "title": "Frontend replicas available / desired",
       "description": "server_scan:frontend_replicas_available:ratio. No data when frontend.enabled is false. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 161 },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 171 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:frontend_replicas_available:ratio{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" }
@@ -546,7 +564,7 @@
       "id": 130, "type": "timeseries", "title": "Container restarts in 30m",
       "description": "Restarts of the api and frontend containers over the last 30 minutes (the ServerScan*Restarting alerts fire above podRestartsThreshold). Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 165 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 175 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:api_container_restarts:increase30m{namespace=~\"$namespace\"})", "legendFormat": "api", "refId": "A" },
         { "expr": "max without (prometheus, prometheus_replica) (server_scan:frontend_container_restarts:increase30m{namespace=~\"$namespace\"})", "legendFormat": "frontend", "refId": "B" }
@@ -558,7 +576,7 @@
       "id": 131, "type": "timeseries", "title": "Memory: usage, request and limit",
       "description": "Working set per pod (solid lines) against the memory request (dashed orange) and limit (dashed red) of each container. Request and limit are per container, so one line each for api and frontend. Needs the platform series container_memory_working_set_bytes and kube_pod_container_resource_requests/limits (kube-state-metrics, cAdvisor) in this datasource.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 165 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 175 },
       "targets": [
         { "expr": "sum by (pod) (max without (prometheus, prometheus_replica) (container_memory_working_set_bytes{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}))", "legendFormat": "{{pod}} usage", "refId": "A" },
         { "expr": "max by (container) (max without (prometheus, prometheus_replica) (kube_pod_container_resource_requests{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"}))", "legendFormat": "{{container}} request", "refId": "B" },
@@ -574,7 +592,7 @@
       "id": 132, "type": "timeseries", "title": "CPU: usage, request and limit (cores)",
       "description": "CPU use per pod (solid lines) against the CPU request (dashed orange) and limit (dashed red) of each container, in cores. The chart sets a CPU request but no CPU limit, so the limit line only appears once you set a CPU limit in backend.resources or frontend.resources. Needs the platform series container_cpu_usage_seconds_total and kube_pod_container_resource_requests/limits (kube-state-metrics, cAdvisor) in this datasource.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 173 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 183 },
       "targets": [
         { "expr": "sum by (pod) (max without (prometheus, prometheus_replica) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}[5m])))", "legendFormat": "{{pod}} usage", "refId": "A" },
         { "expr": "max by (container) (max without (prometheus, prometheus_replica) (kube_pod_container_resource_requests{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"}))", "legendFormat": "{{container}} request", "refId": "B" },
@@ -590,7 +608,7 @@
       "id": 133, "type": "table", "title": "Pods waiting or OOMKilled",
       "description": "Containers currently waiting in CrashLoopBackOff, ImagePullBackOff and similar, and containers whose last termination was OOMKilled (that row stays until the pod is replaced or ends for another reason). Empty is healthy. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 173 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 183 },
       "targets": [
         { "expr": "max without (prometheus, prometheus_replica) (kube_pod_container_status_waiting_reason{namespace=~\"$namespace\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}) == 1", "refId": "A", "format": "table", "instant": true },
         { "expr": "max without (prometheus, prometheus_replica) (kube_pod_container_status_last_terminated_reason{reason=\"OOMKilled\",namespace=~\"$namespace\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}) == 1", "refId": "B", "format": "table", "instant": true }

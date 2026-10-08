@@ -452,3 +452,21 @@ a rare outcome instead of drawing it as a vanishing per-second rate. To see `no_
 with an AD account that is in none of `auth.adminGroups`, `auditorGroups` or `viewGroups` (or their user lists).
 The dashboard itself no longer cites ADR numbers in titles, descriptions or tags.
 
+## Update (2026-10-08, later): audit events per user, by name
+
+At the operator's request the "Audit trail and access" row shows who is writing: `server_scan_audit_events_by_actor`
+(every stored event, the numbers beside each name in the Events page User filter) and
+`server_scan_audit_events_by_actor_24h`, each labelled `actor_type` (`USER`, `TOKEN`, `SYSTEM`) and `actor` (the
+actor id: an AD login name, `api-token-admin|viewer|auditor`, or a system job such as `ingestion`, `prune`,
+`audit-retention` or `openshift:<cluster>`). Source: `MongoAuditEventRepository.count_by_actor`, a `$group` over
+`actor.id`/`actor.type` (at most 200 actors). The 24-hour count is cheap and refreshes with the other gauges; the
+all-time count scans every stored event, so the refresher recomputes it at most every 5 minutes and keeps the last
+totals in between. These queries have their own error handling: a failure logs
+`metrics.audit_actor_counts_failed` and leaves the per-actor gauges at their last values, so it does not freeze every
+other fleet gauge (it is deliberately not counted in `server_scan_fleet_snapshot_failures_total`). Recording rules
+`server_scan:audit_events_by_actor:max` and `server_scan:audit_events_by_actor_24h:max`; panels "Events per user
+(last 24h)" and "Events per user (all stored)". **Privacy:** these series carry usernames as metric labels, so anyone
+who can open the Grafana datasource sees who did how many audited actions, although the audit trail itself is
+admin/auditor only (ADR-0043). The operator accepted that because only they use that Grafana; reconsider if access
+widens.
+

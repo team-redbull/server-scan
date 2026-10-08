@@ -12,6 +12,7 @@ from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRep
 from app.infrastructure.mongodb.indexes import AUDIT_EVENTS_COLLECTION
 from app.main import create_app
 from app.utils.ids import new_id
+from app.utils.timeutil import utcnow
 
 pytestmark = pytest.mark.integration
 
@@ -46,3 +47,31 @@ async def test_the_scrape_reports_the_oldest_audit_event() -> None:
         _OLDEST.timestamp()
     )
     assert _sample(body, "server_scan_audit_events") >= 1
+
+
+async def test_the_scrape_reports_events_per_actor_by_name() -> None:
+    app = create_app()
+    async with (
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+        app.router.lifespan_context(app),
+    ):
+        mongo = app.state.mongo
+        event = AuditEvent(
+            id=new_id("event"),
+            event_type=EventType.SERVER_DELETED,
+            actor=Actor(type=ActorType.USER, id="wiring.test.user"),
+            created_at=utcnow(),
+        )
+        await MongoAuditEventRepository(mongo).record(event)
+        try:
+            body = (await client.get("/metrics")).text
+        finally:
+            await mongo.db[AUDIT_EVENTS_COLLECTION].delete_one({"_id": event.id})
+
+    assert (
+        'server_scan_audit_events_by_actor{actor="wiring.test.user",actor_type="USER"} 1.0' in body
+    )
+    assert (
+        'server_scan_audit_events_by_actor_24h{actor="wiring.test.user",actor_type="USER"} 1.0'
+        in body
+    )

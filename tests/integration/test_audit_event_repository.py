@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -59,6 +59,7 @@ async def test_events_are_never_updatable_or_deletable_via_this_repository() -> 
         "count_by_provider_since",
         "rename_legacy_event_types",
         "audit_stats",
+        "count_by_actor",
         "preview_before",
         "purge_before",
     }
@@ -303,3 +304,51 @@ async def test_audit_stats_reports_the_oldest_event_and_an_empty_trail(
     assert stats.oldest_created_at is not None
     assert datetime.fromisoformat(stats.oldest_created_at) == oldest
     await mongo_holder.db[AUDIT_EVENTS_COLLECTION].delete_many({})
+
+
+async def test_count_by_actor_groups_by_actor_and_honours_since(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    await mongo_holder.db[AUDIT_EVENTS_COLLECTION].delete_many({})
+    repo = MongoAuditEventRepository(mongo_holder)
+    old = datetime(2025, 1, 1, tzinfo=UTC)
+    for actor_id, created in (
+        ("alice", utcnow()),
+        ("alice", old),
+        ("alice", old),
+        ("bob", utcnow()),
+    ):
+        await repo.record(
+            _event(event_type=EventType.SERVER_DELETED, actor_id=actor_id, created_at=created)
+        )
+
+    everything = {(r.actor_type, r.actor): r.count for r in await repo.count_by_actor()}
+    recent = {
+        (r.actor_type, r.actor): r.count
+        for r in await repo.count_by_actor(utcnow() - timedelta(days=1))
+    }
+
+    assert everything == {("USER", "alice"): 3, ("USER", "bob"): 1}
+    assert recent == {("USER", "alice"): 1, ("USER", "bob"): 1}
+    busiest = await repo.count_by_actor()
+    assert busiest[0].actor == "alice"
+    await mongo_holder.db[AUDIT_EVENTS_COLLECTION].delete_many({})
+
+
+async def test_count_by_actor_merges_missing_and_null_ids_into_one_unknown(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    collection = mongo_holder.db[AUDIT_EVENTS_COLLECTION]
+    await collection.delete_many({})
+    base = {"event_type": "SERVER_DELETED", "created_at": "2026-01-01T00:00:00Z", "data": {}}
+    await collection.insert_many(
+        [
+            {**base, "_id": "legacy_1", "actor": {"type": "SYSTEM"}},
+            {**base, "_id": "legacy_2", "actor": {"type": "SYSTEM", "id": None}},
+        ]
+    )
+
+    rows = await MongoAuditEventRepository(mongo_holder).count_by_actor()
+
+    assert [(r.actor_type, r.actor, r.count) for r in rows] == [("SYSTEM", "unknown", 2)]
+    await collection.delete_many({})

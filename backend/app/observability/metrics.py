@@ -171,6 +171,16 @@ audit_events_stored = Gauge(
     "server_scan_audit_events",
     "Audit events stored in MongoDB",
 )
+audit_events_by_actor = Gauge(
+    "server_scan_audit_events_by_actor",
+    "Audit events stored per actor (the counts beside each name in the Events page User filter)",
+    labelnames=("actor_type", "actor"),
+)
+audit_events_by_actor_24h = Gauge(
+    "server_scan_audit_events_by_actor_24h",
+    "Audit events written per actor in the last 24 hours",
+    labelnames=("actor_type", "actor"),
+)
 audit_oldest_event_timestamp = Gauge(
     "server_scan_audit_oldest_event_timestamp_seconds",
     "Unix time of the oldest stored audit event; the last refresh time when there are none",
