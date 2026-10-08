@@ -53,6 +53,15 @@ revision and threw away its Redis detail-cache key, although the content was ide
   `updated_at` and `classification_version` do not move, and no transition audit event is emitted (none was
   due: `installation_type` and `health.overall` are in the compared content). A touch that matches nothing
   rebuilds through the same bounded loop as a revision conflict.
+- **Live readings are refreshed, not compared** (2026-10-08). Dell (via OpenManage's Redfish pass) and UCS
+  report a PSU's input watts and a GPU's temperature and power draw, which differ on every read; compared, they
+  made 99% of OpenManage and 86% of UCS Central servers "changed" each run. `_stable_view` drops
+  `hardware.gpus[].temperature_celsius`/`power_watts` and `hardware.power.psus[].power_watts`, and `_seen_fields`
+  writes the fresh values into the stored document by index on every skipped run (equal views mean the same
+  GPUs and PSUs in the same order). They are display-only: no health policy reads them.
+- **Which field flips is logged.** `ingest.completed` carries `top_changed_paths`, the ten most common leaf
+  paths (list indexes shown as `[]`) that made an existing server count as changed. If a collector's unchanged
+  share is still low, that line names the field; add it to the volatile set or fix its mapping.
 - **Default is to write.** A field that is not on the volatile list and differs forces the full write, so a new
   per-run stamp added to `_build_server` costs the optimisation, never a lost update.
   `tests/integration/test_ingest_skip_unchanged.py` re-ingests the whole fake fleet twice with the engines on

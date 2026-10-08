@@ -6,10 +6,16 @@ from datetime import timedelta
 
 import pytest
 
-from app.application.services.ingest import _has_unset_fields, _stable_view
+from app.application.services.ingest import (
+    _changed_paths,
+    _has_unset_fields,
+    _seen_fields,
+    _stable_view,
+)
 from app.domain.enums import HealthSeverity, InstallationType, Vendor
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity, ConnectivityAttachment
+from app.domain.models.hardware import Gpu, Power, Psu
 from app.domain.models.health import Health
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.server import Identity, Server
@@ -147,3 +153,33 @@ def test_a_field_missing_inside_a_list_item_is_seen() -> None:
     stored = _server().model_dump(by_alias=True, mode="json")
     del stored["connectivity"]["attachments"][0]["last_seen"]
     assert _has_unset_fields(Server.model_validate(stored)) is True
+
+
+def _with_readings(base: Server, watts: float, celsius: float) -> Server:
+    server = base.model_copy(deep=True)
+    server.hardware.gpus = [Gpu(temperature_celsius=celsius, power_watts=watts)]
+    server.hardware.power = Power(psus=[Psu(id="PSU1", power_watts=watts)])
+    return server
+
+
+def test_live_readings_are_not_a_change_but_are_refreshed() -> None:
+    base = _server()
+    old, new = _with_readings(base, 210.0, 61.0), _with_readings(base, 305.5, 68.0)
+    assert _stable_view(new) == _stable_view(old)
+    fields = _seen_fields(new, runs_health=True, runs_classification=True)
+    assert fields["hardware.gpus.0.temperature_celsius"] == 68.0
+    assert fields["hardware.gpus.0.power_watts"] == 305.5
+    assert fields["hardware.power.psus.0.power_watts"] == 305.5
+
+
+def test_a_psu_going_away_is_still_a_change() -> None:
+    base = _server()
+    old, new = _with_readings(base, 210.0, 61.0), _with_readings(base, 210.0, 61.0)
+    new.hardware.power = Power(psus=[])
+    assert _stable_view(new) != _stable_view(old)
+
+
+def test_changed_paths_collapse_list_indexes() -> None:
+    old = {"model": "A", "drives": [{"health": "OK"}, {"health": "OK"}], "same": 1}
+    new = {"model": "X", "drives": [{"health": "OK"}, {"health": "BAD"}], "same": 1}
+    assert _changed_paths(old, new) == {"model", "drives[].health"}

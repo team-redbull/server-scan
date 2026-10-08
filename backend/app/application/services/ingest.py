@@ -36,8 +36,9 @@ forward unchanged, or leave them at their zero value for a new server.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import structlog
@@ -134,7 +135,38 @@ def _stable_view(server: Server) -> dict[str, Any]:
     view["classification"].pop("classification_version", None)
     for attachment in view["connectivity"]["attachments"]:
         attachment.pop("last_seen", None)
+    for gpu in view["hardware"]["gpus"]:
+        gpu.pop("temperature_celsius", None)
+        gpu.pop("power_watts", None)
+    for psu in view["hardware"]["power"]["psus"]:
+        psu.pop("power_watts", None)
     return view
+
+
+def _changed_paths(old: object, new: object, path: str = "") -> set[str]:
+    """
+    List the leaf paths where two stable views differ, with list indexes collapsed to `[]`.
+
+    Args:
+        old (object): The stored server's stable view (or a part of it).
+        new (object): The fresh server's stable view (or the same part).
+        path (str): The path of this part so far.
+
+    Returns:
+        set[str]: Paths such as `hardware.storage.drives[].health`; a list of a different length
+            is reported as the list itself.
+    """
+    if isinstance(old, dict) and isinstance(new, dict):
+        found: set[str] = set()
+        for key in old.keys() | new.keys():
+            found |= _changed_paths(old.get(key), new.get(key), f"{path}.{key}" if path else key)
+        return found
+    if isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+        found = set()
+        for a, b in zip(old, new, strict=True):
+            found |= _changed_paths(a, b, f"{path}[]")
+        return found
+    return set() if old == new else {path}
 
 
 def _has_unset_fields(model: BaseModel) -> bool:
@@ -185,6 +217,12 @@ def _seen_fields(
         fields["connectivity.attachments.$[].last_seen"] = server.connectivity.attachments[
             0
         ].last_seen
+    # Equal stable views mean the same GPUs and PSUs in the same order, so index paths are safe.
+    for i, gpu in enumerate(server.hardware.gpus):
+        fields[f"hardware.gpus.{i}.temperature_celsius"] = gpu.temperature_celsius
+        fields[f"hardware.gpus.{i}.power_watts"] = gpu.power_watts
+    for i, psu in enumerate(server.hardware.power.psus):
+        fields[f"hardware.power.psus.{i}.power_watts"] = psu.power_watts
     return fields
 
 
@@ -253,6 +291,7 @@ class IngestSummary:
     updated: int = 0
     unchanged: int = 0
     errors: int = 0
+    changed_paths: Counter[str] = field(default_factory=Counter)
 
 
 def _opt_str(value: object) -> str | None:
@@ -523,6 +562,7 @@ class IngestService:
                     provider_type=provider.provider_type,
                     ruleset=ruleset,
                     policies=policies,
+                    changed_paths=summary.changed_paths,
                 )
             except Exception:
                 logger.exception(
@@ -547,6 +587,7 @@ class IngestService:
             updated=summary.updated,
             unchanged=summary.unchanged,
             errors=summary.errors,
+            top_changed_paths=summary.changed_paths.most_common(10),
         )
         return summary
 
@@ -629,6 +670,7 @@ class IngestService:
         provider_type: str,
         ruleset: list[ClassificationRule],
         policies: list[HealthPolicy],
+        changed_paths: Counter[str] | None = None,
     ) -> tuple[Server, IngestOutcome]:
         """
         Normalize, correlate and upsert one provider record.
@@ -642,6 +684,8 @@ class IngestService:
             policies (list[HealthPolicy]): This run's policy set, loaded
                 once by `ingest()` — see `HealthPolicyService.
                 load_policies`'s docstring for why.
+            changed_paths (Counter[str] | None): Where to tally which fields made an existing
+                server count as changed (`_changed_paths`), for the `ingest.completed` log.
 
         Returns:
             tuple[Server, IngestOutcome]: The persisted server, and whether it was
@@ -683,11 +727,13 @@ class IngestService:
                 policies=policies,
             )
 
+            new_view = _stable_view(server)
+            old_view = _stable_view(existing) if existing is not None else None
             unchanged = (
-                existing is not None
-                and not _has_unset_fields(existing)
-                and _stable_view(server) == _stable_view(existing)
+                existing is not None and not _has_unset_fields(existing) and new_view == old_view
             )
+            if old_view is not None and changed_paths is not None and not unchanged:
+                changed_paths.update(_changed_paths(old_view, new_view))
             try:
                 if existing is None:
                     await self._server_repo.upsert(server)

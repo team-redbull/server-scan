@@ -173,6 +173,32 @@ async def test_an_unchanged_server_keeps_its_revision_but_refreshes_its_stamps(
     await _clean(mongo_holder)
 
 
+async def test_live_readings_are_refreshed_on_every_run_without_counting_as_a_change(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    await _clean(mongo_holder)
+    repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+    service = _service(mongo_holder)
+
+    def run(watts: float, celsius: float) -> ProviderServer:
+        return _provider_server(
+            gpus=({"id": "gpu0", "temperature_celsius": celsius, "power_watts": watts},),
+            psus=({"id": "PSU1", "power_watts": watts},),
+        )
+
+    await service.ingest(_OneShotProvider(run(210.0, 61.0)))
+    before = await _the_server(repo)
+    summary = await service.ingest(_OneShotProvider(run(305.5, 68.0)))
+    after = await _the_server(repo)
+
+    assert (summary.unchanged, summary.updated) == (1, 0)
+    assert after.revision == before.revision
+    assert after.hardware.gpus[0].temperature_celsius == 68.0
+    assert after.hardware.gpus[0].power_watts == 305.5
+    assert after.hardware.power.psus[0].power_watts == 305.5
+    await _clean(mongo_holder)
+
+
 async def test_a_content_change_is_a_full_write(mongo_holder: MongoClientHolder) -> None:
     await _clean(mongo_holder)
     repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)

@@ -83,7 +83,9 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   **Ingest skips a server whose content did not change** and only `touch_seen`s its "last
   confirmed" stamps (`revision`/`updated_at` stay): a new per-run timestamp added to
   `_build_server` must join `ingest._VOLATILE_TOP_LEVEL` / `_stable_view`, or every server
-  looks changed and the guard test `test_ingest_skip_unchanged` fails.
+  looks changed and the guard test `test_ingest_skip_unchanged` fails. A **live reading** (PSU/GPU
+  watts, GPU temperature) must also be refreshed in `_seen_fields`, or it goes stale; the fake fleet
+  is deterministic so the guard cannot see it, and `ingest.completed.top_changed_paths` names the culprit.
   **`duplicate_name_groups`/`_servers`** (2026-09-16) are one more facet
   in the same `$facet` pipeline — `$group` by `name`, `$match` on
   `count > 1` — deliberately unlabeled like `servers_in_maintenance`,
