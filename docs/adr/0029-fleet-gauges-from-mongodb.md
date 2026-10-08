@@ -366,7 +366,7 @@ Three more signals, all derived from MongoDB for the same reason as the rest (a 
   0 after a deploy means a new per-run stamp is missing from the volatile list. No alert: real data can
   legitimately change.
 
-Dashboard: a row "Audit trail and access" (events stored, oldest event age, size and age over time, and 403
+Dashboard: a row "Audit trail and access" (events stored, oldest event age and 403
 responses by path, so a client still using a viewer token on `/api/v1/events` after ADR-0043 shows up) and a
 row "Ingest skip rate". Not added, on purpose: a counter of retried write conflicts (a collector cannot be
 scraped; a conflict that exhausts its retries already counts in `ingest_errors`, which

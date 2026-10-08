@@ -474,7 +474,7 @@
       "id": 120, "type": "stat", "title": "Audit events stored",
       "description": "server_scan:audit_events:max: audit events in MongoDB (events older than collectors.auditRetention.retentionDays are deleted).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 135 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 135 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_events:max{namespace=~\"$namespace\"})", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
@@ -483,22 +483,10 @@
       "id": 121, "type": "stat", "title": "Oldest audit event age",
       "description": "server_scan:audit_oldest_event_age_seconds in days. Reads about 0 when there are no events (an unlabelled gauge cannot be absent). Should stay under retentionDays once the retention job is out of report-only.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 135 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 135 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_oldest_event_age_seconds{namespace=~\"$namespace\"}) / 86400", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "unit": "d", "decimals": 1 }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none", "graphMode": "area", "textMode": "auto" }
-    },
-    {
-      "id": 122, "type": "timeseries", "title": "Audit trail size and oldest event age",
-      "description": "Events stored (left axis) and the oldest event's age in days (right axis). A flat age above the retention window means the prune-events CronJob is not deleting.",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 135 },
-      "targets": [
-        { "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_events:max{namespace=~\"$namespace\"})", "legendFormat": "events", "refId": "A" },
-        { "expr": "max without (prometheus, prometheus_replica) (server_scan:audit_oldest_event_age_seconds{namespace=~\"$namespace\"}) / 86400", "legendFormat": "oldest event (days)", "refId": "B" }
-      ],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [{ "matcher": { "id": "byName", "options": "oldest event (days)" }, "properties": [{ "id": "custom.axisPlacement", "value": "right" }, { "id": "unit", "value": "d" }] }] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
     {
       "id": 123, "type": "timeseries", "title": "403 responses by path",
