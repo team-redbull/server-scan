@@ -567,27 +567,36 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
     },
     {
-      "id": 131, "type": "timeseries", "title": "Memory vs limit",
-      "description": "Working set as a fraction of the memory limit, worst pod per container (alert above podMemoryLimitRatio). Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
+      "id": 131, "type": "timeseries", "title": "Memory: usage, request and limit",
+      "description": "Working set per pod (solid lines) against the memory request (dashed orange) and limit (dashed red) of each container. Request and limit are per container, so one line each for api and frontend. Needs the platform series container_memory_working_set_bytes and kube_pod_container_resource_requests/limits (kube-state-metrics, cAdvisor) in this datasource.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 165 },
       "targets": [
-        { "expr": "max without (prometheus, prometheus_replica) (server_scan:api_memory_limit_ratio:max{namespace=~\"$namespace\"})", "legendFormat": "api", "refId": "A" },
-        { "expr": "max without (prometheus, prometheus_replica) (server_scan:frontend_memory_limit_ratio:max{namespace=~\"$namespace\"})", "legendFormat": "frontend", "refId": "B" }
+        { "expr": "sum by (pod) (max without (prometheus, prometheus_replica) (container_memory_working_set_bytes{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}))", "legendFormat": "{{pod}} usage", "refId": "A" },
+        { "expr": "max by (container) (max without (prometheus, prometheus_replica) (kube_pod_container_resource_requests{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"}))", "legendFormat": "{{container}} request", "refId": "B" },
+        { "expr": "max by (container) (max without (prometheus, prometheus_replica) (kube_pod_container_resource_limits{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\", resource=\"memory\"}))", "legendFormat": "{{container}} limit", "refId": "C" }
       ],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "bytes", "min": 0 }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": ".* request" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }, { "id": "custom.fillOpacity", "value": 0 }] },
+        { "matcher": { "id": "byRegexp", "options": ".* limit" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }, { "id": "custom.fillOpacity", "value": 0 }] }
+      ] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } }
     },
     {
-      "id": 132, "type": "timeseries", "title": "CPU usage by pod (cores)",
-      "description": "Per-pod CPU use; there is no CPU limit, so this is the only CPU signal. Platform series (kube-state-metrics, cAdvisor): empty in the default metrics.prometheusRule.evaluationScope=leaf-prometheus mode, where only the API replica and restart panels have data. Memory, CPU, frontend and waiting-pod panels need evaluationScope=thanos-ruler plus those series in this datasource (see deploy/README.md).",
+      "id": 132, "type": "timeseries", "title": "CPU: usage, request and limit (cores)",
+      "description": "CPU use per pod (solid lines) against the CPU request (dashed orange) and limit (dashed red) of each container, in cores. The chart sets a CPU request but no CPU limit, so the limit line only appears once you set a CPU limit in backend.resources or frontend.resources. Needs the platform series container_cpu_usage_seconds_total and kube_pod_container_resource_requests/limits (kube-state-metrics, cAdvisor) in this datasource.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 173 },
       "targets": [
-        { "expr": "sum by (pod) (max without (prometheus, prometheus_replica) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",container=~\"api|frontend\",pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}[5m])))", "legendFormat": "{{pod}}", "refId": "A" }
+        { "expr": "sum by (pod) (max without (prometheus, prometheus_replica) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\"}[5m])))", "legendFormat": "{{pod}} usage", "refId": "A" },
+        { "expr": "max by (container) (max without (prometheus, prometheus_replica) (kube_pod_container_resource_requests{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"}))", "legendFormat": "{{container}} request", "refId": "B" },
+        { "expr": "max by (container) (max without (prometheus, prometheus_replica) (kube_pod_container_resource_limits{namespace=~\"$namespace\", container=~\"api|frontend\", pod=~\".+-(api|frontend)-[a-z0-9]+-[a-z0-9]+\", resource=\"cpu\"}))", "legendFormat": "{{container}} limit", "refId": "C" }
       ],
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short" }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 5 }, "unit": "short", "min": 0, "decimals": 2 }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": ".* request" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }, { "id": "custom.fillOpacity", "value": 0 }] },
+        { "matcher": { "id": "byRegexp", "options": ".* limit" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }, { "id": "custom.fillOpacity", "value": 0 }] }
+      ] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } }
     },
     {
       "id": 133, "type": "table", "title": "Pods waiting or OOMKilled",

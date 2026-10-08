@@ -505,7 +505,7 @@ collector staleness/run health, the membership-job run gauges above, top
 firing health policies, the login and external-call panels (outcomes per second and over 24 hours, login latency, per-dependency
 latency and failures), an audit-trail row (events stored, oldest event age, 403 responses by path, which
 shows a client still sending a viewer token to `/api/v1/events`), an ingest-skip row (the unchanged
-share of each collector's last run, fetched vs unchanged), an API & frontend pods row (API replicas and restarts always; memory vs limit, CPU, frontend and waiting or OOM-killed pods only when the central store has the platform `kube_*`/`container_*` series and the rules run with `evaluationScope: thanos-ruler`), and the API's own HTTP/Mongo/Redis metrics. It is
+share of each collector's last run, fetched vs unchanged), an API & frontend pods row (API replicas and restarts always; memory and CPU as usage per pod against the request and limit lines, frontend and waiting or OOM-killed pods only when the central store has the platform `kube_*`/`container_*` series and the rules run with `evaluationScope: thanos-ruler`), and the API's own HTTP/Mongo/Redis metrics. It is
 not wired into the chart — nothing here deploys Grafana dashboards as
 Kubernetes objects yet (no `GrafanaDashboard` CR, for instance); it is a
 plain export to import by hand or via your own GitOps path for
