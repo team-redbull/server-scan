@@ -288,7 +288,7 @@ function without(filters: RowFilters, key: keyof RowFilters): RowFilters {
  *   filters (RowFilters): The active filters, the sidebar's own included.
  *
  * Returns:
- *   ClusterFacets: Each list sorted naturally by name.
+ *   ClusterFacets: Each list sorted by server count, largest first, then naturally by name.
  */
 export function clusterFacets(
   rows: ServerRow[],
@@ -315,8 +315,8 @@ export function clusterFacets(
     }
   }
 
-  const byName = (a: ClusterOption, b: ClusterOption) =>
-    COLLATOR.compare(a.name, b.name);
+  const byCount = (a: ClusterOption, b: ClusterOption) =>
+    b.count - a.count || COLLATOR.compare(a.name, b.name);
   const hosted: ClusterOption[] = [];
   const upi: ClusterOption[] = [];
   for (const [name, mce] of clusterMce) {
@@ -325,8 +325,8 @@ export function clusterFacets(
   return {
     mces: [...mces]
       .map((name) => ({ name, mce: null, count: mceCounts[name] ?? 0 }))
-      .sort(byName),
-    hosted: hosted.sort(byName),
-    upi: upi.sort(byName),
+      .sort(byCount),
+    hosted: hosted.sort(byCount),
+    upi: upi.sort(byCount),
   };
 }

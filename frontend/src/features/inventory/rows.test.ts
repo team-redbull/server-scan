@@ -287,7 +287,7 @@ describe("filterRows by mce and cluster", () => {
 });
 
 describe("clusterFacets", () => {
-  it("reads MCEs, hosted and UPI clusters off the rows, sorted", () => {
+  it("reads MCEs, hosted and UPI clusters off the rows, largest first", () => {
     const f = clusterFacets(CLUSTERS, {});
     expect(f.mces.map((o) => [o.name, o.count])).toEqual([
       ["mce-a", 3],
@@ -324,6 +324,20 @@ describe("clusterFacets", () => {
       hosted: [],
       upi: [],
     });
+  });
+});
+
+describe("clusterFacets ordering", () => {
+  it("sorts by server count, then by name", () => {
+    const named = (cluster: string, n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        row({ name: `${cluster}-${i}`, cluster_name: cluster }),
+      );
+    const f = clusterFacets(
+      [...named("b-small", 1), ...named("z-big", 3), ...named("a-small", 1)],
+      {},
+    );
+    expect(f.upi.map((o) => o.name)).toEqual(["z-big", "a-small", "b-small"]);
   });
 });
 

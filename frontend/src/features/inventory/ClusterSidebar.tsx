@@ -38,23 +38,26 @@ function Section({
       <ul className="mt-1.5 space-y-0.5">
         {options.map((option) => (
           <li key={option.name}>
-            <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs text-[var(--text-primary)] hover:bg-[var(--surface-hover)]">
+            <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-0.5 text-xs text-[var(--text-primary)] hover:bg-[var(--surface-hover)]">
               <input
                 type="checkbox"
+                className="mt-0.5 shrink-0"
                 checked={selected.includes(option.name)}
                 onChange={() => {
                   onToggle(paramKey, option.name);
                 }}
               />
               <span
-                className="min-w-0 flex-1 truncate"
+                className="min-w-0 flex-1 [overflow-wrap:anywhere]"
                 title={
                   option.mce ? `${option.name} · ${option.mce}` : option.name
                 }
               >
                 {option.name}
               </span>
-              <span className="text-[var(--text-muted)]">{option.count}</span>
+              <span className="shrink-0 text-[var(--text-muted)]">
+                {option.count}
+              </span>
             </label>
           </li>
         ))}
