@@ -100,7 +100,7 @@ export function ClusterSidebar({
   return (
     <aside
       aria-label="Cluster filters"
-      className="sticky top-4 max-h-[calc(100vh-2rem)] w-48 shrink-0 space-y-4 self-start overflow-y-auto rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-3"
+      className="sticky top-4 max-h-[calc(100vh-2rem)] w-max max-w-[26rem] min-w-48 shrink-0 space-y-4 self-start overflow-y-auto rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-3"
     >
       <button
         type="button"

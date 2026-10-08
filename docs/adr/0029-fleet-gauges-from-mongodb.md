@@ -422,7 +422,10 @@ panel was empty although the PrometheusRule existed.
   on the left side"). Every dashboard expression now reduces first with
   `max without (prometheus, prometheus_replica) (...)` (around `rate()`/`increase()` too, so per-pod series
   survive and only the replica copies collapse). Template variables stay plain series selectors, because Grafana
-  runs `label_values` as a series match and rejects expressions.
+  runs `label_values` as a series match and rejects expressions. The `ALERTS` panels (alert table, firing
+  count, annotation) instead aggregate `max by (alertname, alertstate, severity, namespace, source_provider,
+  cluster, kind, reported_by)`, so any replica-identifying label collapses the pair (2026-10-08: each alert
+  showed twice, from prometheus-user-workload-0 and -1).
 - **The dashboard's namespace is a hidden constant variable** (`server-scan`), edited once per environment; the
   "OpenShift name mismatches" row was merged into Fleet overview next to "Fleet size by collector".
 

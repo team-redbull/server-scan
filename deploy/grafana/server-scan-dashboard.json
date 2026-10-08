@@ -76,7 +76,7 @@
         "enable": true,
         "iconColor": "red",
         "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-        "expr": "max without (prometheus, prometheus_replica) (ALERTS{alertname=~\"ServerScan.*\", alertstate=\"firing\", namespace=~\"$namespace\"})",
+        "expr": "max by (alertname, alertstate, severity, namespace, source_provider, cluster, kind, reported_by) (ALERTS{alertname=~\"ServerScan.*\", alertstate=\"firing\", namespace=~\"$namespace\"})",
         "titleFormat": "{{alertname}}",
         "tagKeys": "source_provider,cluster,kind,reported_by"
       }
@@ -132,7 +132,7 @@
       "id": 6, "type": "stat", "title": "ServerScan alerts firing",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
-      "targets": [{ "expr": "count(max without (prometheus, prometheus_replica) (ALERTS{alertname=~\"ServerScan.*\", alertstate=\"firing\", namespace=~\"$namespace\"})) or vector(0)", "refId": "A", "instant": true }],
+      "targets": [{ "expr": "count(max by (alertname, alertstate, severity, namespace, source_provider, cluster, kind, reported_by) (ALERTS{alertname=~\"ServerScan.*\", alertstate=\"firing\", namespace=~\"$namespace\"})) or vector(0)", "refId": "A", "instant": true }],
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "auto" }
     },
@@ -397,7 +397,7 @@
       "id": 30, "type": "table", "title": "ServerScan alerts",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 90 },
-      "targets": [{ "expr": "max without (prometheus, prometheus_replica) (ALERTS{alertname=~\"ServerScan.*\", namespace=~\"$namespace\"})", "refId": "A", "format": "table", "instant": true }],
+      "targets": [{ "expr": "max by (alertname, alertstate, severity, namespace, source_provider, cluster, kind, reported_by) (ALERTS{alertname=~\"ServerScan.*\", namespace=~\"$namespace\"})", "refId": "A", "format": "table", "instant": true }],
       "transformations": [
         { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true }, "indexByName": {} } }
       ],
