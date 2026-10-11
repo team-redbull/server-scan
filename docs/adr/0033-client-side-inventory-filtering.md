@@ -120,7 +120,7 @@ endpoint and does everything else locally.
   304 poll re-renders nothing.
 - `rows.ts` holds the pure functions — `filterRows`, `searchRows`,
   `sortRows`, `facetCounts`, `paginate` — and the page is `useMemo` glue.
-  Search is a case-insensitive **substring** match over name, model,
+  Search is, by default, a case-insensitive **substring** match (ADR-0046 adds `"exact"` and `/regex/` forms) over name, model,
   serial, BMC host and MACs (colon or bare-hex form). Sort uses
   `Intl.Collator("en", {numeric: true, sensitivity: "base"})` — a natural
   order, `srv-2` before `srv-10` — with nulls last whichever the
@@ -228,7 +228,7 @@ option with the heading count compared to the server's own facet total
   `random-server-0276` *in* site nyc server-side and not client-side.
   `searchRows` now covers the same fields; the parity check is
   "client substring count ≥ server prefix-token count" for every query.
-- **The filter row reflowed.** The form was `flex-wrap`, so a wide count
+- **The filter row reflowed.** (Superseded 2026-10-11: Maintenance is now a Health option, ADR-0046.) The form was `flex-wrap`, so a wide count
   (`All sites (50004)`) wrapped Health under Search and ticking
   "Maintenance only" moved the checkbox to the row above. The form is now
   two fixed rows — the seven fields share the first and shrink to fit;
@@ -321,3 +321,10 @@ is `rows.ts` and the page only — no endpoint, no stored field.
   the Name header and exactly as wide as the table (operator's call; the
   sidebar sits beside it). This supersedes the "two fixed rows" layout
   described above.
+
+### 2026-10-11 update
+
+Search gained an exact (`"text"`) and a regex (`/pattern/`) form, and Maintenance moved from a checkbox
+into the Health dropdown (exclusive with a severity): ADR-0046. This supersedes the "Maintenance only
+(3)" toggle count above. The cluster sidebar keeps its search box pinned (only the lists scroll) and caps
+its height at the space under its own top edge, so its last entry is always reachable.

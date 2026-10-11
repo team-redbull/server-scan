@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, FormEvent } from "react";
+import { createPortal } from "react-dom";
 
 import maintenanceIcon from "@/assets/maintenance.svg";
 import { ApiError } from "@/api/client";
@@ -8,6 +9,7 @@ import { useToggleMaintenanceMutation } from "@/features/inventory/hooks";
 import type { ServerRow } from "@/types/server";
 
 const ADMIN_ONLY_TITLE = "Only admins can change maintenance";
+const CARD_HEIGHT_ESTIMATE = 280;
 
 /**
  * One row's maintenance switch: entering maintenance asks why, leaving it
@@ -51,12 +53,28 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [cardStyle, setCardStyle] = useState<CSSProperties>({});
   const enabled = server.maintenance.enabled;
 
   useEffect(() => {
     if (asking) {
       inputRef.current?.focus();
     }
+  }, [asking]);
+
+  /** The card is a portal, so the table's scroll box cannot clip it: place
+   * it under the button, or above when the viewport has no room below. */
+  useLayoutEffect(() => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!asking || !rect) return;
+    const right = Math.max(8, window.innerWidth - rect.right);
+    const fitsBelow = rect.bottom + CARD_HEIGHT_ESTIMATE < window.innerHeight;
+    setCardStyle(
+      fitsBelow
+        ? { right, top: rect.bottom + 4 }
+        : { right, bottom: window.innerHeight - rect.top + 4 },
+    );
   }, [asking]);
 
   function close() {
@@ -88,6 +106,7 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
       }}
     >
       <button
+        ref={buttonRef}
         type="button"
         title={isAdmin ? label : ADMIN_ONLY_TITLE}
         aria-label={isAdmin ? label : ADMIN_ONLY_TITLE}
@@ -115,85 +134,88 @@ export function MaintenanceToggle({ server }: { server: ServerRow }) {
         {enabled ? <PlayIcon /> : <ToolsIcon />}
       </button>
 
-      {asking && (
-        <>
-          {/* A plain overlay, not <dialog showModal()>: jsdom 29 does not
+      {asking &&
+        createPortal(
+          <>
+            {/* A plain overlay, not <dialog showModal()>: jsdom 29 does not
               implement showModal, so the native element is untestable. */}
-          <span
-            className="fixed inset-0 z-20 bg-black/40"
-            onClick={close}
-            aria-hidden="true"
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Put ${server.name} into maintenance`}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") close();
-            }}
-            className="absolute top-full right-0 z-30 mt-1 w-80 rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--surface-raised)] p-4 text-left shadow-lg"
-          >
-            <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-              Put into maintenance
-            </h2>
-            <p
-              className="mt-0.5 truncate text-xs text-[var(--text-muted)]"
-              title={server.name}
+            <span
+              className="fixed inset-0 z-20 bg-black/40"
+              onClick={close}
+              aria-hidden="true"
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Put ${server.name} into maintenance`}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") close();
+              }}
+              style={cardStyle}
+              className="fixed z-30 max-h-[calc(100vh-1rem)] w-80 overflow-y-auto rounded-[var(--radius-card)] border border-[var(--border-strong)] bg-[var(--surface-raised)] p-4 text-left shadow-lg"
             >
-              {server.name}
-            </p>
-
-            <form onSubmit={submit} className="mt-3">
-              <label
-                htmlFor={`maint-reason-${server.id}`}
-                className="block text-xs text-[var(--text-secondary)]"
+              <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+                Put into maintenance
+              </h2>
+              <p
+                className="mt-0.5 truncate text-xs text-[var(--text-muted)]"
+                title={server.name}
               >
-                Why is it going into maintenance?
-              </label>
-              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                Include the word “donor” to mark it as a parts donor.
+                {server.name}
               </p>
-              <input
-                id={`maint-reason-${server.id}`}
-                ref={inputRef}
-                type="text"
-                value={reason}
-                onChange={(event) => {
-                  setReason(event.target.value);
-                }}
-                placeholder="Replacing PSU 2 — INC-4417"
-                className="mt-1.5 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-2 py-1.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]"
-              />
 
-              {toggle.isError && (
-                <p
-                  role="alert"
-                  className="mt-2 text-xs text-[var(--text-on-critical)]"
+              <form onSubmit={submit} className="mt-3">
+                <label
+                  htmlFor={`maint-reason-${server.id}`}
+                  className="block text-xs text-[var(--text-secondary)]"
                 >
-                  {errorMessage(toggle.error)}
+                  Why is it going into maintenance?
+                </label>
+                <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                  Include the word “donor” to mark it as a parts donor.
                 </p>
-              )}
+                <input
+                  id={`maint-reason-${server.id}`}
+                  ref={inputRef}
+                  type="text"
+                  value={reason}
+                  onChange={(event) => {
+                    setReason(event.target.value);
+                  }}
+                  placeholder="Replacing PSU 2 — INC-4417"
+                  className="mt-1.5 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-2 py-1.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]"
+                />
 
-              <div className="mt-3 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={close}
-                  className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={toggle.isPending}
-                  className="rounded-md border border-[var(--border-strong)] bg-[var(--tint-maintenance)] px-2.5 py-1 text-xs font-medium text-[var(--text-on-maintenance)] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {toggle.isPending ? "Starting…" : "Start maintenance"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </>
-      )}
+                {toggle.isError && (
+                  <p
+                    role="alert"
+                    className="mt-2 text-xs text-[var(--text-on-critical)]"
+                  >
+                    {errorMessage(toggle.error)}
+                  </p>
+                )}
+
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={close}
+                    className="rounded-md border border-[var(--border-subtle)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={toggle.isPending}
+                    className="rounded-md border border-[var(--border-strong)] bg-[var(--tint-maintenance)] px-2.5 py-1 text-xs font-medium text-[var(--text-on-maintenance)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {toggle.isPending ? "Starting…" : "Start maintenance"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </>,
+          document.body,
+        )}
     </span>
   );
 }

@@ -439,22 +439,17 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-07 — ingest write discipline (ADR-0044) and audit-event retention (ADR-0045).** Moved to
-`docs/notes/session-log.md`: the auditor-role unit.
+**2026-10-11 — inventory search exact/regex, Maintenance in Health, two UI fixes (ADR-0046).** Moved to
+`docs/notes/session-log.md`: ingest write discipline and audit retention.
 
-**Shipped:** (1) ingest writes an existing server with a revision CAS (3 retries, then `ConflictError`),
-so a maintenance/reservation/membership write made mid-run is never overwritten; (2) a server whose
-content is unchanged is only `touch_seen`d (`_stable_view` minus the per-run stamps; `revision`/
-`updated_at` now mean "content changed"; old-shape documents are rewritten via `_has_unset_fields`;
-`IngestSummary.unchanged`, `unchanged=` in the logs; rows `generated_at` = newest of `updated_at`/
-`last_seen_at`; detail page label "Last changed"); (3) `tools/prune_events.py` + CronJob
-`collectors.auditRetention` (Sun 03:30, 180 days, **report-only**, 0 = forever, `AUDIT_PURGED` event,
-UI `describeEvent` case); (4) the Hardware tab lists drives smallest first (`features/servers/drives.ts`). (5) Grafana/Prometheus for the above: gauges `server_scan_audit_events`, `server_scan_audit_oldest_event_timestamp_seconds`, `server_scan_collector_last_run_servers_unchanged`, alert `ServerScanAuditRetentionBehind` (only rendered once retention is not report-only), two dashboard rows incl. 403s by path. (6) API/frontend pod rules, then corrected the same evening after the operator's live finding (ADR-0029, 2026-10-07 evening): the PrometheusRule now carries `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` by default (`metrics.prometheusRule.evaluationScope`; unlabelled rules go to a Thanos Ruler that may evaluate into a void), the default pod rules use only app-visible series (`up`, `absent_over_time(up)`, `process_start_time_seconds`), the kube-state-metrics rules (`_ready`, not the non-existent `_available`) render only with `thanos-ruler`, and every dashboard expression dedupes the HA Prometheus pair with `max without (prometheus, prometheus_replica)`; the namespace is a hidden constant variable. Each change was reviewed by independent agents (code, stored-shape, docs, Helm)
-before its commit. Also earlier today: pymongo 4.18.2 / `source-map-js` audit fixes and the pre-push
-audit rule in convention 7.
+**Shipped (frontend only, no API change, so `server-scan-api` is unchanged):** (1) the search box takes
+`"exact"` and `/regex/` besides plain substring (`parseSearch`; a bad regex shows an error and keeps every
+row); (2) the Health dropdown ends with **Maintenance**, exclusive with a severity (the checkbox is gone;
+E2E uses `#filter-health`), and the Sites cards' "N in maintenance" links to `?maintenance=true`;
+(3) the cluster sidebar's search box stays pinned while its lists scroll, and its height is capped at the
+space under its own top edge so the last cluster is reachable; (4) `MaintenanceToggle`'s reason card is a
+portal on `document.body` (a one-row result clipped it inside the table's scroll box).
 
-**Open:** the operator reads the first `audit_retention.report_only` log line (after checking
-`countDocuments({created_at: {$not: /Z$/}})` is 0), then sets `collectors.auditRetention.reportOnly:
-false`; the new `unchanged` count shows the real skip rate after the first runs; the AD API's own logs
-for 2026-10-05 17:26 UTC (which backend stalled); still to delete the stale Agent CR / NotReady node
-(outside this repo); parked recheck concurrency cap; operator is checking the OneView probe and that cap.
+**Open:** Playwright (`maintenance.spec.ts`, `inventory.spec.ts`) was edited but not run locally (no browser
+libs in this WSL); the sidebar height fix was reasoned, not measured; the earlier open items from
+2026-10-07 stand (retention report-only flip, recheck concurrency cap, stale Agent CR/node).

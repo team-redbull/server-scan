@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -265,6 +265,35 @@ describe("SitesOverviewPage", () => {
     expect(within(card("UPI")).getByText("2")).toBeInTheDocument();
     expect(within(card("UPI")).getByText(/critical/)).toBeInTheDocument();
     expect(within(card("Hosted cluster")).getByText("1")).toBeInTheDocument();
+  });
+
+  it("turns a card's maintenance count into a link to the maintenance filter", async () => {
+    stubSites({
+      ...SITES_RESPONSE,
+      items: [{ ...SITE_ITEMS[0], in_maintenance: 3 }, SITE_ITEMS[1]],
+    });
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <SitesOverviewPage /> },
+        { path: "/servers", element: <p>inventory</p> },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Tel Aviv" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(card("Tel Aviv")).getByRole("link", { name: /in maintenance/ }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/servers");
+    });
+    expect(router.state.location.search).toBe("?site_id=tlv&maintenance=true");
   });
 
   it("still renders one card per site, linked by site_id", async () => {

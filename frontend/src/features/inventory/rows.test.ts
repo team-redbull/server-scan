@@ -5,6 +5,7 @@ import {
   facetCounts,
   filterRows,
   paginate,
+  parseSearch,
   searchRows,
   sortRows,
 } from "@/features/inventory/rows";
@@ -168,6 +169,46 @@ describe("searchRows", () => {
     expect(searchRows(FLEET, "sn1")).toHaveLength(3);
     expect(searchRows(FLEET, "bmc-1.ex")).toHaveLength(3);
     expect(searchRows(FLEET, "   ")).toBe(FLEET);
+  });
+
+  describe("explicit syntax", () => {
+    const bmcs = ["10.0.0.1", "10.0.0.10", "10.0.0.11", "10.0.0.13", "10.0.0.17"].map(
+      (bmc_host) => row({ name: `srv-${bmc_host}`, bmc_host }),
+    );
+    const hosts = (query: string) => searchRows(bmcs, query).map((r) => r.bmc_host);
+
+    it("treats plain text as a substring, so 10.0.0.1 also finds .10 to .17", () => {
+      expect(hosts("10.0.0.1")).toHaveLength(5);
+    });
+
+    it("treats text in quotes as a whole-value match", () => {
+      expect(hosts('"10.0.0.1"')).toEqual(["10.0.0.1"]);
+      expect(hosts('"10.0.0.1"')).not.toContain("10.0.0.10");
+    });
+
+    it("treats text between slashes as a case-insensitive regex", () => {
+      expect(hosts(String.raw`/10\.0\.0\.(1|13)$/`)).toEqual(["10.0.0.1", "10.0.0.13"]);
+      expect(hosts(String.raw`/^10\.0\.0\.1[0-3]$/`)).toEqual([
+        "10.0.0.10",
+        "10.0.0.11",
+        "10.0.0.13",
+      ]);
+      expect(searchRows([row({ name: "OCP-Dell" })], "/^ocp-/")).toHaveLength(1);
+    });
+
+    it("matches an exact MAC, colon or bare", () => {
+      const rows = [row({ macs: ["aa:bb:cc:dd:ee:ff"] })];
+      expect(searchRows(rows, '"aa:bb:cc:dd:ee:ff"')).toHaveLength(1);
+      expect(searchRows(rows, '"aabbccddeeff"')).toHaveLength(1);
+      expect(searchRows(rows, '"aa:bb:cc"')).toHaveLength(0);
+    });
+
+    it("reports a bad regex and keeps every row instead of blanking the table", () => {
+      expect(parseSearch("/10.0.0.(/").error).toMatch(/invalid regex/i);
+      expect(searchRows(bmcs, "/10.0.0.(/")).toHaveLength(5);
+      expect(parseSearch(`/${"a".repeat(65)}/`).error).toMatch(/longer than 64/);
+      expect(parseSearch("/10\\.0/").error).toBeNull();
+    });
   });
 
   it("matches a MAC in colon or bare-hex form", () => {

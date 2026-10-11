@@ -83,8 +83,14 @@ Loaded only when a `frontend/` file is open.
   avoids the words "maintenance" and a link role, which E2E queries match on.
   A click also fires `lib/toast.ts`'s `showToast` ("Copied <name>", bottom right); `Toaster` is
   mounted once in `AppLayout` and is `aria-hidden` because the button's own live region announces it.
+- **The inventory search has three forms** (`parseSearch`, ADR-0046): plain substring, `"exact"`,
+  `/regex/`; a bad regex sets an error under the box and keeps every row. **Maintenance is a Health
+  dropdown option** (exclusive with a severity, sets `maintenance=true`), not a checkbox, so an E2E
+  uses `#filter-health` `selectOption("MAINTENANCE")`. **`MaintenanceToggle`'s reason card is a portal
+  on `document.body`**, positioned from the button: inside the table's `overflow-x-auto` it was clipped
+  (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`.
 - **The inventory's filter block is one unit in the table's column**
-  (2026-09-21): Search and the six selects on one row, the three toggles
+  (2026-09-21): Search and the six selects on one row, the toggles
   beneath, then the "Filtered by" chips — left and right edges equal to
   the table's (measured 240/1408 px at 1440), with the sidebar beside it.
   It is not above the sidebar; do not move Search back into a separate
@@ -109,9 +115,9 @@ Loaded only when a `frontend/` file is open.
   `getByLabel` matches any accessible name, not just a `<label>` — the
   inventory row's `aria-label="Put X into maintenance"` buttons made a
   bare `getByLabel("Maintenance")` a 51-element strict-mode violation.
-  Scope with `getByRole("checkbox", { name: "Maintenance" })` instead —
-  substring matching still survives the checked state's `" (N)"` suffix,
-  but `role: "checkbox"` excludes every button. **A third one, same day
+  Scope with `getByRole("checkbox", { name: ... })` for a toggle, or
+  `#filter-health` for Maintenance (it is a Health option since 2026-10-11,
+  ADR-0046, no longer a checkbox) — `role: "checkbox"` excludes every button. **A third one, same day
   the BMC column shipped (also broke CI, also missed locally because
   `npm run test/lint/typecheck/build` never runs Playwright — only
   `npx playwright test` does):** an inventory row now carries two

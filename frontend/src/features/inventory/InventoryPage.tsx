@@ -14,6 +14,7 @@ import {
   facetCounts,
   filterRows,
   paginate,
+  parseSearch,
   sortRows,
 } from "@/features/inventory/rows";
 import type { RowFilters } from "@/features/inventory/rows";
@@ -39,6 +40,9 @@ const HEALTH_SEVERITIES = [
   "MAJOR",
   "CRITICAL",
 ] as const;
+/** The Health dropdown's last entry: a different axis than severity, so
+ * choosing it replaces the severity (it sets `maintenance=true`). */
+const MAINTENANCE_OPTION = "MAINTENANCE";
 const FIELD_CLASS =
   "mt-1 w-full min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
 
@@ -64,9 +68,11 @@ export function InventoryPage() {
   const siteId = searchParams.get("site_id") ?? "";
   const installationType = searchParams.get("installation_type") ?? "";
   const openshiftState = searchParams.get("openshift_state") ?? "";
-  const healthOverall = searchParams.get("health_overall") ?? "";
-  const sourceProvider = searchParams.get("source_provider") ?? "";
   const maintenanceOnly = searchParams.get("maintenance") === "true";
+  const healthOverall = maintenanceOnly
+    ? ""
+    : (searchParams.get("health_overall") ?? "");
+  const sourceProvider = searchParams.get("source_provider") ?? "";
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
   const contestedOnly = searchParams.get("contested") === "true";
@@ -121,6 +127,11 @@ export function InventoryPage() {
     mceSel,
     clusterSel,
   ]);
+
+  const searchError = useMemo(
+    () => parseSearch(searchInput).error,
+    [searchInput],
+  );
 
   const { data, isPending, isError, error } = useServerRowsQuery();
   const matched = useMemo(
@@ -334,9 +345,21 @@ export function InventoryPage() {
                     onChange={(e) => {
                       updateFilters({ search: e.target.value });
                     }}
-                    placeholder="Name, serial, tag, BMC…"
+                    placeholder='Name, serial, BMC… · "exact" · /regex/'
+                    title={
+                      'Plain text matches anywhere. "10.0.0.1" in quotes must equal the whole value. /10\\.0\\.0\\.(1|13)$/ between slashes is a regular expression.'
+                    }
+                    aria-invalid={searchError !== null}
                     className={FIELD_CLASS}
                   />
+                  {searchError && (
+                    <span
+                      role="alert"
+                      className="mt-1 text-[var(--text-on-critical)]"
+                    >
+                      {searchError}
+                    </span>
+                  )}
                 </label>
                 <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
                   <label htmlFor="filter-vendor">Vendor</label>
@@ -467,9 +490,14 @@ export function InventoryPage() {
                   <label htmlFor="filter-health">Health</label>
                   <select
                     id="filter-health"
-                    value={healthOverall}
+                    value={maintenanceOnly ? MAINTENANCE_OPTION : healthOverall}
                     onChange={(e) => {
-                      updateFilters({ health_overall: e.target.value });
+                      const picked = e.target.value;
+                      updateFilters(
+                        picked === MAINTENANCE_OPTION
+                          ? { health_overall: null, maintenance: "true" }
+                          : { health_overall: picked, maintenance: null },
+                      );
                     }}
                     className={FIELD_CLASS}
                   >
@@ -478,27 +506,26 @@ export function InventoryPage() {
                     </option>
                     {HEALTH_SEVERITIES.map((h) => (
                       <option key={h} value={h}>
-                        {withCount(h, facets?.health, h, healthOverall !== "")}
+                        {withCount(
+                          h,
+                          facets?.health,
+                          h,
+                          healthOverall !== "" || maintenanceOnly,
+                        )}
                       </option>
                     ))}
+                    <option value={MAINTENANCE_OPTION}>
+                      {withCount(
+                        "Maintenance",
+                        facets?.maintenance,
+                        "true",
+                        healthOverall !== "" || maintenanceOnly,
+                      )}
+                    </option>
                   </select>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-6">
-                <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
-                  <input
-                    type="checkbox"
-                    checked={maintenanceOnly}
-                    onChange={(e) => {
-                      updateFilters({
-                        maintenance: e.target.checked ? "true" : null,
-                      });
-                    }}
-                  />
-                  Maintenance
-                  {maintenanceOnly && facets ? ` (${facets.total})` : ""}
-                </label>
-
                 <label
                   className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
                   title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"

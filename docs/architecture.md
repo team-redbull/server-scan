@@ -288,8 +288,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   weak ETag and `Cache-Control: no-cache`, and polled every 30 s (a 304
   when unchanged; `generated_at` is the newest `updated_at` or `last_seen_at`
   (ADR-0044), not the build time, precisely so the body is byte-stable between
-  runs). Filter, sort, substring
-  search, facet counts and paging then happen in the browser — including
+  runs). Filter, sort, search
+  (substring, `"exact"` or `/regex/`, ADR-0046), facet counts and paging then happen in the browser — including
   the left sidebar's MCE / hosted-cluster / UPI-cluster lists, which are
   read off the same rows, so a new cluster needs no configuration
   (ADR-0033, 2026-09-21 update). Everything

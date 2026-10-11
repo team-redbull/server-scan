@@ -12,7 +12,7 @@ test.describe("Inventory", () => {
 
     // Search is client-side over the whole fleet (ADR-0033): no request to
     // wait for; the URL changes per keystroke, the rows after the debounce.
-    await page.getByPlaceholder("Name, serial, tag, BMC…").fill("ocp-dell");
+    await page.getByPlaceholder('Name, serial, BMC… · "exact" · /regex/').fill("ocp-dell");
     await expect(page).toHaveURL(/search=ocp-dell/);
     await expect(rows.first().locator("td").first()).toContainText(/ocp-dell/i);
     // A real filter, not a no-op: the seeded fleet has multiple vendors, so

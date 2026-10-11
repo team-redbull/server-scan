@@ -148,7 +148,15 @@ function withOpenshiftFilter(to: string, state: OpenShiftState): string {
 
 /** A drill-in count nested inside the card's `<Link>` — anchors cannot
  * nest, so this is a `role="link"` span that navigates itself. */
-function CountLink({ to, className, children }: { to: string; className: string; children: ReactNode }) {
+function CountLink({
+  to,
+  className,
+  children,
+}: {
+  to: string;
+  className: string;
+  children: ReactNode;
+}) {
   const navigate = useNavigate();
   function go(e: MouseEvent | KeyboardEvent) {
     e.preventDefault();
@@ -266,11 +274,14 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
           </CountLink>
         )}
         {stats.in_maintenance > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-[var(--text-on-maintenance)]">
+          <CountLink
+            to={`${card.to}${card.to.includes("?") ? "&" : "?"}maintenance=true`}
+            className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-[var(--text-on-maintenance)] underline-offset-2 hover:underline"
+          >
             <span aria-hidden="true">⏸</span>
             <span className="tabular">{stats.in_maintenance}</span> in
             maintenance
-          </span>
+          </CountLink>
         )}
         {unknown > 0 && (
           <span className="inline-flex items-center gap-1.5 text-[var(--text-on-unknown)]">

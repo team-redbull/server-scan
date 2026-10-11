@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
@@ -63,6 +63,14 @@ function renderToggle(role: "ADMIN" | "VIEWER", server: ServerRow = makeServer()
 describe("MaintenanceToggle", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("renders the reason card on the page, outside a table's scroll box", async () => {
+    renderToggle("ADMIN");
+    fireEvent.click(await screen.findByRole("button", { name: /into maintenance/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.parentElement).toBe(document.body);
   });
 
   it("is a live enabled button for an admin", async () => {

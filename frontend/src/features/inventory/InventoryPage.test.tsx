@@ -263,7 +263,7 @@ describe("InventoryPage", () => {
     expect(screen.getByText("stale-01")).toBeInTheDocument();
     // The toggles count only while ticked — no "(21)" on an option nobody chose.
     expect(screen.getByLabelText(/^Stale \(1\)/)).toBeChecked();
-    expect(screen.getByLabelText(/^Maintenance$/)).not.toBeChecked();
+    expect(screen.getByLabelText("Health")).toHaveValue("");
   });
 
   it("keeps only rows sharing a name when Duplicate Name is ticked", async () => {
@@ -359,7 +359,7 @@ describe("InventoryPage", () => {
       expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByPlaceholderText("Name, serial, tag, BMC…"), {
+    fireEvent.change(screen.getByPlaceholderText('Name, serial, BMC… · "exact" · /regex/'), {
       target: { value: "isco" },
     });
     await vi.advanceTimersByTimeAsync(300);

@@ -133,10 +133,97 @@ export function filterRows(
   return searchRows(kept, filters.search ?? "");
 }
 
+/** Longest regex body the search box accepts, same cap as the API's search. */
+export const MAX_REGEX_LENGTH = 64;
+
+export interface SearchMatcher {
+  /** True when the row matches; every row matches while `error` is set. */
+  test: (row: ServerRow) => boolean;
+  /** Why the query is unusable (a bad regex), shown under the box. */
+  error: string | null;
+}
+
+/** The text fields a search looks at, lowercased; MACs are separate. */
+function searchFields(row: ServerRow): string[] {
+  const fields = [
+    row.name,
+    row.model,
+    row.serial,
+    row.vendor,
+    row.site_id,
+    row.installation_type,
+    row.bmc_host,
+    // The MCE an install is headed for, so searching that cluster finds the
+    // machines going to it — not only the ones already installed there.
+    row.reservation.mce_cluster,
+  ];
+  return fields.flatMap((f) => (f ? [f.toLowerCase()] : []));
+}
+
 /**
- * Case-insensitive substring search over the same fields the API's token
- * search indexes — name, model, serial, vendor, site, installation type,
- * BMC host and MACs; a hex-looking query also matches MACs bare.
+ * Turn the search box text into a matcher. Plain text is a
+ * case-insensitive substring; `"text"` in quotes must equal a whole field;
+ * `/pattern/` is a case-insensitive regular expression (ADR-0046).
+ *
+ * Args:
+ *   query (string): The raw box text; blank matches everything.
+ *
+ * Returns:
+ *   SearchMatcher: The row test, plus `error` for an unusable regex (in
+ *   which case the test keeps every row rather than blanking the table).
+ */
+export function parseSearch(query: string): SearchMatcher {
+  const raw = query.trim();
+  if (!raw) return { test: () => true, error: null };
+
+  const regexBody = /^\/(.+)\/$/.exec(raw)?.[1];
+  if (regexBody !== undefined) {
+    if (regexBody.length > MAX_REGEX_LENGTH) {
+      return {
+        test: () => true,
+        error: `Regex is longer than ${MAX_REGEX_LENGTH} characters`,
+      };
+    }
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(regexBody, "i");
+    } catch (e) {
+      return {
+        test: () => true,
+        error: `Invalid regex: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+    return {
+      test: (row) =>
+        searchFields(row).some((f) => pattern.test(f)) ||
+        row.macs.some((mac) => pattern.test(mac)),
+      error: null,
+    };
+  }
+
+  const exactBody = /^"(.+)"$/.exec(raw)?.[1];
+  const exact = exactBody !== undefined;
+  const q = (exact ? exactBody : raw).toLowerCase();
+  const bare = HEX_LIKE.test(q) ? q.replace(/[:-]/g, "") : null;
+  const matches = (field: string, needle: string) =>
+    exact ? field === needle : field.includes(needle);
+  return {
+    test: (row) =>
+      searchFields(row).some((f) => matches(f, q)) ||
+      row.macs.some(
+        (mac) =>
+          matches(mac, q) ||
+          (bare !== null && matches(mac.replace(/:/g, ""), bare)),
+      ),
+    error: null,
+  };
+}
+
+/**
+ * Keep the rows the search box text matches (see `parseSearch` for the
+ * three syntaxes) over name, model, serial, vendor, site, installation
+ * type, BMC host, MACs and a reservation's MCE; a hex-looking query also
+ * matches MACs bare.
  *
  * Args:
  *   rows (ServerRow[]): The rows to search.
@@ -146,26 +233,8 @@ export function filterRows(
  *   ServerRow[]: The rows with a match, in input order.
  */
 export function searchRows(rows: ServerRow[], query: string): ServerRow[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return rows;
-  const bare = HEX_LIKE.test(q) ? q.replace(/[:-]/g, "") : null;
-  return rows.filter((row) => {
-    if (row.name.toLowerCase().includes(q)) return true;
-    if (row.model?.toLowerCase().includes(q)) return true;
-    if (row.serial?.toLowerCase().includes(q)) return true;
-    if (row.vendor.includes(q)) return true;
-    if (row.site_id?.toLowerCase().includes(q)) return true;
-    if (row.installation_type.toLowerCase().includes(q)) return true;
-    if (row.bmc_host?.toLowerCase().includes(q)) return true;
-    // The MCE an install is headed for, so searching that cluster finds the
-    // machines going to it — not only the ones already installed there.
-    if (row.reservation.mce_cluster?.toLowerCase().includes(q)) return true;
-    return row.macs.some(
-      (mac) =>
-        mac.includes(q) ||
-        (bare !== null && mac.replace(/:/g, "").includes(bare)),
-    );
-  });
+  if (!query.trim()) return rows;
+  return rows.filter(parseSearch(query).test);
 }
 
 /**
