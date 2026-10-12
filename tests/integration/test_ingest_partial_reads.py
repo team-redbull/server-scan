@@ -445,3 +445,99 @@ async def test_the_document_records_which_fields_this_run_could_not_read(
     )
 
     assert await stored() == []
+
+
+_GONE = {
+    # field on `ProviderServer`: (value meaning "read, and nothing is there", path on `Server`)
+    "storage_drives": ((), "hardware.storage.drives"),
+    "psus": ((), "hardware.power.psus"),
+    "memory_modules": ((), "hardware.memory.modules"),
+    "gpus": ((), "hardware.gpus"),
+    "nic_macs": ((), "identity.nic_macs"),
+}
+
+
+async def _stored(mongo_holder: MongoClientHolder, serial_normalized: str) -> Any:
+    repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+    page = await repo.list_page(
+        filters={"identity.serial_normalized": serial_normalized},
+        search=None,
+        sort="name",
+        sort_desc=False,
+        cursor=None,
+        page_size=1,
+        with_count=False,
+    )
+    return page.items[0]
+
+
+def _at(server: Any, path: str) -> Any:
+    for part in path.split("."):
+        server = getattr(server, part)
+    return server
+
+
+@pytest.mark.parametrize("field", list(_GONE))
+async def test_a_part_that_was_removed_is_cleared_not_kept(
+    mongo_holder: MongoClientHolder, field: str
+) -> None:
+    """A drive/PSU/DIMM/GPU/NIC taken out reads as "read, none", and the stored list empties."""
+    empty, path = _GONE[field]
+    serial = f"SN-GONE-{field}".upper().replace("_", "-")
+    service = _service(mongo_holder)
+    extras = {"gpus": ({"vendor": "NVIDIA", "model": "H100", "serial": "G1"},)}
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, **extras)))
+    assert _at(await _stored(mongo_holder, serial.lower()), path)
+
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, **{field: empty})))
+
+    server = await _stored(mongo_holder, serial.lower())
+    assert _at(server, path) == []
+    assert path not in server.unread_fields
+
+
+@pytest.mark.parametrize("field", list(_GONE))
+async def test_a_part_that_could_not_be_read_is_kept_and_flagged(
+    mongo_holder: MongoClientHolder, field: str
+) -> None:
+    """The mirror image: `None` is "don't know", so the stored list survives."""
+    _, path = _GONE[field]
+    serial = f"SN-UNREAD-{field}".upper().replace("_", "-")
+    service = _service(mongo_holder)
+    extras = {"gpus": ({"vendor": "NVIDIA", "model": "H100", "serial": "G1"},)}
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, **extras)))
+
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, **{field: None})))
+
+    server = await _stored(mongo_holder, serial.lower())
+    assert _at(server, path)
+    assert path in server.unread_fields
+
+
+async def test_a_server_taken_out_of_its_template_loses_it(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """`""` is "read, and there is none": the stored template clears and is not flagged unread."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OneShotProvider(
+            _fully_read(
+                serial="SN-SPT-GONE",
+                profile_template_name="worker-tmpl",
+                profile_template_external_id="tmpl-9",
+            )
+        )
+    )
+
+    await service.ingest(
+        _OneShotProvider(
+            _fully_read(
+                serial="SN-SPT-GONE", profile_template_name="", profile_template_external_id=""
+            )
+        )
+    )
+
+    server = await _stored(mongo_holder, "sn-spt-gone")
+    assert server.profile_template.name is None
+    assert server.profile_template.external_id is None
+    assert "profile_template.name" not in server.unread_fields

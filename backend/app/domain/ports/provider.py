@@ -113,6 +113,7 @@ class ProviderServer:
     manager_id: str | None = None  # no site_id: the site is parsed from the name at ingest
 
     profile_dn: str | None = None  # the profile instance's own DN; not persisted
+    # None = could not read (stored value kept); "" = read, and there is none (cleared).
     profile_template_name: str | None = None
     profile_template_external_id: str | None = None
 

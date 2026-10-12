@@ -39,16 +39,18 @@ def _profile_template_fields(
 
     Returns:
         tuple[str | None, str | None]: `(name, external_id)` for
-            `ProviderServer.profile_template_*`, or `(None, None)` when the
-            server has no profile or its profile came from no template.
+            `ProviderServer.profile_template_*`, or `("", "")` when the
+            server has no profile or its profile came from no template:
+            `lsServer` was read, so "none" is an answer and clears a stored
+            template (`None` would keep it).
 
     See docs/cisco-collectors.md, "Service profiles and server names".
     """
     if profile is None:
-        return None, None
+        return "", ""
     template_name = getattr(profile, "src_templ_name", None) or None
     if not template_name:
-        return None, None
+        return "", ""
     oper_dn = getattr(profile, "oper_src_templ_name", None) or None
     external_id = oper_dn or template_dn_by_name.get(template_name, template_name)
     return template_name, external_id

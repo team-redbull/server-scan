@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   clusterFacets,
+  dropdownFacetCounts,
   facetCounts,
   filterRows,
   paginate,
@@ -63,23 +64,70 @@ const FLEET = [
 
 describe("filterRows", () => {
   it("matches every set filter and treats blanks as any", () => {
-    expect(filterRows(FLEET, { vendor: "cisco" }).map((r) => r.name)).toEqual([
-      "srv-2",
-    ]);
-    expect(
-      filterRows(FLEET, { vendor: "", maintenance: true }).map((r) => r.name),
-    ).toEqual(["srv-1"]);
-    expect(filterRows(FLEET, { stale: true, health: "HEALTHY" })).toHaveLength(
-      1,
+    expect(filterRows(FLEET, { vendor: ["cisco"] }).map((r) => r.name)).toEqual(
+      ["srv-2"],
     );
+    expect(
+      filterRows(FLEET, { vendor: [], maintenance: true }).map((r) => r.name),
+    ).toEqual(["srv-1"]);
+    expect(
+      filterRows(FLEET, { stale: true, health: ["HEALTHY"] }),
+    ).toHaveLength(1);
     expect(filterRows(FLEET, {})).toHaveLength(3);
+  });
+
+  describe("several values per dropdown", () => {
+    const fleet = [
+      row({ name: "dell-a", vendor: "dell", openshift_state: "AVAILABLE" }),
+      row({ name: "dell-i", vendor: "dell", openshift_state: "INSTALLED" }),
+      row({ name: "hp-a", vendor: "hp", openshift_state: "AVAILABLE" }),
+      row({ name: "cisco-a", vendor: "cisco", openshift_state: "AVAILABLE" }),
+    ];
+    const names = (f: Parameters<typeof filterRows>[1]) =>
+      filterRows(fleet, f).map((r) => r.name);
+
+    it("ORs the values of one dropdown", () => {
+      expect(names({ vendor: ["dell", "hp"] })).toEqual([
+        "dell-a",
+        "dell-i",
+        "hp-a",
+      ]);
+    });
+
+    it("ANDs across dropdowns: all Dell and HP that are available", () => {
+      expect(
+        names({ vendor: ["dell", "hp"], openshift_state: ["AVAILABLE"] }),
+      ).toEqual(["dell-a", "hp-a"]);
+    });
+
+    it("treats an empty list as all", () => {
+      expect(names({ vendor: [], source_provider: [] })).toHaveLength(4);
+    });
+
+    it("matches a row with no source against a source filter only if listed", () => {
+      const rows = [row({ name: "x", source_provider: null })];
+      expect(filterRows(rows, { source_provider: ["OPENMANAGE"] })).toEqual([]);
+    });
+
+    it("counts each option over the rows the OTHER filters leave", () => {
+      const counts = dropdownFacetCounts(fleet, {
+        vendor: ["dell"],
+        openshift_state: ["AVAILABLE"],
+      });
+      // Vendor counts ignore the vendor filter itself: ticking HP would add 1.
+      expect(counts.vendor).toEqual({ dell: 1, hp: 1, cisco: 1 });
+      // Installation counts ignore the installation filter: Dell has one of each.
+      expect(counts.openshift_state).toEqual({ AVAILABLE: 1, INSTALLED: 1 });
+      // The total is the fully filtered set.
+      expect(counts.total).toBe(1);
+    });
   });
 
   it("maps the unassigned site to a null site_id", () => {
     expect(
-      filterRows(FLEET, { site_id: "unassigned" }).map((r) => r.name),
+      filterRows(FLEET, { site_id: ["unassigned"] }).map((r) => r.name),
     ).toEqual(["srv-2"]);
-    expect(filterRows(FLEET, { site_id: "tlv" })).toHaveLength(2);
+    expect(filterRows(FLEET, { site_id: ["tlv"] })).toHaveLength(2);
   });
 
   it("keeps every row sharing a name with another row, and only those", () => {
@@ -101,7 +149,7 @@ describe("filterRows", () => {
       row({ name: "ocp4-five-compute-06", vendor: "cisco" }),
     ];
     expect(
-      filterRows(fleet, { duplicate: true, vendor: "hp" }).map((r) => r.name),
+      filterRows(fleet, { duplicate: true, vendor: ["hp"] }).map((r) => r.name),
     ).toEqual(["ocp4-five-compute-06"]);
   });
 
@@ -172,10 +220,15 @@ describe("searchRows", () => {
   });
 
   describe("explicit syntax", () => {
-    const bmcs = ["10.0.0.1", "10.0.0.10", "10.0.0.11", "10.0.0.13", "10.0.0.17"].map(
-      (bmc_host) => row({ name: `srv-${bmc_host}`, bmc_host }),
-    );
-    const hosts = (query: string) => searchRows(bmcs, query).map((r) => r.bmc_host);
+    const bmcs = [
+      "10.0.0.1",
+      "10.0.0.10",
+      "10.0.0.11",
+      "10.0.0.13",
+      "10.0.0.17",
+    ].map((bmc_host) => row({ name: `srv-${bmc_host}`, bmc_host }));
+    const hosts = (query: string) =>
+      searchRows(bmcs, query).map((r) => r.bmc_host);
 
     it("treats plain text as a substring, so 10.0.0.1 also finds .10 to .17", () => {
       expect(hosts("10.0.0.1")).toHaveLength(5);
@@ -187,13 +240,18 @@ describe("searchRows", () => {
     });
 
     it("treats text between slashes as a case-insensitive regex", () => {
-      expect(hosts(String.raw`/10\.0\.0\.(1|13)$/`)).toEqual(["10.0.0.1", "10.0.0.13"]);
+      expect(hosts(String.raw`/10\.0\.0\.(1|13)$/`)).toEqual([
+        "10.0.0.1",
+        "10.0.0.13",
+      ]);
       expect(hosts(String.raw`/^10\.0\.0\.1[0-3]$/`)).toEqual([
         "10.0.0.10",
         "10.0.0.11",
         "10.0.0.13",
       ]);
-      expect(searchRows([row({ name: "OCP-Dell" })], "/^ocp-/")).toHaveLength(1);
+      expect(searchRows([row({ name: "OCP-Dell" })], "/^ocp-/")).toHaveLength(
+        1,
+      );
     });
 
     it("matches an exact MAC, colon or bare", () => {
@@ -206,7 +264,9 @@ describe("searchRows", () => {
     it("reports a bad regex and keeps every row instead of blanking the table", () => {
       expect(parseSearch("/10.0.0.(/").error).toMatch(/invalid regex/i);
       expect(searchRows(bmcs, "/10.0.0.(/")).toHaveLength(5);
-      expect(parseSearch(`/${"a".repeat(65)}/`).error).toMatch(/longer than 64/);
+      expect(parseSearch(`/${"a".repeat(65)}/`).error).toMatch(
+        /longer than 64/,
+      );
       expect(parseSearch("/10\\.0/").error).toBeNull();
     });
   });
@@ -322,7 +382,7 @@ describe("filterRows by mce and cluster", () => {
     ]);
     expect(names({ cluster: ["hosted-2", "upi-1"] })).toEqual(["h3", "u1"]);
     expect(names({ mce: ["mce-a"], cluster: ["hosted-2"] })).toEqual([]);
-    expect(names({ mce: ["mce-a"], vendor: "cisco" })).toEqual(["h2"]);
+    expect(names({ mce: ["mce-a"], vendor: ["cisco"] })).toEqual(["h2"]);
     expect(names({ mce: [], cluster: [] })).toHaveLength(6);
   });
 });

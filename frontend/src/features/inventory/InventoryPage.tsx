@@ -7,11 +7,12 @@ import type { SortableField } from "@/features/inventory/sorting";
 import { ClusterSidebar } from "@/features/inventory/ClusterSidebar";
 import { downloadCsv, rowsToCsv } from "@/features/inventory/csvExport";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
+import { MultiSelect } from "@/features/inventory/MultiSelect";
 import { siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
 import { useServerRowsQuery } from "@/features/inventory/hooks";
 import {
   clusterFacets,
-  facetCounts,
+  dropdownFacetCounts,
   filterRows,
   paginate,
   parseSearch,
@@ -53,6 +54,24 @@ function isSortableField(value: string): value is SortableField {
   return (SORTABLE_FIELDS as readonly string[]).includes(value);
 }
 
+/** One labelled filter in the field row; shrinks to fit so a wide count never wraps. */
+function FilterField({
+  id,
+  label,
+  children,
+}: {
+  id: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
+      <label htmlFor={id}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
 /** The inventory table. All filter and pagination state lives in the URL,
  * so refresh and back both land where the user was — a project requirement.
  * The fleet arrives whole and is filtered, sorted and paged here (ADR-0033). */
@@ -64,15 +83,26 @@ export function InventoryPage() {
   const searchInput = searchParams.get("search") ?? "";
   const debouncedSearch = useDebouncedValue(searchInput, 300);
 
-  const vendor = searchParams.get("vendor") ?? "";
-  const siteId = searchParams.get("site_id") ?? "";
-  const installationType = searchParams.get("installation_type") ?? "";
-  const openshiftState = searchParams.get("openshift_state") ?? "";
+  // Repeated params (`?vendor=dell&vendor=hp`); a single `?vendor=dell` link is one value.
+  const vendors = useMemo(() => searchParams.getAll("vendor"), [searchParams]);
+  const siteIds = useMemo(() => searchParams.getAll("site_id"), [searchParams]);
+  const installationTypes = useMemo(
+    () => searchParams.getAll("installation_type"),
+    [searchParams],
+  );
+  const openshiftStates = useMemo(
+    () => searchParams.getAll("openshift_state"),
+    [searchParams],
+  );
+  const sourceProviders = useMemo(
+    () => searchParams.getAll("source_provider"),
+    [searchParams],
+  );
   const maintenanceOnly = searchParams.get("maintenance") === "true";
-  const healthOverall = maintenanceOnly
-    ? ""
-    : (searchParams.get("health_overall") ?? "");
-  const sourceProvider = searchParams.get("source_provider") ?? "";
+  const healthSeverities = useMemo(
+    () => (maintenanceOnly ? [] : searchParams.getAll("health_overall")),
+    [searchParams, maintenanceOnly],
+  );
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
   const contestedOnly = searchParams.get("contested") === "true";
@@ -95,12 +125,12 @@ export function InventoryPage() {
     // `undefined` to an optional property outright.
     const next: RowFilters = {};
     if (debouncedSearch) next.search = debouncedSearch;
-    if (vendor) next.vendor = vendor;
-    if (siteId) next.site_id = siteId;
-    if (sourceProvider) next.source_provider = sourceProvider;
-    if (installationType) next.installation_type = installationType;
-    if (openshiftState) next.openshift_state = openshiftState;
-    if (healthOverall) next.health = healthOverall;
+    if (vendors.length) next.vendor = vendors;
+    if (siteIds.length) next.site_id = siteIds;
+    if (sourceProviders.length) next.source_provider = sourceProviders;
+    if (installationTypes.length) next.installation_type = installationTypes;
+    if (openshiftStates.length) next.openshift_state = openshiftStates;
+    if (healthSeverities.length) next.health = healthSeverities;
     if (maintenanceOnly) next.maintenance = true;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
@@ -112,12 +142,12 @@ export function InventoryPage() {
     return next;
   }, [
     debouncedSearch,
-    vendor,
-    siteId,
-    sourceProvider,
-    installationType,
-    openshiftState,
-    healthOverall,
+    vendors,
+    siteIds,
+    sourceProviders,
+    installationTypes,
+    openshiftStates,
+    healthSeverities,
     maintenanceOnly,
     staleOnly,
     duplicateOnly,
@@ -139,8 +169,8 @@ export function InventoryPage() {
     [data, filters, sortField, sortDesc],
   );
   const facets = useMemo(
-    () => (data ? facetCounts(matched) : undefined),
-    [data, matched],
+    () => (data ? dropdownFacetCounts(data.items, filters) : undefined),
+    [data, filters],
   );
   const clusterOptions = useMemo(
     () => (data ? clusterFacets(data.items, filters) : undefined),
@@ -152,18 +182,9 @@ export function InventoryPage() {
     pageCount,
   } = paginate(matched, pageParam, PAGE_SIZE);
 
-  /** Append a filter option's match count to its label — "(0)" included, so
-   * an empty option is visibly empty. Silent only when this dimension is
-   * already filtered (every other option would read as zero when it is
-   * really unknown). */
-  function withCount(
-    label: string,
-    counts: Record<string, number> | undefined,
-    value: string,
-    filtered: boolean,
-  ): string {
-    if (filtered || !counts) return label;
-    return `${label} (${counts[value] ?? 0})`;
+  /** The dropdowns' text while nothing is ticked: "All (2,504)" once the fleet has loaded. */
+  function allLabel(word = "All"): string {
+    return facets ? `${word} (${facets.total})` : word;
   }
 
   /** Apply a filter patch to the URL and go back to page 1. Built from the
@@ -189,13 +210,35 @@ export function InventoryPage() {
     );
   }
 
-  /** Tick or untick one value of a repeated param (`?mce=a&mce=b`). */
-  function toggleMulti(key: "mce" | "cluster", value: string) {
+  /** Tick or untick one value of a repeated param (`?mce=a&mce=b`, `?vendor=dell&vendor=hp`). */
+  function toggleMulti(key: string, value: string) {
     const current = new URLSearchParams(window.location.search).getAll(key);
     const next = current.includes(value)
       ? current.filter((v) => v !== value)
       : [...current, value];
     updateFilters({ [key]: next });
+  }
+
+  /** Tick or untick one Health option against the live URL. Maintenance is a different axis than
+   * severity: ticking it replaces the severities and ticking a severity drops it (ADR-0046). */
+  function toggleHealth(value: string) {
+    const live = new URLSearchParams(window.location.search);
+    const liveMaintenance = live.get("maintenance") === "true";
+    if (value === MAINTENANCE_OPTION) {
+      updateFilters(
+        liveMaintenance
+          ? { maintenance: null }
+          : { health_overall: null, maintenance: "true" },
+      );
+      return;
+    }
+    const current = liveMaintenance ? [] : live.getAll("health_overall");
+    updateFilters({
+      health_overall: current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value],
+      maintenance: null,
+    });
   }
 
   function handleSortChange(field: SortableField, desc: boolean) {
@@ -230,37 +273,37 @@ export function InventoryPage() {
   const activeFilters: { key: string; label: string; value?: string }[] = [];
   if (debouncedSearch)
     activeFilters.push({ key: "search", label: `Search "${debouncedSearch}"` });
-  if (vendor) activeFilters.push({ key: "vendor", label: `Vendor ${vendor}` });
-  if (siteId) {
+  for (const v of vendors)
+    activeFilters.push({ key: "vendor", label: `Vendor ${v}`, value: v });
+  for (const id of siteIds)
     activeFilters.push({
       key: "site_id",
-      label: `Site ${sites.find((s) => s.value === siteId)?.label ?? siteId}`,
+      label: `Site ${sites.find((s) => s.value === id)?.label ?? id}`,
+      value: id,
     });
-  }
-  if (sourceProvider) {
+  for (const p of sourceProviders)
     activeFilters.push({
       key: "source_provider",
-      label: `Source ${SOURCE_PROVIDERS.find((s) => s.value === sourceProvider)?.label ?? sourceProvider}`,
+      label: `Source ${SOURCE_PROVIDERS.find((s) => s.value === p)?.label ?? p}`,
+      value: p,
     });
-  }
-  if (installationType)
+  for (const t of installationTypes)
     activeFilters.push({
       key: "installation_type",
-      label: `Classification ${installationType}`,
+      label: `Classification ${t}`,
+      value: t,
     });
-  if (openshiftState) {
+  for (const st of openshiftStates)
     activeFilters.push({
       key: "openshift_state",
-      label: `Installation ${
-        OPENSHIFT_STATES.find((s) => s.value === openshiftState)?.label ??
-        openshiftState
-      }`,
+      label: `Installation ${OPENSHIFT_STATES.find((s) => s.value === st)?.label ?? st}`,
+      value: st,
     });
-  }
-  if (healthOverall)
+  for (const h of healthSeverities)
     activeFilters.push({
       key: "health_overall",
-      label: `Health ${healthOverall}`,
+      label: `Health ${h}`,
+      value: h,
     });
   if (maintenanceOnly)
     activeFilters.push({ key: "maintenance", label: "Maintenance" });
@@ -361,169 +404,150 @@ export function InventoryPage() {
                     </span>
                   )}
                 </label>
-                <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
-                  <label htmlFor="filter-vendor">Vendor</label>
-                  <select
+                <FilterField id="filter-vendor" label="Vendor">
+                  <MultiSelect
                     id="filter-vendor"
-                    value={vendor}
-                    onChange={(e) => {
-                      updateFilters({ vendor: e.target.value });
-                    }}
+                    label="Vendor"
                     className={FIELD_CLASS}
-                  >
-                    <option value="">
-                      All{facets ? ` (${facets.total})` : ""}
-                    </option>
-                    {VENDORS.map((v) => (
-                      <option key={v} value={v}>
-                        {withCount(v, facets?.vendor, v, vendor !== "")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    allLabel={allLabel()}
+                    selected={vendors}
+                    options={VENDORS.map((v) => ({
+                      value: v,
+                      label: v,
+                      count: facets?.vendor[v] ?? (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("vendor", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ vendor: null });
+                    }}
+                  />
+                </FilterField>
 
-                <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
-                  <label htmlFor="filter-source">Source</label>
-                  <select
+                <FilterField id="filter-source" label="Source">
+                  <MultiSelect
                     id="filter-source"
-                    value={sourceProvider}
-                    onChange={(e) => {
-                      updateFilters({ source_provider: e.target.value });
-                    }}
+                    label="Source"
                     className={FIELD_CLASS}
-                  >
-                    <option value="">
-                      All{facets ? ` (${facets.total})` : ""}
-                    </option>
-                    {SOURCE_PROVIDERS.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {withCount(
-                          s.label,
-                          facets?.source_provider,
-                          s.value,
-                          sourceProvider !== "",
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    allLabel={allLabel()}
+                    selected={sourceProviders}
+                    options={SOURCE_PROVIDERS.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      count:
+                        facets?.source_provider[s.value] ??
+                        (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("source_provider", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ source_provider: null });
+                    }}
+                  />
+                </FilterField>
 
-                <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
-                  <label htmlFor="filter-site">Site</label>
-                  <select
+                <FilterField id="filter-site" label="Site">
+                  <MultiSelect
                     id="filter-site"
-                    value={siteId}
-                    onChange={(e) => {
-                      updateFilters({ site_id: e.target.value });
-                    }}
+                    label="Site"
                     className={FIELD_CLASS}
-                  >
-                    <option value="">
-                      All sites{facets ? ` (${facets.total})` : ""}
-                    </option>
-                    {sites.map((site) => (
-                      <option key={site.value} value={site.value}>
-                        {withCount(
-                          site.label,
-                          facets?.site_id,
-                          site.value,
-                          siteId !== "",
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    allLabel={allLabel("All sites")}
+                    selected={siteIds}
+                    options={sites.map((site) => ({
+                      value: site.value,
+                      label: site.label,
+                      count:
+                        facets?.site_id[site.value] ?? (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("site_id", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ site_id: null });
+                    }}
+                  />
+                </FilterField>
 
-                <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
-                  <label htmlFor="filter-classification">Classification</label>
-                  <select
+                <FilterField id="filter-classification" label="Classification">
+                  <MultiSelect
                     id="filter-classification"
-                    value={installationType}
-                    onChange={(e) => {
-                      updateFilters({ installation_type: e.target.value });
-                    }}
+                    label="Classification"
                     className={FIELD_CLASS}
-                  >
-                    <option value="">
-                      All{facets ? ` (${facets.total})` : ""}
-                    </option>
-                    {INSTALLATION_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {withCount(
-                          t,
-                          facets?.installation_type,
-                          t,
-                          installationType !== "",
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    allLabel={allLabel()}
+                    selected={installationTypes}
+                    options={INSTALLATION_TYPES.map((t) => ({
+                      value: t,
+                      label: t,
+                      count:
+                        facets?.installation_type[t] ??
+                        (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("installation_type", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ installation_type: null });
+                    }}
+                  />
+                </FilterField>
 
-                <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
-                  <label htmlFor="filter-installation">Installation</label>
-                  <select
+                <FilterField id="filter-installation" label="Installation">
+                  <MultiSelect
                     id="filter-installation"
-                    value={openshiftState}
-                    onChange={(e) => {
-                      updateFilters({ openshift_state: e.target.value });
-                    }}
+                    label="Installation"
                     className={FIELD_CLASS}
-                  >
-                    <option value="">
-                      All{facets ? ` (${facets.total})` : ""}
-                    </option>
-                    {OPENSHIFT_STATES.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {withCount(
-                          s.label,
-                          facets?.openshift_state,
-                          s.value,
-                          openshiftState !== "",
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    allLabel={allLabel()}
+                    selected={openshiftStates}
+                    options={OPENSHIFT_STATES.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      count:
+                        facets?.openshift_state[s.value] ??
+                        (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("openshift_state", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ openshift_state: null });
+                    }}
+                  />
+                </FilterField>
 
-                <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-[var(--text-secondary)]">
-                  <label htmlFor="filter-health">Health</label>
-                  <select
+                <FilterField id="filter-health" label="Health">
+                  <MultiSelect
                     id="filter-health"
-                    value={maintenanceOnly ? MAINTENANCE_OPTION : healthOverall}
-                    onChange={(e) => {
-                      const picked = e.target.value;
-                      updateFilters(
-                        picked === MAINTENANCE_OPTION
-                          ? { health_overall: null, maintenance: "true" }
-                          : { health_overall: picked, maintenance: null },
-                      );
-                    }}
+                    label="Health"
                     className={FIELD_CLASS}
-                  >
-                    <option value="">
-                      All{facets ? ` (${facets.total})` : ""}
-                    </option>
-                    {HEALTH_SEVERITIES.map((h) => (
-                      <option key={h} value={h}>
-                        {withCount(
-                          h,
-                          facets?.health,
-                          h,
-                          healthOverall !== "" || maintenanceOnly,
-                        )}
-                      </option>
-                    ))}
-                    <option value={MAINTENANCE_OPTION}>
-                      {withCount(
-                        "Maintenance",
-                        facets?.maintenance,
-                        "true",
-                        healthOverall !== "" || maintenanceOnly,
-                      )}
-                    </option>
-                  </select>
-                </div>
+                    allLabel={allLabel()}
+                    selected={
+                      maintenanceOnly ? [MAINTENANCE_OPTION] : healthSeverities
+                    }
+                    options={[
+                      ...HEALTH_SEVERITIES.map((h) => ({
+                        value: h,
+                        label: h,
+                        count: facets?.health[h] ?? (facets ? 0 : undefined),
+                      })),
+                      {
+                        value: MAINTENANCE_OPTION,
+                        label: "Maintenance",
+                        count:
+                          facets?.maintenance["true"] ??
+                          (facets ? 0 : undefined),
+                      },
+                    ]}
+                    onToggle={toggleHealth}
+                    onClear={() => {
+                      updateFilters({
+                        health_overall: null,
+                        maintenance: null,
+                      });
+                    }}
+                  />
+                </FilterField>
               </div>
               <div className="flex flex-wrap items-center gap-6">
                 <label
@@ -624,12 +648,12 @@ export function InventoryPage() {
                 <span>Filtered by:</span>
                 {activeFilters.map((f) => (
                   <button
-                    key={f.key}
+                    key={`${f.key}:${f.value ?? ""}`}
                     type="button"
                     onClick={() => {
                       if (f.value === undefined)
                         updateFilters({ [f.key]: null });
-                      else toggleMulti(f.key as "mce" | "cluster", f.value);
+                      else toggleMulti(f.key, f.value);
                     }}
                     title="Remove this filter"
                     className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1 hover:border-[var(--border-strong)]"

@@ -405,6 +405,27 @@ async def test_a_failed_subresource_query_reports_none_not_empty() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unreadable_boards_leave_the_board_joined_hardware_unread() -> None:
+    """With `compute/Boards` failing, board-joined controllers, cards and processors resolve to no
+    server; reporting that as `[]` would wipe a server's stored drives and GPUs.
+    """
+    tables = dict(_TABLES)
+    tables["storage/Controllers"] = [{"Moid": "ctrl1", "ComputeBoard": _ref("board1")}]
+    tables["graphics/Cards"] = [{"Moid": "gpu1", "ComputeBoard": _ref("board1")}]
+    tables["processor/Units"] = [{"Moid": "cpu1", "ComputeBoard": _ref("board1")}]
+    provider = _provider(_FakeClient(tables, failing=frozenset({"compute/Boards"})))
+
+    servers = await _collect(provider)
+    first = next(s for s in servers if s.serial == "WZP1")
+
+    assert first.storage_drives is None
+    assert first.storage_total_bytes is None
+    assert first.gpus is None
+    assert first.cpu_model is None
+    assert provider.collection_errors
+
+
+@pytest.mark.asyncio
 async def test_a_failed_subresource_is_reported_as_a_partial_run() -> None:
     """`tools.run_collector` turns this into exit 3. A run that could not
     read drives is not a run that found none, and must not exit 0.

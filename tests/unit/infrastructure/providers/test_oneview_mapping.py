@@ -183,6 +183,24 @@ class TestName:
         assert server.profile_template_name == "worker-tpl"
         assert server.profile_template_external_id == "/rest/server-profile-templates/tpl"
 
+    def test_a_profile_with_no_template_reports_none_as_read_and_empty(self) -> None:
+        """`""` clears a stored template; an unnamed-but-present template stays `None` (unread)."""
+        no_template = profile_from({"uri": "/rest/server-profiles/x", "name": "ocp4-x"})
+        unnamed = profile_from(
+            {
+                "uri": "/rest/server-profiles/x",
+                "name": "ocp4-x",
+                "serverProfileTemplateUri": "/rest/server-profile-templates/gone",
+            },
+            template_names={},
+        )
+
+        assert no_template is not None
+        assert (no_template.template_name, no_template.template_uri) == ("", "")
+        assert unnamed is not None
+        assert unnamed.template_name is None
+        assert unnamed.template_uri == "/rest/server-profile-templates/gone"
+
     def test_a_profile_without_a_uri_or_a_name_is_unusable(self) -> None:
         assert profile_from({"name": "ocp4-x"}) is None
         assert profile_from({"uri": "/rest/server-profiles/x"}) is None
@@ -349,6 +367,18 @@ class TestGpus:
 
 
 class TestStorage:
+    def test_a_server_whose_last_drive_was_removed_reports_a_zero_total(self) -> None:
+        """Read, and empty: 0 clears the stored total, while the drive list clears too.
+
+        `None` would keep the old capacity next to an empty drive list.
+        """
+        member = _hardware()
+        member["subResources"]["LocalStorageV2"]["data"]["Drives"] = []
+        server = server_from(hardware=member, profile=_profile(), manager_id="mgr_oneview")
+
+        assert server.storage_drives == ()
+        assert server.storage_total_bytes == 0
+
     def test_localstoragev2_capacity_is_taken_in_bytes(self) -> None:
         server = _mapped()
 

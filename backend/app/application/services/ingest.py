@@ -906,6 +906,8 @@ class IngestService:
             external_ids={ps.manager_id: ps.external_id} if ps.manager_id else {},
         )
         existing_profile_template = existing.profile_template if existing is not None else None
+        # `""` is a provider saying "read, and there is none": it clears the stored template
+        # (a server taken out of its profile), where `None` keeps it (ADR-0016).
         profile_template = ProfileTemplate(
             name=_carry_forward(
                 ps.profile_template_name,
@@ -913,14 +915,16 @@ class IngestService:
                 default=None,
                 unread=unread,
                 name="profile_template.name",
-            ),
+            )
+            or None,
             external_id=_carry_forward(
                 ps.profile_template_external_id,
                 existing_profile_template.external_id if existing_profile_template else None,
                 default=None,
                 unread=unread,
                 name="profile_template.external_id",
-            ),
+            )
+            or None,
         )
 
         network = NetworkInfo(

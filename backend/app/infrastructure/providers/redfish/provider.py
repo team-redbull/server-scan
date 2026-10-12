@@ -619,12 +619,14 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
         Returns:
             list[dict[str, Any]] | None: Every drive, deduplicated by
-                `@odata.id`, or None if storage could not be read at all.
+                `@odata.id`, or None if storage could not be read at all or
+                any listed drive could not (the stored drives are kept).
         """
         controllers = await self._optional(client, system, "Storage")
         if controllers is None:
             return None
         drives: dict[str, dict[str, Any]] = {}
+        incomplete = False
         for controller in controllers:
             for link in controller.get("Drives", []) or []:
                 if not isinstance(link, dict):
@@ -634,8 +636,11 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                     if path not in drives:
                         drives[path] = await client.get(path)
                 except (RedfishForbiddenError, RedfishProtocolError) as exc:
+                    incomplete = True
                     logger.warning("redfish.drive_skipped", error=str(exc))
-        return list(drives.values())
+        # A drive that cannot be read must not vanish from the list: a short list overwrites the
+        # stored one, so a failed drive would drop out of the record and the server would heal.
+        return None if incomplete else list(drives.values())
 
     async def _gpu_telemetry(
         self, client: Any, processors: list[dict[str, Any]] | None

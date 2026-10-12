@@ -192,7 +192,8 @@ def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) ->
         idrac_ip=idrac_ip,
         serial=_opt_str(device.get("DeviceServiceTag")),
         model=_opt_str(device.get("Model")),
-        profile_template_name=_opt_str(profile.get("TemplateName")),
-        profile_template_external_id=_opt_str(profile.get("TemplateId")),
+        # "" = the profile was read and names no template (clears a stored one).
+        profile_template_name=_opt_str(profile.get("TemplateName")) or "",
+        profile_template_external_id=_opt_str(profile.get("TemplateId")) or "",
         bmc_address_raw=idrac_bmc_address(idrac_ip),
     )

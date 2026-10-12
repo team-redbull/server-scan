@@ -251,7 +251,9 @@ Since 2026-09-13 the platform serves **`GET /api/v1/servers/available`**
 Collector, storage/query and frontend traps live in `.claude/rules/`. The
 long form of each entry is in the 2026-09-13 archive.
 
-- **`None` from a provider means "could not read this run"**, never zero.
+- **`None` from a provider means "could not read this run"**, never zero; **"read, and nothing is there"
+  must be sent as `()`/`0`/`""`** (template name/id) or a removed part or template stays forever (ADR-0016,
+  2026-10-12: a server taken out of its SPT kept the old template).
   `IngestService` carries the stored value forward and lists the path in
   `Server.unread_fields`; `reachable=False` (+ `unreachable_reason`) is the
   whole-server version; a `REDFISH_STANDALONE` stub has no serial (ADR-0037,
@@ -456,6 +458,15 @@ cluster 'x'`, `... in maintenance (reason)`; a pattern gets counts per reason; `
 like `INSTALLED`/`MAINTENANCE`), answering from the stored document before any vendor call for installed,
 claimed, maintenance and reserved servers. And every authenticated login is an audit event, `LOGIN_SUCCEEDED`
 with the role or `LOGIN_DENIED` (`NO_PERMISSION`), ADR-0047.
+
+**Also (2026-10-12, latest):** the inventory's Vendor/Source/Site/Classification/Installation/Health filters take
+several values (`MultiSelect`, repeated URL params, counts over the other filters, ADR-0033 update); frontend only.
+
+**Also (2026-10-12, later):** removing a server from its SPT left the old template (and the same shape of bug in
+other fields): a mapper sent `None` for "none" and ingest keeps `None`. Now "read, none" is `""`/`()`/`0`
+(Cisco, OneView, OME, Intersight templates; OneView/Intersight storage total; Redfish memory total) and three
+failed-read wipes are closed (Redfish drive GETs, Intersight board join and vNIC MACs); ADR-0016 update lists what
+is still open. Cisco `/servers/available` verified working by the operator after the earlier fix.
 
 **Also (2026-10-12):** the Cisco recheck had emptied the stored document (hardware, NICs, BMC) because
 `UcsManagerProvider.get_one` bucketed MOs by the SDK's CamelCase `_class_id` and skipped the profile-DN management

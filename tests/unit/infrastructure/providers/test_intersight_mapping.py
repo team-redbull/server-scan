@@ -457,6 +457,19 @@ def test_the_profile_template_is_carried_through() -> None:
     assert server.profile_template_external_id == "abc123"
 
 
+def test_a_server_whose_profiles_were_read_but_has_no_template_reports_none_as_read() -> None:
+    """`""` clears a stored template; `None` (the join was not read) keeps it."""
+    read_and_none = mapping.to_provider_server(
+        _summary(), provider_type="INTERSIGHT", manager_id="m", no_template=True
+    )
+    not_read = mapping.to_provider_server(_summary(), provider_type="INTERSIGHT", manager_id="m")
+
+    assert read_and_none.profile_template_name == ""
+    assert read_and_none.profile_template_external_id == ""
+    assert not_read.profile_template_name is None
+    assert not_read.profile_template_external_id is None
+
+
 def test_the_vendor_is_always_cisco() -> None:
     """Correlation is on `(vendor, serial_normalized)`, so a server that
     moved between Cisco collectors must stay one document.
@@ -555,8 +568,22 @@ def test_macs_are_empty_only_when_both_tables_were_read() -> None:
     assert server.nic_macs == ()
 
 
-def test_macs_from_the_surviving_table_are_still_reported() -> None:
-    """A failed sibling must not discard MACs that were actually read."""
+def test_vnic_macs_are_reported_even_when_the_ext_table_failed() -> None:
+    """vNICs are preferred over physical ports, so they stand on their own."""
+    server = mapping.to_provider_server(
+        _summary(),
+        provider_type="INTERSIGHT",
+        manager_id="mgr_intersight",
+        host_interfaces=[{"MacAddress": "00:11:22:33:44:01"}],
+        ext_interfaces=None,
+    )
+    assert server.nic_macs == ("00:11:22:33:44:01",)
+
+
+def test_physical_macs_are_not_reported_when_the_vnic_table_failed() -> None:
+    """Without the vNIC table the physical-port MACs would replace a stored vNIC set, and a
+    wrong NIC list is what a BareMetalHost gets built from. The stored MACs are kept instead.
+    """
     server = mapping.to_provider_server(
         _summary(),
         provider_type="INTERSIGHT",
@@ -564,4 +591,17 @@ def test_macs_from_the_surviving_table_are_still_reported() -> None:
         host_interfaces=None,
         ext_interfaces=[{"SwitchId": "A", "MacAddress": "00:11:22:33:44:00"}],
     )
-    assert server.nic_macs == ("00:11:22:33:44:00",)
+    assert server.nic_macs is None
+
+
+def test_a_server_whose_last_disk_was_removed_reports_a_zero_total() -> None:
+    """Read, and nothing is installed: 0 clears the stored total; `None` would keep it."""
+    server = mapping.to_provider_server(
+        _summary(), provider_type="INTERSIGHT", manager_id="m", disks=[]
+    )
+    unread = mapping.to_provider_server(_summary(), provider_type="INTERSIGHT", manager_id="m")
+
+    assert server.storage_drives == ()
+    assert server.storage_total_bytes == 0
+    assert unread.storage_drives is None
+    assert unread.storage_total_bytes is None

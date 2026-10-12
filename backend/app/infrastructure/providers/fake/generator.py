@@ -461,12 +461,15 @@ def _profile_template(rng: random.Random, collector: ManagerType) -> tuple[str |
     Returns:
         tuple[str | None, str | None]: `(name, external_id)` — every
             supported collector references its template by name here, so
-            both are the same string; `None, None` for a collector with
-            no template concept at all (`REDFISH_STANDALONE`).
+            both are the same string; `"", ""` ("read, none") for the ~10%
+            without one; `None, None` for a collector with no template
+            concept at all (`REDFISH_STANDALONE`).
     """
     names = _TEMPLATE_NAMES.get(collector)
-    if names is None or rng.random() < 0.1:
+    if names is None:
         return None, None
+    if rng.random() < 0.1:
+        return "", ""
     name = rng.choice(names)
     return name, name
 

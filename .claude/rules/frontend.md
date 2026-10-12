@@ -84,9 +84,12 @@ Loaded only when a `frontend/` file is open.
   A click also fires `lib/toast.ts`'s `showToast` ("Copied <name>", bottom right); `Toaster` is
   mounted once in `AppLayout` and is `aria-hidden` because the button's own live region announces it.
 - **The inventory search has three forms** (`parseSearch`, ADR-0046): plain substring, `"exact"`,
-  `/regex/`; a bad regex sets an error under the box and keeps every row. **Maintenance is a Health
-  dropdown option** (exclusive with a severity, sets `maintenance=true`), not a checkbox, so an E2E
-  uses `#filter-health` `selectOption("MAINTENANCE")`. **`MaintenanceToggle`'s reason card is a portal
+  `/regex/`; a bad regex sets an error under the box and keeps every row. **The six filters (Vendor, Source,
+  Site, Classification, Installation, Health) are `MultiSelect` dropdowns** taking several values (repeated URL
+  params, OR within, AND across; ADR-0033 2026-10-12): a tick is applied to the live URL via `toggleMulti`, never
+  to the rendered list, and an E2E clicks `#filter-<name>` then a checkbox in the group named `"<Label> options"`
+  (not `selectOption`; the group's name differs from the button's so `getByLabel` stays unique). **Maintenance
+  is a Health option** (exclusive with the severities, sets `maintenance=true`), not a checkbox. **`MaintenanceToggle`'s reason card is a portal
   on `document.body`**, positioned from the button: inside the table's `overflow-x-auto` it was clipped
   (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`. Its list scroller has `scrollbar-gutter: stable`: Firefox sizes a `w-max` box without a classic
   scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with

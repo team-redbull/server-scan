@@ -11,12 +11,13 @@ import { isDonor } from "@/lib/donor";
 
 export interface RowFilters {
   search?: string;
-  vendor?: string;
-  site_id?: string;
-  source_provider?: string;
-  installation_type?: string;
-  openshift_state?: string;
-  health?: string;
+  /** Each of these six takes several values (OR within, AND across); empty or unset is "any". */
+  vendor?: string[];
+  site_id?: string[];
+  source_provider?: string[];
+  installation_type?: string[];
+  openshift_state?: string[];
+  health?: string[];
   maintenance?: true;
   /** Only servers an install currently holds a lock on (ADR-0035). */
   reserved?: true;
@@ -107,16 +108,17 @@ export function filterRows(
   const counts = filters.duplicate ? nameCounts(rows) : null;
   const kept = rows.filter(
     (row) =>
-      (!filters.vendor || row.vendor === filters.vendor) &&
-      (!filters.site_id ||
-        (row.site_id ?? UNASSIGNED_SITE_ID) === filters.site_id) &&
-      (!filters.source_provider ||
-        row.source_provider === filters.source_provider) &&
-      (!filters.installation_type ||
-        row.installation_type === filters.installation_type) &&
-      (!filters.openshift_state ||
-        row.openshift_state === filters.openshift_state) &&
-      (!filters.health || row.health === filters.health) &&
+      (!filters.vendor?.length || filters.vendor.includes(row.vendor)) &&
+      (!filters.site_id?.length ||
+        filters.site_id.includes(row.site_id ?? UNASSIGNED_SITE_ID)) &&
+      (!filters.source_provider?.length ||
+        (row.source_provider !== null &&
+          filters.source_provider.includes(row.source_provider))) &&
+      (!filters.installation_type?.length ||
+        filters.installation_type.includes(row.installation_type)) &&
+      (!filters.openshift_state?.length ||
+        filters.openshift_state.includes(row.openshift_state)) &&
+      (!filters.health?.length || filters.health.includes(row.health)) &&
       (!filters.maintenance || row.maintenance.enabled) &&
       (!filters.reserved || row.reservation.held) &&
       (!filters.stale || row.stale) &&
@@ -306,6 +308,45 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     count(facets.health, row.health);
     count(facets.maintenance, String(row.maintenance.enabled));
     count(facets.stale, String(row.stale));
+  }
+  return facets;
+}
+
+/** The filter keys the six multi-select dropdowns own, with the facet each one counts. */
+const DIMENSIONS = [
+  ["vendor", "vendor"],
+  ["source_provider", "source_provider"],
+  ["site_id", "site_id"],
+  ["installation_type", "installation_type"],
+  ["openshift_state", "openshift_state"],
+  ["health", "health"],
+] as const;
+
+/**
+ * Facet counts for the dropdown options: each dimension's counts are taken over the rows every
+ * *other* filter leaves, so an option's number is what ticking it would add (the sidebar's rule).
+ * Without this a ticked option would hide every other option's count, or read zero.
+ *
+ * Args:
+ *   rows (ServerRow[]): The whole fleet.
+ *   filters (RowFilters): The active filters, the dropdowns' own included.
+ *
+ * Returns:
+ *   FacetCounts: `total` and the toggles' counts over the fully filtered rows (as `facetCounts`);
+ *   the six dropdown dimensions replaced by their own-filter-excluded counts. Health also
+ *   drops the maintenance filter, since Maintenance is one of its options.
+ */
+export function dropdownFacetCounts(
+  rows: ServerRow[],
+  filters: RowFilters,
+): FacetCounts {
+  const facets = facetCounts(filterRows(rows, filters));
+  for (const [filterKey, facetKey] of DIMENSIONS) {
+    let others = without(filters, filterKey);
+    if (filterKey === "health") others = without(others, "maintenance");
+    const counted = facetCounts(filterRows(rows, others));
+    facets[facetKey] = counted[facetKey];
+    if (filterKey === "health") facets.maintenance = counted.maintenance;
   }
   return facets;
 }

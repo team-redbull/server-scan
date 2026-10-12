@@ -1289,3 +1289,36 @@ Ingest matches a serial-less stub to an existing document by
 `(source_provider, BMC host)`, so a host that answered yesterday is updated
 in place rather than duplicated. The earlier "no serial to correlate on"
 objection is resolved by that match, not by a synthetic serial.
+
+## Update (2026-10-12): "read, and nothing is there" must be said, or a removed part stays forever
+
+`None` keeps the stored value, so a provider that sends `None` for something legitimately absent leaves the
+old value in place. The reported case: a Cisco server taken out of its service profile (or its profile out of a
+template) kept showing the old template, because the mapping returned `None` for "no template".
+
+**Rule.** A provider says `None` only when it could not read; when it read and the thing is not there it sends
+an empty value: `()` for a list, `0` for a total, `""` for a template name/id (ingest stores `""` as `None`
+and does not flag the path unread). Applied 2026-10-12:
+
+- **Template name/id** (`""`): Cisco UCS (no profile, or a profile with no template), OneView (no template URI;
+  a URI whose template could not be named stays `None`), OME (a profile with no `TemplateName`/`TemplateId`),
+  Intersight (`no_template`, only when the profiles table was read). REDFISH_STANDALONE has no template concept
+  and stays `None`.
+- **`storage.total_bytes` after the last drive is removed** (`0`): OneView and Intersight sent `None` next to an
+  emptied drive list. A drive list whose capacities are all unreadable still sends `None`.
+- **`memory.total_bytes` after every DIMM is removed** (`0`): Redfish. A `MemorySummary` of 0 GiB is a BMC
+  that has not enumerated memory, so it no longer outranks the DIMM list.
+
+The mirror case, a failed read wiping stored data by sending an empty value, fixed in the same sweep:
+
+- **Redfish drives:** a drive whose `GET` fails left a short list that overwrote the stored one (a failed
+  drive vanished and the server healed); now any failure makes the whole block `None`.
+- **Intersight:** `compute/Boards` failing left board-joined controllers, cards and processors with no owner,
+  read as "none"; those joins now stay unread. With the vNIC table unread, the physical-port MACs no longer
+  replace the stored vNIC MACs.
+
+Not changed (unverified against live hardware, noted for a field pass): a Redfish PCIe-GPU read that fails after
+an earlier run found GPUs only that way; UCS and Redfish counts of `0` overwriting (`_as_int`); OneView NIC MACs
+from an empty `deviceSlots`. Tests: `test_ingest_partial_reads.py` (removed vs unread, per field) and one case
+per provider above.
+

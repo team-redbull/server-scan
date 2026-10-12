@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 
@@ -17,7 +23,13 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     installation_type: "UPI",
     health: "HEALTHY",
     maintenance: { enabled: false, reason: null },
-    reservation: { held: false, holder: null, mce_cluster: null, infra_env: null, expires_at: null },
+    reservation: {
+      held: false,
+      holder: null,
+      mce_cluster: null,
+      infra_env: null,
+      expires_at: null,
+    },
     openshift_state: "INSTALLED",
     cluster_name: "ocp4-tlv",
     mce_name: null,
@@ -78,9 +90,12 @@ function renderInventoryPage(initialEntry = "/") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const router = createMemoryRouter([{ path: "/", element: <InventoryPage /> }], {
-    initialEntries: [initialEntry],
-  });
+  const router = createMemoryRouter(
+    [{ path: "/", element: <InventoryPage /> }],
+    {
+      initialEntries: [initialEntry],
+    },
+  );
 
   render(
     <QueryClientProvider client={queryClient}>
@@ -92,7 +107,24 @@ function renderInventoryPage(initialEntry = "/") {
 }
 
 function rowNames(): string[] {
-  return screen.getAllByRole("row").slice(1).map((tr) => within(tr).getAllByRole("cell")[0]?.textContent ?? "");
+  return screen
+    .getAllByRole("row")
+    .slice(1)
+    .map((tr) => within(tr).getAllByRole("cell")[0]?.textContent ?? "");
+}
+
+/** Open a multi-select dropdown and tick one option by (a prefix of) its label. */
+function pick(field: string, option: RegExp) {
+  const button = screen.getByLabelText(field);
+  if (button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
+  fireEvent.click(
+    within(screen.getByRole("group", { name: `${field} options` })).getByRole(
+      "checkbox",
+      {
+        name: option,
+      },
+    ),
+  );
 }
 
 describe("InventoryPage", () => {
@@ -115,6 +147,7 @@ describe("InventoryPage", () => {
   });
 
   afterEach(() => {
+    window.history.replaceState(null, "", "/");
     vi.unstubAllGlobals();
   });
 
@@ -149,7 +182,9 @@ describe("InventoryPage", () => {
       expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
     });
 
-    const bmcLink = screen.getByRole("link", { name: /open bmc console for ocp-dell-worker-001/i });
+    const bmcLink = screen.getByRole("link", {
+      name: /open bmc console for ocp-dell-worker-001/i,
+    });
     expect(bmcLink).toHaveAttribute("href", "https://10.2.3.4");
     expect(bmcLink).toHaveAttribute("target", "_blank");
     expect(
@@ -163,10 +198,14 @@ describe("InventoryPage", () => {
     renderInventoryPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("columnheader", { name: /cluster/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("columnheader", { name: /cluster/i }),
+      ).toBeInTheDocument();
     });
     expect(screen.getAllByText("ocp4-tlv").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("columnheader", { name: /^mce$/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("columnheader", { name: /^mce$/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the MCE column as soon as one row reports one", async () => {
@@ -187,9 +226,13 @@ describe("InventoryPage", () => {
     renderInventoryPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("columnheader", { name: /^mce$/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("columnheader", { name: /^mce$/i }),
+      ).toBeInTheDocument();
     });
-    expect(within(screen.getByRole("table")).getByText("mce-tlv")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("table")).getByText("mce-tlv"),
+    ).toBeInTheDocument();
   });
 
   it("sorts in place when the Installation header is clicked, and records it in the URL", async () => {
@@ -198,18 +241,28 @@ describe("InventoryPage", () => {
     const { router } = renderInventoryPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /installation/i })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("table")).getByRole("button", {
+          name: /installation/i,
+        }),
+      ).toBeInTheDocument();
     });
     expect(rowNames()).toEqual(["ocp-dell-worker-001", "ucs-cisco-worker-002"]);
 
-    fireEvent.click(screen.getByRole("button", { name: /installation/i }));
+    fireEvent.click(
+      within(screen.getByRole("table")).getByRole("button", {
+        name: /installation/i,
+      }),
+    );
 
     await waitFor(() => {
       expect(router.state.location.search).toContain("sort=openshift_state");
     });
     // AVAILABLE sorts before INSTALLED.
     expect(rowNames()).toEqual(["ucs-cisco-worker-002", "ocp-dell-worker-001"]);
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/rows"))).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input).includes("/rows")),
+    ).toHaveLength(1);
   });
 
   it("filters in the browser and updates the URL when a filter changes", async () => {
@@ -221,7 +274,7 @@ describe("InventoryPage", () => {
       expect(screen.getByText("ocp-dell-worker-001")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Vendor"), { target: { value: "cisco" } });
+    pick("Vendor", /^cisco/);
 
     await waitFor(() => {
       expect(router.state.location.search).toContain("vendor=cisco");
@@ -263,15 +316,23 @@ describe("InventoryPage", () => {
     expect(screen.getByText("stale-01")).toBeInTheDocument();
     // The toggles count only while ticked — no "(21)" on an option nobody chose.
     expect(screen.getByLabelText(/^Stale \(1\)/)).toBeChecked();
-    expect(screen.getByLabelText("Health")).toHaveValue("");
+    expect(screen.getByLabelText("Health")).toHaveTextContent(/^All/);
   });
 
   it("keeps only rows sharing a name when Duplicate Name is ticked", async () => {
     mockRows(() =>
       jsonResponse(
         rowsResponse([
-          makeServer({ id: "srv_hp", name: "ocp4-five-compute-06", vendor: "hp" }),
-          makeServer({ id: "srv_cisco", name: "ocp4-five-compute-06", vendor: "cisco" }),
+          makeServer({
+            id: "srv_hp",
+            name: "ocp4-five-compute-06",
+            vendor: "hp",
+          }),
+          makeServer({
+            id: "srv_cisco",
+            name: "ocp4-five-compute-06",
+            vendor: "cisco",
+          }),
           makeServer({ id: "srv_unique", name: "ocp4-five-compute-07" }),
         ]),
       ),
@@ -396,7 +457,7 @@ describe("InventoryPage", () => {
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("Vendor"), { target: { value: "cisco" } });
+    pick("Vendor", /^cisco/);
 
     await waitFor(() => {
       expect(router.state.location.search).not.toContain("page=");
@@ -447,28 +508,182 @@ describe("InventoryPage", () => {
 
     renderInventoryPage();
 
-    expect(await screen.findByRole("option", { name: "dell (1)" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "OpenManage (Dell) (1)" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "HEALTHY (2)" })).toBeInTheDocument();
+    await screen.findByText("ucs-cisco-worker-002");
+    fireEvent.click(screen.getByLabelText("Vendor"));
+    expect(
+      within(screen.getByRole("group", { name: "Vendor options" })).getByRole(
+        "checkbox",
+        {
+          name: "dell 1",
+        },
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Source"));
+    expect(
+      within(screen.getByRole("group", { name: "Source options" })).getByRole(
+        "checkbox",
+        {
+          name: "OpenManage (Dell) 1",
+        },
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Health"));
+    expect(
+      within(screen.getByRole("group", { name: "Health options" })).getByRole(
+        "checkbox",
+        {
+          name: "HEALTHY 2",
+        },
+      ),
+    ).toBeInTheDocument();
   });
 
-  it("shows (0) on an option matching nothing, and counts sites", async () => {
+  it("shows 0 on an option matching nothing, and counts sites", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     renderInventoryPage();
 
-    expect(await screen.findByRole("option", { name: "hp (0)" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /^Tel Aviv \(\d+\)$/ })).toBeInTheDocument();
+    await screen.findByText("ucs-cisco-worker-002");
+    fireEvent.click(screen.getByLabelText("Vendor"));
+    expect(
+      within(screen.getByRole("group", { name: "Vendor options" })).getByRole(
+        "checkbox",
+        {
+          name: "hp 0",
+        },
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Site"));
+    expect(
+      within(screen.getByRole("group", { name: "Site options" })).getByRole(
+        "checkbox",
+        {
+          name: /^Tel Aviv \d+$/,
+        },
+      ),
+    ).toBeInTheDocument();
   });
 
-  it("counts within the other filters, and stays silent on the filtered dimension", async () => {
+  it("counts each option over the other filters, including inside a ticked dropdown", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 
     renderInventoryPage("/?vendor=cisco");
 
-    expect(await screen.findByRole("option", { name: "Intersight (1)" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "OpenManage (Dell) (1)" })).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "cisco" })).toBeInTheDocument();
+    // Source honours the vendor filter: only the Cisco source has a server.
+    await screen.findByText("ucs-cisco-worker-002");
+    fireEvent.click(screen.getByLabelText("Source"));
+    const source = within(
+      screen.getByRole("group", { name: "Source options" }),
+    );
+    expect(
+      source.getByRole("checkbox", { name: /Intersight.* 1$/ }),
+    ).toBeInTheDocument();
+    expect(
+      source.getByRole("checkbox", { name: /OpenManage.* 0$/ }),
+    ).toBeInTheDocument();
+
+    // Vendor ignores its own filter, so ticking Dell as well shows what it would add.
+    fireEvent.click(screen.getByLabelText("Vendor"));
+    const vendor = within(
+      screen.getByRole("group", { name: "Vendor options" }),
+    );
+    expect(
+      vendor.getByRole("checkbox", { name: /^dell 1$/ }),
+    ).toBeInTheDocument();
+    expect(vendor.getByRole("checkbox", { name: /^cisco 1$/ })).toBeChecked();
+  });
+
+  it("shows all Dell and HP that are available: several values in one dropdown, ANDed with the next", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({
+            id: "d1",
+            name: "dell-installed",
+            vendor: "dell",
+            openshift_state: "INSTALLED",
+          }),
+          makeServer({
+            id: "d2",
+            name: "dell-free",
+            vendor: "dell",
+            openshift_state: "AVAILABLE",
+          }),
+          makeServer({
+            id: "h1",
+            name: "hp-free",
+            vendor: "hp",
+            openshift_state: "AVAILABLE",
+          }),
+          makeServer({
+            id: "c1",
+            name: "cisco-free",
+            vendor: "cisco",
+            openshift_state: "AVAILABLE",
+          }),
+        ]),
+      ),
+    );
+    const { router } = renderInventoryPage();
+    await screen.findByText("dell-free");
+    const mirror = () =>
+      window.history.replaceState(null, "", `/${router.state.location.search}`);
+
+    pick("Vendor", /^dell/);
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("vendor=dell");
+    });
+    mirror();
+    pick("Vendor", /^hp/);
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("vendor=hp");
+    });
+    mirror();
+    pick("Installation", /^Available/);
+    await waitFor(() => {
+      expect(router.state.location.search).toContain(
+        "openshift_state=AVAILABLE",
+      );
+    });
+
+    expect(router.state.location.search).toBe(
+      "?vendor=dell&vendor=hp&openshift_state=AVAILABLE",
+    );
+    expect(screen.getByText("dell-free")).toBeInTheDocument();
+    expect(screen.getByText("hp-free")).toBeInTheDocument();
+    expect(screen.queryByText("dell-installed")).not.toBeInTheDocument();
+    expect(screen.queryByText("cisco-free")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Vendor")).toHaveTextContent("dell, hp");
+    // One chip per value; removing one leaves the other.
+    expect(
+      screen.getByRole("button", { name: /Vendor dell/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Vendor hp/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens a bookmarked single-value link as one ticked value", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
+
+    renderInventoryPage("/?vendor=cisco&health_overall=HEALTHY");
+
+    expect(await screen.findByLabelText("Vendor")).toHaveTextContent("cisco");
+    expect(screen.getByLabelText("Health")).toHaveTextContent("HEALTHY");
+  });
+
+  it("makes Maintenance exclusive with the severities in the Health dropdown", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
+    const { router } = renderInventoryPage(
+      "/?health_overall=HEALTHY&health_overall=WARNING",
+    );
+    await screen.findByLabelText("Health");
+
+    pick("Health", /^Maintenance/);
+
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?maintenance=true");
+    });
   });
 
   it("asks why before putting a server into maintenance, and sends the reason", async () => {
@@ -479,14 +694,21 @@ describe("InventoryPage", () => {
         inMaintenance = true;
       }
       const server = makeServer({
-        maintenance: { enabled: inMaintenance, reason: inMaintenance ? "Replacing PSU 2" : null },
+        maintenance: {
+          enabled: inMaintenance,
+          reason: inMaintenance ? "Replacing PSU 2" : null,
+        },
       });
-      return jsonResponse(url.pathname.endsWith("/rows") ? rowsResponse([server]) : server);
+      return jsonResponse(
+        url.pathname.endsWith("/rows") ? rowsResponse([server]) : server,
+      );
     });
 
     const { router } = renderInventoryPage();
     fireEvent.click(
-      await screen.findByRole("button", { name: "Put ocp-dell-worker-001 into maintenance" }),
+      await screen.findByRole("button", {
+        name: "Put ocp-dell-worker-001 into maintenance",
+      }),
     );
 
     const card = screen.getByRole("dialog");
@@ -496,22 +718,34 @@ describe("InventoryPage", () => {
       ),
     ).toBe(false);
 
-    fireEvent.change(within(card).getByLabelText(/why is it going into maintenance/i), {
-      target: { value: "  Replacing PSU 2  " },
-    });
-    fireEvent.click(within(card).getByRole("button", { name: "Start maintenance" }));
+    fireEvent.change(
+      within(card).getByLabelText(/why is it going into maintenance/i),
+      {
+        target: { value: "  Replacing PSU 2  " },
+      },
+    );
+    fireEvent.click(
+      within(card).getByRole("button", { name: "Start maintenance" }),
+    );
 
     await waitFor(() => {
-      const put = (fetchMock.mock.calls as [string, RequestInit | undefined][]).find(
+      const put = (
+        fetchMock.mock.calls as [string, RequestInit | undefined][]
+      ).find(
         ([input, init]) =>
-          init?.method === "PUT" && input.endsWith("/api/v1/servers/srv_1/maintenance"),
+          init?.method === "PUT" &&
+          input.endsWith("/api/v1/servers/srv_1/maintenance"),
       );
       expect(put).toBeDefined();
-      expect(JSON.parse(put?.[1]?.body as string)).toEqual({ reason: "Replacing PSU 2" });
+      expect(JSON.parse(put?.[1]?.body as string)).toEqual({
+        reason: "Replacing PSU 2",
+      });
     });
     // The row is patched from the response before any refetch lands.
     expect(
-      await screen.findByRole("button", { name: "End maintenance on ocp-dell-worker-001" }),
+      await screen.findByRole("button", {
+        name: "End maintenance on ocp-dell-worker-001",
+      }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
   });
@@ -521,9 +755,15 @@ describe("InventoryPage", () => {
 
     renderInventoryPage();
     fireEvent.click(
-      await screen.findByRole("button", { name: "Put ocp-dell-worker-001 into maintenance" }),
+      await screen.findByRole("button", {
+        name: "Put ocp-dell-worker-001 into maintenance",
+      }),
     );
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Cancel",
+      }),
+    );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(
@@ -538,20 +778,29 @@ describe("InventoryPage", () => {
       url.pathname === "/api/v1/servers/srv_1/maintenance"
         ? jsonResponse(makeServer())
         : jsonResponse(
-            rowsResponse([makeServer({ maintenance: { enabled: true, reason: "disk swap" } })]),
+            rowsResponse([
+              makeServer({
+                maintenance: { enabled: true, reason: "disk swap" },
+              }),
+            ]),
           ),
     );
 
     renderInventoryPage();
     fireEvent.click(
-      await screen.findByRole("button", { name: "End maintenance on ocp-dell-worker-001" }),
+      await screen.findByRole("button", {
+        name: "End maintenance on ocp-dell-worker-001",
+      }),
     );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => {
-      const del = (fetchMock.mock.calls as [string, RequestInit | undefined][]).find(
+      const del = (
+        fetchMock.mock.calls as [string, RequestInit | undefined][]
+      ).find(
         ([input, init]) =>
-          init?.method === "DELETE" && input.endsWith("/api/v1/servers/srv_1/maintenance"),
+          init?.method === "DELETE" &&
+          input.endsWith("/api/v1/servers/srv_1/maintenance"),
       );
       expect(del).toBeDefined();
     });
@@ -560,9 +809,26 @@ describe("InventoryPage", () => {
     mockRows(() =>
       jsonResponse(
         rowsResponse([
-          makeServer({ id: "a", name: "srv-a", mce_name: "mce-a", cluster_name: "hosted-1", installation_type: "HOSTED_CLUSTER" }),
-          makeServer({ id: "b", name: "srv-b", mce_name: "mce-b", cluster_name: "hosted-2", installation_type: "HOSTED_CLUSTER" }),
-          makeServer({ id: "c", name: "srv-c", mce_name: null, cluster_name: "upi-1" }),
+          makeServer({
+            id: "a",
+            name: "srv-a",
+            mce_name: "mce-a",
+            cluster_name: "hosted-1",
+            installation_type: "HOSTED_CLUSTER",
+          }),
+          makeServer({
+            id: "b",
+            name: "srv-b",
+            mce_name: "mce-b",
+            cluster_name: "hosted-2",
+            installation_type: "HOSTED_CLUSTER",
+          }),
+          makeServer({
+            id: "c",
+            name: "srv-c",
+            mce_name: null,
+            cluster_name: "upi-1",
+          }),
         ]),
       ),
     );
@@ -572,10 +838,18 @@ describe("InventoryPage", () => {
       expect(screen.getByText("srv-a")).toBeInTheDocument();
     });
 
-    const sidebar = screen.getByRole("complementary", { name: "Cluster filters" });
-    expect(within(sidebar).getByRole("region", { name: "MCE" })).toBeInTheDocument();
-    expect(within(sidebar).getByRole("region", { name: "Hosted clusters" })).toBeInTheDocument();
-    expect(within(sidebar).getByRole("region", { name: "UPI clusters" })).toBeInTheDocument();
+    const sidebar = screen.getByRole("complementary", {
+      name: "Cluster filters",
+    });
+    expect(
+      within(sidebar).getByRole("region", { name: "MCE" }),
+    ).toBeInTheDocument();
+    expect(
+      within(sidebar).getByRole("region", { name: "Hosted clusters" }),
+    ).toBeInTheDocument();
+    expect(
+      within(sidebar).getByRole("region", { name: "UPI clusters" }),
+    ).toBeInTheDocument();
 
     const mces = within(within(sidebar).getByRole("region", { name: "MCE" }));
     fireEvent.click(mces.getByRole("checkbox", { name: /mce-a/ }));
@@ -600,7 +874,9 @@ describe("InventoryPage", () => {
 
     fireEvent.click(within(sidebar).getByRole("checkbox", { name: /upi-1/ }));
     await waitFor(() => {
-      expect(screen.getByText(/No servers match: MCE mce-b, Cluster upi-1/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/No servers match: MCE mce-b, Cluster upi-1/),
+      ).toBeInTheDocument();
     });
     window.history.replaceState(null, "", "/");
   });

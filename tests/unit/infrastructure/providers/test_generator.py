@@ -435,15 +435,25 @@ def test_site_documents_are_ided_by_their_bare_site_code() -> None:
 def test_some_servers_have_a_profile_template_and_some_do_not() -> None:
     servers = list(generate_servers(seed=42, count=300))
     with_template = [s for s in servers if s.profile_template_name is not None]
-    without_template = [s for s in servers if s.profile_template_name is None]
+    without_template = [s for s in servers if not s.profile_template_name]
     assert with_template
     assert without_template
 
 
-def test_profile_template_name_and_external_id_are_both_set_or_both_none() -> None:
+def test_profile_template_name_and_external_id_are_both_set_or_both_empty() -> None:
     servers = list(generate_servers(seed=42, count=300))
     for s in servers:
-        assert (s.profile_template_name is None) == (s.profile_template_external_id is None)
+        assert bool(s.profile_template_name) == bool(s.profile_template_external_id)
+
+
+def test_a_server_without_a_template_reports_read_and_empty_except_a_bare_bmc() -> None:
+    """`""` clears a stored template; only a collector with no template concept sends `None`."""
+    for s in generate_servers(seed=42, count=300):
+        if provider_type_for(s) == ManagerType.REDFISH_STANDALONE.value:
+            assert s.profile_template_name is None
+        elif not s.profile_template_name:
+            assert s.profile_template_name == ""
+            assert s.profile_template_external_id == ""
 
 
 def test_every_collector_with_a_template_concept_can_report_one() -> None:

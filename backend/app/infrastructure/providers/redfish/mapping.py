@@ -984,12 +984,18 @@ def memory_bytes(system: dict[str, Any], dimms: list[dict[str, Any]] | None) -> 
     raw = summary.get("TotalSystemMemoryGiB") if isinstance(summary, dict) else None
     if raw is not None:
         try:
-            return round(float(raw) * _GIB)
+            # A summary of 0 is a BMC that has not enumerated memory, not an empty server.
+            if round(float(raw) * _GIB) > 0:
+                return round(float(raw) * _GIB)
         except (TypeError, ValueError):
             pass
     if dimms is None:
         return None
-    sizes = [_as_int(d.get("CapacityMiB")) for d in dimms if not is_absent(d)]
+    installed = [d for d in dimms if not is_absent(d)]
+    if not installed:
+        # The collection was read and no DIMM is installed: 0 clears a stored total.
+        return 0
+    sizes = [_as_int(d.get("CapacityMiB")) for d in installed]
     present = [s for s in sizes if s is not None]
     return sum(present) * _MIB if present else None
 

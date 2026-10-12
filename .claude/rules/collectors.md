@@ -204,4 +204,9 @@ order — two of four vendors had no test target at all. Any new vendor gets
   then overwrote the stored document with that empty result. Use `_wire_class_id`. A `get_one` must equal a
   scan's result for the same server: `TestGetOne` asserts it. Management IPs hang off the *profile* DN, so they
   are not in the blade's subtree.
+- **A mapper sends `None` only for "could not read", and an empty value for "read, none"** (2026-10-12): `()` for a
+  list, `0` for a total, `""` for a template name/id (ingest stores it as `None` and does not flag it unread). `None`
+  next to an emptied list left a stale total or template forever, and an empty value on a failed read wipes stored
+  data: both bit (SPT removal on Cisco; Redfish drive GET failures; Intersight board join). New mapper field: decide
+  both cases and add them to `test_ingest_partial_reads.py`'s parametrized removed/unread pair.
 

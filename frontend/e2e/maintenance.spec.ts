@@ -55,8 +55,14 @@ test.describe("Maintenance", () => {
     // it leaves maintenance: the mutation patches the cached fleet, and the
     // server clears its rows/list cache so the next poll agrees (ADR-0028).
     const healthFilter = page.locator("#filter-health");
-    await healthFilter.selectOption("MAINTENANCE");
-    await expect(healthFilter).toHaveValue("MAINTENANCE");
+    await healthFilter.click();
+    await page
+      .getByRole("group", { name: "Health options" })
+      .getByRole("checkbox", { name: /Maintenance/ })
+      .click();
+    await expect(healthFilter).toHaveText(/Maintenance/);
+    // The list stays open for more ticks; close it so it does not cover the row's controls.
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("link", { name: server.name, exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: `End maintenance on ${server.name}` }).click();

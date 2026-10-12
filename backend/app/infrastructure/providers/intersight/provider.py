@@ -438,6 +438,7 @@ class IntersightProvider(ServerInventoryProvider):
                 manager_id=self._manager.id,
                 profile=profile,
                 template=template,
+                no_template=profile is None or not mapping.moref(profile.get("SrcTemplate")),
                 ext_interfaces=ext_interfaces,
                 host_interfaces=host_interfaces,
                 disks=disks,
@@ -680,8 +681,16 @@ class IntersightProvider(ServerInventoryProvider):
             self._note_budget_exhausted(phase="after reading compute boards")
             return joins
 
-        controllers = await self._collect_table(
-            client, "storage/Controllers", select=_STORAGE_CONTROLLER_FIELDS
+        # Controllers, cards and processors of many generations join only through their board.
+        # With the boards unread, `_owning_server` finds no owner for them, which would read as
+        # "this server has none" and wipe stored drives/GPUs, so those joins stay unread (None).
+        board_joins_ok = boards is not None
+        controllers = (
+            await self._collect_table(
+                client, "storage/Controllers", select=_STORAGE_CONTROLLER_FIELDS
+            )
+            if board_joins_ok
+            else None
         )
         if controllers is not None:
             server_by_controller = {
@@ -702,11 +711,19 @@ class IntersightProvider(ServerInventoryProvider):
             self._note_budget_exhausted(phase="after reading storage")
             return joins
 
-        cards = await self._collect_table(client, "graphics/Cards", select=_CARD_FIELDS)
+        cards = (
+            await self._collect_table(client, "graphics/Cards", select=_CARD_FIELDS)
+            if board_joins_ok
+            else None
+        )
         if cards is not None:
             joins.cards = _group_by(cards, lambda c: _owning_server(c, board_owner=board_owner))
 
-        processors = await self._collect_table(client, "processor/Units", select=_PROCESSOR_FIELDS)
+        processors = (
+            await self._collect_table(client, "processor/Units", select=_PROCESSOR_FIELDS)
+            if board_joins_ok
+            else None
+        )
         if processors is not None:
             joins.processors = _group_by(
                 processors, lambda p: _owning_server(p, board_owner=board_owner)
@@ -790,9 +807,13 @@ class IntersightProvider(ServerInventoryProvider):
                     continue
                 profile = joins.profiles.get(moid) if joins.profiles is not None else None
                 template = None
-                if profile is not None:
-                    template_moid = mapping.moref(profile.get("SrcTemplate"))
-                    template = joins.templates.get(template_moid) if template_moid else None
+                template_moid = (
+                    mapping.moref(profile.get("SrcTemplate")) if profile is not None else None
+                )
+                if template_moid:
+                    template = joins.templates.get(template_moid)
+                # The profiles table was read, so no profile or no source template is an answer.
+                no_template = joins.profiles is not None and not template_moid
 
                 collected += 1
                 yield mapping.to_provider_server(
@@ -801,6 +822,7 @@ class IntersightProvider(ServerInventoryProvider):
                     manager_id=self._manager.id,
                     profile=profile,
                     template=template,
+                    no_template=no_template,
                     ext_interfaces=joins.for_server(moid, joins.ext_interfaces),
                     host_interfaces=joins.for_server(moid, joins.host_interfaces),
                     disks=joins.for_server(moid, joins.disks),

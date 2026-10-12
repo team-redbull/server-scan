@@ -328,3 +328,16 @@ Search gained an exact (`"text"`) and a regex (`/pattern/`) form, and Maintenanc
 into the Health dropdown (exclusive with a severity): ADR-0046. This supersedes the "Maintenance only
 (3)" toggle count above. The cluster sidebar keeps its search box pinned (only the lists scroll) and caps
 its height at the space under its own top edge, so its last entry is always reachable.
+
+### 2026-10-12 update: the six dropdown filters take several values
+
+Vendor, Source, Site, Classification, Installation and Health are `MultiSelect` dropdowns (a button and a
+checklist): none ticked is "all", one or many is an OR within the dropdown, ANDed with the other filters, so
+"all Dell and HP that are available" is one view. State stays in the URL as repeated params
+(`?vendor=dell&vendor=hp&openshift_state=AVAILABLE`, like `mce`/`cluster`); a single-value link (`?vendor=cisco`,
+the Sites cards) is one ticked value. Each option's count is over the rows every *other* filter leaves
+(`dropdownFacetCounts`, the sidebar's rule), so a ticked dropdown still shows what ticking another option adds.
+A tick is applied to the live URL (`toggleMulti` / `toggleHealth`), never to the last rendered list, so two quick
+clicks cannot lose the first. Maintenance remains exclusive with the severities (ADR-0046). The chips are one per
+value. Frontend only: `GET /servers` keeps its single-value filter keys.
+

@@ -566,3 +566,13 @@ class TestUnreachableHosts:
         assert placeholder.external_id == "ome-unreachable:10.0.0.9"
         assert placeholder.serial == "7XKD9P9"
         assert len(servers) == 2
+
+
+async def test_an_ome_profile_without_a_template_reports_none_as_read_and_empty() -> None:
+    """`""` clears a stored template, `None` would keep it."""
+    from app.infrastructure.providers.openmanage.mapping import identity_from_profile
+
+    identity = identity_from_profile(profile={"ProfileName": "ocp-x"}, device={})
+
+    assert identity.profile_template_name == ""
+    assert identity.profile_template_external_id == ""

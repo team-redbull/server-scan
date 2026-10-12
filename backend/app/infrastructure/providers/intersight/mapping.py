@@ -454,6 +454,7 @@ def to_provider_server(
     processors: list[Mapping[str, Any]] | None = None,
     psus: list[Mapping[str, Any]] | None = None,
     management_interface: Mapping[str, Any] | None = None,
+    no_template: bool = False,
 ) -> ProviderServer:
     """
     Assemble one server from its summary and everything joined to it.
@@ -487,6 +488,12 @@ def to_provider_server(
             populated for a rack/standalone server — a blade's PSUs
             belong to its chassis, not to the blade, and this MO carries
             no relationship a blade could join through.
+        no_template (bool): The profiles were read and this server has none, or its
+            profile names no template: reported as `""`, which clears a stored template
+            (`None`, the default, means the join was not read and keeps it).
+        no_template (bool): The profiles were read and this server has none, or its
+            profile names no template: reported as `""`, which clears a stored template
+            (`None`, the default, means the join was not read and keeps it).
         management_interface (Mapping[str, Any] | None): The BMC's
             `management.Interface`.
 
@@ -496,15 +503,14 @@ def to_provider_server(
     ext = list(ext_interfaces) if ext_interfaces is not None else None
     host = list(host_interfaces) if host_interfaces is not None else None
 
-    # vNIC MACs first. `()` is claimed only when both tables were read; a
-    # failed table is `None`, so stored MACs are never blanked.
+    # vNIC MACs first; claimed only when knowable: vNICs present, or both tables read (ADR-0016).
     macs: tuple[str, ...] | None = None
     host_macs = _macs(host) if host is not None else ()
     ext_macs = _macs(ext) if ext is not None else ()
-    if host_macs or ext_macs:
-        macs = host_macs or ext_macs
+    if host_macs:
+        macs = host_macs
     elif host is not None and ext is not None:
-        macs = ()
+        macs = ext_macs
 
     # Same vNIC-first rule, so `nics` and `macs` always agree in count.
     host_nics = _nics(host) if host is not None else ()
@@ -525,9 +531,10 @@ def to_provider_server(
     drives = [drive(disk) for disk in disks] if disks is not None else None
     storage_total: int | None = None
     if drives is not None:
-        # An unreadable capacity adds nothing rather than zeroing the total.
+        # An unreadable capacity adds nothing rather than zeroing the total; but a table that
+        # was read and holds no disk is 0, so a removed last drive clears the stored total.
         measured = [d["capacity_bytes"] for d in drives]
-        storage_total = sum(c for c in measured if isinstance(c, int)) or None
+        storage_total = 0 if not drives else sum(c for c in measured if isinstance(c, int)) or None
 
     return ProviderServer(
         external_id=external_id(summary),
@@ -542,8 +549,12 @@ def to_provider_server(
         bmc_mac=_text(management_interface.get("MacAddress")) if management_interface else None,
         manager_id=manager_id,
         profile_dn=_text(summary.get("ServiceProfile")),
-        profile_template_name=_text(template.get("Name")) if template else None,
-        profile_template_external_id=_text(template.get("Moid")) if template else None,
+        profile_template_name=(
+            _text(template.get("Name")) if template else ("" if no_template else None)
+        ),
+        profile_template_external_id=(
+            _text(template.get("Moid")) if template else ("" if no_template else None)
+        ),
         cpu_sockets=_as_int(summary.get("NumCpus")),
         cpu_cores=_as_int(summary.get("NumCpuCores")),
         cpu_threads=_as_int(summary.get("NumThreads")),

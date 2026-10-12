@@ -29,6 +29,7 @@ from app.infrastructure.providers.redfish.client import (
     RedfishProtocolError,
     validate_odata_id,
 )
+from app.infrastructure.providers.redfish.mapping import memory_bytes
 from app.infrastructure.providers.redfish.provider import RedfishStandaloneProvider
 from app.infrastructure.providers.redfish.targets import RedfishCredential, RedfishTarget
 
@@ -1106,3 +1107,61 @@ class TestSessionCleanup:
                     await opened.get("/redfish/v1/Systems/1")
         finally:
             fixture.stop()
+
+
+class TestMemoryTotalWhenDimmsAreGone:
+    """`memory_bytes`: a removed part clears the total, an unread one keeps it."""
+
+    _GIB = 1024**3
+
+    def test_no_installed_dimm_after_a_good_read_is_zero_not_unread(self) -> None:
+        system: dict[str, object] = {}
+        absent = {"Status": {"State": "Absent"}, "CapacityMiB": 65536}
+
+        assert memory_bytes(system, []) == 0
+        assert memory_bytes(system, [absent]) == 0
+
+    def test_an_unread_memory_collection_stays_unread(self) -> None:
+        assert memory_bytes({}, None) is None
+
+    def test_a_zero_summary_is_not_trusted_over_the_dimms(self) -> None:
+        """A BMC that has not enumerated memory reports 0 GiB; that must not overwrite the total."""
+        system = {"MemorySummary": {"TotalSystemMemoryGiB": 0}}
+        dimm = {"Status": {"State": "Enabled"}, "CapacityMiB": 65536}
+
+        assert memory_bytes(system, [dimm]) == 64 * self._GIB
+        assert memory_bytes(system, None) is None
+
+    def test_installed_dimms_without_a_capacity_stay_unread(self) -> None:
+        dimm = {"Status": {"State": "Enabled"}}
+
+        assert memory_bytes({}, [dimm]) is None
+
+
+class TestDriveReadFailures:
+    """A drive that cannot be read keeps the stored drives, instead of vanishing from the list."""
+
+    async def test_one_unreadable_drive_leaves_the_whole_storage_block_unread(self) -> None:
+        resources = minimal_service()
+        controller = dict(resources["/redfish/v1/Systems/1/Storage/RAID"])
+        controller["Drives"] = [
+            {"@odata.id": "/redfish/v1/Chassis/1/Drives/0"},
+            {"@odata.id": "/redfish/v1/Chassis/1/Drives/9"},
+        ]
+        resources["/redfish/v1/Systems/1/Storage/RAID"] = controller
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        assert servers[0].storage_drives is None
+        assert servers[0].storage_total_bytes is None
+
+    async def test_a_storage_collection_with_no_drives_is_read_and_empty(self) -> None:
+        resources = minimal_service()
+        controller = dict(resources["/redfish/v1/Systems/1/Storage/RAID"])
+        controller["Drives"] = []
+        resources["/redfish/v1/Systems/1/Storage/RAID"] = controller
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        assert servers[0].storage_drives == ()
+        assert servers[0].storage_total_bytes == 0

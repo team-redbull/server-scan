@@ -119,7 +119,7 @@ class TestComputeUnitToProviderServer:
         assert result.attachments[0].server_interface == "eth0"
         assert result.attachments[0].interface_kind == "PHYSICAL"
 
-    def test_no_assigned_profile_leaves_template_fields_none(self) -> None:
+    def test_no_assigned_profile_reports_no_template_as_read_and_empty(self) -> None:
         blade = _blade(assigned_to_dn="")
         result = compute_unit_to_provider_server(
             blade,
@@ -134,10 +134,11 @@ class TestComputeUnitToProviderServer:
             cpu_units=[],
             disk_units=[],
         )
-        assert result.profile_template_name is None
-        assert result.profile_template_external_id is None
+        # "" = read, and there is none: it clears a stored template (None would keep it).
+        assert result.profile_template_name == ""
+        assert result.profile_template_external_id == ""
 
-    def test_profile_without_a_template_leaves_template_fields_none(self) -> None:
+    def test_profile_without_a_template_reports_no_template_as_read_and_empty(self) -> None:
         blade = _blade()
         profile = _profile(src_templ_name="")
         result = compute_unit_to_provider_server(
@@ -153,8 +154,9 @@ class TestComputeUnitToProviderServer:
             cpu_units=[],
             disk_units=[],
         )
-        assert result.profile_template_name is None
-        assert result.profile_template_external_id is None
+        # "" = read, and there is none: it clears a stored template (None would keep it).
+        assert result.profile_template_name == ""
+        assert result.profile_template_external_id == ""
 
     def test_template_name_with_no_matching_template_falls_back_to_name(self) -> None:
         blade = _blade()

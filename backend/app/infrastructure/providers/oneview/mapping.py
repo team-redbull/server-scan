@@ -437,6 +437,9 @@ def _storage(
         else:
             return None, None
     drives = tuple(mapper(row) for row in rows if not is_absent(row))
+    if not drives:
+        # Read, and nothing is installed: 0 clears a stored total (None would keep it).
+        return drives, 0
     sizes = [
         drive["capacity_bytes"] for drive in drives if isinstance(drive["capacity_bytes"], int)
     ]
@@ -567,11 +570,13 @@ def profile_from(
     if not uri or not name:
         return None
     template_uri = _opt_str(profile.get("serverProfileTemplateUri"))
+    # No template URI is an answer ("" clears a stored template); a URI whose template
+    # could not be named stays None, so the stored name is kept (ADR-0016).
     return OneViewProfile(
         uri=uri,
         name=name,
-        template_name=(template_names or {}).get(template_uri or ""),
-        template_uri=template_uri,
+        template_name=(template_names or {}).get(template_uri) if template_uri else "",
+        template_uri=template_uri or "",
     )
 
 
