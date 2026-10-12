@@ -509,7 +509,7 @@ class TestLoginAuditEvents:
         assert event["actor"]["id"] == "audit.login.ok"
         assert event["actor"]["type"] == "USER"
         assert event["actor"]["role"] == role.value
-        assert event["data"] == {"role": role.value}
+        assert event["data"] == {"user": "audit.login.ok", "role": role.value}
 
     async def test_a_login_without_permission_is_recorded_as_denied(self) -> None:
         status, docs = await self._login_and_events(LoginResult.NO_PERMISSION, "audit.login.nope")
@@ -520,7 +520,7 @@ class TestLoginAuditEvents:
         assert event["event_type"] == "LOGIN_DENIED"
         assert event["actor"]["id"] == "audit.login.nope"
         assert event["actor"]["role"] is None
-        assert event["data"] == {"role": "NO_PERMISSION"}
+        assert event["data"] == {"user": "audit.login.nope", "role": "NO_PERMISSION"}
 
     async def test_a_wrong_password_writes_nothing(self) -> None:
         """An unauthenticated caller must not be able to grow the audit trail."""

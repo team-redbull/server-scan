@@ -17,10 +17,10 @@ metric. The operator asked to see every login, whatever its outcome, with the ro
 
 | Event | When | `actor.role` | `data` |
 |---|---|---|---|
-| `LOGIN_SUCCEEDED` | credentials valid, role resolved | `ADMIN` / `AUDITOR` / `VIEWER` | `{"role": "<role>"}` |
-| `LOGIN_DENIED` | credentials valid, listed in no admin/auditor/viewer list (the 403) | `null` | `{"role": "NO_PERMISSION"}` |
+| `LOGIN_SUCCEEDED` | credentials valid, role resolved | `ADMIN` / `AUDITOR` / `VIEWER` | `{"user": "<username>", "role": "<role>"}` |
+| `LOGIN_DENIED` | credentials valid, listed in no admin/auditor/viewer list (the 403) | `null` | `{"user": "<username>", "role": "NO_PERMISSION"}` |
 
-The actor is the normalised username (`USER`). The events carry no server, so they appear on the Events
+The actor is the normalised username (`USER`), repeated as `data.user` so the event's details show who and which role at a glance. The events carry no server, so they appear on the Events
 page (filter "LOGIN_SUCCEEDED" / "LOGIN_DENIED") and not in a server's History tab; like the rest of the
 trail they are visible to admin and auditor only and are removed by the retention job after
 `retentionDays`.

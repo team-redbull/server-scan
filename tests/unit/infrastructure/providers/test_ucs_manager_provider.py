@@ -28,6 +28,7 @@ from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
+from app.domain.ports.provider import ServerIdentity
 from app.infrastructure.providers.ucs_manager.provider import (
     UcsManagerProvider,
     _group_by_owning_server_dn,
@@ -602,3 +603,110 @@ class TestListServers:
         await generator.__anext__()
         await generator.aclose()
         assert client.calls[-1] == "logout"
+
+
+_UNDER_THE_SERVER = ("mgmtIf", "adaptorExtEthIf", "adaptorHostEthIf", "processorUnit")
+_ALSO_UNDER_THE_SERVER = ("storageLocalDisk", "equipmentPsu", "equipmentRackUnitPsuStats")
+
+
+def _sdk_shaped(mo: Any, wire_class_id: str) -> Any:
+    """A copy of `mo` carrying the `_class_id` the real SDK gives a parsed MO.
+
+    `ucsmsdk` names it after the Python class (`MgmtIf`), not the XML tag (`mgmtIf`),
+    which is the difference that left every Cisco recheck without hardware or NICs.
+    """
+    shaped = SimpleNamespace(**vars(mo))
+    shaped._class_id = wire_class_id[:1].upper() + wire_class_id[1:]
+    return shaped
+
+
+class FakeUcsClientWithDn(FakeUcsClient):
+    """`FakeUcsClient` plus `query_dn(hierarchy=True)` returning one server's flat subtree."""
+
+    def __init__(self, *, responses: dict[str, list[Any]], server_dn: str) -> None:
+        super().__init__(responses=responses)
+        self._server_dn = server_dn
+
+    async def query_dn(self, dn: str, *, hierarchy: bool = False) -> list[Any]:
+        self.calls.append(f"query_dn:{dn}")
+        mos = [
+            _sdk_shaped(mo, class_id)
+            for class_id, class_mos in self._responses.items()
+            for mo in class_mos
+            if getattr(mo, "dn", "") and getattr(mo, "dn", "").startswith(self._server_dn)
+        ]
+        return mos if hierarchy else mos[:1]
+
+
+class TestGetOne:
+    """The Available recheck must produce the same server a scan does (ADR-0032).
+
+    Every bucket was empty because the SDK's `_class_id` is `MgmtIf`, not `mgmtIf`, so the
+    ingested document lost its BMC, NICs, CPUs, disks and PSUs.
+    """
+
+    def _domain_with_everything(self) -> dict[str, list[Any]]:
+        domain = _domain()
+        domain["adaptorExtEthIf"] = [
+            SimpleNamespace(
+                dn="sys/chassis-1/blade-1/adaptor-1/ext-eth-1",
+                mac="00:aa:bb:cc:dd:01",
+                switch_id="A",
+                id="1",
+                name="ext1",
+                admin_state="enabled",
+                oper_state="up",
+            )
+        ]
+        domain["vnicIpV4PooledAddr"] = [
+            SimpleNamespace(dn="org-root/ls-worker-01/ip-pooled", addr="10.9.8.7")
+        ]
+        return domain
+
+    async def test_get_one_returns_the_same_server_a_scan_does(self) -> None:
+        domain = self._domain_with_everything()
+        [scanned] = await _collect(_provider(FakeUcsClient(responses=domain)))
+
+        client = FakeUcsClientWithDn(responses=domain, server_dn="sys/chassis-1/blade-1")
+        fetched = await _provider(client).get_one(
+            ServerIdentity(external_id="sys/chassis-1/blade-1")
+        )
+
+        assert fetched == scanned
+
+    async def test_get_one_keeps_the_hardware_and_network_a_scan_reads(self) -> None:
+        domain = self._domain_with_everything()
+        client = FakeUcsClientWithDn(responses=domain, server_dn="sys/chassis-1/blade-1")
+
+        fetched = await _provider(client).get_one(
+            ServerIdentity(external_id="sys/chassis-1/blade-1")
+        )
+
+        assert fetched is not None
+        assert fetched.bmc_mac == "00:11:22:33:44:55"
+        assert fetched.nic_macs
+        assert fetched.cpu_model == "Intel(R) Xeon(R) Gold 6338"
+        assert fetched.storage_drives is not None
+        assert len(fetched.storage_drives) == 1
+        assert [a.fabric for a in fetched.attachments]
+        assert client.calls[-1] == "logout"
+
+    async def test_get_one_finds_the_management_ip_that_hangs_off_the_profile(self) -> None:
+        """Outside the blade's subtree, so a hierarchical read alone never carries it."""
+        domain = self._domain_with_everything()
+        client = FakeUcsClientWithDn(responses=domain, server_dn="sys/chassis-1/blade-1")
+
+        fetched = await _provider(client).get_one(
+            ServerIdentity(external_id="sys/chassis-1/blade-1")
+        )
+
+        assert fetched is not None
+        assert "10.9.8.7" in (fetched.bmc_address_raw or "")
+
+    async def test_a_dn_that_no_longer_resolves_is_none(self) -> None:
+        client = FakeUcsClientWithDn(responses=_domain(), server_dn="sys/chassis-9/blade-9")
+
+        assert (
+            await _provider(client).get_one(ServerIdentity(external_id="sys/chassis-1/blade-1"))
+            is None
+        )

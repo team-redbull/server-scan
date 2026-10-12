@@ -105,7 +105,7 @@ async def _record_login(audit: AuditService, username: str, result: Role | Login
                     id=username,
                     role=None if denied else Role(result),
                 ),
-                data={"role": result.value},
+                data={"user": username, "role": result.value},
             )
     except Exception:
         logger.exception("auth.login_audit_failed", username=username)

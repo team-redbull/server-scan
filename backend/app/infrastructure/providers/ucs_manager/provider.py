@@ -32,6 +32,26 @@ from app.infrastructure.providers.ucs_manager.client import UcsManagerClient
 from app.infrastructure.providers.ucs_manager.mapping import compute_unit_to_provider_server
 
 
+def _wire_class_id(mo: Any) -> str:
+    """
+    The XML class name (`mgmtIf`) of a managed object, as `query_classid` takes it.
+
+    A parsed MO's own `_class_id` is the Python class name (`MgmtIf`), which is not
+    the wire name, so bucketing by it would find nothing. See docs/cisco-collectors.md.
+
+    Args:
+        mo (Any): A managed object from `query_dn` or `query_classid`.
+
+    Returns:
+        str: The wire class id, or `""` for an object that names none.
+    """
+    meta_name = getattr(getattr(mo, "mo_meta", None), "xml_attribute", None)
+    if isinstance(meta_name, str) and meta_name:
+        return meta_name
+    class_id = str(getattr(mo, "_class_id", "") or "")
+    return class_id[:1].lower() + class_id[1:]
+
+
 class UcsManagerProvider(ServerInventoryProvider):
     """
     Collects one UCS Manager domain's inventory.
@@ -120,9 +140,13 @@ class UcsManagerProvider(ServerInventoryProvider):
 
             by_class: dict[str, list[Any]] = defaultdict(list)
             for mo in mos:
-                by_class[getattr(mo, "_class_id", "")].append(mo)
+                by_class[_wire_class_id(mo)].append(mo)
 
             ls_servers = await client.query_classid("lsServer")
+            # Not in the blade's subtree: the profile's management IP hangs off the
+            # profile's DN, so the hierarchical read alone never carries it.
+            mgmt_ip_pooled = await client.query_classid("vnicIpV4PooledAddr")
+            mgmt_ip_static = await client.query_classid("vnicIpV4StaticAddr")
             profile_by_dn, template_dn_by_name = _partition_profiles(ls_servers)
             network_elements = await client.query_classid("networkElement")
             switches_by_id = {
@@ -140,10 +164,7 @@ class UcsManagerProvider(ServerInventoryProvider):
                 template_dn_by_name=template_dn_by_name,
                 mgmt_if=_bmc_interface(by_class.get("mgmtIf", []), server_dn=server_mo.dn),
                 mgmt_ip_by_parent_dn=_management_ip_by_parent_dn(
-                    (
-                        *by_class.get("vnicIpV4PooledAddr", []),
-                        *by_class.get("vnicIpV4StaticAddr", []),
-                    )
+                    (*mgmt_ip_pooled, *mgmt_ip_static)
                 ),
                 ext_eth_ifs=by_class.get("adaptorExtEthIf", []),
                 host_eth_ifs=by_class.get("adaptorHostEthIf", []),

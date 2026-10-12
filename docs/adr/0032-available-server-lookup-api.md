@@ -670,3 +670,25 @@ maintenance=False...`) or, for a pattern, a sentence listing every possible reas
   checked: `INSTALLED`, `CLAIMED`, `MAINTENANCE`, `UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`, `NIC_MACS`
   (and `GONE_FROM_MANAGER`). A server in maintenance is never drawn, in either mode.
 
+## Update (2026-10-12, later): the Cisco recheck emptied the stored document
+
+**Symptom.** After `GET /servers/available` rechecked a Cisco server, its document had no BMC address, NICs,
+CPUs, disks or PSUs (Dell was fine), and the server then failed the draw's network/NIC gates.
+
+**Cause, two defects in `UcsManagerProvider.get_one`** (never unit-tested; Dell's path reuses the Redfish
+collector and was unaffected):
+
+1. **Class-id case.** The hierarchical `query_dn` result was bucketed by `mo._class_id`, which the real SDK sets
+   to the Python class name (`MgmtIf`, `AdaptorExtEthIf`, `ProcessorUnit`), while the lookups used the XML names
+   (`mgmtIf`, ...). Every bucket was empty. The earlier note that `_class_id` is "the wire class-id string" was
+   wrong; verified now against `ucsmsdk` parsed XML. `_wire_class_id` uses `mo_meta.xml_attribute`.
+2. **The profile's management IP is outside the blade's subtree.** It hangs off the service profile's DN, so a
+   subtree read never carries it; `get_one` now also reads `vnicIpV4PooledAddr`/`vnicIpV4StaticAddr`, as the scan does.
+
+Ingest treats an empty list as "read, and empty" (only `None` means unread), so the sparse result overwrote the
+stored hardware. **Self-healing:** the next UCS Central collector run (every 3 h) rewrites the document from a full
+scan; run the CronJob by hand to repair a server sooner.
+
+`TestGetOne` (test_ucs_manager_provider.py) feeds SDK-shaped objects and asserts `get_one` equals what a scan
+produces for the same domain; it fails without either fix.
+

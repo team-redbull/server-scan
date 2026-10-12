@@ -199,3 +199,9 @@ the installed `ucsmsdk`; OneView's read HPE's API Reference and the
 order — two of four vendors had no test target at all. Any new vendor gets
 `get_one` alongside `_list_servers`, a factory entry, a CronJob, and a
 `fake` shape (convention 10).
+- **A UCS MO's `_class_id` is the Python class name (`MgmtIf`), never the XML tag (`mgmtIf`)** (2026-10-12):
+  bucketing `query_dn(hierarchy=True)` by it left every Cisco `get_one` without hardware or NICs, and ingest
+  then overwrote the stored document with that empty result. Use `_wire_class_id`. A `get_one` must equal a
+  scan's result for the same server: `TestGetOne` asserts it. Management IPs hang off the *profile* DN, so they
+  are not in the blade's subtree.
+

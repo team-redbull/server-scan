@@ -457,6 +457,10 @@ like `INSTALLED`/`MAINTENANCE`), answering from the stored document before any v
 claimed, maintenance and reserved servers. And every authenticated login is an audit event, `LOGIN_SUCCEEDED`
 with the role or `LOGIN_DENIED` (`NO_PERMISSION`), ADR-0047.
 
+**Also (2026-10-12):** the Cisco recheck had emptied the stored document (hardware, NICs, BMC) because
+`UcsManagerProvider.get_one` bucketed MOs by the SDK's CamelCase `_class_id` and skipped the profile-DN management
+IP; fixed and tested against a scan (ADR-0032 update). Affected documents heal on the next UCS Central run.
+
 **Also:** the generator calls through the Route, so `route.timeoutSeconds` (default 300) now sets the Route's
 `haproxy.router.openshift.io/timeout` and a longer nginx `proxy_read_timeout` for `/api/v1/servers/available` only.
 
