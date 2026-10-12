@@ -290,7 +290,8 @@ long form of each entry is in the 2026-09-13 archive.
   mounted with `require_audit_access` (viewer = 403), and the SPA's `useCanReadAudit()` hides the
   Events link, `/events` (`AuditGate`) and the History tab. A new endpoint that returns audit data
   must join that router or add the dependency; a UI-only hide is not a control. The three
-  `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise).
+  `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise). **Every authenticated login is an event** (ADR-0047): `LOGIN_SUCCEEDED`
+  (role in `data`) and `LOGIN_DENIED` (`NO_PERMISSION`); a wrong password is deliberately *not* recorded.
 - **A PrometheusRule is evaluated by exactly one of two components, chosen by label** (ADR-0029): with
   `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` the user-workload Prometheus (sees only user
   namespaces: no `kube_*`/`container_*`), without it a Thanos Ruler that may have no Alertmanager or remote-write.
@@ -439,17 +440,26 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-11 — inventory search exact/regex, Maintenance in Health, two UI fixes (ADR-0046).** Moved to
-`docs/notes/session-log.md`: ingest write discipline and audit retention.
+**2026-10-11 (later) — `/servers/available` per-manager timeouts, stored-DN UCS recheck, 503 on a vendor failure (ADR-0032 update).**
+Moved to `docs/notes/session-log.md`: the inventory search / Maintenance-in-Health unit.
 
-**Shipped (frontend only, no API change, so `server-scan-api` is unchanged):** (1) the search box takes
-`"exact"` and `/regex/` besides plain substring (`parseSearch`; a bad regex shows an error and keeps every
-row); (2) the Health dropdown ends with **Maintenance**, exclusive with a severity (the checkbox is gone;
-E2E uses `#filter-health`), and the Sites cards' "N in maintenance" links to `?maintenance=true`;
-(3) the cluster sidebar's search box stays pinned while its lists scroll, and its height is capped at the
-space under its own top edge so the last cluster is reachable; (4) `MaintenanceToggle`'s reason card is a
-portal on `document.body` (a one-row result clipped it inside the table's scroll box).
+**Shipped (uncommitted until the operator releases):** the API pod had the 15 s default while the UCS Central
+CronJob runs 240 s, so a Cisco recheck died on `lsServer` as a 500. Now `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS`
+(Helm `serverScan.recheckTimeouts`, from each collector's own values; new optional `oneview.timeoutSeconds`/
+`ome.timeoutSeconds`) gives each manager its collector's timeout; `UcsCentralProvider.get_one` reads the domain
+from the stored DN (no `lsServer`, name search is the fallback); a vendor failure is `VendorRecheckError` ->
+503 `SERVICE_UNAVAILABLE` naming the manager (pattern mode skips a failing candidate). Also uncommitted from
+earlier: Grafana annotation `enable: false`, shorter search placeholder, `ClusterSidebar` scrollbar-gutter.
 
-**Open:** Playwright (`maintenance.spec.ts`, `inventory.spec.ts`) was edited but not run locally (no browser
-libs in this WSL); the sidebar height fix was reasoned, not measured; the earlier open items from
-2026-10-07 stand (retention report-only flip, recheck concurrency cap, stale Agent CR/node).
+**Also (2026-10-12):** `/servers/available` 404s now say why (`is not available: it is already installed in
+cluster 'x'`, `... in maintenance (reason)`; a pattern gets counts per reason; `details.reasons` carries codes
+like `INSTALLED`/`MAINTENANCE`), answering from the stored document before any vendor call for installed,
+claimed, maintenance and reserved servers. And every authenticated login is an audit event, `LOGIN_SUCCEEDED`
+with the role or `LOGIN_DENIED` (`NO_PERMISSION`), ADR-0047.
+
+**Also:** the generator calls through the Route, so `route.timeoutSeconds` (default 300) now sets the Route's
+`haproxy.router.openshift.io/timeout` and a longer nginx `proxy_read_timeout` for `/api/v1/servers/available` only.
+
+**Open:** not run against a live Central (direct single-domain lookup unverified); a load balancer in front of the
+Route, if any, is outside the chart; the earlier open items stand (retention report-only flip, recheck concurrency
+cap, stale Agent CR/node).

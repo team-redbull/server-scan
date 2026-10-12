@@ -31,6 +31,7 @@ _PROVIDER_TYPE = ManagerType.UCS_CENTRAL.value
 
 _UCSM_ROOT = "sys/"
 _CENTRAL_ROOT = "compute/sys-{domain_id}/"
+_CENTRAL_PREFIX = "compute/sys-"
 
 
 def domain_id_from_dn(dn: str) -> str | None:
@@ -87,6 +88,28 @@ def central_external_id(external_id: str, *, domain_id: str) -> str:
     if not external_id.startswith(_UCSM_ROOT):
         return external_id
     return _CENTRAL_ROOT.format(domain_id=domain_id) + external_id[len(_UCSM_ROOT) :]
+
+
+def split_central_external_id(external_id: str | None) -> tuple[str, str] | None:
+    """
+    Split a stored Central-rooted DN back into its domain id and domain-local DN.
+
+    The inverse of `central_external_id`: `compute/sys-<id>/chassis-1/blade-2`
+    is domain `<id>`, local DN `sys/chassis-1/blade-2`.
+
+    Args:
+        external_id (str | None): `Server.identity.external_ids` for this manager.
+
+    Returns:
+        tuple[str, str] | None: `(domain_id, local_dn)`, or `None` when the value
+            is missing or not Central-rooted (the caller then searches by name).
+    """
+    if not external_id or not external_id.startswith(_CENTRAL_PREFIX):
+        return None
+    domain_id, _, rest = external_id[len(_CENTRAL_PREFIX) :].partition("/")
+    if not domain_id or not rest:
+        return None
+    return domain_id, _UCSM_ROOT + rest
 
 
 def _profiles_by_key(ls_servers: Iterable[Any]) -> dict[str, list[str]]:
@@ -284,18 +307,24 @@ class UcsCentralProvider(ServerInventoryProvider):
 
     async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
         """
-        Find one service profile in Central, then recheck only its own domain (ADR-0032).
+        Recheck one server in its own domain, found from its stored DN (ADR-0032).
 
-        Mirrors `BareMetalHostUCS`'s own `ucs_server_strategy.get_server_info`.
+        Only when that DN is missing or no longer resolves does it search by name.
 
         Args:
-            identity (ServerIdentity): `name` is the service profile name.
+            identity (ServerIdentity): `external_id` is the stored DN; `name` is the
+                service profile name, used for the fallback search.
 
         Returns:
             ProviderServer | None: The current state, with a
                 domain-qualified `external_id`, or `None` when the name
                 no longer resolves to a domain and physical node.
         """
+        known = split_central_external_id(identity.external_id)
+        if known is not None:
+            fresh = await self._get_one_in_known_domain(*known, serial=identity.serial)
+            if fresh is not None:
+                return fresh
         if not identity.name:
             return None
         client = self._client_factory()
@@ -357,6 +386,56 @@ class UcsCentralProvider(ServerInventoryProvider):
             return None
         return replace(
             fresh, external_id=central_external_id(fresh.external_id, domain_id=target.domain_id)
+        )
+
+    async def _get_one_in_known_domain(
+        self, domain_id: str, local_dn: str, *, serial: str | None
+    ) -> ProviderServer | None:
+        """
+        Recheck a server in the domain its stored DN names, without the `lsServer` read.
+
+        Only the small `computeSystem` list is read, to turn the domain id into an
+        address. See docs/adr/0032, 2026-10-11 update.
+
+        Args:
+            domain_id (str): Central's id for the domain, from the stored DN.
+            local_dn (str): The blade/rack server's DN inside that domain.
+            serial (str | None): The stored serial, for the per-domain read.
+
+        Returns:
+            ProviderServer | None: The current state, or `None` when the domain is
+                no longer registered or the server is no longer at that DN there
+                (the caller then falls back to the name search).
+        """
+        client = self._client_factory()
+        try:
+            await client.login()
+            domains = await client.query_classid("computeSystem")
+        finally:
+            await client.logout()
+        domain_mo = next(
+            (mo for mo in domains if str(getattr(mo, "id", "") or "") == domain_id), None
+        )
+        if domain_mo is None:
+            return None
+        endpoint = (
+            str(getattr(domain_mo, "address", "") or "").strip()
+            or str(getattr(domain_mo, "name", "") or "").strip()
+        )
+        if not endpoint:
+            return None
+        target = DomainTarget(
+            domain_id=domain_id,
+            name=str(getattr(domain_mo, "name", "") or ""),
+            endpoint=endpoint,
+        )
+        fresh = await self._domain_provider_factory(target).get_one(
+            ServerIdentity(external_id=local_dn, serial=serial)
+        )
+        if fresh is None:
+            return None
+        return replace(
+            fresh, external_id=central_external_id(fresh.external_id, domain_id=domain_id)
         )
 
     async def _plan(self) -> tuple[list[DomainTarget], dict[str, Any]]:

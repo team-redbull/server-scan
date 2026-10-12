@@ -388,6 +388,13 @@ route:
   # Exposing another path is a `location` block in
   # templates/frontend-api-proxy-configmap.yaml, never another Route.
   host: ""
+  # How long the Route (HAProxy) and the frontend nginx wait for the API to answer
+  # `GET /api/v1/servers/available`, whose live recheck of a vendor manager can take
+  # longer than their 30 s / 60 s defaults (ADR-0032, 2026-10-11 update). Sets the
+  # Route's `haproxy.router.openshift.io/timeout`, which covers every path on the
+  # host, and nginx's `proxy_read_timeout` for that one path only. Keep it above the
+  # slowest collector timeout in `collectors.*` (UCS Central is 240 s).
+  timeoutSeconds: 300
 
 # Real vendor collectors, run as CronJobs against the same image as the
 # API (tools/run_collector.py --manager-type <type>).
@@ -799,6 +806,12 @@ collectors:
     collectCpuThreads: true
     cpuThreadsConcurrency: 8
 
+    # Optional per-call timeout (seconds) for OneView requests, used by this CronJob and by
+    # `GET /servers/available`'s live recheck. Unset keeps the shared 15 s default
+    # (INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS). Not activeDeadlineSeconds: that bounds
+    # the whole job, not one call.
+    # timeoutSeconds: 30
+
     # `X-Api-Version`. 0 discovers it per appliance and clamps it to the
     # newest version this collector was written against (8000 / OneView
     # 10.20). Set a number only to pin or roll back.
@@ -861,6 +874,10 @@ collectors:
     # BMCs contacted at once. Cost here is per *server* (~25 requests
     # each), not per appliance.
     bmcConcurrency: 16
+
+    # Optional per-call timeout (seconds) for OME requests, used by this CronJob and by
+    # `GET /servers/available`'s live recheck. Unset keeps the shared 15 s default.
+    # timeoutSeconds: 30
 
     # Every 3 hours, matching redfishStandalone and every other collector
     # here — a shared, uniform cadence across the whole fleet (operator,

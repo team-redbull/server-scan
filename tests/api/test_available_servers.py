@@ -17,14 +17,18 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import app.api.v1.servers as servers_module
 from app.config import get_settings
-from app.domain.enums import HealthSeverity, ManagerType, Vendor
+from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState, Vendor
 from app.domain.models.health import Health
+from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
+from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.server import Identity, Server
 from app.domain.services.normalize import normalize_text
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
+from app.infrastructure.providers.fake.provider import FakeProvider
 from app.infrastructure.redis.client import RedisClientHolder
 from app.main import create_app
 from app.utils.ids import new_id
@@ -408,3 +412,126 @@ async def test_bmc_vendor_tells_intersight_from_ucs_within_cisco(
     assert intersight["bmc_vendor"] == "INTERSIGHT"
     # Cisco vNICs are named positionally from eno5 (`cisco_eno_names`).
     assert ucs["interfaces"][0]["os_name"] == "eno5"
+
+
+async def test_a_vendor_manager_failure_is_a_503_naming_the_manager_not_a_500(
+    app_context: tuple[AsyncClient, MongoServerRepository], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 15 s UCS Central `lsServer` timeout used to surface as an unexplained 500."""
+    client, repo = app_context
+    await repo.upsert(
+        _make_server(
+            0,
+            name="ocp-ucs-timeout",
+            vendor=Vendor.CISCO,
+            source_provider=ManagerType.UCS_CENTRAL.value,
+        )
+    )
+
+    class _TimingOut(FakeProvider):
+        async def get_one(self, identity: object) -> None:
+            raise TimeoutError("query_classid('lsServer') timed out after 15.0s")
+
+    monkeypatch.setattr(
+        servers_module,
+        "build_provider_for_manager_type",
+        lambda manager_type, settings: _TimingOut(
+            seed=1, count=1, provider_type=ManagerType.UCS_CENTRAL.value
+        ),
+    )
+
+    resp = await client.get("/api/v1/servers/available", params={"name": "ocp-ucs-timeout"})
+
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["code"] == "SERVICE_UNAVAILABLE"
+    assert "UCS_CENTRAL" in body["detail"]
+    assert "timed out after 15.0s" in body["detail"]
+    assert body["details"]["manager_type"] == "UCS_CENTRAL"
+
+
+def _installed(server: Server, cluster: str = "ocp4-prod") -> Server:
+    return server.model_copy(
+        update={
+            "openshift": OpenShiftLifecycle(
+                lifecycle_state=OpenShiftState.INSTALLED, cluster_name=cluster
+            )
+        }
+    )
+
+
+def _in_maintenance(server: Server, reason: str = "replacing PSU") -> Server:
+    return server.model_copy(update={"maintenance": Maintenance(enabled=True, reason=reason)})
+
+
+async def test_asking_for_an_installed_server_says_it_is_installed(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(_installed(_make_server(0, name="ocp-already-installed"), "ocp4-tlv"))
+
+    resp = await client.get("/api/v1/servers/available", params={"name": "ocp-already-installed"})
+
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["code"] == "AVAILABLE_SERVER_NOT_FOUND"
+    assert "already installed in cluster 'ocp4-tlv'" in body["detail"]
+    assert body["details"]["reasons"] == ["INSTALLED"]
+
+
+async def test_asking_for_a_server_in_maintenance_says_so_with_the_reason(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(_in_maintenance(_make_server(0, name="ocp-in-maint"), "swapping DIMM"))
+
+    resp = await client.get("/api/v1/servers/available", params={"name": "ocp-in-maint"})
+
+    assert resp.status_code == 404
+    assert "in maintenance (swapping DIMM)" in resp.json()["detail"]
+    assert resp.json()["details"]["reasons"] == ["MAINTENANCE"]
+
+
+async def test_a_server_in_maintenance_is_never_drawn_but_its_sibling_is(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(_in_maintenance(_make_server(0, name="ocp-batch-a")))
+    await repo.upsert(_make_server(1, name="ocp-batch-b"))
+
+    resp = await client.get(
+        "/api/v1/servers/available", params={"pattern": "ocp-batch-", "count": 5}
+    )
+
+    assert resp.status_code == 200
+    assert [item["name"] for item in resp.json()["items"]] == ["ocp-batch-b"]
+
+
+async def test_a_pattern_where_nothing_is_available_counts_each_reason(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(_installed(_make_server(0, name="ocp-none-1")))
+    await repo.upsert(_installed(_make_server(1, name="ocp-none-2")))
+    await repo.upsert(_in_maintenance(_make_server(2, name="ocp-none-3")))
+
+    resp = await client.get("/api/v1/servers/available", params={"pattern": "ocp-none-"})
+
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["detail"] == (
+        "3 servers match 'ocp-none-', but none is available: "
+        "2 installed in a cluster, 1 in maintenance"
+    )
+    assert body["details"]["reasons"] == ["INSTALLED", "MAINTENANCE"]
+
+
+async def test_a_pattern_matching_no_name_at_all_is_a_plain_404(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, _repo = app_context
+
+    resp = await client.get("/api/v1/servers/available", params={"pattern": "zzz-nope"})
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "no server name matches 'zzz-nope'"

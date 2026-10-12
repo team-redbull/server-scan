@@ -88,7 +88,9 @@ Loaded only when a `frontend/` file is open.
   dropdown option** (exclusive with a severity, sets `maintenance=true`), not a checkbox, so an E2E
   uses `#filter-health` `selectOption("MAINTENANCE")`. **`MaintenanceToggle`'s reason card is a portal
   on `document.body`**, positioned from the button: inside the table's `overflow-x-auto` it was clipped
-  (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`.
+  (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`. Its list scroller has `scrollbar-gutter: stable`: Firefox sizes a `w-max` box without a classic
+  scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with
+  headed Playwright Firefox + `GTK_OVERLAY_SCROLLING=0`; headless Firefox always uses overlay scrollbars).
 - **The inventory's filter block is one unit in the table's column**
   (2026-09-21): Search and the six selects on one row, the toggles
   beneath, then the "Filtered by" chips — left and right edges equal to

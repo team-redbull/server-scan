@@ -34,6 +34,10 @@ spec:
               env:
                 - name: INVENTORY_ENVIRONMENT
                   value: production
+                {{- if hasKey .Values.collectors.ome "timeoutSeconds" }}
+                - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+                  value: {{ .Values.collectors.ome.timeoutSeconds | quote }}
+                {{- end }}
                 - name: INVENTORY_COLLECTOR_NAME_PATTERN
                   value: {{ .Values.collectors.namePattern | quote }}
                 {{- if hasKey .Values.collectors.ome "namePattern" }}

@@ -52,3 +52,18 @@
 {{- define "serverScan.frontendImage" -}}
 {{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}
 {{- end -}}
+
+{{- /*
+`GET /servers/available`'s per-manager recheck timeouts, `TYPE:seconds,...`: each collector's own
+configured per-call timeout, so the API waits as long as that collector's CronJob does (ADR-0032).
+A key a values file lacks is skipped, which leaves the shared 15 s default for that manager.
+*/ -}}
+{{- define "serverScan.recheckTimeouts" -}}
+{{- $c := .Values.collectors | default dict -}}
+{{- $parts := list -}}
+{{- with $c.ucsCentral }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "UCS_CENTRAL:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
+{{- with $c.intersight }}{{- if hasKey . "connectTimeoutSeconds" }}{{- $parts = append $parts (printf "INTERSIGHT:%v" .connectTimeoutSeconds) }}{{- end }}{{- end -}}
+{{- with $c.oneview }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "ONEVIEW:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
+{{- with $c.ome }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "OPENMANAGE:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
+{{- join "," $parts -}}
+{{- end -}}

@@ -126,6 +126,17 @@ describe("describeEvent", () => {
     );
   });
 
+  it("says who logged in with which role, and that a refused login had no permission", () => {
+    expect(
+      describeEvent({ ...ev("LOGIN_SUCCEEDED"), data: { role: "AUDITOR" } }),
+    ).toBe("Logged in as auditor");
+    expect(
+      describeEvent({ ...ev("LOGIN_DENIED"), data: { role: "NO_PERMISSION" } }),
+    ).toBe(
+      "Login refused: authenticated, but in no admin, auditor or viewer list",
+    );
+  });
+
   it("covers every written type", () => {
     for (const t of WRITTEN_EVENT_TYPES) {
       expect(describeEvent(ev(t))).not.toBe(t);

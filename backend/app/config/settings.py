@@ -68,6 +68,8 @@ class Settings(BaseSettings):
 
     capacity_aliases: str = ""
 
+    available_recheck_timeouts: str = ""
+
     sites: str = ""
 
     # The field name must equal the env var suffix — deploy/README.md,

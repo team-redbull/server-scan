@@ -52,7 +52,11 @@ bmc_vendor (HP/DELL/CISCO/INTERSIGHT), bmc{host, scheme, port, mac...}, nic_macs
 interfaces[{name, mac, location, os_name, link_state, speed_mbps}], site_id,
 health_overall, live_recheck_performed`.
 Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern),
-`AVAILABLE_COUNT_TOO_LARGE`, ambiguous name, nothing found.
+`AVAILABLE_COUNT_TOO_LARGE`, ambiguous name, nothing found (404 `AVAILABLE_SERVER_NOT_FOUND`: `detail` says why,
+e.g. "already installed in cluster x" or "in maintenance", `details.reasons` has codes such as
+`INSTALLED`, `CLAIMED`, `MAINTENANCE`, `UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`), and 503 `SERVICE_UNAVAILABLE` when the
+vendor manager failed or timed out during the live recheck (`details.manager_type`, `details.reason`;
+retry later, it does not mean no server is available).
 
 ## Events
 
@@ -64,7 +68,7 @@ Auditor or admin token only.
 Event: `id, event_type, server_id, server_name, actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED`,
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
-`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), plus rule/policy/site/manager events.
+`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` is the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), plus rule/policy/site/manager events.
 
 ## Sites
 

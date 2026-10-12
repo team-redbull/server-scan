@@ -11,7 +11,7 @@ of a technical explanation is a second copy to keep true:
 
 | For | Read |
 |---|---|
-| Why a decision was made | `docs/adr/` — records 0001 to 0046, cited throughout below |
+| Why a decision was made | `docs/adr/` — records 0001 to 0047, cited throughout below |
 | How a subsystem actually works | `docs/architecture.md` |
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
@@ -557,6 +557,7 @@ of it.
 | 0044 | Ingest writes an existing server with a revision compare-and-set (retry up to 3 times) instead of a blind replace that could overwrite a maintenance, reservation or membership write made mid-run, and skips a server whose content did not change (`touch_seen` refreshes only the last-confirmed stamps; `revision`/`updated_at` mean "content changed") |
 | 0045 | Audit events older than a retention window (default 180 days, minimum 7, 0 = keep forever) are deleted by a weekly CronJob that is report-only until `reportOnly: false` (`collectors.auditRetention`, `tools/prune_events.py`), recording one `AUDIT_PURGED` event; `purge_before` joins `rename_legacy_event_types` as the repository's second non-`record()` write |
 | 0046 | The inventory search keeps substring as the default and adds `"exact"` and `/regex/` forms chosen by how the text is typed (client-side only, bad regex shows an error and keeps every row); Maintenance joins the Health dropdown, exclusive with a severity |
+| 0047 | Every authenticated login is an audit event: `LOGIN_SUCCEEDED` (with the resolved role) and `LOGIN_DENIED` (valid AD account in no admin/auditor/viewer list); a wrong password is not recorded (unauthenticated, spray-able) and the best-effort write never blocks the login |
 
 ---
 

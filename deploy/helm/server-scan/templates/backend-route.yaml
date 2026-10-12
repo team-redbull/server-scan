@@ -14,6 +14,8 @@ metadata:
     app.kubernetes.io/name: {{ .Release.Name }}-api
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: server-scan
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ printf "%vs" (.Values.route.timeoutSeconds | default 300) | quote }}
 spec:
   {{- with .Values.route.host }}
   host: {{ . }}

@@ -50,6 +50,7 @@ from app.infrastructure.providers.ucs_central.provider import (
     central_external_id,
     domain_id_from_dn,
     domains_to_collect,
+    split_central_external_id,
 )
 
 pytestmark = pytest.mark.unit
@@ -840,3 +841,73 @@ class TestDomainSummaryDiagnostics:
         _, events = await _collect_with_logs(_provider(client, {}))
 
         assert _events(events, "ucs_central.domain_collected_nothing") == []
+
+
+class TestGetOneKnownDomain:
+    """`get_one` reads the domain the stored DN names, and only searches by name as a fallback."""
+
+    STORED = "compute/sys-1009/chassis-1/blade-2"
+
+    def _client(self) -> FakeCentralClient:
+        return FakeCentralClient(
+            {
+                "computeSystem": [_domain("1009", "a"), _domain("1010", "b")],
+                "lsServer": [_profile("ocp-x", "1010", pn_dn="sys/chassis-9/blade-9")],
+            }
+        )
+
+    async def test_uses_the_stored_dn_and_never_lists_service_profiles(self) -> None:
+        """The whole-fleet `lsServer` read is what timed out on the API pod (ADR-0032)."""
+        client = self._client()
+        domain = FakeDomainProvider([_server("sys/chassis-1/blade-2", "ocp-x")])
+        provider = _provider(client, {"10.0.0.9": domain})
+
+        fresh = await provider.get_one(
+            ServerIdentity(external_id=self.STORED, name="ocp-x", serial="S1")
+        )
+
+        assert fresh is not None
+        assert fresh.external_id == self.STORED
+        assert client.queried == ["computeSystem"]
+
+    async def test_falls_back_to_the_name_search_when_the_dn_is_gone_from_the_domain(self) -> None:
+        """A blade moved to another domain or slot is found again by its profile name."""
+        client = self._client()
+        moved = FakeDomainProvider([_server("sys/chassis-9/blade-9", "ocp-x")])
+        provider = _provider(client, {"10.0.0.9": FakeDomainProvider([]), "10.0.0.0": moved})
+
+        fresh = await provider.get_one(
+            ServerIdentity(external_id=self.STORED, name="ocp-x", serial="S1")
+        )
+
+        assert fresh is not None
+        assert "lsServer" in client.queried
+
+    async def test_searches_by_name_when_there_is_no_stored_dn(self) -> None:
+        client = self._client()
+        provider = _provider(client, {})
+
+        await provider.get_one(ServerIdentity(name="ocp-x"))
+
+        assert "lsServer" in client.queried
+
+    async def test_a_domain_no_longer_registered_falls_back_to_the_name_search(self) -> None:
+        client = FakeCentralClient({"computeSystem": [_domain("1010", "b")], "lsServer": []})
+        provider = _provider(client, {})
+
+        fresh = await provider.get_one(ServerIdentity(external_id=self.STORED, name="ocp-x"))
+
+        assert fresh is None
+        assert client.queried.count("computeSystem") == 2
+
+
+class TestSplitCentralExternalId:
+    def test_round_trips_with_central_external_id(self) -> None:
+        stored = central_external_id("sys/rack-unit-3", domain_id="1009")
+        assert split_central_external_id(stored) == ("1009", "sys/rack-unit-3")
+
+    @pytest.mark.parametrize(
+        "value", [None, "", "sys/chassis-1", "compute/sys-", "compute/sys-1009"]
+    )
+    def test_anything_else_is_not_a_central_dn(self, value: str | None) -> None:
+        assert split_central_external_id(value) is None

@@ -198,6 +198,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   `events_router` carries `require_audit_access`, so a viewer gets 403 on `/events`,
   `/events/actors` and `/servers/{id}/events`; `AUDITOR` is read-only plus that. The SPA
   mirrors it with `useCanReadAudit()` (nav link, `AuditGate` on `/events`, the History tab).
+  **Every authenticated login is on that trail** (ADR-0047): `LOGIN_SUCCEEDED` with the resolved
+  role, `LOGIN_DENIED` for a valid AD account in no list (`NO_PERMISSION`); a wrong password writes
+  nothing, and the best-effort write never blocks the login.
 - **The session is a stateless, HMAC-signed cookie** (`app.domain.services.
   session`), the same scheme `app.domain.services.cursor` already uses for
   pagination cursors, with its own secret. Chosen over a Redis-backed

@@ -7,6 +7,7 @@ what `/auth/login` exists to satisfy. See docs/adr/0034.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -15,15 +16,18 @@ import structlog
 from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.v1.auth_schemas import LoginRequest, LoginResponse, MeResponse
+from app.application.services.audit_service import AuditService
 from app.application.services.auth_service import AuthService
 from app.application.services.group_membership_cache import CachedGroupMembership
 from app.config import Settings, get_settings
-from app.dependencies import get_redis_holder
-from app.domain.models.audit_event import Role
+from app.dependencies import get_mongo_holder, get_redis_holder
+from app.domain.models.audit_event import Actor, ActorType, EventType, Role
 from app.domain.services.authz import LoginResult
 from app.domain.services.session import SESSION_COOKIE_NAME, decode_session, encode_session
 from app.errors import ForbiddenError, RateLimitedError, ServiceUnavailableError, UnauthorizedError
 from app.infrastructure.ad.client import AdApiClient, build_ad_api_http_client
+from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
+from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.redis.cache import CacheClient
 from app.infrastructure.redis.client import RedisClientHolder
 from app.infrastructure.redis.login_throttle import LoginThrottle
@@ -61,6 +65,52 @@ async def _auth_service(
         yield AuthService(settings, cached)
 
 
+_AUDIT_WRITE_TIMEOUT_SECONDS = 2.0
+
+
+async def _audit_service(
+    mongo: Annotated[MongoClientHolder, Depends(get_mongo_holder)],
+) -> AuditService:
+    """
+    Build the audit service the login route records its events through.
+
+    Args:
+        mongo (MongoClientHolder): The shared Mongo client holder.
+
+    Returns:
+        AuditService: A service bound to that client.
+    """
+    return AuditService(repo=MongoAuditEventRepository(mongo))
+
+
+async def _record_login(audit: AuditService, username: str, result: Role | LoginResult) -> None:
+    """
+    Record one login as an audit event, best-effort (docs/adr/0047).
+
+    Never raises and never waits long: the login path must not depend on MongoDB
+    being up (docs/adr/0042), so a failed write is logged and the login proceeds.
+
+    Args:
+        audit (AuditService): Where the event goes.
+        username (str): The normalised username that authenticated.
+        result (Role | LoginResult): Its role, or `NO_PERMISSION`.
+    """
+    denied = result is LoginResult.NO_PERMISSION
+    try:
+        async with asyncio.timeout(_AUDIT_WRITE_TIMEOUT_SECONDS):
+            await audit.record(
+                EventType.LOGIN_DENIED if denied else EventType.LOGIN_SUCCEEDED,
+                actor=Actor(
+                    type=ActorType.USER,
+                    id=username,
+                    role=None if denied else Role(result),
+                ),
+                data={"role": result.value},
+            )
+    except Exception:
+        logger.exception("auth.login_audit_failed", username=username)
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
@@ -68,6 +118,7 @@ async def login(
     service: Annotated[AuthService, Depends(_auth_service)],
     settings: Annotated[Settings, Depends(get_settings)],
     redis: Annotated[RedisClientHolder, Depends(get_redis_holder)],
+    audit: Annotated[AuditService, Depends(_audit_service)],
 ) -> LoginResponse:
     """
     Authenticate against AD and, on success, set the session cookie.
@@ -78,6 +129,7 @@ async def login(
         service (AuthService): Runs the LDAP bind and role resolution.
         settings (Settings): Supplies the session secret, TTL and lockout limits.
         redis (RedisClientHolder): Backs the per-username failure counter.
+        audit (AuditService): Records `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (docs/adr/0047).
 
     Returns:
         LoginResponse: The authenticated username and resolved role.
@@ -100,6 +152,7 @@ async def login(
                 await throttle.record_failure(payload.username)
                 raise UnauthorizedError("Wrong username or password.")
             await throttle.reset(payload.username)
+            await _record_login(audit, payload.username.strip().lower(), result)
             if result is LoginResult.NO_PERMISSION:
                 outcome = "no_permission"
                 raise ForbiddenError("Your account has no permission for this app.")

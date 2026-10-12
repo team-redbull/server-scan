@@ -176,7 +176,8 @@ Each of the six providers implements it by mirroring `BareMetalHostUCS`'s
 own single-host/single-domain lookups rather than re-running
 `_list_servers()` and filtering:
 
-- **UCS Central → UCS Manager.** `UcsCentralProvider.get_one` queries
+- **UCS Central → UCS Manager.** (Superseded 2026-10-11: the stored DN is tried first, see the last
+  update.) `UcsCentralProvider.get_one` queries
   Central's `lsServer` (already a small, directory-sized query — the
   precedent `_plan()` already runs) and matches by `identity.name`,
   exactly as `BareMetalHostUCS/src/ucs_server_strategy.py`'s
@@ -606,3 +607,66 @@ because it is not the same check: `identity.nic_macs` is the whole,
 NPAR-unreduced list, and a caller that wants "N MACs were read this run"
 for some other purpose can still ask. install-server no longer needs to
 send it.
+
+## Update (2026-10-11): per-manager recheck timeouts, a stored-DN UCS recheck, and 503 for a vendor failure
+
+**What failed.** `GET /servers/available` for a Cisco server returned a 500 ("unexpected error") with
+`query_classid('lsServer') timed out after 15.0s`. Two causes, one symptom:
+
+1. **The API pod had no timeout of its own to configure.** The UCS Central CronJob runs with
+   `INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS=240` (`collectors.ucsCentral.timeoutSeconds`), so the
+   whole-fleet `lsServer` read finishes there; the API pod set nothing and used the built-in 15 s.
+2. **`UcsCentralProvider.get_one` re-listed every service profile** to find a domain the stored DN already
+   named (`compute/sys-<domain_id>/chassis-1/blade-2`).
+
+**Decision.**
+
+- **Each manager's recheck uses its own collector's per-call timeout.** `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS`
+  (`TYPE:seconds,...`, `factory.recheck_timeout_seconds`) is rendered by Helm
+  (`serverScan.recheckTimeouts`) from `collectors.ucsCentral.timeoutSeconds` (UCS_CENTRAL),
+  `collectors.intersight.connectTimeoutSeconds` (INTERSIGHT, with `readTimeoutSeconds` as
+  `INVENTORY_INTERSIGHT_READ_TIMEOUT_SECONDS` on the API pod), and the new optional
+  `collectors.oneview.timeoutSeconds` / `collectors.ome.timeoutSeconds` (ONEVIEW, OPENMANAGE), which also set
+  those CronJobs' `INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS`. A manager not listed keeps the 15 s default,
+  which is what OneView and OME collectors already run with. `activeDeadlineSeconds` is deliberately not used:
+  it bounds a whole job (30 min), not one call. `REDFISH_STANDALONE` has no API-side recheck (its per-host
+  files are CronJob-only), so its host budget has nothing to apply to; OME's iDRAC pass uses the shared
+  `redfish_*` settings its own CronJob uses.
+- **UCS Central rechecks from the stored DN.** `split_central_external_id` reads the domain id and the
+  domain-local DN; only the small `computeSystem` list is read from Central (to turn the id into an address)
+  and the domain is then read directly. The `lsServer` name search stays as the fallback when the DN is
+  missing, not Central-rooted, the domain is no longer registered, or the server is no longer at that DN
+  (moved domain or slot). Not verified against a live Central: that a direct lookup of one domain (instead of
+  the `computeSystem` list) works.
+- **A vendor failure is a 503, not a 500.** `get_one()` errors become `VendorRecheckError`; the route answers
+  `SERVICE_UNAVAILABLE` naming the manager type, server and cause (`details.manager_type`). In pattern mode a
+  failing candidate is skipped like a rejected one and the draw continues; only when nothing could be
+  verified is the 503 raised (a partial fill is returned as before). `dependency_call_duration_seconds`
+  still records `outcome="failed"`, so `ServerScanAvailableRecheckFailing` is unchanged.
+
+**Costs accepted.** A UCS recheck can now take up to the CronJob's timeout per call (240 s) before failing.
+The BMH generator calls through the OpenShift Route, whose 30 s default and the frontend nginx's 60 s would
+have cut it off first (the caller sees the proxy's 504, never the API's 503). So `route.timeoutSeconds`
+(default 300) sets the Route's `haproxy.router.openshift.io/timeout` (every path on the host, since a Route
+cannot set it per path) and a `location ^~ /api/v1/servers/available` block with `proxy_read_timeout` /
+`proxy_send_timeout` (that path only). Keep it above the slowest `collectors.*` timeout. Any further proxy in
+front of the Route (a load balancer) is outside this chart.
+
+## Update (2026-10-12): a 404 says why
+
+The not-found answers were either a field dump (`is no longer available: health=CRITICAL, openshift=INSTALLED,
+maintenance=False...`) or, for a pattern, a sentence listing every possible reason. Now:
+
+- **`?name=`** answers from the stored document first for the reasons no vendor call can change (installed,
+  claimed by an MCE, in maintenance, reserved), so an installed server is reported as installed without a
+  recheck, even while its manager is down: `'x' is not available: it is already installed in cluster 'c'`.
+  Reasons a recheck can change (health, reachability, network, NIC MACs) are judged after it, and every failed
+  condition is listed. `unassignable_reasons` is the explanatory twin of `server_still_qualifies`; a unit test
+  keeps them in step.
+- **`?pattern=`** with no assignable match counts each match once under the first reason that applies:
+  `3 servers match 'x', but none is available: 2 installed in a cluster, 1 in maintenance`. A pattern matching
+  no name at all stays `no server name matches 'x'`.
+- The 404 keeps `AVAILABLE_SERVER_NOT_FOUND` and adds `details.reasons`, machine-readable codes in the order
+  checked: `INSTALLED`, `CLAIMED`, `MAINTENANCE`, `UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`, `NIC_MACS`
+  (and `GONE_FROM_MANAGER`). A server in maintenance is never drawn, in either mode.
+

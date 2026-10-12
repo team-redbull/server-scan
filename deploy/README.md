@@ -609,6 +609,17 @@ vendor. The standalone Redfish collector's per-host TOML files
 deliberately **not** mounted onto the API pod, since that would put every
 BMC password within reach of the pod the Route exposes.
 
+**`GET /api/v1/servers/available`'s live recheck waits as long as each collector's own CronJob does**
+(ADR-0032, 2026-10-11 update). `backend-deployment.yaml` renders `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS` from
+`collectors.ucsCentral.timeoutSeconds`, `collectors.intersight.connectTimeoutSeconds` (plus
+`readTimeoutSeconds`), and the optional `collectors.oneview.timeoutSeconds` / `collectors.ome.timeoutSeconds`
+(also applied to those CronJobs). A key a values file lacks is skipped and that manager keeps the 15 s default.
+`activeDeadlineSeconds` is a whole-job limit and is not used. A vendor failure is a 503 naming the manager.
+A caller going through the Route would otherwise give up first (Route 30 s, frontend nginx 60 s), so
+`route.timeoutSeconds` (default 300, keep it above the slowest collector timeout) sets the Route's
+`haproxy.router.openshift.io/timeout` (all paths on the host) and a longer `proxy_read_timeout` on the
+`/api/v1/servers/available` path only in `frontend-api-proxy-configmap.yaml`.
+
 **Do not commit real passwords to `values.yaml`.** Pass them at install
 time (`--set collectors.ucsManager.password=...`), from a values file kept
 out of git (`-f secrets.yaml`), or — for production — set

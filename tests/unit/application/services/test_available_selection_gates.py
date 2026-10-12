@@ -23,6 +23,7 @@ from app.application.services.available_servers import (
     SELECTABLE_TIERS,
     nic_mac_filters,
     server_still_qualifies,
+    unassignable_reasons,
 )
 from app.domain.enums import HealthSeverity, OpenShiftState, Vendor
 from app.domain.models.health import Health
@@ -169,3 +170,27 @@ class TestNetworkCategoryGate:
         assert not server_still_qualifies(
             _server(health=HealthSeverity.WARNING, network=HealthSeverity.UNKNOWN)
         )
+
+
+@pytest.mark.parametrize(
+    "overrides, code",
+    [
+        ({}, None),
+        ({"lifecycle": OpenShiftState.INSTALLED}, "INSTALLED"),
+        ({"lifecycle": OpenShiftState.INSTALLED_TO_INVENTORY}, "CLAIMED"),
+        ({"maintenance": True}, "MAINTENANCE"),
+        ({"reachable": False}, "UNREACHABLE"),
+        ({"health": HealthSeverity.CRITICAL}, "HEALTH"),
+        ({"network": HealthSeverity.UNKNOWN}, "NETWORK"),
+    ],
+)
+def test_the_reasons_agree_with_the_qualification_check(
+    overrides: dict[str, object], code: str | None
+) -> None:
+    """A server qualifies exactly when it has no reasons, and each fault is named."""
+    server = _server(nic_macs=["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"], **overrides)  # ty: ignore[invalid-argument-type]
+
+    reasons = [c for c, _text in unassignable_reasons(server)]
+
+    assert (reasons == []) is server_still_qualifies(server)
+    assert (code in reasons) if code else reasons == []

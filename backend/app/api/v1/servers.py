@@ -60,6 +60,7 @@ from app.application.services.available_servers import (
     AmbiguousServerNameError,
     AvailableServersNotFoundError,
     AvailableServersService,
+    VendorRecheckError,
 )
 from app.application.services.classification_service import ClassificationService
 from app.application.services.health_policy_service import HealthPolicyService
@@ -97,6 +98,7 @@ from app.errors import (
     AvailableServerNotFoundError,
     NotFoundError,
     PageSizeTooLargeError,
+    ServiceUnavailableError,
     ValidationAppError,
 )
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
@@ -626,6 +628,8 @@ async def available_servers(
         AvailableServerNameAmbiguousError: `name` matched several servers.
         AvailableServerNotFoundError: Nothing could be returned at all —
             see `AvailableServersNotFoundError`'s reason in the detail.
+        ServiceUnavailableError: A vendor manager failed (timeout, login, network)
+            while verifying; the detail names the manager type and the reason.
     """
     if (name is None) == (pattern is None):
         raise AvailableLookupConflictingParamsError(
@@ -692,7 +696,19 @@ async def available_servers(
             details={"name": exc.name, "server_ids": exc.server_ids},
         ) from exc
     except AvailableServersNotFoundError as exc:
-        raise AvailableServerNotFoundError(exc.reason) from exc
+        raise AvailableServerNotFoundError(
+            exc.reason, details={"reasons": list(exc.codes)} if exc.codes else None
+        ) from exc
+    except VendorRecheckError as exc:
+        raise ServiceUnavailableError(
+            f"The {exc.manager_type.value} manager could not be reached to verify "
+            f"{exc.server_name!r}: {exc.reason}",
+            details={
+                "manager_type": exc.manager_type.value,
+                "server": exc.server_name,
+                "reason": exc.reason,
+            },
+        ) from exc
 
     for result in results:
         await _invalidate_detail_cache(result.server.id, cache)

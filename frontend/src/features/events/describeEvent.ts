@@ -17,6 +17,8 @@ export const WRITTEN_EVENT_TYPES = [
   "SERVER_RESERVATION_REFUSED",
   "SERVER_RELEASED",
   "AUDIT_PURGED",
+  "LOGIN_SUCCEEDED",
+  "LOGIN_DENIED",
 ] as const;
 
 function str(value: unknown): string | null {
@@ -104,6 +106,10 @@ export function describeEvent(event: AuditEventResponse): string {
       return "Server discovered";
     case "SERVER_PRUNED":
       return "Pruned: no longer listed by its manager";
+    case "LOGIN_SUCCEEDED":
+      return `Logged in as ${str(d.role)?.toLowerCase() ?? "?"}`;
+    case "LOGIN_DENIED":
+      return "Login refused: authenticated, but in no admin, auditor or viewer list";
     case "AUDIT_PURGED":
       return `Purged ${count(d.deleted)} audit events older than ${count(d.retention_days)} days`;
     case "HEALTH_CHANGED":

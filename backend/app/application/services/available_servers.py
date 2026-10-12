@@ -46,6 +46,9 @@ _SELECTABLE_VALUES = [tier.value for tier in SELECTABLE_TIERS]
 # its other categories — docs/adr/0032, 2026-09-26 update.
 REQUIRED_NETWORK_HEALTH = HealthSeverity.HEALTHY
 
+# Reasons only this platform's own database decides: a vendor recheck cannot change them.
+_STORED_ONLY_CODES = frozenset({"INSTALLED", "CLAIMED", "MAINTENANCE", "RESERVED"})
+
 # Bounds worst-case cost when candidates keep failing their live recheck —
 # ADR-0032, "candidate ranking".
 _MAX_REPLACEMENT_ROUNDS_PER_TIER = 3
@@ -54,16 +57,19 @@ _MAX_REPLACEMENT_ROUNDS_PER_TIER = 3
 class AvailableServersNotFoundError(Exception):
     """No server could be returned at all; `reason` is the human-readable detail."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, codes: tuple[str, ...] = ()) -> None:
         """
         Build the error.
 
         Args:
             reason (str): What made the result empty, for the route's
                 RFC 9457 `detail`.
+            codes (tuple[str, ...]): Machine-readable reasons (`INSTALLED`,
+                `MAINTENANCE`, ...) for the response's `details.reasons`.
         """
         super().__init__(reason)
         self.reason = reason
+        self.codes = codes
 
 
 class AmbiguousServerNameError(Exception):
@@ -83,6 +89,28 @@ class AmbiguousServerNameError(Exception):
         super().__init__(f"{name!r} matches {len(server_ids)} servers")
         self.name = name
         self.server_ids = server_ids
+
+
+class VendorRecheckError(Exception):
+    """A vendor manager failed (timeout, login, network) during a live recheck.
+
+    ADR-0032, 2026-10-11 update: raised for the `get_one()` call only, so the route
+    can answer 503 naming the vendor instead of an unexplained 500.
+    """
+
+    def __init__(self, manager_type: ManagerType, server_name: str, reason: str) -> None:
+        """
+        Build the error.
+
+        Args:
+            manager_type (ManagerType): The collector whose manager failed.
+            server_name (str): The server being rechecked.
+            reason (str): The underlying failure, class name included.
+        """
+        super().__init__(f"{manager_type.value} recheck of {server_name!r} failed: {reason}")
+        self.manager_type = manager_type
+        self.server_name = server_name
+        self.reason = reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +232,103 @@ def server_still_qualifies(
     )
 
 
+def unassignable_reasons(
+    server: Server,
+    *,
+    tiers: tuple[HealthSeverity, ...] = SELECTABLE_TIERS,
+    min_nic_macs: int = 0,
+) -> list[tuple[str, str]]:
+    """
+    Why a server is not assignable, one `(code, sentence)` per failed condition.
+
+    The explanatory twin of `server_still_qualifies`: empty exactly when that is `True`.
+
+    Args:
+        server (Server): The server, as freshly rechecked (or last stored).
+        tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
+        min_nic_macs (int): How many NIC MACs must have been read.
+
+    Returns:
+        list[tuple[str, str]]: Machine code and plain-English reason, most decisive first.
+    """
+    reasons: list[tuple[str, str]] = []
+    state = server.openshift.lifecycle_state
+    if state == OpenShiftState.INSTALLED:
+        cluster = server.openshift.cluster_name
+        reasons.append(
+            (
+                "INSTALLED",
+                f"it is already installed in cluster {cluster!r}"
+                if cluster
+                else "it is already installed in a cluster",
+            )
+        )
+    elif state != OpenShiftState.AVAILABLE:
+        mce = server.openshift.mce_name
+        reasons.append(
+            (
+                "CLAIMED",
+                f"it is already claimed by MCE {mce!r} ({state.value})"
+                if mce
+                else f"its OpenShift state is {state.value}, not AVAILABLE",
+            )
+        )
+    if server.maintenance.enabled:
+        why = server.maintenance.reason
+        reasons.append(
+            ("MAINTENANCE", f"it is in maintenance ({why})" if why else "it is in maintenance")
+        )
+    if not server.reachable:
+        cause = server.unreachable_reason
+        reasons.append(
+            (
+                "UNREACHABLE",
+                f"its BMC is unreachable ({cause.value})" if cause else "its BMC is unreachable",
+            )
+        )
+    if server.reservation.is_live():
+        holder = server.reservation.holder or "an install"
+        reasons.append(("RESERVED", f"it is reserved by {holder} for an install in progress"))
+    if server.health.overall not in tiers:
+        reasons.append(
+            (
+                "HEALTH",
+                f"its health is {server.health.overall.value}, outside the requested "
+                f"{'/'.join(tier.value for tier in tiers)}",
+            )
+        )
+    if server.health.network != REQUIRED_NETWORK_HEALTH:
+        reasons.append(
+            (
+                "NETWORK",
+                f"its network health is {server.health.network.value}, not "
+                f"{REQUIRED_NETWORK_HEALTH.value} (two link-up NICs actually read)",
+            )
+        )
+    if min_nic_macs >= 1 and (
+        len(server.identity.nic_macs) < min_nic_macs or "identity.nic_macs" in server.unread_fields
+    ):
+        reasons.append(("NIC_MACS", f"fewer than {min_nic_macs} NIC MAC(s) were read"))
+    return reasons
+
+
+def _reason_message(subject: str, reasons: list[tuple[str, str]]) -> AvailableServersNotFoundError:
+    """
+    Build the not-found error for one server from its reasons.
+
+    Args:
+        subject (str): The quoted server name.
+        reasons (list[tuple[str, str]]): Output of `unassignable_reasons`.
+
+    Returns:
+        AvailableServersNotFoundError: Detail `'<name>' is not available: <reason>; <reason>`.
+    """
+    return AvailableServersNotFoundError(
+        f"{subject} is not available: " + "; ".join(text for _code, text in reasons),
+        tuple(code for code, _text in reasons),
+    )
+
+
 class AvailableServersService:
     """Resolves `GET /servers/available` for both its lookup modes."""
 
@@ -261,6 +386,7 @@ class AvailableServersService:
                 the given filters), its manager no longer reports it, or
                 it no longer qualifies after the live recheck.
             AmbiguousServerNameError: Several documents carry that name.
+            VendorRecheckError: Its vendor manager failed during the live recheck.
         """
         normalized = normalize_text(name)
         name_filters = {**extra_filters, "name_normalized": normalized}
@@ -281,19 +407,26 @@ class AvailableServersService:
                 f"no server named {name!r} matches the given filters"
             )
 
+        # No vendor call can change these three, so answer from the stored document
+        # first: an installed server is "installed", even while its manager is down.
+        stored_only = [
+            reason
+            for reason in unassignable_reasons(server, tiers=tiers, min_nic_macs=0)
+            if reason[0] in _STORED_ONLY_CODES
+        ]
+        if stored_only:
+            raise _reason_message(repr(name), stored_only)
+
         rechecked, live_recheck_performed = await self._recheck(server)
         if rechecked is None:
             raise AvailableServersNotFoundError(
-                f"{name!r} was found in inventory, but its manager can no longer find it"
+                f"{name!r} was found in inventory, but its manager can no longer find it",
+                ("GONE_FROM_MANAGER",),
             )
         if not server_still_qualifies(rechecked, tiers=tiers, min_nic_macs=min_nic_macs):
-            raise AvailableServersNotFoundError(
-                f"{name!r} is no longer available: health={rechecked.health.overall.value}, "
-                f"openshift={rechecked.openshift.lifecycle_state.value}, "
-                f"maintenance={rechecked.maintenance.enabled}, "
-                f"reachable={rechecked.reachable}, "
-                f"nic_macs={len(rechecked.identity.nic_macs)} "
-                f"(unread: {'identity.nic_macs' in rechecked.unread_fields})"
+            raise _reason_message(
+                repr(name),
+                unassignable_reasons(rechecked, tiers=tiers, min_nic_macs=min_nic_macs),
             )
         return AvailableServerResult(
             server=rechecked, live_recheck_performed=live_recheck_performed
@@ -328,6 +461,8 @@ class AvailableServersService:
             AvailableServersNotFoundError: No name matches `pattern` at
                 all, no server survives the vendor/provider filters, or every
                 match was unassignable before any live recheck ran.
+            VendorRecheckError: Every drawn candidate's vendor manager failed, so
+                nothing could be verified (a partial fill is returned instead).
         """
         name_filter = self._name_filter(pattern)
 
@@ -359,20 +494,91 @@ class AvailableServersService:
             }
         )
         if pre_recheck_count == 0:
-            raise AvailableServersNotFoundError(
-                f"no server matching {pattern!r} is assignable at health "
-                f"{'/'.join(tier.value for tier in tiers)} with at least "
-                f"{min_nic_macs} readable NIC MAC(s): every match is unreachable, "
-                "in maintenance, already claimed by a cluster, RESERVED by an "
-                "install in progress, at a worse health tier, had its NIC MACs "
-                "unread this collection run, or is not HEALTHY in the network "
-                "category (two link-up NICs, actually read)"
+            raise await self._explain_none_assignable(
+                pattern, base_filters, tiers=tiers, min_nic_macs=min_nic_macs
             )
 
         selected = await self._fill_from_tiers(
             assignable_filters, count=count, tiers=tiers, min_nic_macs=min_nic_macs
         )
         return AvailableServersOutcome(items=selected, requested=count)
+
+    async def _explain_none_assignable(
+        self,
+        pattern: str,
+        base_filters: dict[str, object],
+        *,
+        tiers: tuple[HealthSeverity, ...],
+        min_nic_macs: int,
+    ) -> AvailableServersNotFoundError:
+        """
+        Say why every server matching `pattern` is excluded, with a count per reason.
+
+        Each match is counted once, under the first reason that applies, so the
+        counts add up to the number of matches.
+
+        Args:
+            pattern (str): The caller's pattern, quoted in the message.
+            base_filters (dict[str, object]): The name/vendor/source_provider filters.
+            tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
+            min_nic_macs (int): How many NIC MACs a candidate must have read.
+
+        Returns:
+            AvailableServersNotFoundError: Detail like `3 servers match 'x', but none
+                is available: 2 already installed, 1 in maintenance`.
+        """
+        reserved = {"$or": unreserved_filters(utcnow())["$nor"]}
+        steps: list[tuple[str, str, dict[str, object]]] = [
+            (
+                "INSTALLED",
+                "installed in a cluster",
+                {"openshift.lifecycle_state": OpenShiftState.INSTALLED.value},
+            ),
+            (
+                "CLAIMED",
+                "claimed by an MCE",
+                {"openshift.lifecycle_state": OpenShiftState.INSTALLED_TO_INVENTORY.value},
+            ),
+            ("MAINTENANCE", "in maintenance", {"maintenance.enabled": True}),
+            ("UNREACHABLE", "unreachable", {"reachable": False}),
+            ("RESERVED", "reserved by an install in progress", reserved),
+            (
+                "HEALTH",
+                f"outside the requested health ({'/'.join(tier.value for tier in tiers)})",
+                {"health.overall": {"$nin": [tier.value for tier in tiers]}},
+            ),
+            (
+                "NETWORK",
+                "without a healthy, actually-read network",
+                {"health.network": {"$ne": REQUIRED_NETWORK_HEALTH.value}},
+            ),
+        ]
+        if min_nic_macs >= 1:
+            steps.append(
+                (
+                    "NIC_MACS",
+                    f"with fewer than {min_nic_macs} NIC MAC(s) read",
+                    {"$nor": [nic_mac_filters(min_nic_macs)]},
+                )
+            )
+
+        total = await self._repo.count(base_filters)
+        counted: list[tuple[str, str, int]] = []
+        already: list[dict[str, object]] = []
+        for code, text, condition in steps:
+            clauses: list[dict[str, object]] = [base_filters, condition]
+            if already:
+                clauses.append({"$nor": list(already)})
+            hits = await self._repo.count({"$and": clauses})
+            already.append(condition)
+            if hits:
+                counted.append((code, text, hits))
+        plural = "server matches" if total == 1 else "servers match"
+        breakdown = ", ".join(f"{hits} {text}" for _code, text, hits in counted) or "none qualify"
+        return AvailableServersNotFoundError(
+            f"{total} {plural} {pattern!r}, but none is available: {breakdown}",
+            tuple(code for code, _text, _hits in counted),
+        )
 
     def _name_filter(self, pattern: str) -> dict[str, object]:
         """
@@ -418,6 +624,7 @@ class AvailableServersService:
         selected: list[AvailableServerResult] = []
         tried_ids: set[str] = set()
         disqualified = 0
+        recheck_failures: list[VendorRecheckError] = []
 
         for tier in tiers:
             remaining = count - len(selected)
@@ -437,7 +644,11 @@ class AvailableServersService:
                     break
                 for candidate in candidates:
                     tried_ids.add(candidate.id)
-                    rechecked, live_recheck_performed = await self._recheck(candidate)
+                    try:
+                        rechecked, live_recheck_performed = await self._recheck(candidate)
+                    except VendorRecheckError as exc:
+                        recheck_failures.append(exc)
+                        continue
                     qualifies = rechecked is not None and server_still_qualifies(
                         rechecked, tiers=tiers, min_nic_macs=min_nic_macs
                     )
@@ -463,7 +674,12 @@ class AvailableServersService:
             returned=len(selected),
             candidates_tried=len(tried_ids),
             rejected_after_recheck=disqualified,
+            vendor_failures=len(recheck_failures),
         )
+        if not selected and recheck_failures:
+            # Nothing could be verified because the vendor failed, which is not the
+            # same answer as "nothing is available": surface it (503), not a 404.
+            raise recheck_failures[0]
         return selected
 
     async def _recheck(self, server: Server) -> tuple[Server | None, bool]:
@@ -505,17 +721,19 @@ class AvailableServersService:
         started = time.monotonic()
         outcome = "failed"
         try:
-            fresh = await provider.get_one(identity)
+            try:
+                fresh = await provider.get_one(identity)
+            except Exception as exc:
+                logger.exception(
+                    "available.recheck_failed", server=server.name, manager_type=manager_type.value
+                )
+                raise VendorRecheckError(
+                    manager_type, server.name, f"{type(exc).__name__}: {exc}"
+                ) from exc
             if fresh is None:
                 outcome = "not_found"
                 return None, True
             updated = await self._ingest.ingest_one(fresh, provider_type=manager_type.value)
-        except Exception:
-            logger.exception(
-                "available.recheck_failed", server=server.name, manager_type=manager_type.value
-            )
-            raise
-        else:
             outcome = "verified"
             return updated, True
         finally:

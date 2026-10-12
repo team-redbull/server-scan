@@ -7,6 +7,8 @@ metadata:
     app.kubernetes.io/name: {{ .Release.Name }}-frontend
     app.kubernetes.io/component: frontend
     app.kubernetes.io/part-of: server-scan
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ printf "%vs" (.Values.route.timeoutSeconds | default 300) | quote }}
 spec:
   {{- with .Values.route.host }}
   host: {{ . }}

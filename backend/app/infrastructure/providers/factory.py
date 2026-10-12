@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from functools import lru_cache
+
+import structlog
 
 from app.config import get_settings
 from app.config.settings import Settings
@@ -44,6 +47,8 @@ from app.infrastructure.providers.redfish.targets import (
 from app.infrastructure.providers.ucs_central.provider import UcsCentralProvider
 
 DEBUG_HTTP_VAR = "INVENTORY_REDFISH_DEBUG_HTTP"
+
+logger = structlog.get_logger(__name__)
 
 
 def debug_http_enabled() -> bool:
@@ -446,8 +451,54 @@ def build_provider_for_manager_type(
     return build_provider(
         manager,
         credential_resolver=credential_resolver,
-        timeout_seconds=settings.collector_connect_timeout_seconds,
+        timeout_seconds=recheck_timeout_seconds(manager_type, settings),
         settings=settings,
+    )
+
+
+@lru_cache(maxsize=8)
+def _parse_recheck_timeouts(spec: str) -> dict[ManagerType, float]:
+    """
+    Parse `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS` (`TYPE:seconds,TYPE:seconds`).
+
+    Args:
+        spec (str): The raw setting; blank means no overrides.
+
+    Returns:
+        dict[ManagerType, float]: Seconds per manager type. A malformed or
+            non-positive entry is logged and skipped, so a typo falls back to
+            the default timeout instead of failing every request.
+    """
+    timeouts: dict[ManagerType, float] = {}
+    for entry in (part.strip() for part in spec.split(",")):
+        if not entry:
+            continue
+        name, _, seconds = entry.partition(":")
+        try:
+            value = float(seconds)
+            if value <= 0:
+                raise ValueError("timeout must be positive")
+            timeouts[ManagerType(name.strip().upper())] = value
+        except ValueError:
+            logger.warning("available.recheck_timeout_ignored", entry=entry)
+    return timeouts
+
+
+def recheck_timeout_seconds(manager_type: ManagerType, settings: Settings) -> float:
+    """
+    The per-call timeout a live `get_one()` recheck uses for one manager type.
+
+    Args:
+        manager_type (ManagerType): The collector being rechecked.
+        settings (Settings): Supplies `available_recheck_timeouts` and the
+            shared `collector_connect_timeout_seconds` default.
+
+    Returns:
+        float: The type's own configured timeout (the one its collector
+            CronJob runs with), else the shared default.
+    """
+    return _parse_recheck_timeouts(settings.available_recheck_timeouts).get(
+        manager_type, settings.collector_connect_timeout_seconds
     )
 
 

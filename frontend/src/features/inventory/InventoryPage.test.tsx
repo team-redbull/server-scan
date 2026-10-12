@@ -359,7 +359,7 @@ describe("InventoryPage", () => {
       expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByPlaceholderText('Name, serial, BMC… · "exact" · /regex/'), {
+    fireEvent.change(screen.getByPlaceholderText("Name, serial, BMC…"), {
       target: { value: "isco" },
     });
     await vi.advanceTimersByTimeAsync(300);

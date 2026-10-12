@@ -8,6 +8,23 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-11 — inventory search exact/regex, Maintenance in Health, two UI fixes (ADR-0046).** Moved to
+`docs/notes/session-log.md`: ingest write discipline and audit retention.
+
+**Shipped (frontend only, no API change, so `server-scan-api` is unchanged):** (1) the search box takes
+`"exact"` and `/regex/` besides plain substring (`parseSearch`; a bad regex shows an error and keeps every
+row); (2) the Health dropdown ends with **Maintenance**, exclusive with a severity (the checkbox is gone;
+E2E uses `#filter-health`), and the Sites cards' "N in maintenance" links to `?maintenance=true`;
+(3) the cluster sidebar's search box stays pinned while its lists scroll, and its height is capped at the
+space under its own top edge so the last cluster is reachable; (4) `MaintenanceToggle`'s reason card is a
+portal on `document.body` (a one-row result clipped it inside the table's scroll box).
+
+**Open:** Playwright (`maintenance.spec.ts`, `inventory.spec.ts`) was edited but not run locally (no browser
+libs in this WSL); the sidebar height fix was reasoned, not measured; the earlier open items from
+2026-10-07 stand (retention report-only flip, recheck concurrency cap, stale Agent CR/node).
+
+---
+
 **2026-10-07 — ingest write discipline (ADR-0044) and audit-event retention (ADR-0045).**
 
 **Shipped:** (1) ingest writes an existing server with a revision CAS (3 retries, then `ConflictError`),

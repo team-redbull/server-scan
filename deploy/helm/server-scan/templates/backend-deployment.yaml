@@ -49,6 +49,19 @@ spec:
               value: /etc/server-scan/config/INVENTORY_AUDITOR_GROUPS
             - name: INVENTORY_AUDITOR_USERS_FILE
               value: /etc/server-scan/config/INVENTORY_AUDITOR_USERS
+            # The live recheck waits as long as each collector's own CronJob does
+            # (ADR-0032): without these the API used the shared 15 s default, which UCS
+            # Central's service-profile read exceeds (the CronJob runs with 240 s).
+            {{- with include "serverScan.recheckTimeouts" . }}
+            - name: INVENTORY_AVAILABLE_RECHECK_TIMEOUTS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (.Values.collectors | default dict).intersight }}
+            {{- if hasKey . "readTimeoutSeconds" }}
+            - name: INVENTORY_INTERSIGHT_READ_TIMEOUT_SECONDS
+              value: {{ .readTimeoutSeconds | quote }}
+            {{- end }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-api-config

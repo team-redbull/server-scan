@@ -345,7 +345,7 @@ export function InventoryPage() {
                     onChange={(e) => {
                       updateFilters({ search: e.target.value });
                     }}
-                    placeholder='Name, serial, BMC… · "exact" · /regex/'
+                    placeholder="Name, serial, BMC…"
                     title={
                       'Plain text matches anywhere. "10.0.0.1" in quotes must equal the whole value. /10\\.0\\.0\\.(1|13)$/ between slashes is a regular expression.'
                     }

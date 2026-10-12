@@ -12,6 +12,7 @@ fixed per test — the LDAP bind and AD API calls themselves are covered by
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 from fastapi import FastAPI, Request
@@ -471,3 +472,75 @@ class TestApiTokens:
                 "/api/v1/servers", headers={"Authorization": "Bearer not-a-real-token"}
             )
             assert resp.status_code == 401
+
+
+class TestLoginAuditEvents:
+    """Every authenticated login is an audit event, with its role or `NO_PERMISSION` (ADR-0047)."""
+
+    async def _login_and_events(
+        self, login_result: object, username: str
+    ) -> tuple[int, list[dict[str, Any]]]:
+        app = _auth_enabled_app(login_result)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            mongo: MongoClientHolder = app.state.mongo
+            await mongo.db["audit_events"].delete_many({"actor.id": username.strip().lower()})
+            resp = await client.post(
+                "/api/v1/auth/login", json={"username": username, "password": "x"}
+            )
+            docs = (
+                await mongo.db["audit_events"]
+                .find({"actor.id": username.strip().lower()})
+                .to_list(10)
+            )
+            await mongo.db["audit_events"].delete_many({"actor.id": username.strip().lower()})
+            return resp.status_code, docs
+
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.VIEWER, Role.AUDITOR])
+    async def test_a_successful_login_records_who_and_their_role(self, role: Role) -> None:
+        status, docs = await self._login_and_events(role, "Audit.Login.Ok")
+
+        assert status == 200
+        assert len(docs) == 1
+        event = docs[0]
+        assert event["event_type"] == "LOGIN_SUCCEEDED"
+        assert event["actor"]["id"] == "audit.login.ok"
+        assert event["actor"]["type"] == "USER"
+        assert event["actor"]["role"] == role.value
+        assert event["data"] == {"role": role.value}
+
+    async def test_a_login_without_permission_is_recorded_as_denied(self) -> None:
+        status, docs = await self._login_and_events(LoginResult.NO_PERMISSION, "audit.login.nope")
+
+        assert status == 403
+        assert len(docs) == 1
+        event = docs[0]
+        assert event["event_type"] == "LOGIN_DENIED"
+        assert event["actor"]["id"] == "audit.login.nope"
+        assert event["actor"]["role"] is None
+        assert event["data"] == {"role": "NO_PERMISSION"}
+
+    async def test_a_wrong_password_writes_nothing(self) -> None:
+        """An unauthenticated caller must not be able to grow the audit trail."""
+        status, docs = await self._login_and_events(None, "audit.login.wrongpw")
+
+        assert status == 401
+        assert docs == []
+
+    async def test_a_failing_audit_write_never_blocks_the_login(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _boom(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("mongo is down")
+
+        monkeypatch.setattr(auth_module.AuditService, "record", _boom)
+        app = _auth_enabled_app(Role.ADMIN)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            resp = await client.post("/api/v1/auth/login", json={"username": "u", "password": "x"})
+
+        assert resp.status_code == 200

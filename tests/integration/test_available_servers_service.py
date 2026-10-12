@@ -22,6 +22,7 @@ import app.application.services.available_servers as available_servers_module
 from app.application.services.available_servers import (
     AvailableServersNotFoundError,
     AvailableServersService,
+    VendorRecheckError,
 )
 from app.application.services.ingest import IngestService
 from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState, Vendor
@@ -302,7 +303,7 @@ class _ExplodingProvider(FakeProvider):
 
 
 class TestRecheckLogging:
-    async def test_a_failing_recheck_is_logged_with_its_manager_and_still_raises(
+    async def test_a_failing_recheck_is_logged_with_its_manager_and_raises_a_vendor_error(
         self, mongo_holder: MongoClientHolder, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(available_servers_module, "logger", UncachedLogger())
@@ -313,12 +314,43 @@ class TestRecheckLogging:
         )
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
-        with capture_logs() as logs, pytest.raises(RuntimeError):
+        with capture_logs() as logs, pytest.raises(VendorRecheckError):
             await service.lookup_by_name("ocp-log-boom", extra_filters={})
 
         events = {line["event"]: line for line in logs}
         assert events["available.recheck_failed"]["manager_type"] == "REDFISH_STANDALONE"
         assert events["available.recheck"]["outcome"] == "failed"
+
+
+class TestVendorFailure:
+    """A vendor timeout or error is a `VendorRecheckError` (503), never an unexplained 500."""
+
+    async def test_the_error_names_the_manager_the_server_and_the_cause(
+        self, mongo_holder: MongoClientHolder
+    ) -> None:
+        await _seed(mongo_holder, _server(0, name="ocp-vendor-down", external_id="ext-vd"))
+        provider = _ExplodingProvider(seed=1, count=1, provider_type=ManagerType.UCS_CENTRAL.value)
+        service = _service(mongo_holder, provider_factory=lambda _mt: provider)
+
+        with pytest.raises(VendorRecheckError) as raised:
+            await service.lookup_by_name("ocp-vendor-down", extra_filters={})
+
+        assert raised.value.server_name == "ocp-vendor-down"
+        assert "RuntimeError: vendor manager returned garbage" in raised.value.reason
+
+    async def test_pattern_mode_raises_when_every_candidate_failed_to_verify(
+        self, mongo_holder: MongoClientHolder
+    ) -> None:
+        await _seed(
+            mongo_holder,
+            _server(0, name="ocp-pat-1", external_id="ext-p1"),
+            _server(1, name="ocp-pat-2", external_id="ext-p2"),
+        )
+        provider = _ExplodingProvider(seed=1, count=2, provider_type=ManagerType.UCS_CENTRAL.value)
+        service = _service(mongo_holder, provider_factory=lambda _mt: provider)
+
+        with pytest.raises(VendorRecheckError):
+            await service.lookup_by_pattern("ocp-pat-", count=1, extra_filters={})
 
 
 class TestNameMode:
@@ -357,4 +389,5 @@ class TestNameMode:
 
         with pytest.raises(AvailableServersNotFoundError) as excinfo:
             await service.lookup_by_name("ocp-name-downgrade", extra_filters={})
-        assert "no longer available" in excinfo.value.reason
+        assert "is not available: its BMC is unreachable" in excinfo.value.reason
+        assert excinfo.value.codes == ("UNREACHABLE",)

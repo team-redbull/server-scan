@@ -73,7 +73,7 @@
     "list": [
       {
         "name": "ServerScan alerts",
-        "enable": true,
+        "enable": false,
         "iconColor": "red",
         "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
         "expr": "max by (alertname, alertstate, severity, namespace, source_provider, cluster, kind, reported_by) (ALERTS{alertname=~\"ServerScan.*\", alertstate=\"firing\", namespace=~\"$namespace\"})",
