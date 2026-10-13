@@ -1,3 +1,6 @@
+import { queryKeys } from "@/api/queryKeys";
+import { queryClient } from "@/lib/query-client";
+
 /** Thin fetch wrapper: every non-2xx response is an RFC 9457 problem-details
  * body (`app.exception_handlers`), parsed into a typed `ApiError`. */
 
@@ -40,6 +43,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   });
 
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/api/v1/auth/")) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.auth.me() });
+    }
     const problem = (await response.json().catch(() => null)) as ProblemDetails | null;
     if (problem) {
       throw new ApiError(problem);

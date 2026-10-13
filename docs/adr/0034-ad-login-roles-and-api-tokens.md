@@ -161,7 +161,9 @@ this one pre-app screen, not the data-dense interior.
 - **Session revocation (accepted by the operator, 2026-10-04: not a gap).** There is no server-side session store, so a
   removed admin/viewer keeps working until the cookie's TTL
   (`session_ttl_seconds`, default 8h) expires. Accepted trade-off of
-  choosing a stateless cookie over Redis (Decision 3).
+  choosing a stateless cookie over Redis (Decision 3). When the cookie
+  does expire, the SPA's `apiFetch` re-checks `/auth/me` on any 401 outside
+  `/auth/*`, so `AppLayout` swaps to the login page instead of showing the 401.
 - **Rate limiting / lockout on repeated bad logins** — resolved by ADR-0039 (per-username throttle). It was left entirely to
   AD's own account-lockout policy — `POST /auth/login` has no throttling
   of its own.
