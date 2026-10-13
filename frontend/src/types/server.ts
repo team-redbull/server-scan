@@ -51,6 +51,7 @@ export interface HealthSummary {
   memory: HealthSeverity;
   storage: HealthSeverity;
   network: HealthSeverity;
+  raid: HealthSeverity;
   connectivity: HealthSeverity;
   power: HealthSeverity;
   gpu: HealthSeverity;
@@ -168,9 +169,35 @@ export interface StorageDrive {
   health_detail: string | null;
 }
 
+export interface StorageVolume {
+  id: string;
+  raid_type: string | null;
+  volume_type: string | null;
+  capacity_bytes: number | null;
+  health: ComponentHealth;
+}
+
+export interface StorageController {
+  id: string;
+  name: string | null;
+  kind: "RAID" | "BOSS" | "AHCI" | "NVME" | "OTHER";
+  volumes: StorageVolume[];
+}
+
+export interface RaidDetection {
+  state: "PRESENT" | "ABSENT" | "UNKNOWN";
+  method: string | null;
+  bmc: string | null;
+  reason: string | null;
+}
+
 export interface StorageInfo {
   total_bytes: number;
   drives: StorageDrive[];
+  /** Absent on documents written before RAID was collected. */
+  controllers?: StorageController[];
+  /** Absent on documents written before RAID detection. */
+  raid?: RaidDetection;
 }
 
 export interface GpuInfo {

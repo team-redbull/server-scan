@@ -22,6 +22,7 @@ from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
 from app.domain.ports.provider import ProviderServer
+from app.infrastructure.providers.openmanage.mapping import identity_from_profile
 from app.infrastructure.providers.openmanage.provider import OpenManageProvider
 from app.infrastructure.providers.redfish.targets import RedfishCredential, RedfishTarget
 
@@ -576,3 +577,27 @@ async def test_an_ome_profile_without_a_template_reports_none_as_read_and_empty(
 
     assert identity.profile_template_name == ""
     assert identity.profile_template_external_id == ""
+
+
+class TestStorageControllersSurviveTheJoin:
+    """ADR-0048: the OME merge must not drop the controllers Redfish read."""
+
+    async def test_collect_and_get_one_keep_the_controllers(self) -> None:
+        controllers = ({"id": "BOSS.SL.12-1", "kind": "BOSS", "volumes": ()},)
+        provider, _ = _provider(
+            profiles=[_profile("ocp4-nyc-prod-worker-03", "10.0.0.1")],
+            devices=[_device("10.0.0.1", service_tag="7XKD9P3")],
+            servers=[_collected("10.0.0.1", storage_controllers=controllers)],
+        )
+        [server] = [s async for s in provider.collect()]
+        assert server.storage_controllers == controllers
+
+    async def test_an_unreachable_server_carries_no_controllers(self) -> None:
+        provider, _ = _provider(profiles=[], devices=[], servers=[])
+        identity = identity_from_profile(
+            profile=_profile("ocp4-nyc-prod-worker-03", "10.0.0.1"),
+            device=_device("10.0.0.1", service_tag="7XKD9P3"),
+        )
+        server = provider._unreachable_server(identity)
+        assert server.reachable is False
+        assert server.storage_controllers is None

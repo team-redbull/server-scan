@@ -22,6 +22,7 @@ _SEVERITY_FIELDS = (
     "overall",
     "memory",
     "storage",
+    "raid",
     "network",
     "connectivity",
     "power",
@@ -72,6 +73,7 @@ class Health(BaseModel):
     overall: HealthSeverity = HealthSeverity.UNKNOWN
     memory: HealthSeverity = HealthSeverity.UNKNOWN
     storage: HealthSeverity = HealthSeverity.UNKNOWN
+    raid: HealthSeverity = HealthSeverity.UNKNOWN
     network: HealthSeverity = HealthSeverity.UNKNOWN
     connectivity: HealthSeverity = HealthSeverity.UNKNOWN
     power: HealthSeverity = HealthSeverity.UNKNOWN

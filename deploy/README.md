@@ -286,6 +286,7 @@ metrics:
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched, ServerScanLoginDependencyFailing,
                            # ServerScanLoginSlow, ServerScanAvailableRecheckFailing,
+                           # ServerScanServersWithoutRaid (OpenManage and standalone Redfish servers with no RAID 1 for the OS; Unknown ones are not counted),
                            # ServerScanApiReplicasUnavailable, ServerScanApiDown,
                            # ServerScanApiScrapeDown, ServerScanApiRestarting (default leaf mode, on
                            # `up` / process_start_time_seconds); evaluationScope: thanos-ruler uses
@@ -505,13 +506,17 @@ healthy stable clusters). `ServerScanMembershipRunSilent` is the same signal per
 `ServerScanMembershipUnmatched` is the complementary alert for a job that
 *is* running fine but keeps reporting hosts the vendor collectors have
 never ingested — the newest pod's log lists which ones.
+`ServerScanServersWithoutRaid` fires (warning, for 1h) while any OpenManage or standalone Redfish
+server whose BMC can report RAID has no RAID 1 volume for the OS (health policy `raid.os_mirror_missing`,
+CRITICAL). A server whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) is Unknown and not counted.
+It reads `server_scan:policy_active:max`, so it needs no extra value.
 
 **A ready-made Grafana dashboard** for all of the above lives at
 `deploy/grafana/server-scan-dashboard.json` — import it directly (Grafana
 → Dashboards → New → Import → Upload JSON), point its `Prometheus`
 datasource variable at your instance, and it covers fleet totals, per-
-collector staleness/run health, the membership-job run gauges above, top
-firing health policies, the login and external-call panels (outcomes per second and over 24 hours, login latency, per-dependency
+collector staleness/run health, the membership-job run gauges above, a "Servers without RAID" stat beside the contested-servers one, top
+firing health policies, the login and external-call panels (outcomes per second and over 24 hours, successful logins per day and per hour as bars for the busy days and hours, login latency, per-dependency
 latency and failures), an audit-trail row (events stored, oldest event age, events per user over 24 hours and over all stored events as two bar gauges, 403 responses by path, which
 shows a client still sending a viewer token to `/api/v1/events`), an ingest-skip row (the unchanged
 share of each collector's last run, fetched vs unchanged), an API & frontend pods row (API replicas and restarts always; memory and CPU as usage per pod against the request and limit lines, frontend and waiting or OOM-killed pods only when the central store has the platform `kube_*`/`container_*` series and the rules run with `evaluationScope: thanos-ruler`), and the API's own HTTP/Mongo/Redis metrics. It is

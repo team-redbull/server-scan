@@ -71,8 +71,10 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
   disagrees with the installation type, the server is misnamed or misplaced, and that
   disagreement is the signal ([ADR-0024](docs/adr/0024-openshift-cluster-membership.md)).
 - **Health.** `HEALTHY`, `WARNING`, `MAJOR`, `CRITICAL`, or `UNKNOWN` when nothing could be
-  read. `UNKNOWN` is not a verdict. It is scored per category (memory, storage, network,
-  connectivity, power, GPU, BMC) and the worst one wins. An unreachable BMC is `CRITICAL`
+  read. `UNKNOWN` is not a verdict. It is scored per category (memory, storage, RAID, network,
+  connectivity, power, GPU, BMC) and the worst one wins. RAID is judged only for Dell servers
+  collected through OpenManage (no RAID 1 for the OS is `CRITICAL`, ADR-0048), and connectivity
+  only for Cisco servers behind a fabric interconnect. An unreachable BMC is `CRITICAL`
   ([ADR-0027](docs/adr/0027-unknown-is-not-a-reading.md),
   [ADR-0037](docs/adr/0037-bmc-reachability-health.md)).
 - **Stale.** A server no collector has seen for 12 hours (`INVENTORY_STALE_AFTER_SECONDS`).

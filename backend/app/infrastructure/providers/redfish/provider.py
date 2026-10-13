@@ -29,6 +29,7 @@ import structlog
 from app.domain.enums import ManagerType, UnreachableReason, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.infrastructure.providers.redfish import raid
 from app.infrastructure.providers.redfish.client import (
     RedfishAuthError,
     RedfishClient,
@@ -43,6 +44,7 @@ from app.infrastructure.providers.redfish.mapping import (
     _BUILTIN_PCI_DEVICE_MODELS,
     _clean_serial,
     _dell_serial,
+    controllers_from_storage,
     gpus_from_pcie_devices,
     gpus_from_processors,
     has_only_gpu_processors,
@@ -50,6 +52,7 @@ from app.infrastructure.providers.redfish.mapping import (
     pcie_device_refs,
     psus_from_supplies,
     system_to_provider_server,
+    vendor_from_manufacturer,
 )
 from app.infrastructure.providers.redfish.targets import RedfishTarget
 
@@ -62,6 +65,9 @@ UNREACHABLE_MARKER = ": unreachable — "
 AUTH_REJECTED_MARKER = ": login failed for credential "
 TLS_FAILED_MARKER = ": TLS verification failed — "
 BUDGET_MARKER = ": exceeded its "
+
+# A tree the BMC does not implement, as opposed to one it failed to serve this time.
+_TREE_ABSENT_STATUSES = frozenset({404, 501, 503})
 
 _PCIE_SELECT = "$select=Manufacturer,Description,Status"
 
@@ -525,6 +531,10 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         )
                 supplies = await self._psus(client, system)
                 psu_metrics = await self._psu_telemetry(client, supplies)
+                storage, storage_status = await self._storage_collection(client, system)
+                storage_controllers, raid_check = await self._raid(
+                    client, system, storage, storage_status
+                )
                 mapped = system_to_provider_server(
                     system,
                     host=target.host,
@@ -532,10 +542,12 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                     manager_id=self._manager.id,
                     override_name=target.name,
                     processors=processors,
-                    drives=await self._drives(client, system),
+                    drives=await self._drives(client, storage),
                     dimms=await self._optional(client, system, "Memory"),
                     interfaces=await self._optional(client, system, "EthernetInterfaces"),
                     bmc_mac=bmc_mac,
+                    storage_controllers=storage_controllers,
+                    raid_check=raid_check,
                     psus=psus_from_supplies(supplies, metrics_by_supply=psu_metrics),
                     gpu_metrics_by_processor=gpu_metrics,
                     gpu_environment_by_processor=gpu_environment,
@@ -607,7 +619,9 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         else:
             return members
 
-    async def _drives(self, client: Any, system: dict[str, Any]) -> list[dict[str, Any]] | None:
+    async def _drives(
+        self, client: Any, controllers: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]] | None:
         """
         Read every drive behind a system's `Storage` controllers.
 
@@ -615,14 +629,14 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
 
         Args:
             client (Any): The authenticated client.
-            system (dict[str, Any]): The owning `ComputerSystem`.
+            controllers (list[dict[str, Any]] | None): The system's `Storage`
+                members, or None when that collection could not be read.
 
         Returns:
             list[dict[str, Any]] | None: Every drive, deduplicated by
                 `@odata.id`, or None if storage could not be read at all or
                 any listed drive could not (the stored drives are kept).
         """
-        controllers = await self._optional(client, system, "Storage")
         if controllers is None:
             return None
         drives: dict[str, dict[str, Any]] = {}
@@ -641,6 +655,160 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         # A drive that cannot be read must not vanish from the list: a short list overwrites the
         # stored one, so a failed drive would drop out of the record and the server would heal.
         return None if incomplete else list(drives.values())
+
+    async def _storage_collection(
+        self, client: Any, system: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]] | None, str]:
+        """
+        Read the system's `Storage` collection, telling "this BMC has none" from "try again".
+
+        Args:
+            client (Any): The authenticated client.
+            system (dict[str, Any]): The owning `ComputerSystem`.
+
+        Returns:
+            tuple[list[dict[str, Any]] | None, str]: The members and `ok`, or None and `absent`
+                (no link, or 404/501/503 on an old BMC with no storage schema) or `failed`
+                (a timeout, 403 or any other error, kept unread).
+        """
+        link = system.get("Storage")
+        path = link.get("@odata.id") if isinstance(link, dict) else None
+        if not path:
+            return None, raid.ABSENT_TREE
+        try:
+            members: list[dict[str, Any]] = await client.get_collection(validate_odata_id(path))
+        except RedfishProtocolError as exc:
+            logger.warning(
+                "redfish.resource_skipped",
+                host=system.get("Id"),
+                resource="Storage",
+                error=str(exc),
+            )
+            absent = exc.status_code in _TREE_ABSENT_STATUSES
+            return None, raid.ABSENT_TREE if absent else raid.FAILED
+        except (RedfishForbiddenError, RedfishUnreachableError) as exc:
+            logger.warning(
+                "redfish.resource_skipped",
+                host=system.get("Id"),
+                resource="Storage",
+                error=str(exc),
+            )
+            return None, raid.FAILED
+        return members, raid.OK
+
+    async def _raid(
+        self,
+        client: Any,
+        system: dict[str, Any],
+        members: list[dict[str, Any]] | None,
+        storage_status: str,
+    ) -> tuple[tuple[dict[str, object], ...] | None, dict[str, object] | None]:
+        """
+        Read every RAID source this BMC offers and decide the OS-mirror verdict (ADR-0048).
+
+        Reads each `Storage` member's `Volumes`, and for an HPE BMC also the OEM
+        `SmartStorage` tree (iLO 5 below fw 2.30 and iLO 4 keep RAID only there).
+
+        Args:
+            client (Any): The authenticated client.
+            system (dict[str, Any]): The owning `ComputerSystem`.
+            members (list[dict[str, Any]] | None): The `Storage` members, when read.
+            storage_status (str): `ok`, `absent` or `failed` for that read.
+
+        Returns:
+            tuple[tuple[dict[str, object], ...] | None, dict[str, object] | None]: The
+                controllers for display and `assess_raid`'s verdict. Either is None when a
+                source failed to read, so a failure never reads as "no RAID".
+        """
+        vendor = vendor_from_manufacturer(system.get("Manufacturer")).value
+        label = raid.bmc_label(client.service_root, system)
+        volumes: dict[str, list[dict[str, Any]]] = {}
+        complete = True
+        for member in members or []:
+            key = str(member.get("@odata.id") or "")
+            link = member.get("Volumes")
+            path = link.get("@odata.id") if isinstance(link, dict) else None
+            if not path:
+                volumes[key] = []
+                continue
+            try:
+                volumes[key] = await client.get_collection(validate_odata_id(path))
+            except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
+                logger.warning("redfish.volumes_skipped", controller=key, error=str(exc))
+                complete = False
+        smart_status, smart = raid.ABSENT_TREE, []
+        if (
+            vendor == "hp"
+            or "Hpe" in (system.get("Oem") or {})
+            or "Hp" in (system.get("Oem") or {})
+        ):
+            smart_status, smart = await self._smart_storage(client, system)
+        logical_drives = [ld for c in smart for ld in c["logical_drives"]]
+        verdict = raid.assess_raid(
+            vendor,
+            storage_status=storage_status,
+            controllers=members,
+            volumes_by_controller=volumes,
+            volumes_complete=complete,
+            smart_status=smart_status,
+            smart_logical_drives=logical_drives,
+            smart_controller_count=len(smart),
+            bmc=label,
+        )
+        readable = complete and smart_status != raid.FAILED
+        controllers = (
+            controllers_from_storage(members, volumes, vendor, smart)
+            if readable and members is not None
+            else None
+        )
+        if controllers is None and readable and smart:
+            controllers = controllers_from_storage([], {}, vendor, smart)
+        return controllers, verdict
+
+    async def _smart_storage(
+        self, client: Any, system: dict[str, Any]
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """
+        Read HPE's OEM `SmartStorage` array controllers and their logical drives.
+
+        Args:
+            client (Any): The authenticated client.
+            system (dict[str, Any]): The owning `ComputerSystem`.
+
+        Returns:
+            tuple[str, list[dict[str, Any]]]: `ok` with `{"controller", "logical_drives"}`
+                entries, `absent` when the tree does not exist (no link, 404/501/503), or
+                `failed` with no entries on any other error.
+        """
+        oem = system.get("Oem")
+        hpe = (oem.get("Hpe") or oem.get("Hp")) if isinstance(oem, dict) else None
+        links = hpe.get("Links") if isinstance(hpe, dict) else None
+        smart_link = links.get("SmartStorage") if isinstance(links, dict) else None
+        base = smart_link.get("@odata.id") if isinstance(smart_link, dict) else None
+        base = base or f"{system.get('@odata.id')}/SmartStorage"
+        try:
+            root = await client.get(validate_odata_id(base))
+            array_link = (root.get("Links") or {}).get("ArrayControllers")
+            array_path = array_link.get("@odata.id") if isinstance(array_link, dict) else None
+            arrays = await client.get_collection(
+                validate_odata_id(array_path or f"{base}/ArrayControllers")
+            )
+            found: list[dict[str, Any]] = []
+            for array in arrays:
+                ld_link = (array.get("Links") or {}).get("LogicalDrives")
+                ld_path = ld_link.get("@odata.id") if isinstance(ld_link, dict) else None
+                drives = await client.get_collection(
+                    validate_odata_id(ld_path or f"{array.get('@odata.id')}/LogicalDrives")
+                )
+                found.append({"controller": array, "logical_drives": drives})
+        except RedfishProtocolError as exc:
+            logger.warning("redfish.smartstorage_skipped", error=str(exc))
+            absent = exc.status_code in _TREE_ABSENT_STATUSES
+            return (raid.ABSENT_TREE if absent else raid.FAILED), []
+        except (RedfishForbiddenError, RedfishUnreachableError) as exc:
+            logger.warning("redfish.smartstorage_skipped", error=str(exc))
+            return raid.FAILED, []
+        return raid.OK, found
 
     async def _gpu_telemetry(
         self, client: Any, processors: list[dict[str, Any]] | None

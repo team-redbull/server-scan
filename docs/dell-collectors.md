@@ -398,3 +398,14 @@ plain "SSD"/"HDD" string first assumed. `_media_type` now scans
 SSD / HDD from any of them (the fleet's drives name themselves "NVMe" in the
 model, so they resolve to `NVME`). Still worth confirming the real
 `MediaType` encoding from a raw entry.
+
+
+## Storage controllers and RAID (2026-10-13, ADR-0048)
+
+The Redfish pass reads each `Storage` member's `Volumes` (one request per controller) and the collector
+decides present / absent / unknown (`providers/redfish/raid.py`; Dell's tree is authoritative). A member is
+labelled BOSS by its `Name`/`Model` first (BOSS-S2 is Id `AHCI.SL.x`), then by prefix: `RAID.` (PERC), `BOSS.`,
+`AHCI.`, `NonRAID.` (HBA), `CPU.`/`PCIeSSD.` (NVMe). Single-disk BOSS/NVMe `RawDevice` volumes have a null
+`RAIDType` and are not virtual disks. `SupportedRAIDTypes` is a capability, not a mirror. Verified by hand on two
+R660 (iDRAC9, BIOS 2.3.5): a BOSS with a RAID1 volume, and a BOSS with `Members@odata.count: 0`.
+Research: `docs/notes/2026-10-13-dell-redfish-storage-volumes.md`.

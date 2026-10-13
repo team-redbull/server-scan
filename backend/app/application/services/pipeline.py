@@ -92,6 +92,7 @@ def health_from_state(state: HealthState) -> Health:
         overall=state.overall,
         memory=severities["memory"],
         storage=severities["storage"],
+        raid=severities["raid"],
         network=severities["network"],
         connectivity=severities["connectivity"],
         power=severities["power"],

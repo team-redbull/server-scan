@@ -679,9 +679,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
     useless signal; "nothing is up" is the one that means something, and
     it needs `links_known_count` beside it (ADR-0027).
 - **The system-default policies** (`app.domain.services.health.
-  health_policy_defaults`, seventeen as of 2026-09-22) are built, never
+  health_policy_defaults`, eighteen as of 2026-10-13) are built, never
   persisted, by that module; `bootstrap` seeds and re-syncs them.
-  Everything except the two fabric policies is vendor-neutral by
+  Everything except the two fabric policies and the RAID one (scoped to the two Redfish collectors) is vendor-neutral by
   construction — each reads a fact off the normalized `Server`, never a
   vendor payload. What each one is, and why it is the severity it is:
 
@@ -703,6 +703,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   | `network.single_link_up` | exactly one link up, however many were readable | CRITICAL |
   | `gpu.failed` | a GPU reports CRITICAL or DOWN | CRITICAL |
   | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
+  | `raid.os_mirror_missing` | **OPENMANAGE and REDFISH_STANDALONE**: the collector's RAID verdict is `ABSENT` (authoritative vendor tree read, no mirror); `UNKNOWN` (DGX, old BMCs) never fires (ADR-0048) | CRITICAL |
 
   - **Two uplinks are a platform requirement, not a preference
     (2026-09-26, operator's call).** Hosts join the fabric over an 802.3ad

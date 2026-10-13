@@ -56,11 +56,47 @@ class StorageDrive(BaseModel):
     controller_id: str | None = None
 
 
+class StorageVolume(BaseModel):
+    """One virtual disk a storage controller exposes."""
+
+    id: str
+    raid_type: str | None = None
+    volume_type: str | None = None
+    capacity_bytes: int | None = None
+    health: str | None = None
+
+
+class StorageController(BaseModel):
+    """One storage controller and the virtual disks configured on it (ADR-0048)."""
+
+    id: str
+    name: str | None = None
+    kind: str = "OTHER"  # RAID | BOSS | AHCI | NVME | OTHER
+    drive_count: int = 0
+    volumes: list[StorageVolume] = Field(default_factory=list)
+
+
+class RaidCheck(BaseModel):
+    """
+    The collector's verdict on whether the server mirrors its OS disks (ADR-0048).
+
+    `state` is `PRESENT`, `ABSENT` (authoritative: the collector read every source it
+    trusts) or `UNKNOWN` (the BMC cannot say, e.g. software RAID). Only `ABSENT` is a fault.
+    """
+
+    state: str = "UNKNOWN"
+    method: str | None = None  # redfish_storage | hpe_smartstorage
+    bmc: str | None = None  # display only, never used to decide
+    reason: str | None = None
+
+
 class Storage(BaseModel):
-    """A server's aggregate storage capacity and its individual drives."""
+    """A server's aggregate storage capacity, its individual drives and its controllers."""
 
     total_bytes: int = 0
     drives: list[StorageDrive] = Field(default_factory=list)
+    controllers: list[StorageController] = Field(default_factory=list)
+    raid: RaidCheck = Field(default_factory=RaidCheck)
 
 
 class Gpu(BaseModel):

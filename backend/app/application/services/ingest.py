@@ -68,8 +68,11 @@ from app.domain.models.hardware import (
     MemoryModule,
     Power,
     Psu,
+    RaidCheck,
     Storage,
+    StorageController,
     StorageDrive,
+    StorageVolume,
 )
 from app.domain.models.health import Health
 from app.domain.models.health_policy import HealthPolicy
@@ -460,6 +463,36 @@ def _drive_from_dict(data: dict[str, object]) -> StorageDrive:
         capacity_bytes=_opt_int(data.get("capacity_bytes")),
         health=_opt_str(data.get("health")),
         health_detail=_opt_str(data.get("health_detail")),
+    )
+
+
+def _controller_from_dict(data: dict[str, object]) -> StorageController:
+    volumes = data.get("volumes")
+    return StorageController(
+        id=str(data.get("id", "")),
+        name=_opt_str(data.get("name")),
+        kind=_opt_str(data.get("kind")) or "OTHER",
+        drive_count=_opt_int(data.get("drive_count")) or 0,
+        volumes=[
+            StorageVolume(
+                id=str(v.get("id", "")),
+                raid_type=_opt_str(v.get("raid_type")),
+                volume_type=_opt_str(v.get("volume_type")),
+                capacity_bytes=_opt_int(v.get("capacity_bytes")),
+                health=_opt_str(v.get("health")),
+            )
+            for v in (volumes if isinstance(volumes, (list, tuple)) else ())
+            if isinstance(v, dict)
+        ],
+    )
+
+
+def _raid_from_dict(data: dict[str, object]) -> RaidCheck:
+    return RaidCheck(
+        state=_opt_str(data.get("state")) or "UNKNOWN",
+        method=_opt_str(data.get("method")),
+        bmc=_opt_str(data.get("bmc")),
+        reason=_opt_str(data.get("reason")),
     )
 
 
@@ -1038,6 +1071,22 @@ class IngestService:
                     default=[],
                     unread=unread,
                     name="hardware.storage.drives",
+                ),
+                controllers=_carry_forward(
+                    [_controller_from_dict(c) for c in ps.storage_controllers]
+                    if ps.storage_controllers is not None
+                    else None,
+                    existing_hardware.storage.controllers if existing_hardware else None,
+                    default=[],
+                    unread=unread,
+                    name="hardware.storage.controllers",
+                ),
+                raid=_carry_forward(
+                    _raid_from_dict(ps.raid_check) if ps.raid_check is not None else None,
+                    existing_hardware.storage.raid if existing_hardware else None,
+                    default=RaidCheck(),
+                    unread=unread,
+                    name="hardware.storage.raid",
                 ),
             ),
             gpus=_carry_forward(

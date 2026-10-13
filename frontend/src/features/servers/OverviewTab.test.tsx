@@ -50,6 +50,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       overall: "HEALTHY",
       memory: "HEALTHY",
       storage: "HEALTHY",
+      raid: "UNKNOWN",
       network: "HEALTHY",
       connectivity: "HEALTHY",
       power: "HEALTHY",
@@ -407,6 +408,84 @@ describe("OverviewTab collection status", () => {
       expect(screen.getByText("BMC")).toBeInTheDocument();
     },
   );
+
+  it.each(["UCS_CENTRAL", "UCS_MANAGER", "INTERSIGHT"])(
+    "shows the Connectivity row for a %s server",
+    (provider) => {
+      render(
+        <OverviewTab server={makeServer({ source_provider: provider })} />,
+      );
+
+      expect(screen.getByText("Connectivity")).toBeInTheDocument();
+    },
+  );
+
+  it.each(["OPENMANAGE", "ONEVIEW", "REDFISH_STANDALONE"])(
+    "hides the Connectivity row for a %s server",
+    (provider) => {
+      render(
+        <OverviewTab server={makeServer({ source_provider: provider })} />,
+      );
+
+      expect(screen.queryByText("Connectivity")).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows the RAID row for OPENMANAGE and REDFISH_STANDALONE only", () => {
+    for (const provider of ["OPENMANAGE", "REDFISH_STANDALONE"]) {
+      const view = render(
+        <OverviewTab server={makeServer({ source_provider: provider })} />,
+      );
+      expect(screen.getByText("RAID")).toBeInTheDocument();
+      view.unmount();
+    }
+
+    for (const provider of ["UCS_CENTRAL", "ONEVIEW", "INTERSIGHT"]) {
+      const view = render(
+        <OverviewTab server={makeServer({ source_provider: provider })} />,
+      );
+      expect(screen.queryByText("RAID")).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("says why RAID is Unknown and which BMC method answered", () => {
+    const base = makeServer({ source_provider: "REDFISH_STANDALONE" });
+    const server = {
+      ...base,
+      hardware: {
+        ...base.hardware,
+        storage: {
+          ...base.hardware.storage,
+          raid: {
+            state: "UNKNOWN" as const,
+            method: "redfish_storage",
+            bmc: "NVIDIA DGX",
+            reason: "software RAID is invisible to the BMC",
+          },
+        },
+      },
+    };
+
+    render(<OverviewTab server={server} />);
+
+    expect(
+      screen.getByText(/NVIDIA DGX · redfish_storage/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/software RAID is invisible to the BMC/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no RAID note when the document predates detection", () => {
+    render(
+      <OverviewTab
+        server={makeServer({ source_provider: "REDFISH_STANDALONE" })}
+      />,
+    );
+
+    expect(screen.queryByText(/redfish_storage/)).not.toBeInTheDocument();
+  });
 
   it("lists BMC in the health breakdown and leaves CPU out", () => {
     render(

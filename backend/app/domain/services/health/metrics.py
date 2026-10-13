@@ -395,6 +395,51 @@ def build_default_registry() -> MetricRegistry:
     )
     registry.register(
         MetricDef(
+            name="raid.state",
+            type=MetricType.STRING,
+            category="raid",
+            description="PRESENT, ABSENT or UNKNOWN: whether the OS disks are mirrored",
+            resolver=lambda f: _get(f, "raid.state", "UNKNOWN"),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="raid.method",
+            type=MetricType.STRING,
+            category="raid",
+            description="Which Redfish tree the RAID verdict was read from",
+            resolver=lambda f: _get(f, "raid.method", "unknown"),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="raid.controller_count",
+            type=MetricType.INT,
+            category="raid",
+            description="Number of storage controllers reported (PERC, BOSS, AHCI, NVMe)",
+            resolver=lambda f: _get(f, "raid.controller_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="raid.volume_count",
+            type=MetricType.INT,
+            category="raid",
+            description="Virtual disks configured across all storage controllers",
+            resolver=lambda f: _get(f, "raid.volume_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="raid.raid1_volume_count",
+            type=MetricType.INT,
+            category="raid",
+            description="Virtual disks of RAID type RAID1 across all storage controllers",
+            resolver=lambda f: _get(f, "raid.raid1_volume_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
             name="bmc.unreachable_count",
             type=MetricType.INT,
             category="bmc",

@@ -987,6 +987,147 @@ def _bmc_reachability(
     return False, rng.choices(_REDFISH_REASONS, weights=_REDFISH_REASON_WEIGHTS)[0]
 
 
+def _controller(
+    controller_id: str,
+    kind: str,
+    *,
+    drives: int,
+    volume: tuple[str, str] | None = None,
+    name: str | None = None,
+) -> dict[str, object]:
+    """
+    One fake storage controller, shaped as `controllers_from_storage` emits it.
+
+    Args:
+        controller_id (str): The controller Id, e.g. `BOSS.SL.12-1`.
+        kind (str): `RAID`, `BOSS`, `HBA`, `AHCI` or `NVME`.
+        drives (int): Drives behind the controller.
+        volume (tuple[str, str] | None): `(raid_type, volume_type)` of its one
+            virtual disk, or None for a controller with none configured.
+        name (str | None): The display name; defaults to the Id.
+
+    Returns:
+        dict[str, object]: The controller entry.
+    """
+    volumes: tuple[dict[str, object], ...] = ()
+    if volume is not None:
+        volumes = (
+            {
+                "id": f"Disk.Virtual.0:{controller_id}",
+                "raid_type": volume[0],
+                "volume_type": volume[1],
+                "capacity_bytes": 480_000_000_000,
+                "health": "HEALTHY",
+            },
+        )
+    return {
+        "id": controller_id,
+        "name": name or controller_id,
+        "kind": kind,
+        "drive_count": drives,
+        "volumes": volumes,
+    }
+
+
+def _raid(state: str, method: str | None, bmc: str, reason: str | None) -> dict[str, object]:
+    return {"state": state, "method": method, "bmc": bmc, "reason": reason}
+
+
+def _dell_raid(
+    roll: int,
+) -> tuple[tuple[dict[str, object], ...], dict[str, object]]:
+    """
+    A Dell server's controllers and verdict, mixing every layout seen on iDRAC (ADR-0048).
+
+    Args:
+        roll (int): 0-99, the server's deterministic draw.
+
+    Returns:
+        tuple[tuple[dict[str, object], ...], dict[str, object]]: The controllers and the
+            `raid_check` the Dell rule gives them (a mirror is PRESENT, anything else ABSENT).
+    """
+    mirror = ("RAID1", "Mirrored")
+    base = (_controller("AHCI.Embedded.1-1", "AHCI", drives=0),)
+    nvme = _controller("CPU.1", "NVME", drives=2)
+    s2 = "AHCI.SL.6-1"
+    if roll < 62:
+        layout = (*base, nvme, _controller("BOSS.SL.12-1", "BOSS", drives=2, volume=mirror))
+    elif roll < 72:
+        layout = (*base, _controller("RAID.SL.3-1", "RAID", drives=4, volume=mirror))
+    elif roll < 80:
+        layout = (nvme, _controller(s2, "BOSS", drives=2, volume=mirror, name="BOSS-S2"))
+    elif roll < 85:
+        layout = (*base, nvme, _controller("BOSS.SL.12-1", "BOSS", drives=2))
+    elif roll < 88:
+        layout = (nvme, _controller(s2, "BOSS", drives=2, name="BOSS-S2"))
+    elif roll < 91:
+        layout = (nvme,)
+    elif roll < 94:
+        layout = (_controller("NonRAID.Slot.1-1", "HBA", drives=4),)
+    else:
+        raid5 = ("RAID5", "StripedWithParity")
+        layout = (*base, _controller("RAID.SL.3-1", "RAID", drives=4, volume=raid5))
+    if roll < 80:
+        return layout, _raid("PRESENT", "redfish_storage", "iDRAC", None)
+    return layout, _raid(
+        "ABSENT", "redfish_storage", "iDRAC", "no RAID 1 virtual disk on any controller"
+    )
+
+
+def _standalone_raid(
+    roll: int,
+) -> tuple[tuple[dict[str, object], ...] | None, dict[str, object]]:
+    """
+    A standalone BMC's controllers and verdict: HPE trees it can read, BMCs that cannot say.
+
+    Args:
+        roll (int): 0-99, the server's deterministic draw.
+
+    Returns:
+        tuple[tuple[dict[str, object], ...] | None, dict[str, object]]: The controllers (None
+            for a BMC with no storage schema) and the `raid_check`.
+    """
+    smart = "Smart Array P408i-p"
+    if roll < 50:
+        controller = _controller("0", "RAID", drives=12, volume=("RAID1", "Mirrored"), name=smart)
+        return (controller,), _raid("PRESENT", "hpe_smartstorage", "iLO 5", None)
+    if roll < 60:
+        reason = "no RAID 1 logical drive on any array controller"
+        return (_controller("0", "RAID", drives=12, name=smart),), _raid(
+            "ABSENT", "hpe_smartstorage", "iLO 5", reason
+        )
+    if roll < 90:
+        nvme = tuple(_controller(f"NVMe{i}", "OTHER", drives=1) for i in range(2))
+        reason = "software RAID, or a controller the BMC cannot see, is invisible over Redfish"
+        return nvme, _raid("UNKNOWN", None, "AMI MegaRAC", reason)
+    return None, _raid("UNKNOWN", None, "Supermicro BMC", "the BMC has no storage schema")
+
+
+def _build_storage_controllers(
+    seed: int, index: int, collector: ManagerType
+) -> tuple[tuple[dict[str, object], ...] | None, dict[str, object] | None]:
+    """
+    A server's controllers and RAID verdict, with its own RNG so other fields keep their draws.
+
+    About 20% of OpenManage servers and 10% of standalone ones have no RAID 1 on purpose (ADR-0048).
+
+    Args:
+        seed (int): The fleet seed.
+        index (int): The server's index in the fleet.
+        collector (ManagerType): The collector that found the server.
+
+    Returns:
+        tuple[tuple[dict[str, object], ...] | None, dict[str, object] | None]: Both None for a
+            collector that does not read RAID.
+    """
+    roll = random.Random(f"raid/{seed}/{index}").randrange(100)  # noqa: S311 - fake data
+    if collector is ManagerType.OPENMANAGE:
+        return _dell_raid(roll)
+    if collector is ManagerType.REDFISH_STANDALONE:
+        return _standalone_raid(roll)
+    return None, None
+
+
 def generate_servers(
     *, seed: int, count: int, sites: SiteCatalog | None = None, epoch: int = 0
 ) -> Iterator[ProviderServer]:
@@ -1042,6 +1183,7 @@ def generate_servers(
 
         drive_count = rng.randint(2, 8)
         storage_drives, storage_total_bytes = _build_storage_drives(rng, drive_count)
+        storage_controllers, raid_check = _build_storage_controllers(seed, index, collector)
         gpus = _build_gpus(rng, collector)
         psus = _build_psus(rng, collector, index=index)
 
@@ -1053,7 +1195,7 @@ def generate_servers(
             bmc_mac = None
             cpu_sockets = cpu_cores = cpu_threads = cpu_model = None
             memory_total_bytes = None
-            storage_drives = storage_total_bytes = None
+            storage_drives = storage_total_bytes = storage_controllers = raid_check = None
             gpus = psus = None
         if not reachable and collector is ManagerType.REDFISH_STANDALONE:
             serial = None
@@ -1097,6 +1239,8 @@ def generate_servers(
             memory_total_bytes=memory_total_bytes,
             storage_total_bytes=storage_total_bytes,
             storage_drives=storage_drives,
+            storage_controllers=storage_controllers,
+            raid_check=raid_check,
             gpus=gpus,
             psus=psus,
             attachments=attachments,

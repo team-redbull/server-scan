@@ -1165,3 +1165,278 @@ class TestDriveReadFailures:
 
         assert servers[0].storage_drives == ()
         assert servers[0].storage_total_bytes == 0
+
+
+def _dell_storage(*, boss_volume: bool) -> dict[str, Any]:
+    """Two live iDRAC9 R660 layouts (ADR-0048): a BOSS card with and without its mirror."""
+    resources = minimal_service()
+    base = "/redfish/v1/Systems/1/Storage"
+    ids = ["CPU.1", "AHCI.Embedded.1-1", "BOSS.SL.12-1"]
+    resources[base] = {
+        "@odata.id": base,
+        "Members": [{"@odata.id": f"{base}/{i}"} for i in ids],
+    }
+    for controller_id in ids:
+        resources[f"{base}/{controller_id}"] = {
+            "@odata.id": f"{base}/{controller_id}",
+            "@odata.type": "#Storage.v1_15_0.Storage",
+            "Id": controller_id,
+            "Name": controller_id,
+            "Drives": [],
+            "Volumes": {"@odata.id": f"{base}/{controller_id}/Volumes"},
+        }
+        resources[f"{base}/{controller_id}/Volumes"] = {
+            "@odata.id": f"{base}/{controller_id}/Volumes",
+            "Members": [],
+            "Members@odata.count": 0,
+        }
+    if boss_volume:
+        volume = f"{base}/BOSS.SL.12-1/Volumes/Disk.Virtual.0:BOSS.SL.12-1"
+        resources[f"{base}/BOSS.SL.12-1/Volumes"]["Members"] = [{"@odata.id": volume}]
+        resources[volume] = {
+            "@odata.id": volume,
+            "@odata.type": "#Volume.v1_6_2.Volume",
+            "Id": "Disk.Virtual.0:BOSS.SL.12-1",
+            "RAIDType": "RAID1",
+            "VolumeType": "Mirrored",
+            "CapacityBytes": 480103981056,
+            "Status": {"State": "Enabled", "Health": "OK"},
+        }
+    return resources
+
+
+class TestStorageVolumes:
+    """ADR-0048: volumes are read only when asked for, and a failed read is never "no RAID"."""
+
+    async def test_a_boss_mirror_is_reported_with_its_raid_type(self) -> None:
+        with RedfishFixture(resources=_dell_storage(boss_volume=True)) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        controllers = {c["id"]: c for c in servers[0].storage_controllers or ()}
+        assert {k: c["kind"] for k, c in controllers.items()} == {
+            "CPU.1": "NVME",
+            "AHCI.Embedded.1-1": "AHCI",
+            "BOSS.SL.12-1": "BOSS",
+        }
+        (volume,) = controllers["BOSS.SL.12-1"]["volumes"]
+        assert volume["raid_type"] == "RAID1"
+        assert volume["volume_type"] == "Mirrored"
+        assert controllers["CPU.1"]["volumes"] == ()
+
+    async def test_a_boss_card_with_no_virtual_disk_is_read_and_empty(self) -> None:
+        with RedfishFixture(resources=_dell_storage(boss_volume=False)) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        controllers = {c["id"]: c for c in servers[0].storage_controllers or ()}
+        assert controllers["BOSS.SL.12-1"]["volumes"] == ()
+
+    async def test_an_unreadable_volumes_collection_leaves_controllers_unread(self) -> None:
+        resources = _dell_storage(boss_volume=True)
+        faults = {"/redfish/v1/Systems/1/Storage/BOSS.SL.12-1/Volumes": 403}
+        with RedfishFixture(resources=resources, faults=faults) as fixture:
+            servers = await _collect(_provider(fixture.port))
+
+        assert servers[0].storage_controllers is None
+
+
+_STORAGE = "/redfish/v1/Systems/1/Storage"
+
+
+def _storage_service(
+    controllers: dict[str, list[dict[str, Any]] | None],
+) -> dict[str, Any]:
+    """
+    A system whose `Storage` members are `controllers` (id -> volumes, None = no Volumes link).
+
+    Each volume dict is merged over a healthy-volume skeleton.
+    """
+    resources = minimal_service()
+    resources[_STORAGE] = {
+        "@odata.id": _STORAGE,
+        "Members": [{"@odata.id": f"{_STORAGE}/{cid}"} for cid in controllers],
+    }
+    for cid, volumes in controllers.items():
+        member: dict[str, Any] = {
+            "@odata.id": f"{_STORAGE}/{cid}",
+            "@odata.type": "#Storage.v1_15_0.Storage",
+            "Id": cid,
+            "Drives": [],
+        }
+        if volumes is not None:
+            member["Volumes"] = {"@odata.id": f"{_STORAGE}/{cid}/Volumes"}
+            resources[f"{_STORAGE}/{cid}/Volumes"] = {
+                "@odata.id": f"{_STORAGE}/{cid}/Volumes",
+                "Members": [{"@odata.id": f"{_STORAGE}/{cid}/Volumes/{v['Id']}"} for v in volumes],
+            }
+            for v in volumes:
+                resources[f"{_STORAGE}/{cid}/Volumes/{v['Id']}"] = {
+                    "@odata.id": f"{_STORAGE}/{cid}/Volumes/{v['Id']}",
+                    "@odata.type": "#Volume.v1_6_2.Volume",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    **v,
+                }
+        resources[f"{_STORAGE}/{cid}"] = member
+    return resources
+
+
+def _vol(vid: str = "Disk.Virtual.0", raid: str | None = "RAID1") -> dict[str, Any]:
+    return {"Id": vid, "RAIDType": raid, "VolumeType": "Mirrored", "CapacityBytes": 480_000_000_000}
+
+
+async def _controllers_of(
+    resources: dict[str, Any], **fixture_kwargs: Any
+) -> dict[str, dict[str, Any]] | None:
+    with RedfishFixture(resources=resources, **fixture_kwargs) as fixture:
+        servers = await _collect(_provider(fixture.port))
+    found = servers[0].storage_controllers
+    return None if found is None else {str(c["id"]): c for c in found}
+
+
+class TestControllerLayouts:
+    """1, 2 and 4 PERCs, mixed with BOSS/HBA/NVMe: every layout iDRAC9/10 can present."""
+
+    async def test_a_single_perc_with_a_mirror(self) -> None:
+        found = await _controllers_of(_storage_service({"RAID.Slot.1-1": [_vol()]}))
+        assert found is not None
+        assert found["RAID.Slot.1-1"]["kind"] == "RAID"
+        assert len(found["RAID.Slot.1-1"]["volumes"]) == 1
+
+    async def test_two_percs_with_the_mirror_only_on_the_second(self) -> None:
+        found = await _controllers_of(
+            _storage_service({"RAID.Slot.1-1": [], "RAID.Slot.2-1": [_vol(raid="RAID1")]})
+        )
+        assert found is not None
+        assert found["RAID.Slot.1-1"]["volumes"] == ()
+        assert found["RAID.Slot.2-1"]["volumes"][0]["raid_type"] == "RAID1"
+
+    async def test_four_percs_across_slot_and_integrated_names(self) -> None:
+        ids = ["RAID.Slot.1-1", "RAID.Slot.2-1", "RAID.Slot.3-1", "RAID.Integrated.1-1"]
+        found = await _controllers_of(_storage_service({i: [] for i in ids}))
+        assert found is not None
+        assert {c["kind"] for c in found.values()} == {"RAID"}
+        assert set(found) == set(ids)
+
+    async def test_perc_and_boss_together(self) -> None:
+        found = await _controllers_of(
+            _storage_service({"RAID.Slot.1-1": [_vol("V0", "RAID5")], "BOSS.SL.12-1": [_vol()]})
+        )
+        assert found is not None
+        assert found["BOSS.SL.12-1"]["kind"] == "BOSS"
+        assert found["RAID.Slot.1-1"]["volumes"][0]["raid_type"] == "RAID5"
+
+    async def test_an_hba_and_a_controller_with_no_volumes_link_are_read_and_empty(self) -> None:
+        found = await _controllers_of(
+            _storage_service({"AHCI.Slot.2-1": None, "HBA.Slot.3-1": None, "CPU.1": None})
+        )
+        assert found is not None
+        assert found["HBA.Slot.3-1"]["kind"] == "OTHER"
+        assert all(c["volumes"] == () for c in found.values())
+
+    async def test_an_empty_storage_collection_is_read_and_empty(self) -> None:
+        assert await _controllers_of(_storage_service({})) == {}
+
+    async def test_a_missing_id_falls_back_to_the_odata_id(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": []})
+        del resources[f"{_STORAGE}/RAID.Slot.1-1"]["Id"]
+        found = await _controllers_of(resources)
+        assert found is not None
+        assert list(found) == [f"{_STORAGE}/RAID.Slot.1-1"]
+        assert found[f"{_STORAGE}/RAID.Slot.1-1"]["kind"] == "OTHER"
+
+    async def test_non_dict_drive_entries_do_not_break_the_count(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": []})
+        resources[f"{_STORAGE}/RAID.Slot.1-1"]["Drives"] = ["junk", None, {"@odata.id": "x"}]
+        found = await _controllers_of(resources)
+        assert found is not None
+        assert found["RAID.Slot.1-1"]["drive_count"] == 3
+
+    async def test_two_computer_systems_each_get_their_own_controllers(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()]})
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert len(servers) == 1
+        assert servers[0].storage_controllers is not None
+
+
+class TestVolumeReadFailures:
+    """A Volumes collection that cannot be read is "unknown", never "no RAID"."""
+
+    @pytest.mark.parametrize("status", [403, 404, 500, 503])
+    async def test_a_failing_volumes_collection_leaves_controllers_unread(
+        self, status: int
+    ) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()], "BOSS.SL.12-1": []})
+        faults = {f"{_STORAGE}/BOSS.SL.12-1/Volumes": status}
+        assert await _controllers_of(resources, faults=faults) is None
+
+    async def test_an_unreadable_member_volume_leaves_controllers_unread(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()]})
+        del resources[f"{_STORAGE}/RAID.Slot.1-1/Volumes/Disk.Virtual.0"]
+        assert await _controllers_of(resources) is None
+
+    async def test_a_volumes_read_that_times_out_leaves_controllers_unread(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()]})
+        resources_delays = {f"{_STORAGE}/RAID.Slot.1-1/Volumes": 2.0}
+        with RedfishFixture(resources=resources, delays=resources_delays) as fixture:
+            servers = await _collect(_provider(fixture.port, read_timeout=0.3))
+        assert servers[0].storage_controllers is None
+        assert servers[0].cpu_sockets is not None
+
+    async def test_an_unreadable_storage_collection_leaves_controllers_unread(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()]})
+        assert await _controllers_of(resources, faults={_STORAGE: 500}) is None
+
+
+class TestVolumeShapes:
+    async def test_inline_members_are_used_as_they_are(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": []})
+        path = f"{_STORAGE}/RAID.Slot.1-1/Volumes"
+        resources[path]["Members"] = [
+            {
+                "@odata.id": f"{path}/V0",
+                "@odata.type": "#Volume.v1_6_2.Volume",
+                "Id": "V0",
+                "RAIDType": "RAID1",
+            }
+        ]
+        found = await _controllers_of(resources)
+        assert found is not None
+        assert found["RAID.Slot.1-1"]["volumes"][0]["raid_type"] == "RAID1"
+
+    async def test_a_volumes_collection_is_followed_across_pages(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol("V0", "RAID5"), _vol("V1", "RAID1")]})
+        path = f"{_STORAGE}/RAID.Slot.1-1/Volumes"
+        second = resources[path]["Members"].pop()
+        resources[path]["Members@odata.nextLink"] = f"{path}Page2"
+        resources[f"{path}Page2"] = {"@odata.id": f"{path}Page2", "Members": [second]}
+        found = await _controllers_of(resources)
+        assert found is not None
+        raid_types = [v["raid_type"] for v in found["RAID.Slot.1-1"]["volumes"]]
+        assert raid_types == ["RAID5", "RAID1"]
+
+    @pytest.mark.parametrize("raid", [None, "", "RAID10", "RAID1E", "RAID0"])
+    async def test_odd_raid_types_are_kept_verbatim_or_none(self, raid: str | None) -> None:
+        found = await _controllers_of(_storage_service({"RAID.Slot.1-1": [_vol(raid=raid)]}))
+        assert found is not None
+        assert found["RAID.Slot.1-1"]["volumes"][0]["raid_type"] == (raid or None)
+
+    async def test_a_volume_with_no_raidtype_key_at_all(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()]})
+        del resources[f"{_STORAGE}/RAID.Slot.1-1/Volumes/Disk.Virtual.0"]["RAIDType"]
+        found = await _controllers_of(resources)
+        assert found is not None
+        assert found["RAID.Slot.1-1"]["volumes"][0]["raid_type"] is None
+
+    async def test_duplicate_controller_ids_are_both_kept(self) -> None:
+        resources = _storage_service({"RAID.Slot.1-1": [_vol()]})
+        resources[_STORAGE]["Members"].append({"@odata.id": f"{_STORAGE}/Dup"})
+        resources[f"{_STORAGE}/Dup"] = {
+            **resources[f"{_STORAGE}/RAID.Slot.1-1"],
+            "@odata.id": f"{_STORAGE}/Dup",
+        }
+        with RedfishFixture(resources=resources) as fixture:
+            servers = await _collect(_provider(fixture.port))
+        assert [c["id"] for c in servers[0].storage_controllers or ()] == [
+            "RAID.Slot.1-1",
+            "RAID.Slot.1-1",
+        ]

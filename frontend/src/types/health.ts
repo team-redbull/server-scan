@@ -134,6 +134,7 @@ export type PolicyMode = "EVALUATE" | "SUPPRESS";
 export const POLICY_CATEGORIES = [
   "memory",
   "storage",
+  "raid",
   "network",
   "connectivity",
   "power",

@@ -242,6 +242,14 @@ spec:
           annotations:
             summary: "{{ "{{ $value }}" }} {{ "{{ $labels.source_provider }}" }} servers not collected within INVENTORY_STALE_AFTER_SECONDS"
             description: "The collector is running but these servers are not being read — dead BMCs, rejected logins, or hosts dropped from the manager. `server_scan:servers_unreachable:max` says how many are the first kind."
+        - alert: ServerScanServersWithoutRaid
+          expr: server_scan:policy_active:max{policy_key="raid.os_mirror_missing"} > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ "{{ $value }}" }} server(s) have no RAID 1 volume for the OS"
+            description: "Each is CRITICAL (health policy raid.os_mirror_missing, OpenManage and standalone Redfish servers whose BMC can report RAID): a controller read with no RAID 1 virtual disk, for example a BOSS card with drives but no volume. Servers whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) are Unknown and not counted. The inventory's Health filter lists them; the server's health reasons say how many virtual disks and controllers were read."
         - alert: ServerScanClusterSilent
           expr: server_scan:cluster_silent_seconds > {{ $membershipSilent }}
           for: 10m

@@ -27,6 +27,7 @@ from typing import Any
 from app.domain.enums import HealthSeverity, MediaType, Vendor
 from app.domain.ports.provider import ProviderNic, ProviderServer
 from app.domain.services.normalize import is_placeholder_serial
+from app.infrastructure.providers.redfish.raid import hpe_raid_type
 
 _MIB = 1024**2
 _GIB = 1024**3
@@ -256,6 +257,129 @@ def storage_from_drives(
             total += capacity
         entries.append(entry)
     return tuple(entries), total
+
+
+_CONTROLLER_KIND_PREFIXES = (
+    ("RAID.", "RAID"),
+    ("BOSS.", "BOSS"),
+    ("NonRAID.", "HBA"),
+    ("AHCI.", "AHCI"),
+    ("CPU.", "NVME"),
+    ("PCIeSSD.", "NVME"),
+    ("PCIeExtender.", "NVME"),
+)
+
+
+def controller_kind(controller: dict[str, Any], vendor: str) -> str:
+    """
+    Classify a `Storage` member for display (ADR-0048); never used to decide RAID.
+
+    Only Dell's FQDD naming is understood. A BOSS-S2 card carries an `AHCI.SL.x` Id, so
+    its Name/Model is checked first.
+
+    Args:
+        controller (dict[str, Any]): A `Storage` resource.
+        vendor (str): The server's `Vendor` value; anything but `dell` is `OTHER`.
+
+    Returns:
+        str: `RAID` (PERC), `BOSS`, `HBA`, `AHCI`, `NVME` or `OTHER`.
+    """
+    if vendor != "dell":
+        return "OTHER"
+    models = [
+        str(m.get("Model") or "")
+        for m in controller.get("StorageControllers") or []
+        if isinstance(m, dict)
+    ]
+    if any("BOSS" in text.upper() for text in [str(controller.get("Name") or ""), *models]):
+        return "BOSS"
+    controller_id = str(controller.get("Id") or "")
+    for prefix, kind in _CONTROLLER_KIND_PREFIXES:
+        if controller_id.startswith(prefix):
+            return kind
+    return "OTHER"
+
+
+def volume_to_dict(volume: dict[str, Any]) -> dict[str, object]:
+    """
+    Convert one `Volume` resource into a `ProviderServer` volume entry.
+
+    Args:
+        volume (dict[str, Any]): A `Volume` resource.
+
+    Returns:
+        dict[str, object]: The volume as `ingest` consumes it.
+    """
+    return {
+        "id": str(volume.get("Id") or volume.get("@odata.id") or ""),
+        "raid_type": volume.get("RAIDType") or None,
+        "volume_type": volume.get("VolumeType") or None,
+        "capacity_bytes": _as_int(volume.get("CapacityBytes")),
+        "health": health_of(volume),
+    }
+
+
+def controllers_from_storage(
+    controllers: list[dict[str, Any]] | None,
+    volumes_by_controller: dict[str, list[dict[str, Any]]] | None,
+    vendor: str,
+    smart_controllers: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, object], ...] | None:
+    """
+    Summarize a server's storage controllers and the virtual disks on each.
+
+    Args:
+        controllers (list[dict[str, Any]] | None): Every `Storage` member
+            read, or None when the collection could not be read.
+        volumes_by_controller (dict[str, list[dict[str, Any]]] | None):
+            Each controller's `Volume` members keyed by its `@odata.id`, or
+            None when any volume read failed.
+        vendor (str): The server's `Vendor` value, for `controller_kind`.
+        smart_controllers (list[dict[str, Any]] | None): HPE `SmartStorage`
+            array controllers, each `{"controller": ..., "logical_drives": [...]}`,
+            shown beside the DMTF ones.
+
+    Returns:
+        tuple[dict[str, object], ...] | None: The controllers, or None when
+            either input is unread, which ingest carries forward (a failed
+            read must never report "no RAID").
+    """
+    if controllers is None or volumes_by_controller is None:
+        return None
+    entries: list[dict[str, object]] = []
+    for controller in controllers:
+        key = str(controller.get("@odata.id") or "")
+        drives = controller.get("Drives")
+        entries.append(
+            {
+                "id": str(controller.get("Id") or key),
+                "name": controller.get("Name") or None,
+                "kind": controller_kind(controller, vendor),
+                "drive_count": len(drives) if isinstance(drives, list) else 0,
+                "volumes": tuple(volume_to_dict(v) for v in volumes_by_controller.get(key, [])),
+            }
+        )
+    for smart in smart_controllers or []:
+        raw = smart["controller"]
+        entries.append(
+            {
+                "id": str(raw.get("Id") or raw.get("@odata.id") or ""),
+                "name": raw.get("Model") or raw.get("Name") or None,
+                "kind": "RAID",
+                "drive_count": 0,
+                "volumes": tuple(
+                    {
+                        "id": str(ld.get("Id") or ld.get("@odata.id") or ""),
+                        "raid_type": hpe_raid_type(ld),
+                        "volume_type": None,
+                        "capacity_bytes": None,
+                        "health": None,
+                    }
+                    for ld in smart["logical_drives"]
+                ),
+            }
+        )
+    return tuple(entries)
 
 
 def cpu_summary(
@@ -1012,6 +1136,8 @@ def system_to_provider_server(
     dimms: list[dict[str, Any]] | None,
     interfaces: list[dict[str, Any]] | None,
     bmc_mac: str | None,
+    storage_controllers: tuple[dict[str, object], ...] | None = None,
+    raid_check: dict[str, object] | None = None,
     psus: tuple[dict[str, object], ...] | None = None,
     gpu_metrics_by_processor: dict[str, dict[str, Any]] | None = None,
     gpu_environment_by_processor: dict[str, dict[str, Any]] | None = None,
@@ -1035,6 +1161,11 @@ def system_to_provider_server(
         interfaces (list[dict[str, Any]] | None): `EthernetInterfaces`
             members.
         bmc_mac (str | None): The BMC's own MAC.
+        storage_controllers (tuple[dict[str, object], ...] | None): The
+            controllers with their volumes (`controllers_from_storage`), or
+            None when not read.
+        raid_check (dict[str, object] | None): The `assess_raid` verdict, or None
+            when a RAID source could not be read.
         psus (tuple[dict[str, object], ...] | None): Fitted power supplies
             from this system's chassis, or None when unread.
         gpu_metrics_by_processor (dict[str, dict[str, Any]] | None): Each
@@ -1093,6 +1224,8 @@ def system_to_provider_server(
         memory_total_bytes=memory_bytes(system, dimms),
         storage_total_bytes=storage_total,
         storage_drives=storage_drives,
+        storage_controllers=storage_controllers,
+        raid_check=raid_check,
         memory_modules=memory_modules_from_dimms(dimms),
         psus=psus,
         gpus=gpus,

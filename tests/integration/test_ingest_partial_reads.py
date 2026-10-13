@@ -87,6 +87,16 @@ def _fully_read(**overrides: Any) -> ProviderServer:
                 "health_detail": "self-test-failed",
             },
         ),
+        "raid_check": {"state": "PRESENT", "method": "redfish_storage", "bmc": "iDRAC"},
+        "storage_controllers": (
+            {
+                "id": "BOSS.SL.12-1",
+                "name": "BOSS-S2",
+                "kind": "BOSS",
+                "drive_count": 2,
+                "volumes": ({"id": "Disk.Virtual.0:BOSS.SL.12-1", "raid_type": "RAID1"},),
+            },
+        ),
         "psus": (
             {
                 "id": "1",
@@ -450,6 +460,7 @@ async def test_the_document_records_which_fields_this_run_could_not_read(
 _GONE = {
     # field on `ProviderServer`: (value meaning "read, and nothing is there", path on `Server`)
     "storage_drives": ((), "hardware.storage.drives"),
+    "storage_controllers": ((), "hardware.storage.controllers"),
     "psus": ((), "hardware.power.psus"),
     "memory_modules": ((), "hardware.memory.modules"),
     "gpus": ((), "hardware.gpus"),
@@ -541,3 +552,53 @@ async def test_a_server_taken_out_of_its_template_loses_it(
     assert server.profile_template.name is None
     assert server.profile_template.external_id is None
     assert "profile_template.name" not in server.unread_fields
+
+
+async def test_a_document_stored_before_controllers_existed_still_loads_and_heals(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """ADR-0048: the old shape (no `hardware.storage.controllers` key) decodes to `[]`, and the
+    next collection that reads controllers fills it in.
+    """
+    serial = "SN-OLDSHAPE-1"
+    service = _service(mongo_holder)
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, storage_controllers=None)))
+    await mongo_holder.db["servers"].update_many(
+        {"identity.serial_normalized": serial.lower()},
+        {"$unset": {"hardware.storage.controllers": ""}},
+    )
+
+    old = await _stored(mongo_holder, serial.lower())
+    assert old.hardware.storage.controllers == []
+
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial)))
+    healed = await _stored(mongo_holder, serial.lower())
+    assert [c.id for c in healed.hardware.storage.controllers] == ["BOSS.SL.12-1"]
+    assert healed.hardware.storage.controllers[0].volumes[0].raid_type == "RAID1"
+    assert "hardware.storage.controllers" not in healed.unread_fields
+
+
+async def test_the_raid_verdict_is_carried_forward_when_unread_and_replaced_when_read(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """None keeps the stored verdict and flags it; a dict replaces it, UNKNOWN included."""
+    serial = "SN-RAID-VERDICT"
+    service = _service(mongo_holder)
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial)))
+    assert (await _stored(mongo_holder, serial.lower())).hardware.storage.raid.state == "PRESENT"
+
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, raid_check=None)))
+    server = await _stored(mongo_holder, serial.lower())
+    assert server.hardware.storage.raid.state == "PRESENT"
+    assert "hardware.storage.raid" in server.unread_fields
+
+    absent = {"state": "ABSENT", "method": "hpe_smartstorage", "bmc": "iLO 5", "reason": "none"}
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, raid_check=absent)))
+    server = await _stored(mongo_holder, serial.lower())
+    assert server.hardware.storage.raid.state == "ABSENT"
+    assert server.hardware.storage.raid.method == "hpe_smartstorage"
+    assert "hardware.storage.raid" not in server.unread_fields
+
+    unknown = {"state": "UNKNOWN", "reason": "software RAID"}
+    await service.ingest(_OneShotProvider(_fully_read(serial=serial, raid_check=unknown)))
+    assert (await _stored(mongo_holder, serial.lower())).hardware.storage.raid.state == "UNKNOWN"

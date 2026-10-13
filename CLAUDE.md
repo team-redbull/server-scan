@@ -377,7 +377,7 @@ long form of each entry is in the 2026-09-13 archive.
   provider ABC 0023; search tokens 0025; nullable cursors and retired indexes
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
-  role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045.
+  role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048.
 
 ## Verifying your work
 
@@ -442,39 +442,17 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-11 (later) — `/servers/available` per-manager timeouts, stored-DN UCS recheck, 503 on a vendor failure (ADR-0032 update).**
-Moved to `docs/notes/session-log.md`: the inventory search / Maintenance-in-Health unit.
+**2026-10-13 — RAID health category, three-state RAID 1 detection for OpenManage and standalone Redfish, Connectivity hidden outside Cisco (ADR-0048).**
+Moved to `docs/notes/session-log.md`: the `/servers/available` timeouts / stored-DN UCS recheck unit.
 
-**Shipped (uncommitted until the operator releases):** the API pod had the 15 s default while the UCS Central
-CronJob runs 240 s, so a Cisco recheck died on `lsServer` as a 500. Now `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS`
-(Helm `serverScan.recheckTimeouts`, from each collector's own values; new optional `oneview.timeoutSeconds`/
-`ome.timeoutSeconds`) gives each manager its collector's timeout; `UcsCentralProvider.get_one` reads the domain
-from the stored DN (no `lsServer`, name search is the fallback); a vendor failure is `VendorRecheckError` ->
-503 `SERVICE_UNAVAILABLE` naming the manager (pattern mode skips a failing candidate). Also uncommitted from
-earlier: Grafana annotation `enable: false`, shorter search placeholder, `ClusterSidebar` scrollbar-gutter.
+**Shipped (uncommitted until reviewed):** new `raid` health category; the Redfish collector reads each `Storage`
+member's `Volumes` (plus HPE `SmartStorage`) and stores `hardware.storage.raid = {state, method, bmc, reason}`:
+PRESENT (any RAID1), ABSENT (Dell and HPE trees only, fully read) or UNKNOWN (DGX software RAID, Supermicro, old
+BMCs, errors; never a fault). `raid.os_mirror_missing` is CRITICAL on ABSENT, scoped to OPENMANAGE and
+REDFISH_STANDALONE. Overview breakdown: RAID row for those two collectors (BMC label, method, reason), Connectivity
+only for UCS_CENTRAL/UCS_MANAGER/INTERSIGHT. Grafana: "Servers without RAID" stat after Contested servers, alert
+`ServerScanServersWithoutRaid`, "Logins per day" / "Logins per hour" bars.
 
-**Also (2026-10-12):** `/servers/available` 404s now say why (`is not available: it is already installed in
-cluster 'x'`, `... in maintenance (reason)`; a pattern gets counts per reason; `details.reasons` carries codes
-like `INSTALLED`/`MAINTENANCE`), answering from the stored document before any vendor call for installed,
-claimed, maintenance and reserved servers. And every authenticated login is an audit event, `LOGIN_SUCCEEDED`
-with the role or `LOGIN_DENIED` (`NO_PERMISSION`), ADR-0047.
-
-**Also (2026-10-12, latest):** the inventory's Vendor/Source/Site/Classification/Installation/Health filters take
-several values (`MultiSelect`, repeated URL params, counts over the other filters, ADR-0033 update); frontend only.
-
-**Also (2026-10-12, later):** removing a server from its SPT left the old template (and the same shape of bug in
-other fields): a mapper sent `None` for "none" and ingest keeps `None`. Now "read, none" is `""`/`()`/`0`
-(Cisco, OneView, OME, Intersight templates; OneView/Intersight storage total; Redfish memory total) and three
-failed-read wipes are closed (Redfish drive GETs, Intersight board join and vNIC MACs); ADR-0016 update lists what
-is still open. Cisco `/servers/available` verified working by the operator after the earlier fix.
-
-**Also (2026-10-12):** the Cisco recheck had emptied the stored document (hardware, NICs, BMC) because
-`UcsManagerProvider.get_one` bucketed MOs by the SDK's CamelCase `_class_id` and skipped the profile-DN management
-IP; fixed and tested against a scan (ADR-0032 update). Affected documents heal on the next UCS Central run.
-
-**Also:** the generator calls through the Route, so `route.timeoutSeconds` (default 300) now sets the Route's
-`haproxy.router.openshift.io/timeout` and a longer nginx `proxy_read_timeout` for `/api/v1/servers/available` only.
-
-**Open:** not run against a live Central (direct single-domain lookup unverified); a load balancer in front of the
-Route, if any, is outside the chart; the earlier open items stand (retention report-only flip, recheck concurrency
-cap, stale Agent CR/node).
+**Open:** nothing run on real hardware: HPE `Oem.Hpe.Links` names and `Raid` strings, a configured BOSS mirror under
+`$expand`, iDRAC10 BOSS ids, a Dell with S150/S160 software RAID (would read ABSENT), the login day boundary is UTC.
+Research notes: `docs/notes/2026-10-13-*.md`.

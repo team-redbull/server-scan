@@ -23,7 +23,7 @@ mutations need the admin token. Generated from the app's own OpenAPI schema -
 
 `ServerSummary`: `id, name, vendor, model, site_id, manager_id, source_provider,
 classification{installation_type, matched_rule_name, matched_pattern, matched_field},
-health{overall, memory, storage, network, connectivity, power, gpu, bmc, reasons[], active_policy_keys[]},
+health{overall, memory, storage, raid, network, connectivity, power, gpu, bmc, reasons[], active_policy_keys[]},
 maintenance{enabled, reason, created_by, created_at, expected_end},
 openshift{lifecycle_state, cluster_name, mce_name, last_reported_at, reported_name, previous_reporter,
 claim_changed_at, contested_with},

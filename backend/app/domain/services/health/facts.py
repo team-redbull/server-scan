@@ -135,6 +135,9 @@ def extract_facts(server: Server) -> dict[str, Any]:
         g.uncorrectable_error_count for g in gpus if g.uncorrectable_error_count is not None
     ]
     name_capacity_bytes = _name_capacity_bytes(server.name)
+    controllers = server.hardware.storage.controllers
+    raid = server.hardware.storage.raid
+    volumes = [v for c in controllers for v in c.volumes if v.raid_type is not None]
 
     return {
         "cpu.socket_count": server.hardware.cpu.sockets,
@@ -167,6 +170,14 @@ def extract_facts(server: Server) -> dict[str, Any]:
             abs(server.hardware.storage.total_bytes - name_capacity_bytes)
             if name_capacity_bytes is not None
             else None
+        ),
+        "raid.has_data": raid.state != "UNKNOWN",
+        "raid.state": raid.state,
+        "raid.method": raid.method or "unknown",
+        "raid.controller_count": len(controllers),
+        "raid.volume_count": len(volumes),
+        "raid.raid1_volume_count": sum(
+            1 for v in volumes if (v.raid_type or "").upper() == "RAID1"
         ),
         "memory.has_data": server.hardware.memory.total_bytes > 0 or bool(dimms),
         "storage.has_data": bool(drives) or server.hardware.storage.total_bytes > 0,

@@ -8,6 +8,45 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-11 (later) — `/servers/available` per-manager timeouts, stored-DN UCS recheck, 503 on a vendor failure (ADR-0032 update).**
+Moved to `docs/notes/session-log.md`: the inventory search / Maintenance-in-Health unit.
+
+**Shipped (uncommitted until the operator releases):** the API pod had the 15 s default while the UCS Central
+CronJob runs 240 s, so a Cisco recheck died on `lsServer` as a 500. Now `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS`
+(Helm `serverScan.recheckTimeouts`, from each collector's own values; new optional `oneview.timeoutSeconds`/
+`ome.timeoutSeconds`) gives each manager its collector's timeout; `UcsCentralProvider.get_one` reads the domain
+from the stored DN (no `lsServer`, name search is the fallback); a vendor failure is `VendorRecheckError` ->
+503 `SERVICE_UNAVAILABLE` naming the manager (pattern mode skips a failing candidate). Also uncommitted from
+earlier: Grafana annotation `enable: false`, shorter search placeholder, `ClusterSidebar` scrollbar-gutter.
+
+**Also (2026-10-12):** `/servers/available` 404s now say why (`is not available: it is already installed in
+cluster 'x'`, `... in maintenance (reason)`; a pattern gets counts per reason; `details.reasons` carries codes
+like `INSTALLED`/`MAINTENANCE`), answering from the stored document before any vendor call for installed,
+claimed, maintenance and reserved servers. And every authenticated login is an audit event, `LOGIN_SUCCEEDED`
+with the role or `LOGIN_DENIED` (`NO_PERMISSION`), ADR-0047.
+
+**Also (2026-10-12, latest):** the inventory's Vendor/Source/Site/Classification/Installation/Health filters take
+several values (`MultiSelect`, repeated URL params, counts over the other filters, ADR-0033 update); frontend only.
+
+**Also (2026-10-12, later):** removing a server from its SPT left the old template (and the same shape of bug in
+other fields): a mapper sent `None` for "none" and ingest keeps `None`. Now "read, none" is `""`/`()`/`0`
+(Cisco, OneView, OME, Intersight templates; OneView/Intersight storage total; Redfish memory total) and three
+failed-read wipes are closed (Redfish drive GETs, Intersight board join and vNIC MACs); ADR-0016 update lists what
+is still open. Cisco `/servers/available` verified working by the operator after the earlier fix.
+
+**Also (2026-10-12):** the Cisco recheck had emptied the stored document (hardware, NICs, BMC) because
+`UcsManagerProvider.get_one` bucketed MOs by the SDK's CamelCase `_class_id` and skipped the profile-DN management
+IP; fixed and tested against a scan (ADR-0032 update). Affected documents heal on the next UCS Central run.
+
+**Also:** the generator calls through the Route, so `route.timeoutSeconds` (default 300) now sets the Route's
+`haproxy.router.openshift.io/timeout` and a longer nginx `proxy_read_timeout` for `/api/v1/servers/available` only.
+
+**Open:** not run against a live Central (direct single-domain lookup unverified); a load balancer in front of the
+Route, if any, is outside the chart; the earlier open items stand (retention report-only flip, recheck concurrency
+cap, stale Agent CR/node).
+
+---
+
 **2026-10-11 — inventory search exact/regex, Maintenance in Health, two UI fixes (ADR-0046).** Moved to
 `docs/notes/session-log.md`: ingest write discipline and audit retention.
 

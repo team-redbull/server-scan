@@ -126,6 +126,10 @@ class ProviderServer:
 
     storage_total_bytes: int | None = None
     storage_drives: tuple[dict[str, object], ...] | None = None
+    # Keys mirror `hardware.StorageController`; `volumes` is a tuple of `StorageVolume` dicts.
+    storage_controllers: tuple[dict[str, object], ...] | None = None
+    # Keys mirror `hardware.RaidCheck`; None = the RAID sources could not be read this run.
+    raid_check: dict[str, object] | None = None
 
     # Keys mirror `hardware.Gpu` / `Psu` / `MemoryModule`; units already normalized.
     gpus: tuple[dict[str, object], ...] | None = None

@@ -8,11 +8,23 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.pipeline import health_from_state
 from app.domain.enums import HealthSeverity, LinkState, Vendor
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
-from app.domain.models.hardware import Gpu, Hardware, Power, Psu, Storage, StorageDrive
+from app.domain.models.hardware import (
+    Gpu,
+    Hardware,
+    Power,
+    Psu,
+    RaidCheck,
+    Storage,
+    StorageController,
+    StorageDrive,
+    StorageVolume,
+)
 from app.domain.models.network import NetworkInfo, NetworkInterface
 from app.domain.models.server import Identity, Server
 from app.domain.services.health.evaluate import CATEGORIES, evaluate_health
@@ -340,7 +352,11 @@ class TestManagerScopedDefaults:
 
     def test_every_other_default_is_unscoped(self) -> None:
         scoped = {p.name for p in default_system_policies() if p.scope.specificity() > 0}
-        assert scoped == {"UCS fabric path down (warning)", "UCS fabric paths down (critical)"}
+        assert scoped == {
+            "UCS fabric path down (warning)",
+            "UCS fabric paths down (critical)",
+            "No RAID 1 configured for the OS",
+        }
 
 
 class TestEveryPolicyCategoryReachesOverall:
@@ -412,3 +428,113 @@ class TestTwoUplinksAreRequired:
             self._network_severity(LinkState.UP, LinkState.UP, LinkState.DOWN)
             == HealthSeverity.HEALTHY
         )
+
+
+class TestOsMirrorRaid:
+    """ADR-0048: the collector decides PRESENT/ABSENT/UNKNOWN; health only reads the verdict."""
+
+    @staticmethod
+    def _state(
+        raid_state: str,
+        source_provider: str = "OPENMANAGE",
+        *,
+        reachable: bool = True,
+        controllers: list[StorageController] | None = None,
+    ) -> tuple[Any, Server]:
+        now = utcnow()
+        server = Server(
+            id="srv_raid",
+            name="ocp4-prod-tlv-compute-01",
+            identity=Identity(vendor=Vendor.DELL),
+            source_provider=source_provider,
+            reachable=reachable,
+            hardware=Hardware(
+                storage=Storage(
+                    controllers=controllers or [],
+                    raid=RaidCheck(state=raid_state, method="redfish_storage"),
+                )
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        return service.evaluate_with_policies(server, default_system_policies()), server
+
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE"])
+    def test_a_mirror_is_healthy(self, provider: str) -> None:
+        state, _ = self._state("PRESENT", provider)
+        assert state.categories["raid"].severity == HealthSeverity.HEALTHY
+
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE"])
+    def test_no_mirror_is_critical_and_so_is_the_server(self, provider: str) -> None:
+        state, _ = self._state("ABSENT", provider)
+        assert state.categories["raid"].severity == HealthSeverity.CRITICAL
+        assert state.overall == HealthSeverity.CRITICAL
+        assert health_from_state(state).raid == HealthSeverity.CRITICAL
+        assert any(e.policy_key == "raid.os_mirror_missing" and e.active for e in state.evaluations)
+
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE"])
+    def test_a_bmc_that_cannot_say_is_unknown_never_critical(self, provider: str) -> None:
+        """A DGX's mdadm mirror is invisible over Redfish, so there is no verdict."""
+        state, _ = self._state("UNKNOWN", provider)
+        assert state.categories["raid"].severity == HealthSeverity.UNKNOWN
+        assert state.overall != HealthSeverity.CRITICAL
+
+    @pytest.mark.parametrize("provider", ["ONEVIEW", "UCS_CENTRAL", "INTERSIGHT"])
+    def test_collectors_that_do_not_read_raid_are_never_judged(self, provider: str) -> None:
+        state, _ = self._state("ABSENT", provider)
+        assert state.categories["raid"].severity == HealthSeverity.UNKNOWN
+
+    def test_a_server_whose_bmc_is_down_keeps_its_stored_verdict(self) -> None:
+        state, _ = self._state("PRESENT", reachable=False)
+        assert state.categories["raid"].severity == HealthSeverity.HEALTHY
+        assert state.categories["bmc"].severity == HealthSeverity.CRITICAL
+
+    def test_the_message_names_how_the_verdict_was_read(self) -> None:
+        state, _ = self._state("ABSENT")
+        reason = health_from_state(state).reasons[0]
+        assert reason.message is not None
+        assert "redfish_storage" in reason.message
+
+    def test_volume_evidence_ignores_single_disk_raw_volumes(self) -> None:
+        raw = StorageController(
+            id="AHCI.SL.6-1",
+            kind="BOSS",
+            volumes=[StorageVolume(id="V0", raid_type=None, volume_type="RawDevice")],
+        )
+        _, server = self._state("ABSENT", controllers=[raw])
+        facts = extract_facts(server)
+        assert facts["raid.volume_count"] == 0
+        assert facts["raid.controller_count"] == 1
+
+    def test_5000_servers_evaluate_quickly(self) -> None:
+        import time
+
+        now = utcnow()
+        policies = default_system_policies()
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        servers = [
+            Server(
+                id=f"srv_{i}",
+                name=f"ocp4-prod-tlv-compute-{i}",
+                identity=Identity(vendor=Vendor.DELL),
+                source_provider="OPENMANAGE",
+                hardware=Hardware(
+                    storage=Storage(raid=RaidCheck(state="PRESENT" if i % 7 else "ABSENT"))
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            for i in range(5000)
+        ]
+        start = time.perf_counter()
+        states = [service.evaluate_with_policies(s, policies) for s in servers]
+        assert time.perf_counter() - start < 30
+        critical = sum(
+            1 for s in states if s.categories["raid"].severity == HealthSeverity.CRITICAL
+        )
+        assert critical == sum(1 for i in range(5000) if i % 7 == 0)

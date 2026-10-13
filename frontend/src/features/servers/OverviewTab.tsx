@@ -9,6 +9,7 @@ import { formatRelative, formatTimestamp } from "@/lib/datetime";
 import { inferredGpuModel } from "@/lib/gpuModel";
 import type {
   HealthSummary,
+  RaidDetection,
   ServerDetail,
   UnreachableReason,
 } from "@/types/server";
@@ -50,6 +51,7 @@ export function OverviewTab({ server }: OverviewTabProps) {
             <HealthBreakdown
               health={server.health}
               sourceProvider={server.source_provider}
+              raid={server.hardware?.storage?.raid}
             />
           }
         />
@@ -132,7 +134,10 @@ export function OverviewTab({ server }: OverviewTabProps) {
             }
           />
         )}
-        <Field label="Last changed" value={formatTimestamp(server.updated_at)} />
+        <Field
+          label="Last changed"
+          value={formatTimestamp(server.updated_at)}
+        />
       </dl>
     </div>
   );
@@ -190,7 +195,8 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
           <span className="font-medium">{contested_with}</span>
           {contested_name && (
             <>
-              {" "}as <span className="font-medium">{contested_name}</span>
+              {" "}
+              as <span className="font-medium">{contested_name}</span>
             </>
           )}
         </span>
@@ -214,6 +220,7 @@ const HEALTH_CATEGORIES: {
 }[] = [
   { key: "memory", label: "Memory" },
   { key: "storage", label: "Storage" },
+  { key: "raid", label: "RAID" },
   { key: "network", label: "Network" },
   { key: "connectivity", label: "Connectivity" },
   { key: "power", label: "Power" },
@@ -230,26 +237,51 @@ const BMC_UNCHECKED_PROVIDERS = new Set([
   "INTERSIGHT",
 ]);
 
+/** Only the fabric-managed Cisco collectors check fabric interconnect paths,
+ * so every other server's Connectivity row could only ever say "Unknown". */
+const FABRIC_PROVIDERS = new Set(["UCS_CENTRAL", "UCS_MANAGER", "INTERSIGHT"]);
+
+/** RAID is judged for OpenManage and standalone Redfish servers (ADR-0048). */
+const RAID_PROVIDERS = new Set(["OPENMANAGE", "REDFISH_STANDALONE"]);
+
 function HealthBreakdown({
   health,
   sourceProvider,
+  raid,
 }: {
   health: HealthSummary;
   sourceProvider: string | null;
+  raid?: RaidDetection | undefined;
 }) {
-  const categories = HEALTH_CATEGORIES.filter(
-    ({ key }) =>
-      key !== "bmc" || !BMC_UNCHECKED_PROVIDERS.has(sourceProvider ?? ""),
-  );
+  const categories = HEALTH_CATEGORIES.filter(({ key }) => {
+    const provider = sourceProvider ?? "";
+    if (key === "bmc") return !BMC_UNCHECKED_PROVIDERS.has(provider);
+    if (key === "connectivity") return FABRIC_PROVIDERS.has(provider);
+    if (key === "raid") return RAID_PROVIDERS.has(provider);
+    return true;
+  });
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1.5">
       {categories.map(({ key, label }) => (
         <span key={key} className="inline-flex items-center gap-1.5 text-xs">
           <span className="text-gray-500">{label}</span>
           <HealthBadge severity={health[key]} />
+          {key === "raid" && raid && <RaidNote raid={raid} />}
         </span>
       ))}
     </div>
+  );
+}
+
+/** Which BMC and method answered, and why RAID is Unknown when it cannot be told. */
+function RaidNote({ raid }: { raid: RaidDetection }) {
+  const source = [raid.bmc, raid.method].filter(Boolean).join(" · ");
+  const why = raid.state === "UNKNOWN" ? raid.reason : null;
+  if (!source && !why) return null;
+  return (
+    <span className="text-gray-500" title={raid.reason ?? undefined}>
+      {[source, why].filter(Boolean).join(" — ")}
+    </span>
   );
 }
 

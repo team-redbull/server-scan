@@ -524,6 +524,38 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    raid_missing = HealthPolicy(
+        id=new_id("health_policy"),
+        name="No RAID 1 configured for the OS",
+        description=(
+            "Fires when the collector read every RAID source it trusts for this BMC and "
+            "found no RAID 1 for the OS (ADR-0048). Three states: PRESENT (healthy), "
+            "ABSENT (this policy) and UNKNOWN, where the BMC cannot say - software RAID "
+            "such as a DGX's mdadm, an old BMC with no storage schema - which is never a verdict."
+        ),
+        policy_key="raid.os_mirror_missing",
+        category="raid",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="raid.state", operator="EQ", value="ABSENT"),
+        evidence=[
+            EvidenceField(key="method", metric="raid.method"),
+            EvidenceField(key="volumes", metric="raid.volume_count"),
+            EvidenceField(key="controllers", metric="raid.controller_count"),
+        ],
+        message_template=(
+            "no RAID 1 for the OS (read via {method}: {volumes} virtual disk(s) "
+            "across {controllers} controller(s))"
+        ),
+        scope=PolicyScope(
+            manager_types=[ManagerType.OPENMANAGE.value, ManagerType.REDFISH_STANDALONE.value]
+        ),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     return [
         fabric_warning,
         fabric_critical,
@@ -543,4 +575,5 @@ def default_system_policies() -> list[HealthPolicy]:
         failed_gpu,
         gpu_ecc,
         bmc_unreachable,
+        raid_missing,
     ]

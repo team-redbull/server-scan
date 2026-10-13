@@ -71,7 +71,19 @@ class RedfishProtocolError(RedfishError):
     """Reachable and authenticated, but the response is unusable.
 
     Also raised for a service that is not conformant Redfish at all.
+    `status_code` is the HTTP status when the failure was one.
     """
+
+    def __init__(self, message: str = "", *, status_code: int | None = None) -> None:
+        """
+        Build the error.
+
+        Args:
+            message (str): What went wrong.
+            status_code (int | None): The HTTP status that caused it, if any.
+        """
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class RedfishForbiddenError(RedfishError):
@@ -421,7 +433,8 @@ class RedfishClient:
             )
         if response.status_code >= 400:
             raise RedfishProtocolError(
-                f"{self._target.host} returned HTTP {response.status_code} for {path}"
+                f"{self._target.host} returned HTTP {response.status_code} for {path}",
+                status_code=response.status_code,
             )
         try:
             payload = response.json()
