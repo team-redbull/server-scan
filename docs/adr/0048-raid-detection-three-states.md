@@ -49,3 +49,11 @@ The Redfish collector (`providers/redfish/raid.py`, used by `OPENMANAGE` and `RE
 - Not verified on real hardware: the HPE `Oem.Hpe.Links` names and real `Raid` strings, iDRAC10 BOSS ids, a configured
   BOSS mirror under `$expand`. Each is a one-line GET listed in the two research notes.
 - One extra request per storage controller, plus SmartStorage reads on HPE.
+
+## Update (2026-10-13, later): Cisco UCS
+
+`UCS_CENTRAL` (and its per-domain `UCS_MANAGER`) now report the same three states from UCS Manager's own
+inventory (`storageController` + `storageVirtualDrive`, `docs/cisco-collectors.md`, "Storage controllers and
+RAID"). UCS Manager lists every virtual drive of a server, so `ABSENT` is allowed for a RAID-capable
+controller with no `type="mirror"` drive; no RAID-capable controller visible is `UNKNOWN`. The policy scope is
+now OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER; Intersight and OneView stay unjudged.

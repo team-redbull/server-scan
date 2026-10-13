@@ -157,7 +157,7 @@
     },
     {
       "id": 137, "type": "stat", "title": "Servers without RAID",
-      "description": "server_scan:policy_active:max{policy_key=\"raid.os_mirror_missing\"} — OpenManage and standalone Redfish servers whose BMC can report RAID and have no RAID 1 volume for the OS (for example a BOSS card with drives but no virtual disk). Each is CRITICAL, so the server's overall health is CRITICAL too. Servers whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) are Unknown and not counted. Fires ServerScanServersWithoutRaid.",
+      "description": "server_scan:policy_active:max{policy_key=\"raid.os_mirror_missing\"} — OpenManage, standalone Redfish and Cisco UCS servers whose management layer can report RAID and have no RAID 1 volume for the OS (for example a Dell BOSS card with drives but no virtual disk, or a UCS RAID controller with no mirror virtual drive). Each is CRITICAL, so the server's overall health is CRITICAL too. Servers whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) are Unknown and not counted. Fires ServerScanServersWithoutRaid.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 4, "x": 8, "y": 5 },
       "targets": [{ "expr": "sum(max without (prometheus, prometheus_replica) (server_scan:policy_active:max{namespace=~\"$namespace\", policy_key=\"raid.os_mirror_missing\"})) or vector(0)", "refId": "A", "instant": true }],

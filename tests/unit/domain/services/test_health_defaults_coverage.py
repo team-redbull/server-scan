@@ -462,12 +462,12 @@ class TestOsMirrorRaid:
         )
         return service.evaluate_with_policies(server, default_system_policies()), server
 
-    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE"])
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE", "UCS_CENTRAL"])
     def test_a_mirror_is_healthy(self, provider: str) -> None:
         state, _ = self._state("PRESENT", provider)
         assert state.categories["raid"].severity == HealthSeverity.HEALTHY
 
-    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE"])
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE", "UCS_CENTRAL"])
     def test_no_mirror_is_critical_and_so_is_the_server(self, provider: str) -> None:
         state, _ = self._state("ABSENT", provider)
         assert state.categories["raid"].severity == HealthSeverity.CRITICAL
@@ -475,14 +475,14 @@ class TestOsMirrorRaid:
         assert health_from_state(state).raid == HealthSeverity.CRITICAL
         assert any(e.policy_key == "raid.os_mirror_missing" and e.active for e in state.evaluations)
 
-    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE"])
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE", "UCS_CENTRAL"])
     def test_a_bmc_that_cannot_say_is_unknown_never_critical(self, provider: str) -> None:
         """A DGX's mdadm mirror is invisible over Redfish, so there is no verdict."""
         state, _ = self._state("UNKNOWN", provider)
         assert state.categories["raid"].severity == HealthSeverity.UNKNOWN
         assert state.overall != HealthSeverity.CRITICAL
 
-    @pytest.mark.parametrize("provider", ["ONEVIEW", "UCS_CENTRAL", "INTERSIGHT"])
+    @pytest.mark.parametrize("provider", ["ONEVIEW", "INTERSIGHT"])
     def test_collectors_that_do_not_read_raid_are_never_judged(self, provider: str) -> None:
         state, _ = self._state("ABSENT", provider)
         assert state.categories["raid"].severity == HealthSeverity.UNKNOWN

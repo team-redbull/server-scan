@@ -524,6 +524,32 @@ been exercised against a live domain when that update was written. That
 is still true: no live UCS Central validation has happened, so nothing
 has since confirmed these fields against real hardware.
 
+## Storage controllers and RAID (2026-10-13, ADR-0048)
+
+Provenance: the operator ran `query_classid("storageVirtualDrive")` against a live UCS Manager domain
+(2026-10-13) and read the same mirror in the GUI (Storage, Local LUN: "RAID Level RAID 1 Mirrored", drive
+state optimal). It returned 23 virtual drives, all `type="mirror"`, e.g. dn
+`sys/rack-unit-N/board/storage-SATA-3/vd-1000`, `pnDn` `sys/rack-unit-N`, `size` ~457000 (MB),
+`driveState` optimal, `bootable` true. Each unit's `storageLocalDisk` showed 2 mirror legs
+(`diskState=online`) and 7 `unconfigured-good` data disks (raw, healthy in `_DISK_HEALTH_MAP`).
+
+- **Classes:** `storageController` (the card; `type` SATA/SAS/M2/NVME/PCH/FCH/FLASH/HBA/PT, free-text
+  `raid_support`/`device_raid_support`) and `storageVirtualDrive` (`vd-[id]` below it; `type` is the RAID level:
+  `mirror`=RAID1, `stripe`=RAID0, `stripe-parity`=RAID5, `stripe-dual-parity`=RAID6, `mirror-stripe`=RAID10,
+  `stripe-parity-stripe`=RAID50, `stripe-dual-parity-stripe`=RAID60). `storageLocalLun` is the same disk seen
+  as a LUN and is not read. Both are queried once per domain and joined by DN prefix like the disks
+  (`sys/rack-unit-N` and `sys/chassis-X/blade-Y`); `get_one` reads them from its hierarchical subtree.
+- **Verdict** (`ucs_manager/raid.py`): `PRESENT` when any virtual drive is `mirror`, whatever its
+  `drive_state` (a degraded mirror is still configured; the legs' health is the storage category's job) and
+  whether or not it is `bootable`. `ABSENT` only when the server has a RAID-capable controller and no mirror:
+  type not in FCH/FLASH/HBA/PCH/PT and `raid_support` or `device_raid_support` names a RAID level, or it owns a
+  virtual drive. No such controller visible (or none at all) is `UNKNOWN`.
+- **`adminState` is ignored:** many healthy drives carry a stale `delete` while `configState=applied` and
+  `driveState=optimal`.
+- **Not verified:** the content format of `raid_support` (the rule only looks for the word "raid"), an old
+  UCS Manager release where `storageVirtualDrive` is absent (it would read `ABSENT` on a RAID card), and the
+  other `type` values on live hardware. Intersight is not judged (it needs `storage.VirtualDrive`).
+
 ## Power supplies (PSUs)
 
 **Added 2026-09-02**, at the user's request, and the first UCS field this

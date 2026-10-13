@@ -114,3 +114,12 @@ errors rather than replacing it. Wipe first:
 scripts/dev-up.sh down && scripts/dev-up.sh up
 uv run python -m tools.seed_inventory --count 1000 --seed 42
 ```
+
+## RAID (ADR-0048)
+
+Each collector draws its servers' RAID verdict from its own RNG (`raid/<seed>/<index>`), so the rest of the
+seeded fleet is unchanged. OpenManage: ~80% PRESENT (BOSS or PERC mirror), the rest ABSENT (an unconfigured
+BOSS/BOSS-S2, NVMe-only, HBA-only, PERC with only RAID 5). Standalone Redfish: 50% PRESENT (HPE Smart Array),
+10% ABSENT, 40% UNKNOWN (AMI/DGX-style software RAID, a BMC with no storage schema). UCS Central: ~85% PRESENT
+(a `mirror` virtual drive), 8% ABSENT (a RAID controller with none), 7% UNKNOWN (no RAID controller). Other
+collectors carry no verdict. The Grafana "Servers without RAID" stat reads the ABSENT ones.

@@ -249,7 +249,7 @@ spec:
             severity: warning
           annotations:
             summary: "{{ "{{ $value }}" }} server(s) have no RAID 1 volume for the OS"
-            description: "Each is CRITICAL (health policy raid.os_mirror_missing, OpenManage and standalone Redfish servers whose BMC can report RAID): a controller read with no RAID 1 virtual disk, for example a BOSS card with drives but no volume. Servers whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) are Unknown and not counted. The inventory's Health filter lists them; the server's health reasons say how many virtual disks and controllers were read."
+            description: "Each is CRITICAL (health policy raid.os_mirror_missing, OpenManage, standalone Redfish and Cisco UCS servers whose management layer can report RAID): a controller read with no RAID 1 virtual disk, for example a Dell BOSS card with drives but no volume, or a UCS RAID controller with no mirror virtual drive. Servers whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) are Unknown and not counted. The inventory's Health filter lists them; the server's health reasons say how many virtual disks and controllers were read."
         - alert: ServerScanClusterSilent
           expr: server_scan:cluster_silent_seconds > {{ $membershipSilent }}
           for: 10m

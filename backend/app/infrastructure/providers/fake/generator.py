@@ -1103,6 +1103,34 @@ def _standalone_raid(
     return None, _raid("UNKNOWN", None, "Supermicro BMC", "the BMC has no storage schema")
 
 
+def _ucs_raid(
+    roll: int,
+) -> tuple[tuple[dict[str, object], ...], dict[str, object]]:
+    """
+    A Cisco UCS server's controllers and verdict, as UCS Manager's virtual drives give them.
+
+    Args:
+        roll (int): 0-99, the server's deterministic draw.
+
+    Returns:
+        tuple[tuple[dict[str, object], ...], dict[str, object]]: About 85% a mirrored boot
+            volume (PRESENT), 8% a RAID controller with none (ABSENT), 7% no RAID controller
+            at all (UNKNOWN).
+    """
+    if roll < 85:
+        mirror = _controller("storage-SATA-3", "RAID", drives=2, volume=("RAID1", "mirror"))
+        return (mirror,), _raid("PRESENT", "ucs_virtual_drive", "UCS Manager", None)
+    if roll < 93:
+        reason = "no RAID 1 virtual drive on any RAID controller"
+        return (_controller("storage-SATA-3", "RAID", drives=2),), _raid(
+            "ABSENT", "ucs_virtual_drive", "UCS Manager", reason
+        )
+    reason = "no RAID-capable storage controller visible to UCS Manager"
+    return (_controller("storage-PCH-1", "OTHER", drives=2),), _raid(
+        "UNKNOWN", "ucs_virtual_drive", "UCS Manager", reason
+    )
+
+
 def _build_storage_controllers(
     seed: int, index: int, collector: ManagerType
 ) -> tuple[tuple[dict[str, object], ...] | None, dict[str, object] | None]:
@@ -1125,6 +1153,8 @@ def _build_storage_controllers(
         return _dell_raid(roll)
     if collector is ManagerType.REDFISH_STANDALONE:
         return _standalone_raid(roll)
+    if collector is ManagerType.UCS_CENTRAL:
+        return _ucs_raid(roll)
     return None, None
 
 

@@ -456,3 +456,7 @@ only for UCS_CENTRAL/UCS_MANAGER/INTERSIGHT. Grafana: "Servers without RAID" sta
 **Open:** nothing run on real hardware: HPE `Oem.Hpe.Links` names and `Raid` strings, a configured BOSS mirror under
 `$expand`, iDRAC10 BOSS ids, a Dell with S150/S160 software RAID (would read ABSENT), the login day boundary is UTC.
 Research notes: `docs/notes/2026-10-13-*.md`.
+
+**Also (2026-10-13):** UCS (`UCS_CENTRAL`/`UCS_MANAGER`) now reports the RAID verdict too, from `storageController` and
+`storageVirtualDrive` (`type="mirror"` = RAID 1; `ucs_manager/raid.py`, ADR-0048 update). Unverified: the format of
+`raid_support` and old UCSM releases without the class (would read ABSENT on a RAID card).

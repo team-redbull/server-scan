@@ -528,7 +528,7 @@ def default_system_policies() -> list[HealthPolicy]:
         id=new_id("health_policy"),
         name="No RAID 1 configured for the OS",
         description=(
-            "Fires when the collector read every RAID source it trusts for this BMC and "
+            "Fires when the collector read every RAID source it trusts for this server and "
             "found no RAID 1 for the OS (ADR-0048). Three states: PRESENT (healthy), "
             "ABSENT (this policy) and UNKNOWN, where the BMC cannot say - software RAID "
             "such as a DGX's mdadm, an old BMC with no storage schema - which is never a verdict."
@@ -547,7 +547,12 @@ def default_system_policies() -> list[HealthPolicy]:
             "across {controllers} controller(s))"
         ),
         scope=PolicyScope(
-            manager_types=[ManagerType.OPENMANAGE.value, ManagerType.REDFISH_STANDALONE.value]
+            manager_types=[
+                ManagerType.OPENMANAGE.value,
+                ManagerType.REDFISH_STANDALONE.value,
+                ManagerType.UCS_CENTRAL.value,
+                ManagerType.UCS_MANAGER.value,
+            ]
         ),
         source="SYSTEM_DEFAULT",
         priority=100,

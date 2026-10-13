@@ -558,7 +558,7 @@ of it.
 | 0045 | Audit events older than a retention window (default 180 days, minimum 7, 0 = keep forever) are deleted by a weekly CronJob that is report-only until `reportOnly: false` (`collectors.auditRetention`, `tools/prune_events.py`), recording one `AUDIT_PURGED` event; `purge_before` joins `rename_legacy_event_types` as the repository's second non-`record()` write |
 | 0046 | The inventory search keeps substring as the default and adds `"exact"` and `/regex/` forms chosen by how the text is typed (client-side only, bad regex shows an error and keeps every row); Maintenance joins the Health dropdown, exclusive with a severity |
 | 0047 | Every authenticated login is an audit event: `LOGIN_SUCCEEDED` (with the resolved role) and `LOGIN_DENIED` (valid AD account in no admin/auditor/viewer list); a wrong password is not recorded (unauthenticated, spray-able) and the best-effort write never blocks the login |
-| 0048 | RAID 1 for the OS is a three-state verdict decided by the Redfish collector (present / absent / unknown): CRITICAL only where the vendor's tree is authoritative (Dell, HPE); DGX software RAID and old BMCs are Unknown, never a fault |
+| 0048 | RAID 1 for the OS is a three-state verdict decided by the collector (present / absent / unknown; Redfish and Cisco UCS virtual drives): CRITICAL only where the vendor's tree is authoritative (Dell, HPE, UCS Manager); DGX software RAID and old BMCs are Unknown, never a fault |
 
 ---
 

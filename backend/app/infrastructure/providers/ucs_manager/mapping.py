@@ -18,6 +18,7 @@ from app.infrastructure.providers.ucs_common import (
     normalize_admin_state,
     normalize_oper_state,
 )
+from app.infrastructure.providers.ucs_manager.raid import assess_ucs_raid
 
 _BYTES_PER_MB = 1024 * 1024
 _NOT_APPLICABLE = "not-applicable"
@@ -671,6 +672,8 @@ def compute_unit_to_provider_server(
     cpu_units: list[Any],
     disk_units: list[Any],
     switches_by_id: dict[str, Any],
+    storage_controllers: Iterable[Any] = (),
+    virtual_drives: Iterable[Any] = (),
     psu_units: Iterable[Any] = (),
     psu_stats: Iterable[Any] = (),
     card_units: Iterable[Any] = (),
@@ -698,6 +701,9 @@ def compute_unit_to_provider_server(
             vNICs).
         cpu_units (list[Any]): Its `processorUnit` MOs.
         disk_units (list[Any]): Its `storageLocalDisk` MOs.
+        storage_controllers (Iterable[Any]): Its `storageController` MOs.
+        virtual_drives (Iterable[Any]): Its `storageVirtualDrive` MOs; with the controllers they
+            decide the RAID verdict (ADR-0048). Default `()` for older call sites.
         switches_by_id (dict[str, Any]): Domain `networkElement` MOs
             keyed by `id` (`"A"`/`"B"`), passed through to `_attachments`.
         psu_units (Iterable[Any]): Its `equipmentPsu` MOs. Only populated
@@ -733,6 +739,9 @@ def compute_unit_to_provider_server(
 
     total_memory_mb = _as_int(getattr(server_mo, "total_memory", None))
     storage_drives, storage_total_bytes = _storage_drives(disk_units)
+    controller_entries, raid_check = assess_ucs_raid(
+        list(storage_controllers), list(virtual_drives), disk_units
+    )
 
     return ProviderServer(
         external_id=server_mo.dn,
@@ -756,6 +765,8 @@ def compute_unit_to_provider_server(
         memory_total_bytes=total_memory_mb * _BYTES_PER_MB,
         storage_total_bytes=storage_total_bytes,
         storage_drives=storage_drives,
+        storage_controllers=controller_entries,
+        raid_check=raid_check,
         psus=_psus(psu_units, psu_stats),
         gpus=_gpus(card_units),
         attachments=(

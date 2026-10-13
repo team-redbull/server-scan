@@ -286,7 +286,7 @@ metrics:
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched, ServerScanLoginDependencyFailing,
                            # ServerScanLoginSlow, ServerScanAvailableRecheckFailing,
-                           # ServerScanServersWithoutRaid (OpenManage and standalone Redfish servers with no RAID 1 for the OS; Unknown ones are not counted),
+                           # ServerScanServersWithoutRaid (OpenManage, standalone Redfish and Cisco UCS servers with no RAID 1 for the OS; Unknown ones are not counted),
                            # ServerScanApiReplicasUnavailable, ServerScanApiDown,
                            # ServerScanApiScrapeDown, ServerScanApiRestarting (default leaf mode, on
                            # `up` / process_start_time_seconds); evaluationScope: thanos-ruler uses
@@ -506,7 +506,7 @@ healthy stable clusters). `ServerScanMembershipRunSilent` is the same signal per
 `ServerScanMembershipUnmatched` is the complementary alert for a job that
 *is* running fine but keeps reporting hosts the vendor collectors have
 never ingested — the newest pod's log lists which ones.
-`ServerScanServersWithoutRaid` fires (warning, for 1h) while any OpenManage or standalone Redfish
+`ServerScanServersWithoutRaid` fires (warning, for 1h) while any OpenManage, standalone Redfish or Cisco UCS
 server whose BMC can report RAID has no RAID 1 volume for the OS (health policy `raid.os_mirror_missing`,
 CRITICAL). A server whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) is Unknown and not counted.
 It reads `server_scan:policy_active:max`, so it needs no extra value.

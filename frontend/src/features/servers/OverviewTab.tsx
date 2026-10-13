@@ -241,8 +241,13 @@ const BMC_UNCHECKED_PROVIDERS = new Set([
  * so every other server's Connectivity row could only ever say "Unknown". */
 const FABRIC_PROVIDERS = new Set(["UCS_CENTRAL", "UCS_MANAGER", "INTERSIGHT"]);
 
-/** RAID is judged for OpenManage and standalone Redfish servers (ADR-0048). */
-const RAID_PROVIDERS = new Set(["OPENMANAGE", "REDFISH_STANDALONE"]);
+/** RAID is judged for OpenManage, standalone Redfish and Cisco UCS servers (ADR-0048). */
+const RAID_PROVIDERS = new Set([
+  "OPENMANAGE",
+  "REDFISH_STANDALONE",
+  "UCS_CENTRAL",
+  "UCS_MANAGER",
+]);
 
 function HealthBreakdown({
   health,

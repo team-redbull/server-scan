@@ -170,6 +170,8 @@ class UcsManagerProvider(ServerInventoryProvider):
                 host_eth_ifs=by_class.get("adaptorHostEthIf", []),
                 cpu_units=by_class.get("processorUnit", []),
                 disk_units=by_class.get("storageLocalDisk", []),
+                storage_controllers=by_class.get("storageController", []),
+                virtual_drives=by_class.get("storageVirtualDrive", []),
                 psu_units=by_class.get("equipmentPsu", []),
                 psu_stats=by_class.get("equipmentRackUnitPsuStats", []),
                 card_units=by_class.get("graphicsCard", []),
@@ -210,6 +212,8 @@ class UcsManagerProvider(ServerInventoryProvider):
             host_eth_ifs_all = await client.query_classid("adaptorHostEthIf")
             cpu_units_all = await client.query_classid("processorUnit")
             disk_units_all = await client.query_classid("storageLocalDisk")
+            controllers_all = await client.query_classid("storageController")
+            virtual_drives_all = await client.query_classid("storageVirtualDrive")
             psu_units_all = await client.query_classid("equipmentPsu")
             psu_stats_all = await client.query_classid("equipmentRackUnitPsuStats")
             card_units_all = await client.query_classid("graphicsCard")
@@ -236,6 +240,12 @@ class UcsManagerProvider(ServerInventoryProvider):
             )
             cpu_units_by_server = _group_by_owning_server_dn(cpu_units_all, server_dns=server_dns)
             disk_units_by_server = _group_by_owning_server_dn(disk_units_all, server_dns=server_dns)
+            controllers_by_server = _group_by_owning_server_dn(
+                controllers_all, server_dns=server_dns
+            )
+            virtual_drives_by_server = _group_by_owning_server_dn(
+                virtual_drives_all, server_dns=server_dns
+            )
             psu_units_by_server = _group_by_owning_server_dn(psu_units_all, server_dns=server_dns)
             psu_stats_by_server = _group_by_owning_server_dn(psu_stats_all, server_dns=server_dns)
             card_units_by_server = _group_by_owning_server_dn(card_units_all, server_dns=server_dns)
@@ -253,6 +263,8 @@ class UcsManagerProvider(ServerInventoryProvider):
                     host_eth_ifs=host_eth_ifs_by_server[server_mo.dn],
                     cpu_units=cpu_units_by_server[server_mo.dn],
                     disk_units=disk_units_by_server[server_mo.dn],
+                    storage_controllers=controllers_by_server[server_mo.dn],
+                    virtual_drives=virtual_drives_by_server[server_mo.dn],
                     psu_units=psu_units_by_server[server_mo.dn],
                     psu_stats=psu_stats_by_server[server_mo.dn],
                     card_units=card_units_by_server[server_mo.dn],

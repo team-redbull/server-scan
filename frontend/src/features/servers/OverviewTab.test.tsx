@@ -431,8 +431,13 @@ describe("OverviewTab collection status", () => {
     },
   );
 
-  it("shows the RAID row for OPENMANAGE and REDFISH_STANDALONE only", () => {
-    for (const provider of ["OPENMANAGE", "REDFISH_STANDALONE"]) {
+  it("shows the RAID row for the Dell, standalone and UCS collectors only", () => {
+    for (const provider of [
+      "OPENMANAGE",
+      "REDFISH_STANDALONE",
+      "UCS_CENTRAL",
+      "UCS_MANAGER",
+    ]) {
       const view = render(
         <OverviewTab server={makeServer({ source_provider: provider })} />,
       );
@@ -440,7 +445,7 @@ describe("OverviewTab collection status", () => {
       view.unmount();
     }
 
-    for (const provider of ["UCS_CENTRAL", "ONEVIEW", "INTERSIGHT"]) {
+    for (const provider of ["ONEVIEW", "INTERSIGHT"]) {
       const view = render(
         <OverviewTab server={makeServer({ source_provider: provider })} />,
       );
