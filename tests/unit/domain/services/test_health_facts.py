@@ -161,3 +161,56 @@ def test_links_known_count_is_zero_when_nothing_could_be_read() -> None:
 
     assert facts["network.interface_count"] == 2
     assert facts["network.links_known_count"] == 0
+
+
+def _server_with(
+    links: tuple[LinkState, ...] = (), drive_healths: tuple[str | None, ...] = ()
+) -> Server:
+    """
+    Build a server with the given link states and drive healths.
+
+    Args:
+        links (tuple[LinkState, ...]): One interface per entry.
+        drive_healths (tuple[str | None, ...]): One drive per entry.
+
+    Returns:
+        Server: The server.
+    """
+    return Server(
+        _id="srv_x",
+        name="x",
+        identity=IDENTITY,
+        created_at=NOW,
+        updated_at=NOW,
+        hardware=Hardware(
+            storage=Storage(
+                drives=[StorageDrive(id=f"d{i}", health=h) for i, h in enumerate(drive_healths)]
+            )
+        ),
+        network=NetworkInfo(
+            interfaces=[NetworkInterface(name=f"eno{i}", link_state=s) for i, s in enumerate(links)]
+        ),
+    )
+
+
+def test_network_all_unknown_needs_interfaces_and_every_one_unknown() -> None:
+    unknown, up, down = LinkState.UNKNOWN, LinkState.UP, LinkState.DOWN
+    assert extract_facts(_server_with(links=(unknown, unknown)))["network.all_unknown"] is True
+    assert extract_facts(_server_with(links=(unknown, up)))["network.all_unknown"] is False
+    assert extract_facts(_server_with(links=(unknown, down)))["network.all_unknown"] is False
+    assert extract_facts(_server_with())["network.all_unknown"] is False
+
+
+def test_storage_all_unknown_counts_unread_and_unknown_drives() -> None:
+    all_unknown = extract_facts(_server_with(drive_healths=(None, "UNKNOWN")))
+    assert all_unknown["storage.all_unknown"] is True
+    assert extract_facts(_server_with(drive_healths=(None, "HEALTHY")))["storage.all_unknown"] is (
+        False
+    )
+    assert extract_facts(_server_with())["storage.all_unknown"] is False
+
+
+def test_oneview_never_reads_link_state_so_it_is_exempt_from_the_nic_rule() -> None:
+    server = _server_with(links=(LinkState.UNKNOWN, LinkState.UNKNOWN))
+    server.source_provider = "ONEVIEW"
+    assert extract_facts(server)["network.all_unknown"] is False

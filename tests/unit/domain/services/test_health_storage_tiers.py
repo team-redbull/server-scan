@@ -374,10 +374,15 @@ class TestNothingReadIsUnknown:
         assert {c.severity for c in state.categories.values()} == {HealthSeverity.UNKNOWN}
 
     def test_one_category_read_makes_overall_healthy_not_unknown(self) -> None:
-        state = self._state(_server(drives=[_drive(1 * _TB)]))
+        state = self._state(_server(drives=[_drive(1 * _TB, "HEALTHY")]))
         assert state.categories["storage"].severity == HealthSeverity.HEALTHY
         assert state.categories["network"].severity == HealthSeverity.UNKNOWN
         assert state.overall == HealthSeverity.HEALTHY
+
+    def test_drives_whose_health_was_never_read_make_overall_unknown(self) -> None:
+        state = self._state(_server(drives=[_drive(1 * _TB)]))
+        assert state.categories["storage"].severity == HealthSeverity.HEALTHY
+        assert state.overall == HealthSeverity.UNKNOWN
 
     def test_a_category_that_was_read_still_fires(self) -> None:
         state = self._state(

@@ -604,7 +604,11 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   a `-10tb` server whose storage was never read is no longer CRITICAL, and
   a server with only its BMC read is `UNKNOWN` overall (every category
   `UNKNOWN`) rather than HEALTHY. One category read is enough for a
-  verdict — `UNKNOWN` ranks lowest and never drags a server down.
+  verdict — `UNKNOWN` ranks lowest and never drags a server down, with one
+  exception: a server whose every listed NIC link state, or every listed
+  drive health, is `UNKNOWN` is `UNKNOWN` overall unless another category is
+  worse (`network.all_unknown` / `storage.all_unknown`; OneView is exempt
+  from the NIC half because it never reads links; ADR-0027, 2026-10-21).
 - **`MAJOR` sits between `WARNING` and `CRITICAL`** (added 2026-09-06):
   redundancy is gone but the server is still serving, so the *next*
   failure takes it down — worth waking someone for in a way a degraded
@@ -724,9 +728,11 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
     link) and the category returned **HEALTHY from zero readings** — the
     exact thing ADR-0027 exists to prevent, and enough on its own to make
     `overall` HEALTHY, since `UNKNOWN` ranks below it and cannot raise the
-    rollup. Such a server now reads `network: UNKNOWN`. Note what this does
-    **not** do: `UNKNOWN` still cannot lower `overall`, so a
-    `?health=HEALTHY` draw can still return one of these servers. Keeping
+    rollup. Such a server now reads `network: UNKNOWN`. Note what this did
+    **not** do at the time: `UNKNOWN` could not lower `overall`, so a
+    `?health=HEALTHY` draw could still return one of these servers (changed
+    2026-10-21: every NIC `UNKNOWN`, other than OneView's, now makes
+    `overall` `UNKNOWN`, ADR-0027). Keeping
     unbondable hardware out of an install pool is a job for an eligibility
     filter on `/servers/available`, not for the health rollup.
   - The two fabric policies use **different** `policy_key`s with mutually

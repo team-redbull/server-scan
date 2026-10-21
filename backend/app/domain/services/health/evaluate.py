@@ -207,6 +207,10 @@ def evaluate_health(
         )
 
     overall = max((c.severity for c in categories.values()), key=lambda s: HEALTH_SEVERITY_RANK[s])
+    if overall == HealthSeverity.HEALTHY and (
+        facts.get("network.all_unknown") or facts.get("storage.all_unknown")
+    ):
+        overall = HealthSeverity.UNKNOWN  # every NIC or every disk unread: no verdict to give
 
     return HealthState(
         overall=overall,

@@ -27,6 +27,7 @@ _FAILED = frozenset({"CRITICAL", "DOWN"})
 # Degraded or dead, counted together for the disk and DIMM checks.
 # Collectors whose BMC is actually checked (docs/adr/0037); UCS and Intersight
 # reach servers through an aggregator and are never probed.
+_LINK_STATE_NOT_READ = frozenset({"ONEVIEW"})  # ADR-0027, 2026-10-21 update
 _BMC_CHECKED = frozenset({"REDFISH_STANDALONE", "OPENMANAGE", "ONEVIEW"})
 
 _NOT_GOOD = frozenset({"CRITICAL", "WARNING", "DOWN"})
@@ -185,6 +186,10 @@ def extract_facts(server: Server) -> dict[str, Any]:
         # it reports UNKNOWN for has read NOTHING about the network —
         # docs/architecture.md, "Health policy engine".
         "network.has_data": any(state != "UNKNOWN" for state in link_states),
+        "network.all_unknown": server.source_provider not in _LINK_STATE_NOT_READ
+        and bool(link_states)
+        and all(s == "UNKNOWN" for s in link_states),
+        "storage.all_unknown": bool(drives) and all(d.health in (None, "UNKNOWN") for d in drives),
         "connectivity.has_data": any(
             (
                 server.connectivity.facts.fabric_paths_total,

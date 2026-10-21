@@ -80,7 +80,7 @@ today).
   different `bmc.address` schemes (`ipmi://…:623` vs
   `redfish-virtualmedia://…`), a distinction `identity.vendor` alone cannot
   express; the **bare BMC host** (it runs `ipaddress.IPv4Address` on it and
-  wraps the scheme itself); the **ordered NIC MAC list** its `select_macs`
+  wraps the scheme itself); the **ordered NIC MAC list** (`interfaces[]` is in natural order of the interface's own `name`, `eno2` before `eno10`, never of the derived `os_name`, 2026-10-21) its `select_macs`
   indexes with `first`/`last`/`N`; the **per-interface OS name** for the
   NMState bond members; and, for Dell, the FQDD each MAC belongs to. Nothing
   in `hardware`, `classification`, `connectivity`, `maintenance`,
@@ -692,3 +692,12 @@ scan; run the CronJob by hand to repair a server sooner.
 `TestGetOne` (test_ucs_manager_provider.py) feeds SDK-shaped objects and asserts `get_one` equals what a scan
 produces for the same domain; it fails without either fix.
 
+
+## Update (2026-10-21): narrowed by ADR-0027's all-`UNKNOWN` rule
+
+A server with interfaces listed but every link `UNKNOWN` (OneView excepted),
+or every drive `UNKNOWN`, is now `UNKNOWN` overall, so the 2026-09-26 note
+that it "comes out HEALTHY overall" holds only for a server with **no**
+interface listed, which is why `?min_nic_macs=` stays. `interfaces[]` (and
+`ServerDetail.network.interfaces`) are returned in natural order of `name`;
+Cisco `os_name` values are still positional over the *stored* order.

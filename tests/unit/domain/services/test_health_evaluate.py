@@ -6,6 +6,7 @@ shadowing mechanism that's the core design problem this engine solves.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from app.domain.enums import HealthSeverity
 from app.domain.models.health_policy import HealthPolicy, PolicyScope
@@ -354,3 +355,45 @@ def test_evaluated_but_not_firing_category_is_healthy_not_unknown() -> None:
     )
     state = evaluate_health({}, [policy], REGISTRY, vendor="cisco", manager_type=None, site_id=None)
     assert state.categories["power"].severity == HealthSeverity.HEALTHY
+
+
+# --- All-unknown NICs / disks make the server UNKNOWN ---
+
+
+def _storage_policy() -> HealthPolicy:
+    return _policy(
+        "hp_disk",
+        policy_key="k",
+        category="storage",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="storage.failed_drive_count", operator="GTE", value=1),
+    )
+
+
+def _overall(facts: dict[str, Any]) -> HealthSeverity:
+    state = evaluate_health(
+        facts, [_storage_policy()], REGISTRY, vendor="dell", manager_type=None, site_id=None
+    )
+    return state.overall
+
+
+def test_all_unknown_nics_turn_a_healthy_server_unknown() -> None:
+    assert _overall({"storage.failed_drive_count": 0, "network.all_unknown": True}) == (
+        HealthSeverity.UNKNOWN
+    )
+
+
+def test_all_unknown_disks_turn_a_healthy_server_unknown() -> None:
+    assert _overall({"storage.failed_drive_count": 0, "storage.all_unknown": True}) == (
+        HealthSeverity.UNKNOWN
+    )
+
+
+def test_all_unknown_never_hides_a_real_failure() -> None:
+    facts = {"storage.failed_drive_count": 1, "network.all_unknown": True}
+    assert _overall(facts) == HealthSeverity.CRITICAL
+
+
+def test_known_readings_leave_a_healthy_server_healthy() -> None:
+    facts = {"storage.failed_drive_count": 0, "network.all_unknown": False}
+    assert _overall(facts) == HealthSeverity.HEALTHY

@@ -41,9 +41,8 @@ SELECTABLE_TIERS: tuple[HealthSeverity, ...] = (
 
 _SELECTABLE_VALUES = [tier.value for tier in SELECTABLE_TIERS]
 
-# `health.overall` cannot carry this: UNKNOWN ranks BELOW HEALTHY and never
-# raises a max(), so a server whose links were never read rolls up HEALTHY off
-# its other categories — docs/adr/0032, 2026-09-26 update.
+# `health.overall` alone cannot carry this: OneView never reads links and a server with no
+# interface listed still roll up HEALTHY — docs/adr/0032 (2026-09-26, 2026-10-21).
 REQUIRED_NETWORK_HEALTH = HealthSeverity.HEALTHY
 
 # Reasons only this platform's own database decides: a vendor recheck cannot change them.

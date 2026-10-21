@@ -358,6 +358,28 @@ async def test_get_detail_derives_cisco_eno_names(
     assert resp.json()["nic_os_names"] == {"eth0": "eno5", "eth1": "eno6"}
 
 
+async def test_get_detail_sorts_interfaces_by_name_not_os_name(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    server = _make_server(
+        1,
+        name="nic-order-test-server",
+        vendor=Vendor.CISCO,
+        interfaces=(
+            NetworkInterface(name="eth10", mac="00:11:22:33:44:0a"),
+            NetworkInterface(name="eth2", mac="00:11:22:33:44:02"),
+            NetworkInterface(name="eth1", mac="00:11:22:33:44:01"),
+        ),
+    )
+    await repo.upsert(server)
+
+    body = (await client.get(f"/api/v1/servers/{server.id}")).json()
+
+    assert [i["name"] for i in body["network"]["interfaces"]] == ["eth1", "eth2", "eth10"]
+    assert body["nic_os_names"] == {"eth10": "eno5", "eth2": "eno6", "eth1": "eno7"}
+
+
 async def test_get_detail_200_is_cache_stable_on_second_read(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:

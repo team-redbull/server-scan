@@ -35,7 +35,7 @@ Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, model, site_id, source_provider, installation_type, health,
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
 contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
-Note `health` here is the overall severity string, not an object.
+Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread.
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail`: hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
@@ -49,7 +49,7 @@ against the vendor manager. Exactly one of `name` (exact, case-insensitive) or `
 `min_nic_macs` (0-16; pass 1+ for a BMH, 2 for bonding).
 Response: `{items, mode, requested, returned}`; item: `id, name, vendor, source_provider,
 bmc_vendor (HP/DELL/CISCO/INTERSIGHT), bmc{host, scheme, port, mac...}, nic_macs[],
-interfaces[{name, mac, location, os_name, link_state, speed_mbps}], site_id,
+interfaces[{name, mac, location, os_name, link_state, speed_mbps}] (natural order of `name`, `eno2` before `eno10`; never rely on stored or `os_name` order), site_id,
 health_overall, live_recheck_performed`.
 Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern),
 `AVAILABLE_COUNT_TOO_LARGE`, ambiguous name, nothing found (404 `AVAILABLE_SERVER_NOT_FOUND`: `detail` says why,

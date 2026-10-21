@@ -25,6 +25,7 @@ preference:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -44,7 +45,7 @@ from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import Hardware
 from app.domain.models.health import Health, decode_retired_severity
 from app.domain.models.maintenance import Maintenance
-from app.domain.models.network import BmcInfo, NetworkInfo
+from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileTemplate, Server
@@ -181,6 +182,35 @@ def _nic_os_names(server: Server, nic_names: NicNameCatalog) -> dict[str, str]:
     if server.identity.vendor == Vendor.CISCO:
         names.update(cisco_eno_names([interface.name for interface in server.network.interfaces]))
     return names
+
+
+def _natural_key(name: str) -> list[tuple[int, int, str]]:
+    """
+    Sort key that orders digit runs numerically, so `eno2` precedes `eno10`.
+
+    Args:
+        name (str): An interface name.
+
+    Returns:
+        list[tuple[int, int, str]]: One `(is_text, number, text)` entry per run.
+    """
+    return [
+        (0, int(part), "") if part.isdecimal() else (1, 0, part.lower())
+        for part in re.findall(r"\d+|\D+", name)
+    ]
+
+
+def _sorted_by_name(interfaces: list[NetworkInterface]) -> list[NetworkInterface]:
+    """
+    Order interfaces by their own `name` (never the derived OS name).
+
+    Args:
+        interfaces (list[NetworkInterface]): The stored interfaces.
+
+    Returns:
+        list[NetworkInterface]: A new list in natural name order.
+    """
+    return sorted(interfaces, key=lambda i: _natural_key(i.name))
 
 
 _OPTIONAL_DATETIME = TypeAdapter(datetime | None)
@@ -412,7 +442,9 @@ class ServerDetail(BaseModel):
             identity=server.identity,
             profile_template=server.profile_template,
             hardware=server.hardware,
-            network=server.network,
+            network=server.network.model_copy(
+                update={"interfaces": _sorted_by_name(server.network.interfaces)}
+            ),
             connectivity=server.connectivity,
             classification=server.classification,
             health=server.health,
@@ -529,7 +561,7 @@ class AvailableServerItem(BaseModel):
                     link_state=interface.link_state,
                     speed_mbps=interface.speed_mbps,
                 )
-                for interface in server.network.interfaces
+                for interface in _sorted_by_name(server.network.interfaces)
             ],
             site_id=server.site_id,
             health_overall=server.health.overall,

@@ -229,3 +229,25 @@ unchanged: a server with only one *readable* link state (the rest
 `UNKNOWN`) still does not satisfy `GTE 2` and still does not fire either
 network policy, for any vendor, including Cisco. `network.single_link_up`
 now reads the same severity as `network.all_links_down` everywhere.
+
+## Update (2026-10-21): every NIC or every disk `UNKNOWN` makes the server `UNKNOWN`
+
+Operator's call. `facts.py` emits `network.all_unknown` (interfaces listed,
+every link state `UNKNOWN`) and `storage.all_unknown` (drives listed, every
+drive health unread or `UNKNOWN`). After the category roll-up,
+`evaluate_health` turns `overall` from `HEALTHY` into `UNKNOWN` when either is
+true. A `WARNING`, `MAJOR` or `CRITICAL` category elsewhere still wins, so a
+real failure is never hidden, and per-category severities are unchanged. Mixed
+readings are untouched: three `UNKNOWN` NICs with one up and one down still
+fire `network.single_link_up` (CRITICAL).
+
+**OneView is exempt from the NIC half** (`_LINK_STATE_NOT_READ`): its portMap
+carries no link state at all, so every HPE server would otherwise read
+`UNKNOWN`. Intersight, standalone Redfish with no `LinkStatus`, and any
+other collector whose NICs are all `UNKNOWN` are not exempt.
+
+Consequences: `/servers/available` already excludes `UNKNOWN` (ADR-0032,
+`SELECTABLE_TIERS`), so a server with every disk unread now drops out of the
+pool too. A server with **no** interface listed (NIC read failed) is not
+covered; `?min_nic_macs=` remains that gate. Stored health changes on each
+server's next collection, one `HEALTH_CHANGED` event per flipped server.
