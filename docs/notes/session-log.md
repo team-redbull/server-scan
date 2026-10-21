@@ -8,6 +8,25 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-13 — RAID health category, three-state RAID 1 detection for OpenManage and standalone Redfish, Connectivity hidden outside Cisco (ADR-0048).**
+Moved to `docs/notes/session-log.md`: the `/servers/available` timeouts / stored-DN UCS recheck unit.
+
+**Shipped (uncommitted until reviewed):** new `raid` health category; the Redfish collector reads each `Storage`
+member's `Volumes` (plus HPE `SmartStorage`) and stores `hardware.storage.raid = {state, method, bmc, reason}`:
+PRESENT (any RAID1), ABSENT (Dell and HPE trees only, fully read) or UNKNOWN (DGX software RAID, Supermicro, old
+BMCs, errors; never a fault). `raid.os_mirror_missing` is CRITICAL on ABSENT, scoped to OPENMANAGE and
+REDFISH_STANDALONE. Overview breakdown: RAID row for those two collectors (BMC label, method, reason), Connectivity
+only for UCS_CENTRAL/UCS_MANAGER/INTERSIGHT. Grafana: "Servers without RAID" stat after Contested servers, alert
+`ServerScanServersWithoutRaid`, "Logins per day" / "Logins per hour" bars.
+
+**Open:** nothing run on real hardware: HPE `Oem.Hpe.Links` names and `Raid` strings, a configured BOSS mirror under
+`$expand`, iDRAC10 BOSS ids, a Dell with S150/S160 software RAID (would read ABSENT), the login day boundary is UTC.
+Research notes: `docs/notes/2026-10-13-*.md`.
+
+**Also (2026-10-13):** UCS (`UCS_CENTRAL`/`UCS_MANAGER`) now reports the RAID verdict too, from `storageController` and
+`storageVirtualDrive` (`type="mirror"` = RAID 1; `ucs_manager/raid.py`, ADR-0048 update). Unverified: the format of
+`raid_support` and old UCSM releases without the class (would read ABSENT on a RAID card).
+
 **2026-10-11 (later) — `/servers/available` per-manager timeouts, stored-DN UCS recheck, 503 on a vendor failure (ADR-0032 update).**
 Moved to `docs/notes/session-log.md`: the inventory search / Maintenance-in-Health unit.
 

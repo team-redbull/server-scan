@@ -348,7 +348,9 @@ long form of each entry is in the 2026-09-13 archive.
   `Server.source_provider`. A serial-less stub is matched by
   `(source_provider, BMC host)` (ADR-0037).
 - **Health: UNKNOWN is not a verdict** (ADR-0027): every fact counts only
-  definite readings, or `TestUnknownIsNotAVerdict` fails. **A category with no
+  definite readings, or `TestUnknownIsNotAVerdict` fails. **Exception
+  (2026-10-21): every NIC link, or every drive health, UNKNOWN makes `overall`
+  UNKNOWN** (`*.all_unknown`; OneView exempt for NICs; a worse category still wins). **A category with no
   data read is `UNKNOWN` and its policies are skipped** (`<cat>.has_data`,
   2026-09-21): a new category needs a `has_data` fact, and a policy comparing
   against a total needs a `GT 0` guard. **A category exists only if
@@ -442,21 +444,16 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-13 — RAID health category, three-state RAID 1 detection for OpenManage and standalone Redfish, Connectivity hidden outside Cisco (ADR-0048).**
-Moved to `docs/notes/session-log.md`: the `/servers/available` timeouts / stored-DN UCS recheck unit.
+**2026-10-21 — all-UNKNOWN NICs or disks make a server UNKNOWN overall, NICs sorted by name (ADR-0027 and ADR-0032 updates).**
+Moved to `docs/notes/session-log.md`: the RAID health category / ADR-0048 unit.
 
-**Shipped (uncommitted until reviewed):** new `raid` health category; the Redfish collector reads each `Storage`
-member's `Volumes` (plus HPE `SmartStorage`) and stores `hardware.storage.raid = {state, method, bmc, reason}`:
-PRESENT (any RAID1), ABSENT (Dell and HPE trees only, fully read) or UNKNOWN (DGX software RAID, Supermicro, old
-BMCs, errors; never a fault). `raid.os_mirror_missing` is CRITICAL on ABSENT, scoped to OPENMANAGE and
-REDFISH_STANDALONE. Overview breakdown: RAID row for those two collectors (BMC label, method, reason), Connectivity
-only for UCS_CENTRAL/UCS_MANAGER/INTERSIGHT. Grafana: "Servers without RAID" stat after Contested servers, alert
-`ServerScanServersWithoutRaid`, "Logins per day" / "Logins per hour" bars.
+**Shipped:** `facts.py` emits `network.all_unknown` / `storage.all_unknown`; `evaluate_health` turns overall
+HEALTHY into UNKNOWN when either is true (a worse category still wins; OneView is exempt from the NIC half
+because it never reads link state). `ServerDetail.network.interfaces` and `/servers/available` `interfaces[]` are
+returned in natural order of `name`, never `os_name` (Cisco `enoN` stay positional over the stored order).
+`/servers/available` already excluded UNKNOWN, so those servers drop out of the pool. Audits fixed in the same
+push: `certifi` 2026.10.19 (PYSEC-2026-4320), `vite` via `npm audit fix`.
 
-**Open:** nothing run on real hardware: HPE `Oem.Hpe.Links` names and `Raid` strings, a configured BOSS mirror under
-`$expand`, iDRAC10 BOSS ids, a Dell with S150/S160 software RAID (would read ABSENT), the login day boundary is UTC.
-Research notes: `docs/notes/2026-10-13-*.md`.
-
-**Also (2026-10-13):** UCS (`UCS_CENTRAL`/`UCS_MANAGER`) now reports the RAID verdict too, from `storageController` and
-`storageVirtualDrive` (`type="mirror"` = RAID 1; `ucs_manager/raid.py`, ADR-0048 update). Unverified: the format of
-`raid_support` and old UCSM releases without the class (would read ABSENT on a RAID card).
+**Open:** Intersight and standalone Redfish with no `LinkStatus` are NOT exempt, so their all-UNKNOWN-NIC servers read
+UNKNOWN (operator may want Intersight exempted); a server with no interface listed is not covered
+(`?min_nic_macs=` stays that gate); fleet counts and Grafana shift on the next collector run.
