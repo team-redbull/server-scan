@@ -39,6 +39,14 @@ pytestmark = pytest.mark.unit
 _FIXTURE_PASSWORD = "secret"
 
 
+@pytest.fixture(autouse=True)
+def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def instant(self: object, attempt: int, retry_after: str | None) -> None:
+        return None
+
+    monkeypatch.setattr(RedfishClient, "_backoff", instant)
+
+
 def _target(
     port: int, *, host: str = "127.0.0.1", password: str = _FIXTURE_PASSWORD
 ) -> RedfishTarget:

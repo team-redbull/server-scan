@@ -196,7 +196,10 @@ class RedfishFixture:
                 self._respond(200, {})
 
         self._server = _QuietServer(("127.0.0.1", 0), Handler)
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        # shutdown() waits for the next poll; the 0.5 s default cost every test half a second.
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         self._thread.start()
         return self
 
