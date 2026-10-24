@@ -38,26 +38,16 @@ const TAB_LABELS: Record<TabId, string> = {
   history: "History",
 };
 
-export function ServerDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const location = useLocation();
+/** One server's header, tabs and tab bodies; the page wraps it with a back link, the 3D datacenter in a card. */
+export function ServerDetailView({ id }: { id: string }) {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const canReadAudit = useCanReadAudit();
   const tabs = TABS.filter((tab) => tab !== "history" || canReadAudit);
 
-  const { data, isPending, isError, error } = useServerDetailQuery(id ?? "");
-
-  // The inventory row that linked here passes its own URL (filters
-  // included) as router state; a direct visit has none, so land on the
-  // unfiltered list rather than the sites overview at "/".
-  const backTo = (location.state as { from?: string } | null)?.from ?? "/servers";
+  const { data, isPending, isError, error } = useServerDetailQuery(id);
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
-      <Link to={backTo} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
-        ← Back to inventory
-      </Link>
-
+    <>
       {isPending && <p className="mt-4 text-gray-500">Loading server…</p>}
 
       {isError && (
@@ -122,6 +112,25 @@ export function ServerDetailPage() {
           </div>
         </>
       )}
+    </>
+  );
+}
+
+export function ServerDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+
+  // The inventory row that linked here passes its own URL (filters
+  // included) as router state; a direct visit has none, so land on the
+  // unfiltered list rather than the sites overview at "/".
+  const backTo = (location.state as { from?: string } | null)?.from ?? "/servers";
+
+  return (
+    <main className="mx-auto max-w-5xl p-8">
+      <Link to={backTo} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
+        ← Back to inventory
+      </Link>
+      <ServerDetailView id={id ?? ""} />
     </main>
   );
 }

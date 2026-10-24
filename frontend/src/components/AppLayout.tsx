@@ -1,4 +1,4 @@
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 
 import { AppFooter } from "@/components/AppFooter";
 import { AppNav } from "@/components/AppNav";
@@ -16,6 +16,7 @@ import { LoginPage } from "@/features/auth/LoginPage";
  * nothing here changes from before this feature existed. */
 export function AppLayout() {
   const { data: me, isPending } = useAuth();
+  const immersive = useLocation().pathname === "/datacenter";
 
   if (isPending) {
     return null;
@@ -26,12 +27,12 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className={immersive ? "flex h-dvh flex-col overflow-hidden" : "flex min-h-dvh flex-col"}>
       <AppNav />
-      <div className="flex-1">
+      <div className={immersive ? "min-h-0 flex-1" : "flex-1"}>
         <Outlet />
       </div>
-      <AppFooter />
+      {!immersive && <AppFooter />}
       <Toaster />
     </div>
   );

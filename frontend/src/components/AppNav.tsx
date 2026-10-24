@@ -5,6 +5,7 @@ import { useAuth, useCanReadAudit, useLogoutMutation } from "@/features/auth/use
 const LINKS = [
   { to: "/", label: "Sites", audit: false },
   { to: "/servers", label: "Servers", audit: false },
+  { to: "/datacenter", label: "Datacenter 3D", audit: false },
   { to: "/events", label: "Events", audit: true },
   { to: "/rules", label: "Rules & Policies", audit: false },
   { to: "/architecture", label: "Architecture", audit: false },

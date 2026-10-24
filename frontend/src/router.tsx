@@ -47,6 +47,12 @@ export const router = createBrowserRouter([
         element: <ArchitecturePage />,
       },
       {
+        path: "/datacenter",
+        lazy: async () => ({
+          Component: (await import("@/features/datacenter/DatacenterPage")).DatacenterPage,
+        }),
+      },
+      {
         path: "/status",
         element: <StatusPage />,
       },
