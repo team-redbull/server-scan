@@ -51,6 +51,21 @@ Two findings explained most of it:
   runners (billed), merging `deploy` into `publish` (it would put the write token in a job with
   `packages: write`).
 
+## Result (first `main` run after the change, 2026-10-24)
+
+Run 40140549538 against the previous run 40138354832, same kind of commit:
+
+| | Before | After |
+|---|---|---|
+| Wall-clock | 6m11s (371 s) | 2m21s (141 s) |
+| `test` job | 195 s (pytest step about 145-160 s) | 80 s (pytest step 51 s, with coverage) |
+| `publish` job | 156 s (API image 63 s, frontend 64 s) | 36 s (7 s and 6 s: cache hits) |
+| `e2e` job | 88 s | 86 s |
+
+The critical path is now `e2e` (86 s), then `publish` (36 s), then `deploy` (12 s); `test` is no longer last.
+The 1 s service health interval did not visibly shorten "Initialize containers" (22 s in `e2e`); the image
+pull is the likely cause, not verified. One run is one sample; the runs after it are the check against the triggers below.
+
 ## Rollback triggers
 
 - A test fails under `-n 4` and passes alone more than once: remove `-n 4` from `ci.yml` (one line) and fix

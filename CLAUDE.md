@@ -450,7 +450,7 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-25 — CI roughly halved: tests do not sleep or wait for a poll, pytest runs `-n 4`, images prebuild in parallel (ADR-0049).**
+**2026-10-25 — CI 6m11s to 2m21s (measured): tests do not sleep or wait for a poll, pytest runs `-n 4`, images prebuild in parallel (ADR-0049).**
 Moved to `docs/notes/session-log.md`: the all-UNKNOWN NICs/disks unit.
 
 **Shipped:** `_no_backoff` in `test_redfish_collector.py` and a 0.01 s `serve_forever` poll in `RedfishFixture`
@@ -459,6 +459,6 @@ Moved to `docs/notes/session-log.md`: the all-UNKNOWN NICs/disks unit.
 a main-only `prebuild` job that `publish` needs. Also on `main` the same session: the Sites "unknown" link and
 Fleet hover, and the Include/Hide/Only maintenance control (ADR-0046 update), the setuptools and npm audit fixes.
 
-**Open:** read the first CI timings against the rollback triggers in ADR-0049. E2E (about 88 s) is now the
-longest test job and its 18 s service start is the next target; the 3D datacenter proof of concept lives only on
+**Open:** E2E (86 s, of which 22 s is pulling and starting Mongo/Redis) is now the longest job and the next
+target; test is 80 s, publish 36 s; the 3D datacenter proof of concept lives only on
 the `datacenter-3d` branch.

@@ -560,7 +560,7 @@ of it.
 | 0046 | The inventory search keeps substring as the default and adds `"exact"` and `/regex/` forms chosen by how the text is typed (client-side only, bad regex shows an error and keeps every row); Maintenance is a separate Include / Hide / Only control (2026-10-25; it was a Health option, exclusive with a severity, from 2026-10-11) |
 | 0047 | Every authenticated login is an audit event: `LOGIN_SUCCEEDED` (with the resolved role) and `LOGIN_DENIED` (valid AD account in no admin/auditor/viewer list); a wrong password is not recorded (unauthenticated, spray-able) and the best-effort write never blocks the login |
 | 0048 | RAID 1 for the OS is a three-state verdict decided by the collector (present / absent / unknown; Redfish and Cisco UCS virtual drives): CRITICAL only where the vendor's tree is authoritative (Dell, HPE, UCS Manager); DGX software RAID and old BMCs are Unknown, never a fault |
-| 0049 | CI runs `pytest -n 4` (a Mongo and Redis database per xdist worker, no real sleeps or poll waits in the Redfish tests) and builds both images in a main-only `prebuild` job while the tests run, so a main run drops from about 6 minutes to about half of that |
+| 0049 | CI runs `pytest -n 4` (a Mongo and Redis database per xdist worker, no real sleeps or poll waits in the Redfish tests) and builds both images in a main-only `prebuild` job while the tests run, so a main run dropped from 6m11s to 2m21s (measured, first run) |
 
 ---
 
