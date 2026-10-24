@@ -68,8 +68,11 @@ describe("filterRows", () => {
       ["srv-2"],
     );
     expect(
-      filterRows(FLEET, { vendor: [], maintenance: true }).map((r) => r.name),
+      filterRows(FLEET, { vendor: [], maintenance: "only" }).map((r) => r.name),
     ).toEqual(["srv-1"]);
+    expect(
+      filterRows(FLEET, { maintenance: "exclude" }).map((r) => r.name),
+    ).toEqual(["srv-10", "srv-2"]);
     expect(
       filterRows(FLEET, { stale: true, health: ["HEALTHY"] }),
     ).toHaveLength(1);
@@ -121,6 +124,20 @@ describe("filterRows", () => {
       // The total is the fully filtered set.
       expect(counts.total).toBe(1);
     });
+  });
+
+  it("keeps the maintenance counts whole, and lets the other counts follow the mode", () => {
+    const fleet = [
+      row({ name: "a", health: "HEALTHY" }),
+      row({ name: "b", health: "HEALTHY", maintenance: { enabled: true, reason: "psu" } }),
+      row({ name: "c", health: "CRITICAL", maintenance: { enabled: true, reason: "disk" } }),
+    ];
+    const counts = dropdownFacetCounts(fleet, { health: ["HEALTHY"], maintenance: "exclude" });
+    // The Include/Hide/Only control still shows every number it could switch to.
+    expect(counts.maintenance).toEqual({ false: 1, true: 1 });
+    // Health options follow the mode: with maintenance hidden, CRITICAL has nothing to add.
+    expect(counts.health).toEqual({ HEALTHY: 1 });
+    expect(counts.total).toBe(1);
   });
 
   it("maps the unassigned site to a null site_id", () => {

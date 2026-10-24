@@ -18,7 +18,8 @@ export interface RowFilters {
   installation_type?: string[];
   openshift_state?: string[];
   health?: string[];
-  maintenance?: true;
+  /** Unset shows servers in maintenance with the rest; "only" keeps just them, "exclude" hides them. */
+  maintenance?: "only" | "exclude";
   /** Only servers an install currently holds a lock on (ADR-0035). */
   reserved?: true;
   stale?: true;
@@ -119,7 +120,8 @@ export function filterRows(
       (!filters.openshift_state?.length ||
         filters.openshift_state.includes(row.openshift_state)) &&
       (!filters.health?.length || filters.health.includes(row.health)) &&
-      (!filters.maintenance || row.maintenance.enabled) &&
+      (filters.maintenance === undefined ||
+        (filters.maintenance === "only") === row.maintenance.enabled) &&
       (!filters.reserved || row.reservation.held) &&
       (!filters.stale || row.stale) &&
       (!filters.nameMismatch || row.openshift_reported_name !== null) &&
@@ -333,8 +335,9 @@ const DIMENSIONS = [
  *
  * Returns:
  *   FacetCounts: `total` and the toggles' counts over the fully filtered rows (as `facetCounts`);
- *   the six dropdown dimensions replaced by their own-filter-excluded counts. Health also
- *   drops the maintenance filter, since Maintenance is one of its options.
+ *   the six dropdown dimensions replaced by their own-filter-excluded counts. `maintenance` is
+ *   counted without the maintenance filter, so the Include/Hide/Only control always shows all
+ *   three numbers; every other count respects it.
  */
 export function dropdownFacetCounts(
   rows: ServerRow[],
@@ -342,12 +345,9 @@ export function dropdownFacetCounts(
 ): FacetCounts {
   const facets = facetCounts(filterRows(rows, filters));
   for (const [filterKey, facetKey] of DIMENSIONS) {
-    let others = without(filters, filterKey);
-    if (filterKey === "health") others = without(others, "maintenance");
-    const counted = facetCounts(filterRows(rows, others));
-    facets[facetKey] = counted[facetKey];
-    if (filterKey === "health") facets.maintenance = counted.maintenance;
+    facets[facetKey] = facetCounts(filterRows(rows, without(filters, filterKey)))[facetKey];
   }
+  facets.maintenance = facetCounts(filterRows(rows, without(filters, "maintenance"))).maintenance;
   return facets;
 }
 

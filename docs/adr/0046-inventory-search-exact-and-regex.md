@@ -45,5 +45,23 @@ operator's call. The separate Maintenance checkbox was removed as a duplicate co
 
 ## Consequences
 
-- A URL with both `maintenance=true` and `health_overall=X` shows Maintenance; the severity is ignored.
+- (Superseded 2026-10-25, see the update below.) A URL with both `maintenance=true` and `health_overall=X`
+  showed Maintenance and ignored the severity.
 - Exact mode compares whole field values only; there is no exact-on-one-field syntax.
+
+## Update 2026-10-25: Maintenance is its own Include / Hide / Only control
+
+The Health-dropdown option made two questions unaskable: "all healthy servers, without the ones in
+maintenance" and "healthy servers that are in maintenance", because choosing Maintenance cleared the
+severities. A server in maintenance is still counted under its own health everywhere else (the Sites cards),
+so the inventory now has a three-way control next to the Health filter: **Include** (the default, so a
+card's "12 healthy" opens a list of 12), **Hide** and **Only**.
+
+- `RowFilters.maintenance` is `"only" | "exclude"`, unset meaning include. The URL stays compatible:
+  `maintenance=true` (and `only`) is Only, which keeps every Sites-card link and old bookmark working;
+  `maintenance=exclude` is Hide. A URL with `maintenance=true` and `health_overall=X` now applies both.
+- The Health dropdown lost its Maintenance entry. Its counts follow the maintenance mode; the control's own
+  counts (`Include (35) | Hide (29) | Only (6)`) are taken without the maintenance filter, so all three
+  numbers are always visible. A chip ("Maintenance hidden" / "Maintenance only") removes it.
+- Default Include rather than Hide on purpose: hiding by default would silently disagree with the Sites
+  counts. Frontend only; no API change.

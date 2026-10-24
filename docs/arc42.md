@@ -238,7 +238,8 @@ The sites overview leads with six fleet-wide cards above the per-site
 cards, ordered so a three-column grid reads as two rows: `Across all
 sites` / `UPI` / `Hosted cluster`, then `MCE` / `Available` /
 `Installed`. Each links into the pre-filtered server list
-(`/servers?installation_type=UPI`, `/servers?openshift_state=AVAILABLE`).
+(`/servers?installation_type=UPI`, `/servers?openshift_state=AVAILABLE`), and so does every count on a
+card (critical, major, warning, unknown, maintenance).
 
 They are a sum over `GET /api/v1/sites`, which carries two slice objects
 per site row rather than needing a second endpoint: `by_installation_type`
@@ -556,7 +557,7 @@ of it.
 | 0043 | A third role, `AUDITOR` (read-only plus the audit trail), from `auth.auditorGroups`/`auditorUsers` or `auth.apiTokens.auditor`; the events endpoints and the UI's Events page and History tab are admin/auditor only, enforced in the API; the three API tokens must differ |
 | 0044 | Ingest writes an existing server with a revision compare-and-set (retry up to 3 times) instead of a blind replace that could overwrite a maintenance, reservation or membership write made mid-run, and skips a server whose content did not change (`touch_seen` refreshes only the last-confirmed stamps; `revision`/`updated_at` mean "content changed") |
 | 0045 | Audit events older than a retention window (default 180 days, minimum 7, 0 = keep forever) are deleted by a weekly CronJob that is report-only until `reportOnly: false` (`collectors.auditRetention`, `tools/prune_events.py`), recording one `AUDIT_PURGED` event; `purge_before` joins `rename_legacy_event_types` as the repository's second non-`record()` write |
-| 0046 | The inventory search keeps substring as the default and adds `"exact"` and `/regex/` forms chosen by how the text is typed (client-side only, bad regex shows an error and keeps every row); Maintenance joins the Health dropdown, exclusive with a severity |
+| 0046 | The inventory search keeps substring as the default and adds `"exact"` and `/regex/` forms chosen by how the text is typed (client-side only, bad regex shows an error and keeps every row); Maintenance is a separate Include / Hide / Only control (2026-10-25; it was a Health option, exclusive with a severity, from 2026-10-11) |
 | 0047 | Every authenticated login is an audit event: `LOGIN_SUCCEEDED` (with the resolved role) and `LOGIN_DENIED` (valid AD account in no admin/auditor/viewer list); a wrong password is not recorded (unauthenticated, spray-able) and the best-effort write never blocks the login |
 | 0048 | RAID 1 for the OS is a three-state verdict decided by the collector (present / absent / unknown; Redfish and Cisco UCS virtual drives): CRITICAL only where the vendor's tree is authoritative (Dell, HPE, UCS Manager); DGX software RAID and old BMCs are Unknown, never a fault |
 

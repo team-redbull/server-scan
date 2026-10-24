@@ -228,7 +228,7 @@ option with the heading count compared to the server's own facet total
   `random-server-0276` *in* site nyc server-side and not client-side.
   `searchRows` now covers the same fields; the parity check is
   "client substring count ≥ server prefix-token count" for every query.
-- **The filter row reflowed.** (Superseded 2026-10-11: Maintenance is now a Health option, ADR-0046.) The form was `flex-wrap`, so a wide count
+- **The filter row reflowed.** (Superseded 2026-10-11 and again 2026-10-25: Maintenance is now its own Include/Hide/Only control, ADR-0046.) The form was `flex-wrap`, so a wide count
   (`All sites (50004)`) wrapped Health under Search and ticking
   "Maintenance only" moved the checkbox to the row above. The form is now
   two fixed rows — the seven fields share the first and shrink to fit;
@@ -337,7 +337,7 @@ checklist): none ticked is "all", one or many is an OR within the dropdown, ANDe
 (`?vendor=dell&vendor=hp&openshift_state=AVAILABLE`, like `mce`/`cluster`); a single-value link (`?vendor=cisco`,
 the Sites cards) is one ticked value. Each option's count is over the rows every *other* filter leaves
 (`dropdownFacetCounts`, the sidebar's rule), so a ticked dropdown still shows what ticking another option adds.
-A tick is applied to the live URL (`toggleMulti` / `toggleHealth`), never to the last rendered list, so two quick
-clicks cannot lose the first. Maintenance remains exclusive with the severities (ADR-0046). The chips are one per
+A tick is applied to the live URL (`toggleMulti`), never to the last rendered list, so two quick
+clicks cannot lose the first. Maintenance is a separate Include/Hide/Only control and no longer touches the severities (ADR-0046, 2026-10-25). The chips are one per
 value. Frontend only: `GET /servers` keeps its single-value filter keys.
 

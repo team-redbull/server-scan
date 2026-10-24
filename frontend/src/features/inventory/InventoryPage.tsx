@@ -41,9 +41,13 @@ const HEALTH_SEVERITIES = [
   "MAJOR",
   "CRITICAL",
 ] as const;
-/** The Health dropdown's last entry: a different axis than severity, so
- * choosing it replaces the severity (it sets `maintenance=true`). */
-const MAINTENANCE_OPTION = "MAINTENANCE";
+type MaintenanceMode = "include" | "exclude" | "only";
+/** `maintenance=true` is "only": the Sites cards and older links already use it. */
+const MAINTENANCE_PARAM: Record<MaintenanceMode, string | null> = {
+  include: null,
+  exclude: "exclude",
+  only: "true",
+};
 const FIELD_CLASS =
   "mt-1 w-full min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
 
@@ -98,10 +102,16 @@ export function InventoryPage() {
     () => searchParams.getAll("source_provider"),
     [searchParams],
   );
-  const maintenanceOnly = searchParams.get("maintenance") === "true";
+  const maintenanceParam = searchParams.get("maintenance");
+  const maintenanceMode: MaintenanceMode =
+    maintenanceParam === "true" || maintenanceParam === "only"
+      ? "only"
+      : maintenanceParam === "exclude"
+        ? "exclude"
+        : "include";
   const healthSeverities = useMemo(
-    () => (maintenanceOnly ? [] : searchParams.getAll("health_overall")),
-    [searchParams, maintenanceOnly],
+    () => searchParams.getAll("health_overall"),
+    [searchParams],
   );
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
@@ -131,7 +141,7 @@ export function InventoryPage() {
     if (installationTypes.length) next.installation_type = installationTypes;
     if (openshiftStates.length) next.openshift_state = openshiftStates;
     if (healthSeverities.length) next.health = healthSeverities;
-    if (maintenanceOnly) next.maintenance = true;
+    if (maintenanceMode !== "include") next.maintenance = maintenanceMode;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
     if (contestedOnly) next.contested = true;
@@ -148,7 +158,7 @@ export function InventoryPage() {
     installationTypes,
     openshiftStates,
     healthSeverities,
-    maintenanceOnly,
+    maintenanceMode,
     staleOnly,
     duplicateOnly,
     contestedOnly,
@@ -181,6 +191,9 @@ export function InventoryPage() {
     page,
     pageCount,
   } = paginate(matched, pageParam, PAGE_SIZE);
+
+  const inMaint = facets?.maintenance["true"];
+  const notInMaint = facets?.maintenance["false"];
 
   /** The dropdowns' text while nothing is ticked: "All (2,504)" once the fleet has loaded. */
   function allLabel(word = "All"): string {
@@ -219,26 +232,9 @@ export function InventoryPage() {
     updateFilters({ [key]: next });
   }
 
-  /** Tick or untick one Health option against the live URL. Maintenance is a different axis than
-   * severity: ticking it replaces the severities and ticking a severity drops it (ADR-0046). */
-  function toggleHealth(value: string) {
-    const live = new URLSearchParams(window.location.search);
-    const liveMaintenance = live.get("maintenance") === "true";
-    if (value === MAINTENANCE_OPTION) {
-      updateFilters(
-        liveMaintenance
-          ? { maintenance: null }
-          : { health_overall: null, maintenance: "true" },
-      );
-      return;
-    }
-    const current = liveMaintenance ? [] : live.getAll("health_overall");
-    updateFilters({
-      health_overall: current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value],
-      maintenance: null,
-    });
+  /** Show servers in maintenance with the rest, hide them, or keep only them. */
+  function setMaintenance(mode: MaintenanceMode) {
+    updateFilters({ maintenance: MAINTENANCE_PARAM[mode] });
   }
 
   function handleSortChange(field: SortableField, desc: boolean) {
@@ -305,8 +301,11 @@ export function InventoryPage() {
       label: `Health ${h}`,
       value: h,
     });
-  if (maintenanceOnly)
-    activeFilters.push({ key: "maintenance", label: "Maintenance" });
+  if (maintenanceMode !== "include")
+    activeFilters.push({
+      key: "maintenance",
+      label: maintenanceMode === "only" ? "Maintenance only" : "Maintenance hidden",
+    });
   for (const name of mceSel)
     activeFilters.push({ key: "mce", label: `MCE ${name}`, value: name });
   for (const name of clusterSel)
@@ -522,34 +521,58 @@ export function InventoryPage() {
                     label="Health"
                     className={FIELD_CLASS}
                     allLabel={allLabel()}
-                    selected={
-                      maintenanceOnly ? [MAINTENANCE_OPTION] : healthSeverities
-                    }
-                    options={[
-                      ...HEALTH_SEVERITIES.map((h) => ({
-                        value: h,
-                        label: h,
-                        count: facets?.health[h] ?? (facets ? 0 : undefined),
-                      })),
-                      {
-                        value: MAINTENANCE_OPTION,
-                        label: "Maintenance",
-                        count:
-                          facets?.maintenance["true"] ??
-                          (facets ? 0 : undefined),
-                      },
-                    ]}
-                    onToggle={toggleHealth}
+                    selected={healthSeverities}
+                    options={HEALTH_SEVERITIES.map((h) => ({
+                      value: h,
+                      label: h,
+                      count: facets?.health[h] ?? (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("health_overall", value);
+                    }}
                     onClear={() => {
-                      updateFilters({
-                        health_overall: null,
-                        maintenance: null,
-                      });
+                      updateFilters({ health_overall: null });
                     }}
                   />
                 </FilterField>
               </div>
               <div className="flex flex-wrap items-center gap-6">
+                <div
+                  role="radiogroup"
+                  aria-label="Maintenance"
+                  className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
+                  title="A server in maintenance still counts under its own health; choose whether the list shows it"
+                >
+                  <span aria-hidden="true">Maintenance</span>
+                  <div className="inline-flex overflow-hidden rounded-md border border-[var(--border-subtle)]">
+                    {(
+                      [
+                        ["include", "Include", (inMaint ?? 0) + (notInMaint ?? 0)],
+                        ["exclude", "Hide", notInMaint],
+                        ["only", "Only", inMaint],
+                      ] as const
+                    ).map(([mode, label, n]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={maintenanceMode === mode}
+                        onClick={() => {
+                          setMaintenance(mode);
+                        }}
+                        className={`px-2.5 py-1 transition-colors duration-[var(--duration-fast)] ${
+                          maintenanceMode === mode
+                            ? "bg-[var(--tint-info)] text-[var(--text-primary)]"
+                            : "bg-[var(--surface-raised)] hover:bg-[var(--surface-hover)]"
+                        }`}
+                      >
+                        {label}
+                        {facets ? ` (${n ?? 0})` : ""}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <label
                   className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]"
                   title="Not collected within the staleness window (INVENTORY_STALE_AFTER_SECONDS), or never"

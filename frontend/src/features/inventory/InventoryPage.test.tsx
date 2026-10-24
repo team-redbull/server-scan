@@ -672,18 +672,40 @@ describe("InventoryPage", () => {
     expect(screen.getByLabelText("Health")).toHaveTextContent("HEALTHY");
   });
 
-  it("makes Maintenance exclusive with the severities in the Health dropdown", async () => {
+  it("hides, keeps only, or includes servers in maintenance without touching the severities", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
-    const { router } = renderInventoryPage(
-      "/?health_overall=HEALTHY&health_overall=WARNING",
-    );
+    const { router } = renderInventoryPage("/?health_overall=HEALTHY");
     await screen.findByLabelText("Health");
+    // The page edits the live location; a memory router does not update it, so mirror it by hand.
+    const mirror = () => window.history.replaceState(null, "", `/${router.state.location.search}`);
+    mirror();
 
-    pick("Health", /^Maintenance/);
-
+    fireEvent.click(screen.getByRole("radio", { name: /^Hide/ }));
     await waitFor(() => {
-      expect(router.state.location.search).toBe("?maintenance=true");
+      expect(router.state.location.search).toBe("?health_overall=HEALTHY&maintenance=exclude");
     });
+    expect(screen.getByRole("radio", { name: /^Hide/ })).toBeChecked();
+    expect(screen.getByRole("button", { name: /Maintenance hidden/ })).toBeInTheDocument();
+    mirror();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Only/ }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?health_overall=HEALTHY&maintenance=true");
+    });
+    mirror();
+
+    fireEvent.click(screen.getByRole("radio", { name: /^Include/ }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?health_overall=HEALTHY");
+    });
+  });
+
+  it("reads the old maintenance=true link (the Sites card) as Only, severities untouched", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
+    renderInventoryPage("/?maintenance=true&health_overall=CRITICAL");
+
+    expect(await screen.findByRole("radio", { name: /^Only/ })).toBeChecked();
+    expect(screen.getByLabelText("Health")).toHaveTextContent("CRITICAL");
   });
 
   it("asks why before putting a server into maintenance, and sends the reason", async () => {
