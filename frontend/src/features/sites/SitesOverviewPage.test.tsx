@@ -296,6 +296,37 @@ describe("SitesOverviewPage", () => {
     expect(router.state.location.search).toBe("?site_id=tlv&maintenance=true");
   });
 
+  it("turns a card's unknown count into a link to the unknown-health filter", async () => {
+    const [tlv, ...rest] = SITE_ITEMS;
+    if (!tlv) throw new Error("fixture has no site");
+    stubSites({
+      ...SITES_RESPONSE,
+      items: [{ ...tlv, by_health: { ...tlv.by_health, UNKNOWN: 4 } }, ...rest],
+    });
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <SitesOverviewPage /> },
+        { path: "/servers", element: <p>inventory</p> },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Tel Aviv" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(card("Tel Aviv")).getByRole("link", { name: /4 unknown/ }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/servers");
+    });
+    expect(router.state.location.search).toBe("?site_id=tlv&health_overall=UNKNOWN");
+  });
+
   it("still renders one card per site, linked by site_id", async () => {
     renderPage();
 

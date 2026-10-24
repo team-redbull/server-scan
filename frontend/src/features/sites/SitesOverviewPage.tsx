@@ -227,10 +227,10 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
   return (
     <Link
       to={card.to}
-      className={`group block rounded-[var(--radius-card)] border bg-[var(--surface-raised)] p-5 transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)] active:scale-[0.995] ${
+      className={`group block rounded-[var(--radius-card)] border bg-[var(--surface-raised)] p-5 transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-out-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)] active:scale-[0.995] ${
         emphasis
-          ? "border-[var(--border-strong)]"
-          : "border-[var(--border-subtle)]"
+          ? "border-[var(--border-strong)] hover:border-[var(--text-muted)]"
+          : "border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
       }`}
     >
       <div className="flex items-baseline justify-between gap-3">
@@ -284,10 +284,13 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
           </CountLink>
         )}
         {unknown > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-[var(--text-on-unknown)]">
+          <CountLink
+            to={withHealthFilter(card.to, "UNKNOWN")}
+            className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-[var(--text-on-unknown)] underline-offset-2 hover:underline"
+          >
             <span aria-hidden="true">{SEVERITY_GLYPH.UNKNOWN}</span>
             <span className="tabular">{unknown}</span> unknown
-          </span>
+          </CountLink>
         )}
         {/* Every server evaluated HEALTHY — not merely zero critical/warning,
          * which is also true of a site nothing has evaluated yet. */}
