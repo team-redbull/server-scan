@@ -91,7 +91,7 @@ hand-writing the semver-component-splitting logic):
 
 ### One job, both images, gated on the rest of CI
 
-`publish` `needs: [lint, test, frontend, e2e]` and only runs
+`publish` `needs: [lint, helm, test, frontend, e2e, prebuild]` (the cache-warming job of ADR-0049) and only runs
 `if: github.event_name == 'push' && github.ref == 'refs/heads/main'` —
 it never runs for a pull request, and never publishes anything that
 hasn't passed the full suite first. Both images build for

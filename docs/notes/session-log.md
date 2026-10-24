@@ -8,6 +8,20 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-21 — all-UNKNOWN NICs or disks make a server UNKNOWN overall, NICs sorted by name (ADR-0027 and ADR-0032 updates).**
+Moved to `docs/notes/session-log.md`: the RAID health category / ADR-0048 unit.
+
+**Shipped:** `facts.py` emits `network.all_unknown` / `storage.all_unknown`; `evaluate_health` turns overall
+HEALTHY into UNKNOWN when either is true (a worse category still wins; OneView is exempt from the NIC half
+because it never reads link state). `ServerDetail.network.interfaces` and `/servers/available` `interfaces[]` are
+returned in natural order of `name`, never `os_name` (Cisco `enoN` stay positional over the stored order).
+`/servers/available` already excluded UNKNOWN, so those servers drop out of the pool. Audits fixed in the same
+push: `certifi` 2026.10.19 (PYSEC-2026-4320), `vite` via `npm audit fix`.
+
+**Open:** Intersight and standalone Redfish with no `LinkStatus` are NOT exempt, so their all-UNKNOWN-NIC servers read
+UNKNOWN (operator may want Intersight exempted); a server with no interface listed is not covered
+(`?min_nic_macs=` stays that gate); fleet counts and Grafana shift on the next collector run.
+
 **2026-10-13 — RAID health category, three-state RAID 1 detection for OpenManage and standalone Redfish, Connectivity hidden outside Cisco (ADR-0048).**
 Moved to `docs/notes/session-log.md`: the `/servers/available` timeouts / stored-DN UCS recheck unit.
 

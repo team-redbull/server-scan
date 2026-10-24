@@ -374,12 +374,18 @@ long form of each entry is in the 2026-09-13 archive.
 - `requirements.txt`/`pylock.toml` are generated exports for the air-gapped
   mirror — regenerate both after any `pyproject.toml` dependency change
   (`docs/air-gap.md`).
+- **Tests run in parallel in CI (`pytest -n 4`, ADR-0049): a test must never hard-code the Mongo database name
+  or Redis `/0`.** `tests/conftest.py` gives each xdist worker `server-scan-test-gwN` and Redis `/N+1`; a
+  test that triggers a Redfish retry must not sleep for real (`RedfishClient._backoff` is patched in both
+  Redfish test files), and `RedfishFixture` serves with a 0.01 s poll. A 2026-10-13 commit added 98 tests and
+  66 s of CI for exactly these two reasons.
 - ADR map for the rest: closed sites/vendors and name-derived sites 0011/0018;
   env-based manager connections 0012; CI pinning without Dependabot 0013; the
   provider ABC 0023; search tokens 0025; nullable cursors and retired indexes
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
-  role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048.
+  role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
+  CI parallel tests and image prebuild 0049.
 
 ## Verifying your work
 
@@ -388,7 +394,7 @@ docker compose up -d mongo redis                   # or: scripts/dev-up.sh up
 uv sync --all-groups && cp .env.example .env       # first time only
 uv run python -m tools.seed_inventory --count 1000 --seed 42
 
-uv run pytest -q                                   # backend: unit + integration + api
+uv run pytest -q                                   # backend: unit + integration + api (CI runs it with -n 4, ADR-0049)
 uv run ruff check . && uv run ruff format --check . && uv run ty check backend/app tools tests
 uv run python scripts/check_comment_density.py    # convention 8
 uv run lint-imports                                # layering contracts
@@ -444,16 +450,15 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-21 — all-UNKNOWN NICs or disks make a server UNKNOWN overall, NICs sorted by name (ADR-0027 and ADR-0032 updates).**
-Moved to `docs/notes/session-log.md`: the RAID health category / ADR-0048 unit.
+**2026-10-25 — CI roughly halved: tests do not sleep or wait for a poll, pytest runs `-n 4`, images prebuild in parallel (ADR-0049).**
+Moved to `docs/notes/session-log.md`: the all-UNKNOWN NICs/disks unit.
 
-**Shipped:** `facts.py` emits `network.all_unknown` / `storage.all_unknown`; `evaluate_health` turns overall
-HEALTHY into UNKNOWN when either is true (a worse category still wins; OneView is exempt from the NIC half
-because it never reads link state). `ServerDetail.network.interfaces` and `/servers/available` `interfaces[]` are
-returned in natural order of `name`, never `os_name` (Cisco `enoN` stay positional over the stored order).
-`/servers/available` already excluded UNKNOWN, so those servers drop out of the pool. Audits fixed in the same
-push: `certifi` 2026.10.19 (PYSEC-2026-4320), `vite` via `npm audit fix`.
+**Shipped:** `_no_backoff` in `test_redfish_collector.py` and a 0.01 s `serve_forever` poll in `RedfishFixture`
+(131 s to 51 s sequential locally, 18 s with `-n 4`); per-worker Mongo/Redis in `tests/conftest.py`;
+`pytest-xdist==3.8.0`; coverage only on `main`; health checks every 1 s; the Playwright cache keyed on its version;
+a main-only `prebuild` job that `publish` needs. Also on `main` the same session: the Sites "unknown" link and
+Fleet hover, and the Include/Hide/Only maintenance control (ADR-0046 update), the setuptools and npm audit fixes.
 
-**Open:** Intersight and standalone Redfish with no `LinkStatus` are NOT exempt, so their all-UNKNOWN-NIC servers read
-UNKNOWN (operator may want Intersight exempted); a server with no interface listed is not covered
-(`?min_nic_macs=` stays that gate); fleet counts and Grafana shift on the next collector run.
+**Open:** read the first CI timings against the rollback triggers in ADR-0049. E2E (about 88 s) is now the
+longest test job and its 18 s service start is the next target; the 3D datacenter proof of concept lives only on
+the `datacenter-3d` branch.
