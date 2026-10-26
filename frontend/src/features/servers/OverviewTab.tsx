@@ -52,6 +52,7 @@ export function OverviewTab({ server }: OverviewTabProps) {
               health={server.health}
               sourceProvider={server.source_provider}
               raid={server.hardware?.storage?.raid}
+              hasGpus={(server.hardware?.gpus?.length ?? 0) > 0}
             />
           }
         />
@@ -253,16 +254,19 @@ function HealthBreakdown({
   health,
   sourceProvider,
   raid,
+  hasGpus,
 }: {
   health: HealthSummary;
   sourceProvider: string | null;
   raid?: RaidDetection | undefined;
+  hasGpus: boolean;
 }) {
   const categories = HEALTH_CATEGORIES.filter(({ key }) => {
     const provider = sourceProvider ?? "";
     if (key === "bmc") return !BMC_UNCHECKED_PROVIDERS.has(provider);
     if (key === "connectivity") return FABRIC_PROVIDERS.has(provider);
     if (key === "raid") return RAID_PROVIDERS.has(provider);
+    if (key === "gpu") return hasGpus;
     return true;
   });
   return (

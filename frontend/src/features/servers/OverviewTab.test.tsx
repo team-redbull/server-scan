@@ -118,6 +118,13 @@ describe("OverviewTab matched rule", () => {
   });
 });
 
+describe("OverviewTab health breakdown", () => {
+  it("hides the GPU row on a server without GPUs", () => {
+    render(<OverviewTab server={makeServer()} />);
+    expect(screen.queryByText("GPU")).not.toBeInTheDocument();
+  });
+});
+
 describe("OverviewTab model", () => {
   it("shows the chassis's own model when it read one", () => {
     render(<OverviewTab server={makeServer({ model: "PowerEdge R6515" })} />);
