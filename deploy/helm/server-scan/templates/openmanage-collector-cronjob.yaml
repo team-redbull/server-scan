@@ -46,6 +46,14 @@ spec:
                 {{- end }}
                 - name: INVENTORY_REDFISH_FLEET_CONCURRENCY
                   value: {{ .Values.collectors.ome.bmcConcurrency | quote }}
+                {{- if hasKey .Values.collectors.ome "bmcHostBudgetSeconds" }}
+                - name: INVENTORY_REDFISH_HOST_BUDGET_SECONDS
+                  value: {{ .Values.collectors.ome.bmcHostBudgetSeconds | quote }}
+                {{- end }}
+                {{- if hasKey .Values.collectors.ome "bmcRunBudgetSeconds" }}
+                - name: INVENTORY_REDFISH_RUN_BUDGET_SECONDS
+                  value: {{ .Values.collectors.ome.bmcRunBudgetSeconds | quote }}
+                {{- end }}
                 - name: INVENTORY_OME_BMC_VERIFY_TLS
                   value: {{ .Values.collectors.ome.bmcVerifyTls | quote }}
                 - name: INVENTORY_OME_BMC_PORT

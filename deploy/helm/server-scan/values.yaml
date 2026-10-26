@@ -875,6 +875,12 @@ collectors:
     # each), not per appliance.
     bmcConcurrency: 16
 
+    # Wall clock for one BMC, and for the whole iDRAC pass. Unset keeps the
+    # backend defaults (180 s / 3600 s). Keep the run budget below
+    # activeDeadlineSeconds so it trips first and reports what it collected.
+    # bmcHostBudgetSeconds: 180
+    # bmcRunBudgetSeconds: 3600
+
     # Optional per-call timeout (seconds) for OME requests, used by this CronJob and by
     # `GET /servers/available`'s live recheck. Unset keeps the shared 15 s default.
     # timeoutSeconds: 30
