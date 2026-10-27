@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     audit_retention_batch_size: int = 5000
     audit_retention_max_batches: int = Field(default=200, ge=1)
 
+    # --- iDRAC reset on all-UNKNOWN disks/NICs (OPENMANAGE collector, ADR-0050) ---
+    idrac_reset_report_only: bool = True
+    idrac_reset_cooldown_hours: float = Field(default=12.0, gt=0)
+    idrac_reset_max_per_run: int = Field(default=10, ge=0)  # 0 turns the reset off
+
     # --- Collectors (tools/run_collector.py, not the API process) ---
     ucs_manager_username: str = ""
     ucs_manager_password: SecretStr = SecretStr("")

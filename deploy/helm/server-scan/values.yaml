@@ -875,6 +875,18 @@ collectors:
     # each), not per appliance.
     bmcConcurrency: 16
 
+    # Restart the iDRAC (never the host) of a Dell server whose every disk or
+    # every NIC reads UNKNOWN, right after it is collected; the next run reads
+    # the recovered status (ADR-0050). Needs bmcUsername to hold the Configure
+    # Manager privilege. A server with an unfinished iDRAC job is skipped.
+    idracReset:
+      # true: read the job queue and log "would reset", send nothing. Set false to restart.
+      reportOnly: true
+      # A server reset (or attempted) less than this many hours ago is left alone.
+      cooldownHours: 12
+      # Most iDRACs one run restarts. 0 switches the feature off.
+      maxPerRun: 10
+
     # Wall clock for one BMC, and for the whole iDRAC pass. Unset keeps the
     # backend defaults (180 s / 3600 s). Keep the run budget below
     # activeDeadlineSeconds so it trips first and reports what it collected.

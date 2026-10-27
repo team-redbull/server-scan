@@ -347,6 +347,24 @@ class RedfishClient:
         """
         return await self._request("GET", path, authenticated=True)
 
+    async def post(self, path: str, body: dict[str, str]) -> dict[str, Any]:
+        """
+        POST an action once: never retried, since a replayed action runs twice.
+
+        Args:
+            path (str): A validated `@odata.id` of the action.
+            body (dict[str, str]): The action's JSON parameters.
+
+        Returns:
+            dict[str, Any]: The parsed payload, `{}` for an empty 200/202/204.
+
+        Raises:
+            RedfishError: Per the module's exception hierarchy.
+        """
+        return await self._request(
+            "POST", validate_odata_id(path), authenticated=True, json=body, retry=False
+        )
+
     async def get_collection(self, path: str) -> list[dict[str, Any]]:
         """
         Fetch every member of a collection by following `Members@odata.nextLink`.
@@ -377,7 +395,15 @@ class RedfishClient:
             next_path = validate_odata_id(raw_next) if raw_next else None
         return members
 
-    async def _request(self, method: str, path: str, *, authenticated: bool) -> dict[str, Any]:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        authenticated: bool,
+        json: dict[str, str] | None = None,
+        retry: bool = True,
+    ) -> dict[str, Any]:
         """
         Issue a request and parse its JSON body.
 
@@ -388,9 +414,11 @@ class RedfishClient:
             method (str): HTTP method.
             path (str): Request path.
             authenticated (bool): Whether to send the session token.
+            json (dict[str, str] | None): Request body, if any.
+            retry (bool): False sends once, whatever the transport does.
 
         Returns:
-            dict[str, Any]: The parsed payload.
+            dict[str, Any]: The parsed payload, `{}` for an empty 200/202/204.
 
         Raises:
             RedfishAuthError: On a 401 with no session yet (the
@@ -402,7 +430,9 @@ class RedfishClient:
                 could not be re-established (budget exhausted, or the
                 retried request still 401s after a successful re-login).
         """
-        response = await self._send(method, path, authenticated=authenticated)
+        response = await self._send(
+            method, path, authenticated=authenticated, json=json, retry=retry
+        )
         if response.status_code == 401 and authenticated:
             if self._reauth_count >= _MAX_REAUTHS:
                 raise RedfishProtocolError(
@@ -417,7 +447,9 @@ class RedfishClient:
                 path=path,
                 reauth_count=self._reauth_count,
             )
-            response = await self._send(method, path, authenticated=authenticated)
+            response = await self._send(
+                method, path, authenticated=authenticated, json=json, retry=retry
+            )
             if response.status_code == 401:
                 raise RedfishProtocolError(
                     f"{self._target.host}: session re-established but {path} still returned 401"
@@ -436,6 +468,8 @@ class RedfishClient:
                 f"{self._target.host} returned HTTP {response.status_code} for {path}",
                 status_code=response.status_code,
             )
+        if method == "POST" and not response.content:
+            return {}
         try:
             payload = response.json()
         except ValueError as exc:
@@ -447,7 +481,13 @@ class RedfishClient:
         return payload
 
     async def _send(
-        self, method: str, path: str, *, authenticated: bool, json: dict[str, str] | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        authenticated: bool,
+        json: dict[str, str] | None = None,
+        retry: bool = True,
     ) -> httpx.Response:
         """
         Send one request, retrying only transport-level failures.
@@ -459,6 +499,7 @@ class RedfishClient:
             path (str): Request path.
             authenticated (bool): Whether to send the session token.
             json (dict[str, str] | None): Request body, if any.
+            retry (bool): False makes one attempt, for a non-idempotent action.
 
         Returns:
             httpx.Response: The response, whatever its status.
@@ -469,7 +510,8 @@ class RedfishClient:
         """
         headers = {"X-Auth-Token": self._token} if authenticated and self._token else None
         last: Exception | None = None
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
+        attempts = _MAX_ATTEMPTS if retry else 1
+        for attempt in range(1, attempts + 1):
             try:
                 response = await self._client.request(method, path, headers=headers, json=json)
             except httpx.ConnectError as exc:
@@ -484,12 +526,12 @@ class RedfishClient:
                 last = exc
             else:
                 self._trace(method, path, response.status_code)
-                if response.status_code in _RETRY_STATUSES and attempt < _MAX_ATTEMPTS:
+                if response.status_code in _RETRY_STATUSES and attempt < attempts:
                     await self._backoff(attempt, response.headers.get("Retry-After"))
                     continue
                 self._guard_size(response, path)
                 return response
-            if attempt < _MAX_ATTEMPTS:
+            if attempt < attempts:
                 await self._backoff(attempt, None)
         raise RedfishUnreachableError(f"Could not reach {self._target.host}: {last}")
 

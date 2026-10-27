@@ -1090,7 +1090,8 @@ and exposed via reclassify/recalculate endpoints.
   transition (a `CLASSIFICATION_CHANGED` event's `data` is `{from, to,
   matched_rule, matched_field, matched_pattern}` — the rule's name, not its
   id, read from `Classification.matched_rule_name`; events written before
-  2026-10 carry `matched_rule_id` instead, which the UI hides) (a `HEALTH_CHANGED` event's `data` is `{from, to,
+  2026-10 carry `matched_rule_id` instead, which the UI hides; `name_from`/`name_to` are added when the
+  server was renamed in the same ingest) (a `HEALTH_CHANGED` event's `data` is `{from, to,
   from_reasons, to_reasons}` (renamed from `HEALTH_STATUS_CHANGED`: readers decode the old
   name, `GET /events?event_type=` matches either, and startup rewrites stored rows once), each a list of `{policy_key, policy_name,
   category, severity, message}`, worst first, capped at 10, no evidence.
@@ -1688,6 +1689,14 @@ It is therefore the one collector that needs **two** logins —
 account — and the run refuses to start without both, naming the
 variables. Full design: `docs/adr/0020-dell-identity-from-ome-hardware-
 from-redfish.md`; verified field facts: `docs/dell-collectors.md`.
+
+**It is also the one collector run that can write to a BMC** (ADR-0050). When a reachable server's every disk
+or every NIC reads UNKNOWN (`reset_trigger`), `BmcResetService` has `IdracResetter` check the iDRAC's job
+queue and, if nothing is unfinished, `POST Manager.Reset {"ResetType": "GracefulRestart"}`: the iDRAC restarts,
+the host does not, and the next run reads the recovered status. Report-only by default; a 12 h cooldown (read
+from the audit trail), 10 per run and the same shared iDRAC login (now needing Configure Manager) bound it; each
+attempt is an `IDRAC_RESET` event `{trigger, outcome, bmc_host, detail, active_jobs}`. Helm:
+`collectors.ome.idracReset`.
 
 **Has never been run against a live appliance.** The hardware half
 reuses `app.infrastructure.providers.redfish`'s mapping, so it inherits

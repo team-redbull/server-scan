@@ -300,6 +300,11 @@ long form of each entry is in the 2026-09-13 archive.
   Nothing in `oc get prometheusrule` shows which. Verify every series name a rule uses against the evaluator, and
   assume every series is duplicated per HA replica in the central store: dashboards reduce with
   `max without (prometheus, prometheus_replica)` before any sum or join.
+- **The `OPENMANAGE` collector run can restart an iDRAC** (ADR-0050): a reachable Dell whose every disk or every
+  NIC reads UNKNOWN, after its job queue is idle, via `BmcResetService` inside `IngestService.ingest()` (never
+  `ingest_one`, never `--dry-run`, never the API pod). Report-only until `collectors.ome.idracReset.reportOnly: false`;
+  the 12 h cooldown is read from the newest `IDRAC_RESET` audit event, so do not add a stored field for it. An
+  unfinished job blocks and so does an unknown `JobState`; `Scheduled` does not. `RedfishClient.post` never retries.
 - **Audit events are deleted weekly by `tools.prune_events`** (`collectors.auditRetention`, ADR-0045):
   180 days by default, **report-only until `reportOnly: false`**, any event type (`SERVER_PRUNED`
   included), one `AUDIT_PURGED` event per purge (also a partial one, `complete: false`). `created_at` is
@@ -385,7 +390,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049.
+  CI parallel tests and image prebuild 0049; iDRAC reset on all-UNKNOWN disks/NICs 0050.
 
 ## Verifying your work
 
@@ -450,15 +455,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-25 — CI 6m11s to 2m21s (measured): tests do not sleep or wait for a poll, pytest runs `-n 4`, images prebuild in parallel (ADR-0049).**
-Moved to `docs/notes/session-log.md`: the all-UNKNOWN NICs/disks unit.
+**2026-10-28 — the OPENMANAGE collector restarts the iDRAC of a Dell server whose disks or NICs are all UNKNOWN; `CLASSIFICATION_CHANGED` carries the rename (ADR-0050).**
+Moved to `docs/notes/session-log.md`: the CI speed-up unit (ADR-0049).
 
-**Shipped:** `_no_backoff` in `test_redfish_collector.py` and a 0.01 s `serve_forever` poll in `RedfishFixture`
-(131 s to 51 s sequential locally, 18 s with `-n 4`); per-worker Mongo/Redis in `tests/conftest.py`;
-`pytest-xdist==3.8.0`; coverage only on `main`; health checks every 1 s; the Playwright cache keyed on its version;
-a main-only `prebuild` job that `publish` needs. Also on `main` the same session: the Sites "unknown" link and
-Fleet hover, and the Include/Hide/Only maintenance control (ADR-0046 update), the setuptools and npm audit fixes.
+**Shipped:** `BmcResetService` (called from `IngestService.ingest()`), `reset_trigger`, `IdracResetter` over a new
+never-retrying `RedfishClient.post`, `EventType.IDRAC_RESET`, `INVENTORY_IDRAC_RESET_*` / Helm
+`collectors.ome.idracReset` (report-only, 12 h, 10 per run), `name_from`/`name_to` on `CLASSIFICATION_CHANGED`, the
+Events UI sentence, unit tests plus `tests/integration/test_ingest_idrac_reset.py`.
 
-**Open:** E2E (86 s, of which 22 s is pulling and starting Mongo/Redis) is now the longest job and the next
-target; test is 80 s, publish 36 s; the 3D datacenter proof of concept lives only on
-the `datacenter-3d` branch.
+**Open:** nothing has touched a real iDRAC. Before `reportOnly: false`, read a real run's `idrac_reset.not_sent`
+lines and confirm the `JobState` values, that `$expand=*($levels=1)` on `/redfish/v1/JobService/Jobs` is honoured, and
+that the shared account holds Configure Manager. The seeded fake fleet has no all-UNKNOWN Dell (convention 10: not added).

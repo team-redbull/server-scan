@@ -57,6 +57,7 @@ async def test_events_are_never_updatable_or_deletable_via_this_repository() -> 
         "list_page",
         "list_actors",
         "count_by_provider_since",
+        "has_event_since",
         "rename_legacy_event_types",
         "audit_stats",
         "count_by_actor",

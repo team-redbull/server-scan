@@ -16,6 +16,7 @@ export const WRITTEN_EVENT_TYPES = [
   "SERVER_RESERVED",
   "SERVER_RESERVATION_REFUSED",
   "SERVER_RELEASED",
+  "IDRAC_RESET",
   "AUDIT_PURGED",
   "LOGIN_SUCCEEDED",
   "LOGIN_DENIED",
@@ -37,6 +38,26 @@ function paren(value: unknown): string {
 
 function change(label: string, data: Record<string, unknown>): string {
   return `${label} ${str(data.from) ?? "?"} -> ${str(data.to) ?? "?"}`;
+}
+
+const RESET_TRIGGER: Record<string, string> = {
+  disks: "every disk",
+  nics: "every NIC",
+  both: "every disk and every NIC",
+};
+
+/** The sentence for an IDRAC_RESET event: what triggered it and how the restart went. */
+function idracReset(d: Record<string, unknown>): string {
+  const why = `${RESET_TRIGGER[str(d.trigger) ?? ""] ?? "disks or NICs"} UNKNOWN`;
+  const detail = str(d.detail);
+  switch (str(d.outcome)) {
+    case "requested":
+      return `iDRAC restart requested: ${why}`;
+    case "unconfirmed":
+      return `iDRAC restart sent, no reply (the iDRAC dropped the connection): ${why}`;
+    default:
+      return `iDRAC restart failed${detail ? ` (${detail})` : ""}: ${why}`;
+  }
 }
 
 export interface HealthReason {
@@ -114,8 +135,15 @@ export function describeEvent(event: AuditEventResponse): string {
       return `Purged ${count(d.deleted)} audit events older than ${count(d.retention_days)} days`;
     case "HEALTH_CHANGED":
       return transition(d);
-    case "CLASSIFICATION_CHANGED":
-      return change("Classification", d);
+    case "CLASSIFICATION_CHANGED": {
+      const renamed =
+        str(d.name_from) && str(d.name_to)
+          ? ` (renamed ${str(d.name_from)} -> ${str(d.name_to)})`
+          : "";
+      return `${change("Classification", d)}${renamed}`;
+    }
+    case "IDRAC_RESET":
+      return idracReset(d);
     case "OPENSHIFT_STATE_CHANGED":
       return `${change("OpenShift state", d)}${paren(d.cluster_name)}`;
     case "MAINTENANCE_ENABLED":

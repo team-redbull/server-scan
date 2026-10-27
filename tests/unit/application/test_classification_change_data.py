@@ -41,3 +41,21 @@ def test_event_data_is_readable_and_drops_the_rule_id() -> None:
         "matched_field": "name",
         "matched_pattern": "^ocp4-hypershift",
     }
+
+
+def test_a_rename_in_the_same_ingest_adds_the_old_and_new_name() -> None:
+    c = classification_from_result(_result(), previous_version=0)
+    data = classification_changed_data(
+        InstallationType.UNCLASSIFIED, c, name_from="srv-old", name_to="ocp4-hypershift-01"
+    )
+    assert data["name_from"] == "srv-old"
+    assert data["name_to"] == "ocp4-hypershift-01"
+
+
+def test_an_unchanged_name_adds_no_name_keys() -> None:
+    c = classification_from_result(_result(), previous_version=0)
+    data = classification_changed_data(
+        InstallationType.UNCLASSIFIED, c, name_from="same", name_to="same"
+    )
+    assert "name_from" not in data
+    assert "name_to" not in data

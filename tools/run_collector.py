@@ -26,11 +26,12 @@ import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 
 from app.application.services.audit_service import AuditService
+from app.application.services.bmc_reset_service import BmcResetService
 from app.application.services.classification_service import ClassificationService
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService, IngestSummary
@@ -38,6 +39,7 @@ from app.config import get_settings
 from app.config.settings import Settings
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager, ManagerRun
+from app.domain.ports.bmc_reset import BmcResetPolicy
 from app.domain.ports.credentials import (
     CredentialResolver,
     ManagerConnection,
@@ -71,10 +73,12 @@ from app.infrastructure.providers.factory import (
     manager_for,
     resolve_name_pattern,
 )
+from app.infrastructure.providers.redfish.idrac_reset import IdracResetter
 from app.infrastructure.providers.redfish.provider import (
     AUTH_REJECTED_MARKER,
     UNREACHABLE_MARKER,
 )
+from app.infrastructure.providers.redfish.targets import RedfishCredential
 from app.utils.timeutil import utcnow
 
 # Construction moved to `app.infrastructure.providers.factory` (ADR-0032);
@@ -370,6 +374,52 @@ def _is_benign_collection_error(message: str) -> bool:
             human looking at across many hosts.
     """
     return any(marker in message for marker in _BENIGN_COLLECTION_ERROR_MARKERS)
+
+
+def _bmc_reset_service(
+    manager_type: ManagerType, settings: Settings, audit: AuditService
+) -> BmcResetService | None:
+    """
+    Build the iDRAC reset step for a run, or `None` when this run must not reset anything.
+
+    Only `OPENMANAGE` qualifies (its shared iDRAC login is the one that may restart a BMC),
+    and `INVENTORY_IDRAC_RESET_MAX_PER_RUN=0` switches it off (ADR-0050).
+
+    Args:
+        manager_type (ManagerType): The collector this process runs.
+        settings (Settings): The login, TLS, timeout and reset limits.
+        audit (AuditService): The audit trail, which doubles as the cooldown ledger.
+
+    Returns:
+        BmcResetService | None: The service, or `None`.
+    """
+    if (
+        manager_type is not ManagerType.OPENMANAGE
+        or settings.idrac_reset_max_per_run == 0
+        or not settings.ome_bmc_username
+    ):
+        return None
+    return BmcResetService(
+        resetter=IdracResetter(
+            credential=RedfishCredential(
+                name="ome-bmc",
+                username=settings.ome_bmc_username,
+                password=settings.ome_bmc_password.get_secret_value(),
+            ),
+            port=settings.ome_bmc_port,
+            verify_tls=settings.ome_bmc_verify_tls,
+            ca_bundle=settings.redfish_ca_bundle or None,
+            connect_timeout=settings.redfish_connect_timeout_seconds,
+            read_timeout=settings.redfish_read_timeout_seconds,
+            tls_min_version=settings.redfish_tls_min_version,
+        ),
+        audit=audit,
+        policy=BmcResetPolicy(
+            report_only=settings.idrac_reset_report_only,
+            cooldown=timedelta(hours=settings.idrac_reset_cooldown_hours),
+            max_per_run=settings.idrac_reset_max_per_run,
+        ),
+    )
 
 
 async def _record_run(
@@ -754,6 +804,7 @@ async def _run(
                 match_timeout_seconds=settings.regex_match_timeout_seconds,
             )
             server_repo = MongoServerRepository(mongo, cursor_secret=settings.cursor_secret)
+            audit = AuditService(repo=MongoAuditEventRepository(mongo))
             ingest_service = IngestService(
                 server_repo=server_repo,
                 site_repo=MongoSiteRepository(mongo),
@@ -766,7 +817,8 @@ async def _run(
                 health_service=HealthPolicyService(
                     policy_repo=policy_repo, registry=build_default_registry()
                 ),
-                audit=AuditService(repo=MongoAuditEventRepository(mongo)),
+                audit=audit,
+                bmc_reset=_bmc_reset_service(manager_type, settings, audit),
             )
             run_start = time.monotonic()
             run_started_at = utcnow()

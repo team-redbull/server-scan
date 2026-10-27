@@ -29,7 +29,11 @@ class Classification(BaseModel):
 
 
 def classification_changed_data(
-    previous: InstallationType, classification: Classification
+    previous: InstallationType,
+    classification: Classification,
+    *,
+    name_from: str | None = None,
+    name_to: str | None = None,
 ) -> dict[str, str | None]:
     """
     Build the `CLASSIFICATION_CHANGED` event data, in words a user can read.
@@ -37,14 +41,21 @@ def classification_changed_data(
     Args:
         previous (InstallationType): The installation type before the change.
         classification (Classification): The new classification.
+        name_from (str | None): The server's name before, when it was renamed in the same ingest.
+        name_to (str | None): The server's name now, when it was renamed in the same ingest.
 
     Returns:
-        dict[str, str | None]: from/to plus the matched rule's name, field and pattern.
+        dict[str, str | None]: from/to plus the matched rule's name, field and pattern,
+            and `name_from`/`name_to` only for a rename.
     """
-    return {
+    data: dict[str, str | None] = {
         "from": previous.value,
         "to": classification.installation_type.value,
         "matched_rule": classification.matched_rule_name,
         "matched_field": classification.matched_field,
         "matched_pattern": classification.matched_pattern,
     }
+    if name_from is not None and name_to is not None and name_from != name_to:
+        data["name_from"] = name_from
+        data["name_to"] = name_to
+    return data

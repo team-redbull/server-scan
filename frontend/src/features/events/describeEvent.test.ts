@@ -48,6 +48,31 @@ describe("describeEvent", () => {
       "Classification UPI -> HOSTED",
     ],
     [
+      "CLASSIFICATION_CHANGED",
+      {
+        from: "UNCLASSIFIED",
+        to: "UPI",
+        name_from: "srv-1",
+        name_to: "ocp4-1",
+      },
+      "Classification UNCLASSIFIED -> UPI (renamed srv-1 -> ocp4-1)",
+    ],
+    [
+      "IDRAC_RESET",
+      { trigger: "both", outcome: "requested" },
+      "iDRAC restart requested: every disk and every NIC UNKNOWN",
+    ],
+    [
+      "IDRAC_RESET",
+      { trigger: "nics", outcome: "unconfirmed" },
+      "iDRAC restart sent, no reply (the iDRAC dropped the connection): every NIC UNKNOWN",
+    ],
+    [
+      "IDRAC_RESET",
+      { trigger: "disks", outcome: "failed", detail: "403" },
+      "iDRAC restart failed (403): every disk UNKNOWN",
+    ],
+    [
       "OPENSHIFT_STATE_CHANGED",
       { from: "AVAILABLE", to: "INSTALLED", cluster_name: "ocp4-tlv" },
       "OpenShift state AVAILABLE -> INSTALLED (ocp4-tlv)",

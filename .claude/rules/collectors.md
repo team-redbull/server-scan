@@ -209,4 +209,8 @@ order — two of four vendors had no test target at all. Any new vendor gets
   next to an emptied list left a stale total or template forever, and an empty value on a failed read wipes stored
   data: both bit (SPT removal on Cisco; Redfish drive GET failures; Intersight board join). New mapper field: decide
   both cases and add them to `test_ingest_partial_reads.py`'s parametrized removed/unread pair.
+- **`OPENMANAGE` is the one collector that writes to a BMC** (ADR-0050, 2026-10-28): `IngestService.ingest()` hands each
+  persisted server to `BmcResetService`, which may `POST Manager.Reset` to a Dell iDRAC whose server's disks or NICs are all
+  UNKNOWN. Report-only by default, job-queue check first, cooldown read from the audit trail. A new write to a BMC from a
+  collector needs the same four things: report-only, a cap, a cooldown and an audit event.
 

@@ -46,6 +46,7 @@ from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from app.application.services.audit_service import SYSTEM_INGEST_ACTOR, AuditService
+from app.application.services.bmc_reset_service import BmcResetService
 from app.application.services.pipeline import (
     classification_from_result,
     health_change_data,
@@ -518,6 +519,7 @@ class IngestService:
         classification_service: ClassificationService | None = None,
         health_service: HealthPolicyService | None = None,
         audit: AuditService | None = None,
+        bmc_reset: BmcResetService | None = None,
     ) -> None:
         """
         Initialize the service with its repositories and optional engines.
@@ -537,6 +539,8 @@ class IngestService:
                 health-evaluates each server as part of its ingest.
             audit (AuditService | None): When given, records
                 creation/classification/health transition events.
+            bmc_reset (BmcResetService | None): When given, `ingest()` restarts the iDRAC of a
+                server whose disks or NICs all read UNKNOWN (ADR-0050).
         """
         self._server_repo = server_repo
         self._sites = sites
@@ -546,6 +550,7 @@ class IngestService:
         self._classification_service = classification_service
         self._health_service = health_service
         self._audit = audit
+        self._bmc_reset = bmc_reset
 
     async def ingest(
         self,
@@ -587,10 +592,11 @@ class IngestService:
             await self._health_service.load_policies() if self._health_service is not None else []
         )
 
+        resets_left = self._bmc_reset.max_per_run if self._bmc_reset is not None else 0
         async for provider_server in provider.collect():
             summary.fetched += 1
             try:
-                _server, outcome = await self._ingest_one(
+                server, outcome = await self._ingest_one(
                     provider_server,
                     provider_type=provider.provider_type,
                     ruleset=ruleset,
@@ -612,6 +618,13 @@ class IngestService:
                 summary.unchanged += 1
             else:
                 summary.updated += 1
+
+            if (
+                self._bmc_reset is not None
+                and resets_left > 0
+                and await self._bmc_reset.maybe_reset(server)
+            ):
+                resets_left -= 1
 
         logger.info(
             "ingest.completed",
@@ -855,7 +868,10 @@ class IngestService:
                 server_id=server.id,
                 server_name=server.name,
                 data=classification_changed_data(
-                    existing.classification.installation_type, server.classification
+                    existing.classification.installation_type,
+                    server.classification,
+                    name_from=existing.name,
+                    name_to=server.name,
                 ),
             )
 

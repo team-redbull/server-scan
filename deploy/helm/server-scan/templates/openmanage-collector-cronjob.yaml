@@ -58,6 +58,14 @@ spec:
                   value: {{ .Values.collectors.ome.bmcVerifyTls | quote }}
                 - name: INVENTORY_OME_BMC_PORT
                   value: {{ .Values.collectors.ome.bmcPort | quote }}
+                {{- /* Older platform values.yaml lack `idracReset`: read every key with hasKey (`default` treats false and 0 as empty). Absent means report-only, 12 h, 10 per run (ADR-0050). */}}
+                {{- $ir := .Values.collectors.ome.idracReset | default dict }}
+                - name: INVENTORY_IDRAC_RESET_REPORT_ONLY
+                  value: {{ ternary $ir.reportOnly true (hasKey $ir "reportOnly") | quote }}
+                - name: INVENTORY_IDRAC_RESET_COOLDOWN_HOURS
+                  value: {{ ternary $ir.cooldownHours 12 (hasKey $ir "cooldownHours") | quote }}
+                - name: INVENTORY_IDRAC_RESET_MAX_PER_RUN
+                  value: {{ ternary $ir.maxPerRun 10 (hasKey $ir "maxPerRun") | quote }}
                 # Shared with redfishStandalone, like caBundle above — the
                 # same iDRAC-facing Redfish pass, not a second set of knobs.
                 - name: INVENTORY_REDFISH_PCIE_GPU_DETECTION

@@ -46,6 +46,7 @@ from pymongo.asynchronous.collection import AsyncCollection
 from app.domain.models.audit_event import (
     LEGACY_EVENT_TYPES,
     AuditEvent,
+    EventType,
     decode_legacy_event_type,
 )
 from app.domain.ports.repository import ActorEventCount, AuditStats
@@ -482,6 +483,25 @@ class MongoAuditEventRepository:
             merged[key] = merged.get(key, 0) + row["n"]
         ranked = sorted(merged.items(), key=lambda item: (-item[1], item[0][1]))
         return [ActorEventCount(actor_type=t, actor=a, count=n) for (t, a), n in ranked]
+
+    async def has_event_since(self, event_type: EventType, server_id: str, since: datetime) -> bool:
+        """
+        Whether a server has an event of one type at or after a time.
+
+        Args:
+            event_type (EventType): The `event_type` to look for.
+            server_id (str): The server the event concerns.
+            since (datetime): Inclusive lower bound on `created_at`.
+
+        Returns:
+            bool: True when at least one matches.
+        """
+        query = {
+            "event_type": event_type.value,
+            "server_id": server_id,
+            "created_at": {"$gte": _iso(since)},
+        }
+        return await self._collection.find_one(query, projection={"_id": 1}) is not None
 
     async def count_by_provider_since(self, event_type: str, since: datetime) -> dict[str, int]:
         """
