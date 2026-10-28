@@ -107,6 +107,22 @@ async def test_pagination_covers_every_event_exactly_once(mongo_holder: MongoCli
     assert len(seen) == 25
 
 
+async def test_total_counts_the_filtered_events_on_the_first_page_only(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    repo = MongoAuditEventRepository(mongo_holder)
+    for _ in range(5):
+        await repo.record(_event(event_type=EventType.SERVER_CREATED))
+    await repo.record(_event(event_type=EventType.HEALTH_CHANGED))
+
+    first = await repo.list_page(event_type=EventType.SERVER_CREATED.value, page_size=2)
+    assert first.total == 5
+    second = await repo.list_page(
+        event_type=EventType.SERVER_CREATED.value, page_size=2, cursor=first.next_cursor
+    )
+    assert second.total is None
+
+
 async def test_malformed_cursor_raises_cursor_invalid(mongo_holder: MongoClientHolder) -> None:
     repo = MongoAuditEventRepository(mongo_holder)
     with pytest.raises(CursorInvalidError):

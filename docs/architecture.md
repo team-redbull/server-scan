@@ -1916,8 +1916,9 @@ an em dash for a missing value, "nothing failing" when empty) above the raw
 JSON, which keeps every reason; a legacy event with only `reasons` shows the TO
 section, one with neither shows the JSON alone), `describeEvent` builds
 the sentence from the `data` keys each backend writer records, and an
-unknown `event_type` falls back to its raw name. Both page by cursor with
-"Load more". The Events filters, in bar order, all in the URL: **Event
+unknown `event_type` falls back to its raw name. Both page by cursor behind a
+Previous / "Page N of M" / Next pager like `/servers` (the API adds `page.total`, the filtered count, to the
+first page only; a later page is fetched on Next and kept for Previous). The Events filters, in bar order, all in the URL: **Event
 type** (All, then the types the backend writes; an old
 `?event_type=HEALTH_STATUS_CHANGED` URL maps to `HEALTH_CHANGED`), **Server** (free text sent as `server_name`,
 a case-insensitive substring match done by the API, so `ocp-dell` lists

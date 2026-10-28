@@ -51,6 +51,8 @@ export interface EventPageInfo {
   next_cursor: string | null;
   has_more: boolean;
   page_size: number;
+  /** Matching events in all; set on the first page (no cursor) only. */
+  total?: number | null;
 }
 
 export interface AuditEventListResponse {

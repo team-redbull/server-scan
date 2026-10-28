@@ -124,6 +124,7 @@ class AuditEventPage:
     items: list[AuditEvent]
     next_cursor: str | None
     has_more: bool
+    total: int | None = None
 
 
 def _encode_cursor(created_at_iso: str, event_id: str) -> str:
@@ -334,7 +335,8 @@ class MongoAuditEventRepository:
 
         Returns:
             AuditEventPage: The matching page, its `next_cursor` (`None`
-                if this is the last page), and whether more remain.
+                if this is the last page), whether more remain, and, on the first page
+                only (no `cursor`), how many events match the filters in all.
         """
         query: dict[str, object] = {}
         if server_id is not None:
@@ -364,6 +366,10 @@ class MongoAuditEventRepository:
                     ]
                 }
             )
+        total: int | None = None
+        if cursor is None:
+            counted = {**query, "$and": clauses} if clauses else query
+            total = await self._collection.count_documents(counted)
         if cursor is not None:
             created_at_iso, event_id = _decode_cursor(cursor)
             clauses.append(
@@ -394,7 +400,7 @@ class MongoAuditEventRepository:
         next_cursor = (
             _encode_cursor(docs[-1]["created_at"], docs[-1]["_id"]) if has_more and docs else None
         )
-        return AuditEventPage(items=items, next_cursor=next_cursor, has_more=has_more)
+        return AuditEventPage(items=items, next_cursor=next_cursor, has_more=has_more, total=total)
 
     async def _server_ids_by_name(self, needle: str) -> list[str]:
         """

@@ -62,7 +62,7 @@ retry later, it does not mean no server is available).
 
 Auditor or admin token only.
 `GET /api/v1/events` - audit trail, newest first. Parameters: `server_id`, `server_name`,
-`event_type`, `actor_id`, `since`, `until` (ISO 8601), `cursor`, `page_size`.
+`event_type`, `actor_id`, `since`, `until` (ISO 8601), `cursor`, `page_size`. Response `page` is `{next_cursor, has_more, page_size, total}`; `total` (events matching the filters) is set on the first page only, null once a `cursor` is sent.
 `GET /api/v1/events/actors` - who has acted, with event counts (for the `actor_id` filter).
 `GET /api/v1/servers/{server_id}/events` - one server's history.
 Event: `id, event_type, server_id, server_name, actor{type,id,...}, request_id, created_at, data`.

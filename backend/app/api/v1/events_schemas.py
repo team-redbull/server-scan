@@ -29,6 +29,7 @@ class EventPageInfo(BaseModel):
     next_cursor: str | None
     has_more: bool
     page_size: int
+    total: int | None = None
 
 
 class AuditEventListResponse(BaseModel):

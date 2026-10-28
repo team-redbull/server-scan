@@ -165,7 +165,7 @@ export function EventsPage() {
         )}
       </div>
       <div className="mt-6">
-        <EventList query={query} showServer />
+        <EventList key={JSON.stringify(params)} query={query} showServer />
       </div>
     </main>
   );

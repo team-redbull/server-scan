@@ -89,11 +89,14 @@ describe("events UI", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain(
       "/api/v1/servers/srv_1/events",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("SERVER_CREATED")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Load more" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
   });
 
   it("History tab shows the empty state", async () => {

@@ -55,7 +55,10 @@ def _to_response(page: AuditEventPage, *, page_size: int) -> AuditEventListRespo
     return AuditEventListResponse(
         items=[AuditEventResponse.model_validate(e.model_dump()) for e in page.items],
         page=EventPageInfo(
-            next_cursor=page.next_cursor, has_more=page.has_more, page_size=page_size
+            next_cursor=page.next_cursor,
+            has_more=page.has_more,
+            page_size=page_size,
+            total=page.total,
         ),
     )
 
