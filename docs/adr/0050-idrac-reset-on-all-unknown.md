@@ -17,7 +17,7 @@ every time, so the iDRAC's own inventory service is what had gone stale.
 - **A write against a BMC, from the collector run.** After `IngestService` persists a server, an optional
   `BmcResetService` (`app.application.services.bmc_reset_service`) checks `reset_trigger(server)`
   (`app.domain.services.bmc_reset`): a **reachable Dell collected by `OPENMANAGE`** whose `storage.all_unknown`,
-  `network.all_unknown` or both is true. No power-state check: an iDRAC restart does not touch the host.
+  `network.all_unknown` or both is true. The trigger itself does not look at power; the resetter does (below).
   `REDFISH_STANDALONE` is out of scope (its per-host logins are not known to hold the privilege).
 - **Same account as collection** (operator's call): `INVENTORY_OME_BMC_USERNAME`/`_PASSWORD`, which now needs the
   Configure Manager privilege to use this. The API pod still never holds it.
@@ -26,6 +26,17 @@ every time, so the iDRAC's own inventory service is what had gone stale.
   `RebootFailed`, `Scheduled`. An unknown or missing state blocks (it is treated as running). `Scheduled`, a
   change waiting for the next host reboot, does not block: it can sit for weeks, and an iDRAC restart does not
   cancel it. A skipped server is retried on the next run.
+- **A powered-off host is powered on first** (2026-10-28, operator's call: a host that is off reads all-UNKNOWN and
+  an iDRAC restart cannot fix that). After the job-queue check, `IdracResetter` reads the System's `PowerState`;
+  on `Off` it POSTs `ComputerSystem.Reset {"ResetType": "On"}` and polls until `On` (120 s), and only then restarts
+  the iDRAC. A host that does not come on in time is a `failed` event and the iDRAC is left alone. A host in
+  maintenance is never powered on (it may be off on purpose): `failed`, nothing sent. Report-only only logs
+  "would power the host on first". The event carries `powered_on`. Needs the Power Control privilege too.
+- **Resets never block the collection.** `IngestService.ingest()` only queues an eligible server (`_ResetWorker`);
+  one background task works the queue one server at a time, so a 120 s power-on wait delays later resets, not the
+  next server's ingest. The run's end waits for the queue for at most `maxPerRun` x 180 s, then logs
+  `idrac_reset.drain_timeout` and drops what is left (retried next run). The worker sees the server as it was
+  persisted, so a maintenance flag set seconds later is not seen.
 - **The restart** is `POST <iDRAC manager>/Actions/Manager.Reset {"ResetType": "GracefulRestart"}`, sent once.
   `RedfishClient.post` never retries (a replayed action runs twice), and a dropped connection after the POST is
   outcome `unconfirmed`, not a failure, because the iDRAC going down is what a restart does. The run does not

@@ -36,6 +36,7 @@ forward unchanged, or leave them at their zero value for a new server.
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -86,6 +87,7 @@ from app.domain.models.server import Identity, ProfileTemplate, Server
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
 from app.domain.ports.repository import ServerRepository
+from app.domain.services.bmc_reset import reset_trigger
 from app.domain.services.classification import ClassifiableServer
 from app.domain.services.health.evaluate import HealthState
 from app.domain.services.normalize import normalize_text
@@ -500,6 +502,62 @@ def _raid_from_dict(data: dict[str, object]) -> RaidCheck:
 _DEFAULT_GPU_CATALOG = GpuCatalog.from_spec("")
 
 
+_RESET_SECONDS_EACH = 180.0
+
+
+class _ResetWorker:
+    """Runs the iDRAC resets of one run off the collection loop, one at a time (ADR-0050)."""
+
+    def __init__(self, service: BmcResetService | None) -> None:
+        """
+        Start the worker when resets are enabled; otherwise every call is a no-op.
+
+        Args:
+            service (BmcResetService | None): The reset step, or `None` when this run has none.
+        """
+        self._service = service
+        self._left = service.max_per_run if service is not None else 0
+        self._queue: asyncio.Queue[Server] = asyncio.Queue()
+        self._task = asyncio.create_task(self._run()) if self._left > 0 else None
+
+    def offer(self, server: Server) -> None:
+        """
+        Queue a server for a reset check without waiting for it.
+
+        Args:
+            server (Server): The server as just persisted.
+        """
+        if self._task is not None and self._left > 0 and reset_trigger(server) is not None:
+            self._queue.put_nowait(server)
+
+    async def _run(self) -> None:
+        """
+        Work through the queue, spending the per-run cap as resets happen.
+
+        A power-on wait here delays only later resets, never the collection loop.
+        """
+        assert self._service is not None
+        while True:
+            server = await self._queue.get()
+            try:
+                if self._left > 0 and await self._service.maybe_reset(server):
+                    self._left -= 1
+            finally:
+                self._queue.task_done()
+
+    async def finish(self) -> None:
+        """Let queued resets finish within a bound, then stop the worker; never raises."""
+        if self._task is None or self._service is None:
+            return
+        bound = self._service.max_per_run * _RESET_SECONDS_EACH
+        try:
+            await asyncio.wait_for(self._queue.join(), timeout=bound)
+        except TimeoutError:
+            logger.warning("idrac_reset.drain_timeout", pending=self._queue.qsize())
+        finally:
+            self._task.cancel()
+
+
 class IngestService:
     """
     Runs a full provider ingest.
@@ -592,39 +650,37 @@ class IngestService:
             await self._health_service.load_policies() if self._health_service is not None else []
         )
 
-        resets_left = self._bmc_reset.max_per_run if self._bmc_reset is not None else 0
-        async for provider_server in provider.collect():
-            summary.fetched += 1
-            try:
-                server, outcome = await self._ingest_one(
-                    provider_server,
-                    provider_type=provider.provider_type,
-                    ruleset=ruleset,
-                    policies=policies,
-                    changed_paths=summary.changed_paths,
-                )
-            except Exception:
-                logger.exception(
-                    "ingest.server_failed",
-                    external_id=provider_server.external_id,
-                    vendor=provider_server.vendor,
-                )
-                summary.errors += 1
-                continue
+        resets = _ResetWorker(self._bmc_reset)
+        try:
+            async for provider_server in provider.collect():
+                summary.fetched += 1
+                try:
+                    server, outcome = await self._ingest_one(
+                        provider_server,
+                        provider_type=provider.provider_type,
+                        ruleset=ruleset,
+                        policies=policies,
+                        changed_paths=summary.changed_paths,
+                    )
+                except Exception:
+                    logger.exception(
+                        "ingest.server_failed",
+                        external_id=provider_server.external_id,
+                        vendor=provider_server.vendor,
+                    )
+                    summary.errors += 1
+                    continue
 
-            if outcome == "created":
-                summary.created += 1
-            elif outcome == "unchanged":
-                summary.unchanged += 1
-            else:
-                summary.updated += 1
+                if outcome == "created":
+                    summary.created += 1
+                elif outcome == "unchanged":
+                    summary.unchanged += 1
+                else:
+                    summary.updated += 1
 
-            if (
-                self._bmc_reset is not None
-                and resets_left > 0
-                and await self._bmc_reset.maybe_reset(server)
-            ):
-                resets_left -= 1
+                resets.offer(server)
+        finally:
+            await resets.finish()
 
         logger.info(
             "ingest.completed",

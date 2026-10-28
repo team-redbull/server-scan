@@ -84,6 +84,7 @@ async def test_a_requested_reset_is_audited_with_what_triggered_it() -> None:
         "bmc_host": "10.0.0.5",
         "detail": "",
         "active_jobs": [],
+        "powered_on": False,
     }
 
 

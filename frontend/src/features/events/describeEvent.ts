@@ -50,13 +50,14 @@ const RESET_TRIGGER: Record<string, string> = {
 function idracReset(d: Record<string, unknown>): string {
   const why = `${RESET_TRIGGER[str(d.trigger) ?? ""] ?? "disks or NICs"} UNKNOWN`;
   const detail = str(d.detail);
+  const on = d.powered_on === true ? "host powered on, " : "";
   switch (str(d.outcome)) {
     case "requested":
-      return `iDRAC restart requested: ${why}`;
+      return `${on}iDRAC restart requested: ${why}`;
     case "unconfirmed":
-      return `iDRAC restart sent, no reply (the iDRAC dropped the connection): ${why}`;
+      return `${on}iDRAC restart sent, no reply (the iDRAC dropped the connection): ${why}`;
     default:
-      return `iDRAC restart failed${detail ? ` (${detail})` : ""}: ${why}`;
+      return `${on}iDRAC restart failed${detail ? ` (${detail})` : ""}: ${why}`;
   }
 }
 

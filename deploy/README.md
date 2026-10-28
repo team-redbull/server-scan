@@ -672,7 +672,7 @@ writes its outcome onto the `Manager` document, which is what the
 `server_scan_collector_last_run_*` gauges above read.
 
 The `OPENMANAGE` run can also restart an iDRAC (never the host) whose server's every disk or every NIC reads
-UNKNOWN (ADR-0050). It is **report-only** until `collectors.ome.idracReset.reportOnly: false`: the collector
+UNKNOWN (ADR-0050); a host that is powered off is powered on first (not in maintenance). It is **report-only** until `collectors.ome.idracReset.reportOnly: false`: the collector
 log then carries `idrac_reset.not_sent` lines with `outcome=would_reset` (or `skipped_active_jobs` and the
 blocking job ids) and nothing is sent. `cooldownHours` (12) is the least time between restarts of one server and
 `maxPerRun` (10, `0` = off) the most a run does; each real attempt is an `IDRAC_RESET` event. It uses

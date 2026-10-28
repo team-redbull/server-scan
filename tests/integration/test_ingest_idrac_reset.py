@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from datetime import timedelta
 
@@ -101,3 +102,50 @@ async def test_the_run_cap_bounds_the_resets_and_the_cooldown_stops_the_next_run
         event_type=EventType.IDRAC_RESET.value, page_size=10
     )
     assert len(page.items) == 3
+
+
+async def test_a_slow_reset_does_not_hold_up_the_rest_of_the_collection(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    gate = asyncio.Event()
+
+    class _SlowResetter(_Resetter):
+        async def reset(self, server: Server, *, apply: bool) -> BmcResetResult:
+            await gate.wait()
+            return await super().reset(server, apply=apply)
+
+    audit = AuditService(repo=MongoAuditEventRepository(mongo_holder))
+    resetter = _SlowResetter()
+    service = IngestService(
+        sites=site_catalog(""),
+        server_repo=MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret"),
+        site_repo=MongoSiteRepository(mongo_holder),
+        manager_repo=MongoManagerRepository(mongo_holder),
+        audit=audit,
+        bmc_reset=BmcResetService(
+            resetter=resetter,
+            audit=audit,
+            policy=BmcResetPolicy(report_only=False, cooldown=timedelta(hours=12), max_per_run=5),
+        ),
+    )
+    run = asyncio.create_task(service.ingest(_Provider(*(_unknown_dell(i) for i in (1, 2, 3)))))
+    repo = MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret")
+
+    async def stored() -> int:
+        page = await repo.list_page(
+            filters={}, search=None, sort="name", sort_desc=False, cursor=None,
+            page_size=10, with_count=False,
+        )  # fmt: skip
+        return len(page.items)
+
+    for _ in range(100):
+        if await stored() == 3:
+            break
+        await asyncio.sleep(0.05)
+    assert await stored() == 3
+    assert not run.done()
+
+    gate.set()
+    summary = await run
+    assert summary.fetched == 3
+    assert len(resetter.hosts) == 3

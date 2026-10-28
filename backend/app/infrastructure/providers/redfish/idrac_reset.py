@@ -7,6 +7,8 @@ verified live: a report-only run reads the queue and logs what it would do.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -25,6 +27,7 @@ from app.infrastructure.providers.redfish.targets import RedfishCredential, Redf
 logger = structlog.get_logger(__name__)
 
 _MANAGERS = "/redfish/v1/Managers"
+_SYSTEMS = "/redfish/v1/Systems"
 _JOBS = "/redfish/v1/JobService/Jobs?$expand=*($levels=1)"
 # Anything else, including a missing state, blocks: an unknown job is treated as running.
 # `Scheduled` waits for the next host reboot and can sit for weeks, so it must not block.
@@ -48,6 +51,8 @@ class IdracResetter:
         read_timeout: float,
         tls_min_version: str = "TLSv1_2",
         client_factory: Callable[[RedfishTarget], RedfishClient] | None = None,
+        power_on_wait_seconds: float = 120.0,
+        poll_seconds: float = 5.0,
     ) -> None:
         """
         Bind the resetter to the iDRAC login and TLS settings. No I/O happens here.
@@ -61,7 +66,11 @@ class IdracResetter:
             read_timeout (float): Seconds to wait for a response body.
             tls_min_version (str): Minimum TLS version name.
             client_factory (Callable[[RedfishTarget], RedfishClient] | None): A test seam.
+            power_on_wait_seconds (float): How long to wait for a powered-on host to report `On`.
+            poll_seconds (float): Seconds between `PowerState` reads while waiting.
         """
+        self._power_on_wait = power_on_wait_seconds
+        self._poll_seconds = poll_seconds
         self._credential = credential
         self._port = port
         self._verify_tls = verify_tls
@@ -115,9 +124,30 @@ class IdracResetter:
                         "the iDRAC job queue is busy",
                         blocking,
                     )
+                system = await self._system_path(client)
+                off = await self._power_state(client, system) == "Off"
                 if not apply:
-                    return BmcResetResult(ResetOutcome.WOULD_RESET, host, "report-only")
-                return await self._post_reset(client, manager, host)
+                    return BmcResetResult(
+                        ResetOutcome.WOULD_RESET,
+                        host,
+                        "report-only" + ("; would power the host on first" if off else ""),
+                    )
+                powered_on = False
+                if off:
+                    if server.maintenance.enabled:
+                        return BmcResetResult(
+                            ResetOutcome.FAILED,
+                            host,
+                            "the host is powered off and in maintenance; not powering it on",
+                        )
+                    failure = await self._power_on(client, system, host)
+                    if failure is not None:
+                        return failure
+                    powered_on = True
+                result = await self._post_reset(client, manager, host)
+                return BmcResetResult(
+                    result.outcome, result.bmc_host, result.detail, powered_on=powered_on
+                )
         except RedfishForbiddenError as exc:
             return BmcResetResult(
                 ResetOutcome.FAILED, host, f"the iDRAC account is forbidden: {exc}"
@@ -146,6 +176,67 @@ class IdracResetter:
         if not members:
             raise RedfishError(f"{_MANAGERS} lists no Manager")
         return next((m for m in members if "idrac" in m.lower()), members[0])
+
+    async def _system_path(self, client: RedfishClient) -> str:
+        """
+        Find the host's ComputerSystem resource.
+
+        Args:
+            client (RedfishClient): An open session.
+
+        Returns:
+            str: The first System's `@odata.id`.
+
+        Raises:
+            RedfishError: If the BMC lists no System.
+        """
+        for member in (await client.get(_SYSTEMS)).get("Members", []):
+            if isinstance(member, dict) and isinstance(member.get("@odata.id"), str):
+                return member["@odata.id"]
+        raise RedfishError(f"{_SYSTEMS} lists no System")
+
+    async def _power_state(self, client: RedfishClient, system: str) -> str | None:
+        """
+        Read the host's `PowerState`.
+
+        Args:
+            client (RedfishClient): An open session.
+            system (str): The System's `@odata.id`.
+
+        Returns:
+            str | None: `On`, `Off`, ... or `None` when the BMC does not report it.
+        """
+        state = (await client.get(system)).get("PowerState")
+        return state if isinstance(state, str) else None
+
+    async def _power_on(
+        self, client: RedfishClient, system: str, host: str
+    ) -> BmcResetResult | None:
+        """
+        Power the host on and wait until it reports `On`.
+
+        Args:
+            client (RedfishClient): An open session.
+            system (str): The System's `@odata.id`.
+            host (str): The BMC address, for the result.
+
+        Returns:
+            BmcResetResult | None: A `FAILED` result when the host did not come on in time
+                (the iDRAC is then left alone), `None` once it is on.
+        """
+        await client.post(f"{system}/Actions/ComputerSystem.Reset", {"ResetType": "On"})
+        deadline = time.monotonic() + self._power_on_wait
+        while time.monotonic() < deadline:
+            await asyncio.sleep(self._poll_seconds)
+            if await self._power_state(client, system) == "On":
+                logger.warning("idrac_reset.powered_on", host=host)
+                return None
+        return BmcResetResult(
+            ResetOutcome.FAILED,
+            host,
+            f"the host did not report On within {self._power_on_wait:.0f}s of the power-on",
+            powered_on=True,
+        )
 
     async def _blocking_jobs(self, client: RedfishClient) -> tuple[str, ...]:
         """

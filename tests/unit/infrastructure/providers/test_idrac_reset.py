@@ -18,13 +18,22 @@ from app.infrastructure.providers.redfish.idrac_reset import IdracResetter
 from app.infrastructure.providers.redfish.targets import RedfishCredential, RedfishTarget
 
 MANAGER = "/redfish/v1/Managers/iDRAC.Embedded.1"
+SYSTEM = "/redfish/v1/Systems/System.Embedded.1"
+POWER_ON = (f"{SYSTEM}/Actions/ComputerSystem.Reset", {"ResetType": "On"})
+RESTART = (f"{MANAGER}/Actions/Manager.Reset", {"ResetType": "GracefulRestart"})
 
 
 class _FakeClient:
     """A scripted Redfish session that records every POST."""
 
-    def __init__(self, jobs: list[dict[str, Any]], post_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        jobs: list[dict[str, Any]],
+        post_error: Exception | None = None,
+        power: list[str] | None = None,
+    ) -> None:
         self._jobs = jobs
+        self._power = list(power or ["On"])
         self._post_error = post_error
         self.posts: list[tuple[str, dict[str, str]]] = []
 
@@ -35,6 +44,10 @@ class _FakeClient:
         return None
 
     async def get(self, path: str) -> dict[str, Any]:
+        if path == "/redfish/v1/Systems":
+            return {"Members": [{"@odata.id": SYSTEM}]}
+        if path == SYSTEM:
+            return {"PowerState": self._power.pop(0) if len(self._power) > 1 else self._power[0]}
         assert path == "/redfish/v1/Managers"
         return {
             "Members": [
@@ -79,6 +92,8 @@ def _resetter(client: _FakeClient) -> IdracResetter:
         connect_timeout=1,
         read_timeout=1,
         client_factory=factory,
+        power_on_wait_seconds=1,
+        poll_seconds=0.01,
     )
 
 
@@ -149,4 +164,45 @@ async def test_a_server_without_a_bmc_host_fails_before_any_connection() -> None
     result = await _resetter(client).reset(_server(host=None), apply=True)
 
     assert result.outcome is ResetOutcome.FAILED
+    assert client.posts == []
+
+
+async def test_a_powered_off_host_is_powered_on_before_the_idrac_restart() -> None:
+    client = _FakeClient([], power=["Off", "Off", "On"])
+
+    result = await _resetter(client).reset(_server(), apply=True)
+
+    assert result.outcome is ResetOutcome.REQUESTED
+    assert result.powered_on is True
+    assert client.posts == [POWER_ON, RESTART]
+
+
+async def test_a_host_that_never_comes_on_leaves_the_idrac_alone() -> None:
+    client = _FakeClient([], power=["Off"])
+
+    result = await _resetter(client).reset(_server(), apply=True)
+
+    assert result.outcome is ResetOutcome.FAILED
+    assert result.powered_on is True
+    assert client.posts == [POWER_ON]
+
+
+async def test_a_powered_off_host_in_maintenance_is_not_powered_on() -> None:
+    client = _FakeClient([], power=["Off"])
+    server = _server()
+    server.maintenance.enabled = True
+
+    result = await _resetter(client).reset(server, apply=True)
+
+    assert result.outcome is ResetOutcome.FAILED
+    assert client.posts == []
+
+
+async def test_report_only_never_powers_a_host_on() -> None:
+    client = _FakeClient([], power=["Off"])
+
+    result = await _resetter(client).reset(_server(), apply=False)
+
+    assert result.outcome is ResetOutcome.WOULD_RESET
+    assert "power the host on" in result.detail
     assert client.posts == []
