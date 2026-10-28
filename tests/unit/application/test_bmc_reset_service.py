@@ -85,6 +85,7 @@ async def test_a_requested_reset_is_audited_with_what_triggered_it() -> None:
         "detail": "",
         "active_jobs": [],
         "powered_on": False,
+        "power_state": None,
     }
 
 

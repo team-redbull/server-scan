@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import structlog
@@ -125,12 +126,14 @@ class IdracResetter:
                         blocking,
                     )
                 system = await self._system_path(client)
-                off = await self._power_state(client, system) == "Off"
+                state = await self._power_state(client, system)
+                off = state == "Off"
                 if not apply:
                     return BmcResetResult(
                         ResetOutcome.WOULD_RESET,
                         host,
                         "report-only" + ("; would power the host on first" if off else ""),
+                        power_state=state,
                     )
                 powered_on = False
                 if off:
@@ -139,14 +142,19 @@ class IdracResetter:
                             ResetOutcome.FAILED,
                             host,
                             "the host is powered off and in maintenance; not powering it on",
+                            power_state=state,
                         )
                     failure = await self._power_on(client, system, host)
                     if failure is not None:
-                        return failure
+                        return replace(failure, power_state=state)
                     powered_on = True
                 result = await self._post_reset(client, manager, host)
                 return BmcResetResult(
-                    result.outcome, result.bmc_host, result.detail, powered_on=powered_on
+                    result.outcome,
+                    result.bmc_host,
+                    result.detail,
+                    powered_on=powered_on,
+                    power_state=state,
                 )
         except RedfishForbiddenError as exc:
             return BmcResetResult(

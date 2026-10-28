@@ -47,6 +47,8 @@ class BmcResetResult:
         detail (str): A short reason, for the audit event and the log.
         active_jobs (tuple[str, ...]): `Id (JobState)` of each job that blocked the reset.
         powered_on (bool): True when the host was off and was powered on before the restart.
+        power_state (str | None): The host's `PowerState` read before anything was sent, `None`
+            when it could not be read.
     """
 
     outcome: ResetOutcome
@@ -54,6 +56,7 @@ class BmcResetResult:
     detail: str = ""
     active_jobs: tuple[str, ...] = ()
     powered_on: bool = False
+    power_state: str | None = None
 
 
 class BmcResetter(Protocol):

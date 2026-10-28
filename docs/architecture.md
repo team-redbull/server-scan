@@ -1696,7 +1696,7 @@ queue and, if nothing is unfinished, `POST Manager.Reset {"ResetType": "Graceful
 the host does not (a host reading `PowerState: Off` is first powered on with `ComputerSystem.Reset {"ResetType":
 "On"}` and awaited for up to 120 s; one in maintenance is left off), and the next run reads the recovered status. Report-only by default; a 12 h cooldown (read
 from the audit trail), 10 per run and the same shared iDRAC login (now needing Configure Manager) bound it; each
-attempt is an `IDRAC_RESET` event `{trigger, outcome, bmc_host, detail, active_jobs, powered_on}`. Helm:
+attempt is an `IDRAC_RESET` event `{trigger, outcome, bmc_host, detail, active_jobs, powered_on, power_state}`. Helm:
 `collectors.ome.idracReset`.
 
 **Has never been run against a live appliance.** The hardware half

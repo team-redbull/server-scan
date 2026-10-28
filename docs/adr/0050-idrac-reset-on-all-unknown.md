@@ -31,7 +31,8 @@ every time, so the iDRAC's own inventory service is what had gone stale.
   on `Off` it POSTs `ComputerSystem.Reset {"ResetType": "On"}` and polls until `On` (120 s), and only then restarts
   the iDRAC. A host that does not come on in time is a `failed` event and the iDRAC is left alone. A host in
   maintenance is never powered on (it may be off on purpose): `failed`, nothing sent. Report-only only logs
-  "would power the host on first". The event carries `powered_on`. Needs the Power Control privilege too.
+  "would power the host on first". The event carries `power_state` (read before anything was sent) and `powered_on`, and the Events page says
+  "Host was already on: only the iDRAC restart", "Host was off: powered on, then iDRAC restart" or "power-on sent, iDRAC not restarted". Needs the Power Control privilege too.
 - **Resets never block the collection.** `IngestService.ingest()` only queues an eligible server (`_ResetWorker`);
   one background task works the queue one server at a time, so a 120 s power-on wait delays later resets, not the
   next server's ingest. The run's end waits for the queue for at most `maxPerRun` x 180 s, then logs

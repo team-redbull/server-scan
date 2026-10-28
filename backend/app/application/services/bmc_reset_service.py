@@ -71,6 +71,7 @@ class BmcResetService:
                 "detail": result.detail,
                 "active_jobs": list(result.active_jobs),
                 "powered_on": result.powered_on,
+                "power_state": result.power_state,
             }
             if result.outcome in (ResetOutcome.WOULD_RESET, ResetOutcome.SKIPPED_ACTIVE_JOBS):
                 logger.info("idrac_reset.not_sent", **fields)

@@ -64,6 +64,27 @@ describe("describeEvent", () => {
     ],
     [
       "IDRAC_RESET",
+      { trigger: "nics", outcome: "requested", power_state: "On", powered_on: false },
+      "Host was already on: only the iDRAC restart requested: every NIC UNKNOWN",
+    ],
+    [
+      "IDRAC_RESET",
+      { trigger: "nics", outcome: "requested", power_state: "Off", powered_on: true },
+      "Host was off: powered on, then iDRAC restart requested: every NIC UNKNOWN",
+    ],
+    [
+      "IDRAC_RESET",
+      {
+        trigger: "nics",
+        outcome: "failed",
+        power_state: "Off",
+        powered_on: true,
+        detail: "the host did not report On within 120s of the power-on",
+      },
+      "Host was off: power-on sent, iDRAC not restarted (the host did not report On within 120s of the power-on): every NIC UNKNOWN",
+    ],
+    [
+      "IDRAC_RESET",
       { trigger: "nics", outcome: "unconfirmed" },
       "iDRAC restart sent, no reply (the iDRAC dropped the connection): every NIC UNKNOWN",
     ],

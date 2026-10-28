@@ -103,6 +103,7 @@ async def test_an_idle_queue_posts_one_graceful_restart_to_the_idrac_manager() -
     result = await _resetter(client).reset(_server(), apply=True)
 
     assert result.outcome is ResetOutcome.REQUESTED
+    assert (result.powered_on, result.power_state) == (False, "On")
     assert result.bmc_host == "10.0.0.5"
     assert client.posts == [(f"{MANAGER}/Actions/Manager.Reset", {"ResetType": "GracefulRestart"})]
 
@@ -174,6 +175,7 @@ async def test_a_powered_off_host_is_powered_on_before_the_idrac_restart() -> No
 
     assert result.outcome is ResetOutcome.REQUESTED
     assert result.powered_on is True
+    assert result.power_state == "Off"
     assert client.posts == [POWER_ON, RESTART]
 
 
