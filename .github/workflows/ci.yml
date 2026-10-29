@@ -194,6 +194,8 @@ jobs:
     services:
       mongo:
         image: mongo:8
+        env:
+          GLIBC_TUNABLES: glibc.pthread.rseq=0
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
@@ -284,6 +286,8 @@ jobs:
     services:
       mongo:
         image: mongo:8
+        env:
+          GLIBC_TUNABLES: glibc.pthread.rseq=0
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
