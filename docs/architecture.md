@@ -1693,7 +1693,7 @@ variables. Full design: `docs/adr/0020-dell-identity-from-ome-hardware-
 from-redfish.md`; verified field facts: `docs/dell-collectors.md`.
 
 **It is also the one collector run that can write to a BMC** (ADR-0050). When a reachable server's every disk
-or every NIC reads UNKNOWN (`reset_trigger`), `BmcResetService` (fed through a background queue, so a slow one never delays the next server) has `IdracResetter` check the iDRAC's job
+or every NIC reads UNKNOWN (`reset_trigger`), `BmcResetService` (fed through a background queue worked by five concurrent workers, so a slow one never delays the next server) has `IdracResetter` check the iDRAC's job
 queue and, if nothing is unfinished, `POST Manager.Reset {"ResetType": "GracefulRestart"}`: the iDRAC restarts,
 the host does not (a host reading `PowerState: Off` is first powered on with `ComputerSystem.Reset {"ResetType":
 "On"}` and awaited for up to 120 s; one in maintenance is left off), and the next run reads the recovered status. Report-only by default; a 12 h cooldown (read

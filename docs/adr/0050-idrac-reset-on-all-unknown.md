@@ -34,8 +34,10 @@ every time, so the iDRAC's own inventory service is what had gone stale.
   "would power the host on first". The event carries `power_state` (read before anything was sent) and `powered_on`, and the Events page says
   "Host was already on: only the iDRAC restart", "Host was off: powered on, then iDRAC restart" or "power-on sent, iDRAC not restarted". Needs the Power Control privilege too.
 - **Resets never block the collection.** `IngestService.ingest()` only queues an eligible server (`_ResetWorker`);
-  one background task works the queue one server at a time, so a 120 s power-on wait delays later resets, not the
-  next server's ingest. The run's end waits for the queue for at most `maxPerRun` x 180 s, then logs
+  five background workers (`_RESET_CONCURRENCY`, distinct iDRACs) work the queue, so a 120 s power-on wait delays
+  neither the next server's ingest nor, beyond five at once, the other resets. A cap slot is reserved before a reset
+  and handed back when the server was in cooldown, so the per-run cap holds. The run's end waits for the queue for
+  at most `ceil(maxPerRun / 5)` x 180 s, then logs
   `idrac_reset.drain_timeout` and drops what is left (retried next run). The worker sees the server as it was
   persisted, so a maintenance flag set seconds later is not seen.
 - **The restart** is `POST <iDRAC manager>/Actions/Manager.Reset {"ResetType": "GracefulRestart"}`, sent once.

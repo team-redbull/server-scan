@@ -503,10 +503,11 @@ _DEFAULT_GPU_CATALOG = GpuCatalog.from_spec("")
 
 
 _RESET_SECONDS_EACH = 180.0
+_RESET_CONCURRENCY = 5
 
 
 class _ResetWorker:
-    """Runs the iDRAC resets of one run off the collection loop, one at a time (ADR-0050)."""
+    """Runs the iDRAC resets of one run off the collection loop, a few at a time (ADR-0050)."""
 
     def __init__(self, service: BmcResetService | None) -> None:
         """
@@ -518,7 +519,11 @@ class _ResetWorker:
         self._service = service
         self._left = service.max_per_run if service is not None else 0
         self._queue: asyncio.Queue[Server] = asyncio.Queue()
-        self._task = asyncio.create_task(self._run()) if self._left > 0 else None
+        self._tasks = (
+            [asyncio.create_task(self._run()) for _ in range(_RESET_CONCURRENCY)]
+            if self._left > 0
+            else []
+        )
 
     def offer(self, server: Server) -> None:
         """
@@ -527,35 +532,39 @@ class _ResetWorker:
         Args:
             server (Server): The server as just persisted.
         """
-        if self._task is not None and self._left > 0 and reset_trigger(server) is not None:
+        if self._tasks and self._left > 0 and reset_trigger(server) is not None:
             self._queue.put_nowait(server)
 
     async def _run(self) -> None:
         """
-        Work through the queue, spending the per-run cap as resets happen.
+        Work through the queue as one of `_RESET_CONCURRENCY` workers (ADR-0050).
 
-        A power-on wait here delays only later resets, never the collection loop.
+        A cap slot is reserved before the reset and handed back when none was needed.
         """
         assert self._service is not None
         while True:
             server = await self._queue.get()
             try:
-                if self._left > 0 and await self._service.maybe_reset(server):
+                if self._left > 0:
                     self._left -= 1
+                    if not await self._service.maybe_reset(server):
+                        self._left += 1
             finally:
                 self._queue.task_done()
 
     async def finish(self) -> None:
         """Let queued resets finish within a bound, then stop the worker; never raises."""
-        if self._task is None or self._service is None:
+        if not self._tasks or self._service is None:
             return
-        bound = self._service.max_per_run * _RESET_SECONDS_EACH
+        rounds = -(-self._service.max_per_run // _RESET_CONCURRENCY)
+        bound = rounds * _RESET_SECONDS_EACH
         try:
             await asyncio.wait_for(self._queue.join(), timeout=bound)
         except TimeoutError:
             logger.warning("idrac_reset.drain_timeout", pending=self._queue.qsize())
         finally:
-            self._task.cancel()
+            for task in self._tasks:
+                task.cancel()
 
 
 class IngestService:

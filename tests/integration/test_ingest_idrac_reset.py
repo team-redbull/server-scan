@@ -149,3 +149,43 @@ async def test_a_slow_reset_does_not_hold_up_the_rest_of_the_collection(
     summary = await run
     assert summary.fetched == 3
     assert len(resetter.hosts) == 3
+
+
+async def test_resets_run_in_parallel_and_the_cap_still_holds(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    started = 0
+    all_started = asyncio.Event()
+    gate = asyncio.Event()
+
+    class _ParallelResetter(_Resetter):
+        async def reset(self, server: Server, *, apply: bool) -> BmcResetResult:
+            nonlocal started
+            started += 1
+            if started == 3:
+                all_started.set()
+            await gate.wait()
+            return await super().reset(server, apply=apply)
+
+    audit = AuditService(repo=MongoAuditEventRepository(mongo_holder))
+    resetter = _ParallelResetter()
+    service = IngestService(
+        sites=site_catalog(""),
+        server_repo=MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret"),
+        site_repo=MongoSiteRepository(mongo_holder),
+        manager_repo=MongoManagerRepository(mongo_holder),
+        audit=audit,
+        bmc_reset=BmcResetService(
+            resetter=resetter,
+            audit=audit,
+            policy=BmcResetPolicy(report_only=False, cooldown=timedelta(hours=12), max_per_run=3),
+        ),
+    )
+    run = asyncio.create_task(service.ingest(_Provider(*(_unknown_dell(i) for i in range(1, 7)))))
+
+    await asyncio.wait_for(all_started.wait(), timeout=5)
+    assert not run.done()
+
+    gate.set()
+    await run
+    assert len(resetter.hosts) == 3
