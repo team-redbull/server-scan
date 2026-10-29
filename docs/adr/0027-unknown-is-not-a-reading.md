@@ -251,3 +251,12 @@ Consequences: `/servers/available` already excludes `UNKNOWN` (ADR-0032,
 pool too. A server with **no** interface listed (NIC read failed) is not
 covered; `?min_nic_macs=` remains that gate. Stored health changes on each
 server's next collection, one `HEALTH_CHANGED` event per flipped server.
+
+## Update (2026-10-29): every disk `UNKNOWN` no longer makes the server `UNKNOWN`
+
+Operator's call. Only `network.all_unknown` turns `overall` from `HEALTHY` into `UNKNOWN`. When
+`storage.all_unknown` is true and the storage category would be `HEALTHY`, `evaluate_health` reports the
+**storage** category as `UNKNOWN` (the health breakdown shows it unread) and leaves `overall` to the other
+categories, so the server stays `HEALTHY` and `/servers/available` no longer drops it for that reason. A real
+storage failure still wins. The iDRAC reset trigger (ADR-0050) reads the fact directly and is unchanged: it still
+fires on all-UNKNOWN disks.

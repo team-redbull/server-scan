@@ -200,6 +200,8 @@ def evaluate_health(
             )
         elif cat_evals:
             severity = HealthSeverity.HEALTHY
+            if cat == "storage" and facts.get("storage.all_unknown"):
+                severity = HealthSeverity.UNKNOWN  # shown as unread; overall is not judged by it
         else:
             severity = HealthSeverity.UNKNOWN
         categories[cat] = CategoryHealth(
@@ -207,10 +209,8 @@ def evaluate_health(
         )
 
     overall = max((c.severity for c in categories.values()), key=lambda s: HEALTH_SEVERITY_RANK[s])
-    if overall == HealthSeverity.HEALTHY and (
-        facts.get("network.all_unknown") or facts.get("storage.all_unknown")
-    ):
-        overall = HealthSeverity.UNKNOWN  # every NIC or every disk unread: no verdict to give
+    if overall == HealthSeverity.HEALTHY and facts.get("network.all_unknown"):
+        overall = HealthSeverity.UNKNOWN  # every NIC unread: no verdict to give
 
     return HealthState(
         overall=overall,

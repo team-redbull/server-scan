@@ -354,8 +354,9 @@ long form of each entry is in the 2026-09-13 archive.
   `(source_provider, BMC host)` (ADR-0037).
 - **Health: UNKNOWN is not a verdict** (ADR-0027): every fact counts only
   definite readings, or `TestUnknownIsNotAVerdict` fails. **Exception
-  (2026-10-21): every NIC link, or every drive health, UNKNOWN makes `overall`
-  UNKNOWN** (`*.all_unknown`; OneView exempt for NICs; a worse category still wins). **A category with no
+  (2026-10-21): every NIC link UNKNOWN makes `overall` UNKNOWN** (`network.all_unknown`; OneView
+  exempt; a worse category still wins). **Every drive health UNKNOWN (`storage.all_unknown`) only
+  makes the storage row UNKNOWN, overall is unaffected** (2026-10-29). **A category with no
   data read is `UNKNOWN` and its policies are skipped** (`<cat>.has_data`,
   2026-09-21): a new category needs a `has_data` fact, and a policy comparing
   against a total needs a `GT 0` guard. **A category exists only if

@@ -605,10 +605,12 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   a server with only its BMC read is `UNKNOWN` overall (every category
   `UNKNOWN`) rather than HEALTHY. One category read is enough for a
   verdict — `UNKNOWN` ranks lowest and never drags a server down, with one
-  exception: a server whose every listed NIC link state, or every listed
-  drive health, is `UNKNOWN` is `UNKNOWN` overall unless another category is
-  worse (`network.all_unknown` / `storage.all_unknown`; OneView is exempt
-  from the NIC half because it never reads links; ADR-0027, 2026-10-21).
+  exception: a server whose every listed NIC link state is `UNKNOWN` is
+  `UNKNOWN` overall unless another category is worse (`network.all_unknown`;
+  OneView is exempt because it never reads links; ADR-0027, 2026-10-21).
+  Every listed drive health `UNKNOWN` (`storage.all_unknown`) only turns the
+  **storage** row `UNKNOWN`; the server stays as healthy as its other
+  categories say (ADR-0027, 2026-10-29).
 - **`MAJOR` sits between `WARNING` and `CRITICAL`** (added 2026-09-06):
   redundancy is gone but the server is still serving, so the *next*
   failure takes it down — worth waking someone for in a way a degraded

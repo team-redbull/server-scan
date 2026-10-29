@@ -357,7 +357,7 @@ def test_evaluated_but_not_firing_category_is_healthy_not_unknown() -> None:
     assert state.categories["power"].severity == HealthSeverity.HEALTHY
 
 
-# --- All-unknown NICs / disks make the server UNKNOWN ---
+# --- All-unknown NICs make the server UNKNOWN; all-unknown disks only the storage row ---
 
 
 def _storage_policy() -> HealthPolicy:
@@ -383,10 +383,36 @@ def test_all_unknown_nics_turn_a_healthy_server_unknown() -> None:
     )
 
 
-def test_all_unknown_disks_turn_a_healthy_server_unknown() -> None:
-    assert _overall({"storage.failed_drive_count": 0, "storage.all_unknown": True}) == (
-        HealthSeverity.UNKNOWN
+def test_all_unknown_disks_show_storage_unknown_but_the_server_stays_healthy() -> None:
+    facts = {
+        "storage.failed_drive_count": 0,
+        "storage.all_unknown": True,
+        "connectivity.fabric_paths_down": 0,
+    }
+    state = evaluate_health(
+        facts,
+        [_storage_policy(), ONE_PATH_DOWN_WARNING],
+        REGISTRY,
+        vendor="dell",
+        manager_type=None,
+        site_id=None,
     )
+    assert state.categories["storage"].severity == HealthSeverity.UNKNOWN
+    assert state.categories["connectivity"].severity == HealthSeverity.HEALTHY
+    assert state.overall == HealthSeverity.HEALTHY
+
+
+def test_all_unknown_disks_never_hide_a_failure_in_another_category() -> None:
+    facts = {
+        "storage.failed_drive_count": 0,
+        "storage.all_unknown": True,
+        "connectivity.fabric_paths_down": 1,
+    }
+    state = evaluate_health(
+        facts, [_storage_policy(), ONE_PATH_DOWN_WARNING], REGISTRY,
+        vendor="dell", manager_type=None, site_id=None,
+    )  # fmt: skip
+    assert state.overall == HealthSeverity.WARNING
 
 
 def test_all_unknown_never_hides_a_real_failure() -> None:

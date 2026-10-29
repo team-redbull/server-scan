@@ -366,7 +366,7 @@ class TestNothingReadIsUnknown:
         state = self._state(
             _server(name="ocp4-nyc-10tb-01", drives=[StorageDrive(id="d0", capacity_bytes=None)])
         )
-        assert state.categories["storage"].severity == HealthSeverity.HEALTHY
+        assert not [e for e in state.evaluations if e.active]
 
     def test_nothing_read_anywhere_is_unknown_overall(self) -> None:
         state = self._state(_server())
@@ -379,10 +379,10 @@ class TestNothingReadIsUnknown:
         assert state.categories["network"].severity == HealthSeverity.UNKNOWN
         assert state.overall == HealthSeverity.HEALTHY
 
-    def test_drives_whose_health_was_never_read_make_overall_unknown(self) -> None:
+    def test_drives_whose_health_was_never_read_show_storage_unknown_not_the_server(self) -> None:
         state = self._state(_server(drives=[_drive(1 * _TB)]))
-        assert state.categories["storage"].severity == HealthSeverity.HEALTHY
-        assert state.overall == HealthSeverity.UNKNOWN
+        assert state.categories["storage"].severity == HealthSeverity.UNKNOWN
+        assert not [e for e in state.evaluations if e.active]
 
     def test_a_category_that_was_read_still_fires(self) -> None:
         state = self._state(
