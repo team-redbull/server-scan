@@ -447,9 +447,10 @@ itself; Dependabot was removed deliberately (ADR-0013).
 5. **ty:** pinned exactly (`ty==0.0.76`); on a bump expect diagnostics to move
    and read a new error as ty changing. Trust `ty check` over the docs, and a
    dependency bump can change output with no change to our code (ADR-0019).
-6. **Mongo on a new runner kernel:** `mongo:8` refuses to start on Linux 6.19+ (SERVER-121912, tcmalloc rseq);
-   both CI Mongo services set `GLIBC_TUNABLES=glibc.pthread.rseq=0` (community-confirmed, not in MongoDB's
-   docs). Drop it once the pinned `mongo:8` ships the fix.
+6. **Mongo on a new runner kernel:** `mongod` refuses to start on Linux 6.19+ (SERVER-121912, tcmalloc rseq), and
+   `ubuntu-latest` runners got that kernel on 2026-10-29. The two jobs with a Mongo service (`test`, `e2e`) run on
+   `ubuntu-22.04`; `GLIBC_TUNABLES=glibc.pthread.rseq=0` did not bypass the check. Move back to `ubuntu-latest`
+   once the pinned `mongo:8` ships the fix.
 
 ## Where to continue right now
 

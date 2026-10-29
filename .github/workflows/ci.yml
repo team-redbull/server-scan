@@ -189,13 +189,11 @@ jobs:
 
   test:
     name: Test (pytest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     services:
       mongo:
         image: mongo:8
-        env:
-          GLIBC_TUNABLES: glibc.pthread.rseq=0
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
@@ -281,13 +279,11 @@ jobs:
 
   e2e:
     name: E2E (Playwright)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     services:
       mongo:
         image: mongo:8
-        env:
-          GLIBC_TUNABLES: glibc.pthread.rseq=0
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
