@@ -88,9 +88,11 @@ Explicit user instructions; violating one is a real mistake, not style.
    on advisories published after your last green run with no code change.
    **Before every push, run the three audits locally** — they are the part of CI that
    fails with no code change, because an advisory landed since the last green run
-   (2026-10-06: pymongo CVEs, then `source-map-js` via `npm audit`, both failed a push of
-   an unrelated login change): `uv run --with pip-audit pip-audit --skip-editable`,
-   `uv run --with deptry==0.24.0 deptry . --known-first-party app` (CI's exact command), `cd frontend && npm audit`. **Fix, do not wait:** for a
+   (2026-10-06: pymongo CVEs, then `source-map-js` via `npm audit`; 2026-10-31: `pyasn1` 0.6.4, which a
+   `| tail` hid, so a push went red). **Judge each audit by its exit code (`; echo $?`), never by piped or truncated
+   output** (`pip-audit` prints the vulnerability table before the "skipped" table). The commands:
+   `uv run --with pip-audit pip-audit --skip-editable`,
+   `uv run --with deptry==0.24.0 deptry . --known-first-party app` (CI's exact command), `cd frontend && npm audit`. **Fix, do not wait** (a transitive dependency such as `pyasn1`: `uv lock --upgrade-package <name>`, then the same re-export): for a
    Python advisory raise the exact pin in `pyproject.toml` to the fix version (`uv lock`,
    `uv sync --all-groups`, then re-export `requirements.txt` and `pylock.toml`, see
    `docs/air-gap.md`) and rerun the tests; for npm run `npm audit fix` in `frontend/`
