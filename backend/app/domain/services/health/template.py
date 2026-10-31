@@ -21,7 +21,8 @@ MAX_RENDERED_LENGTH = 300
 MAX_LIST_ELEMENTS_RENDERED = 5
 
 _FIELD_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
-_ALLOWED_FORMAT_SPECS = re.compile(r"^$|^\.\d{1,2}f$|^d$|^,d$")
+_ALLOWED_FORMAT_SPECS = re.compile(r"^$|^\.\d{1,2}f$|^d$|^,d$|^(tb|gib|tib)$")
+_BYTE_UNITS = {"tb": (1000**4, "TB"), "gib": (1024**3, "GiB"), "tib": (1024**4, "TiB")}
 
 
 class TemplateValidationError(Exception):
@@ -71,6 +72,13 @@ def _coerce(value: object, format_spec: str) -> str:
         return ", ".join(str(v) for v in shown) + suffix
     if value is None:
         return "?"
+    if (
+        format_spec in _BYTE_UNITS
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+    ):
+        divisor, label = _BYTE_UNITS[format_spec]
+        return f"{value / divisor:.2f} {label}"
     if format_spec:
         try:
             return format(value, format_spec)

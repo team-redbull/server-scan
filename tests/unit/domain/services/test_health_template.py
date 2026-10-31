@@ -38,6 +38,9 @@ class TestValidateTemplate:
     def test_allows_decimal_format_spec(self) -> None:
         validate_template("{down:.2f}", {"down"})
 
+    def test_allows_byte_unit_specs(self) -> None:
+        validate_template("{a:tb} {a:gib} {a:tib}", {"a"})
+
     def test_rejects_too_many_fields(self) -> None:
         template = " ".join(f"{{f{i}}}" for i in range(11))
         with pytest.raises(TemplateValidationError, match="fields"):
@@ -52,6 +55,13 @@ class TestRenderTemplate:
     def test_substitutes_declared_fields(self) -> None:
         result = render_template("{down} of {total} paths down", {"down": 1, "total": 2})
         assert result == "1 of 2 paths down"
+
+    def test_byte_unit_specs_render_decimal_tb_and_binary_gib(self) -> None:
+        assert render_template("{a:tb}", {"a": 5 * 1000**4}) == "5.00 TB"
+        assert render_template("{a:gib}", {"a": 256 * 1024**3}) == "256.00 GiB"
+        assert render_template("{a:tib}", {"a": 1024**4}) == "1.00 TiB"
+        assert render_template("{a:tb}", {"a": None}) == "?"
+        assert render_template("{a:tb}", {"a": True}) == "True"
 
     def test_missing_evidence_key_renders_placeholder_not_crash(self) -> None:
         result = render_template("{down}", {})

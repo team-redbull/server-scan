@@ -562,6 +562,7 @@ of it.
 | 0048 | RAID 1 for the OS is a three-state verdict decided by the collector (present / absent / unknown; Redfish and Cisco UCS virtual drives): CRITICAL only where the vendor's tree is authoritative (Dell, HPE, UCS Manager); DGX software RAID and old BMCs are Unknown, never a fault |
 | 0049 | CI runs `pytest -n 4` (a Mongo and Redis database per xdist worker, no real sleeps or poll waits in the Redfish tests) and builds both images in a main-only `prebuild` job while the tests run, so a main run dropped from 6m11s to 2m21s (measured, first run) |
 | 0050 | The `OPENMANAGE` collector restarts the iDRAC (never the host) of a Dell server whose every disk or every NIC reads UNKNOWN, right after reading it: report-only by default, skipped while an iDRAC job is unfinished, 12 h cooldown per server and 10 per run (Helm `collectors.ome.idracReset`), each attempt an `IDRAC_RESET` audit event; `CLASSIFICATION_CHANGED` also carries `name_from`/`name_to` on a rename |
+| 0051 | A server rename is its own `SERVER_RENAMED` audit event (`name_from`/`name_to`); sizes display as decimal TB for storage and GiB for memory/VRAM, and policy templates gain `{x:tb}`/`{x:gib}`/`{x:tib}` format specs |
 
 ---
 

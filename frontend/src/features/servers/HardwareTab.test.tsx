@@ -27,20 +27,20 @@ describe("HardwareTab unread fields", () => {
     expect(screen.queryByText(/0 B total/)).not.toBeInTheDocument();
 
     expect(screen.getByText("Xeon E5-2690 v4")).toBeInTheDocument();
-    expect(screen.getByText(/256.0 GB total/)).toBeInTheDocument();
+    expect(screen.getByText(/256.0 GiB total/)).toBeInTheDocument();
   });
 
   it("keeps a carried-forward value visible, marked as unconfirmed", () => {
     const hardware = ilo4Hardware();
     hardware.storage = {
-      total_bytes: 2 * 1024 ** 4,
+      total_bytes: 2 * 1000 ** 4,
       drives: [
         {
           id: "d1",
           model: "MZ7LH3T8",
           serial: "DRIVE-1",
           media_type: "SSD",
-          capacity_bytes: 2 * 1024 ** 4,
+          capacity_bytes: 2 * 1000 ** 4,
           health: "HEALTHY",
           health_detail: null,
         },
@@ -204,24 +204,24 @@ describe("Storage's total, independent of per-drive detail", () => {
   it("shows a real total even when the drive list is empty", () => {
     // Regression: the total hid behind "No storage data." when drives were empty.
     const hardware = ilo4Hardware();
-    hardware.storage = { total_bytes: 4 * 1024 ** 4, drives: [] };
+    hardware.storage = { total_bytes: 4 * 1000 ** 4, drives: [] };
 
     render(<HardwareTab hardware={hardware} unreadFields={[]} />);
 
-    expect(screen.getByText(/4.0 TB total/)).toBeInTheDocument();
+    expect(screen.getByText(/4.00 TB total/)).toBeInTheDocument();
     expect(screen.getByText("No per-drive detail.")).toBeInTheDocument();
     expect(screen.queryByText(/No storage data/)).not.toBeInTheDocument();
   });
 
   it("still shows the total when only the drive list is unread", () => {
     const hardware = ilo4Hardware();
-    hardware.storage = { total_bytes: 4 * 1024 ** 4, drives: [] };
+    hardware.storage = { total_bytes: 4 * 1000 ** 4, drives: [] };
 
     render(
       <HardwareTab hardware={hardware} unreadFields={["hardware.storage.drives"]} />,
     );
 
-    expect(screen.getByText(/4.0 TB total/)).toBeInTheDocument();
+    expect(screen.getByText(/4.00 TB total/)).toBeInTheDocument();
     expect(screen.getByText("Not reported")).toBeInTheDocument();
   });
 });
@@ -230,14 +230,14 @@ describe("a component's health reason, alongside its severity", () => {
   it("shows a drive's raw health_detail next to its health badge", () => {
     const hardware = ilo4Hardware();
     hardware.storage = {
-      total_bytes: 4 * 1024 ** 4,
+      total_bytes: 4 * 1000 ** 4,
       drives: [
         {
           id: "d1",
           model: "MZ7LH3T8",
           serial: "DRIVE-1",
           media_type: "SSD",
-          capacity_bytes: 4 * 1024 ** 4,
+          capacity_bytes: 4 * 1000 ** 4,
           health: "CRITICAL",
           health_detail: "self-test-failed",
         },
@@ -252,14 +252,14 @@ describe("a component's health reason, alongside its severity", () => {
   it("shows nothing extra when there is no reason to show", () => {
     const hardware = ilo4Hardware();
     hardware.storage = {
-      total_bytes: 4 * 1024 ** 4,
+      total_bytes: 4 * 1000 ** 4,
       drives: [
         {
           id: "d1",
           model: "MZ7LH3T8",
           serial: "DRIVE-1",
           media_type: "SSD",
-          capacity_bytes: 4 * 1024 ** 4,
+          capacity_bytes: 4 * 1000 ** 4,
           health: "HEALTHY",
           health_detail: null,
         },
@@ -327,7 +327,7 @@ describe("a component's health reason, alongside its severity", () => {
     hardware.storage = {
       total_bytes: 0,
       drives: [
-        make("d1", "BIG", 4 * 1024 ** 4),
+        make("d1", "BIG", 4 * 1000 ** 4),
         make("d2", "UNREAD", null),
         make("d3", "SMALL", 480 * 1024 ** 3),
         make("d4", "MID", 960 * 1024 ** 3),

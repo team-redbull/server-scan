@@ -389,7 +389,7 @@ def default_system_policies() -> list[HealthPolicy]:
             EvidenceField(key="total", metric="storage.total_bytes"),
             EvidenceField(key="expected", metric="storage.name_capacity_bytes"),
         ],
-        message_template="{total} bytes of storage, but the name promises {expected}",
+        message_template="{total:tb} of storage, but the name promises {expected:tb}",
         scope=PolicyScope(),
         source="SYSTEM_DEFAULT",
         priority=100,

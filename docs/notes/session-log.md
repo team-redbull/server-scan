@@ -8,6 +8,18 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-10-28 — the OPENMANAGE collector restarts the iDRAC of a Dell server whose disks or NICs are all UNKNOWN; `CLASSIFICATION_CHANGED` carries the rename (ADR-0050).**
+Moved to `docs/notes/session-log.md`: the CI speed-up unit (ADR-0049).
+
+**Shipped:** `BmcResetService` (called from `IngestService.ingest()`), `reset_trigger`, `IdracResetter` over a new
+never-retrying `RedfishClient.post`, `EventType.IDRAC_RESET`, `INVENTORY_IDRAC_RESET_*` / Helm
+`collectors.ome.idracReset` (report-only, 12 h, 10 per run), `name_from`/`name_to` on `CLASSIFICATION_CHANGED`, the
+Events UI sentence, unit tests plus `tests/integration/test_ingest_idrac_reset.py`.
+
+**Open:** nothing has touched a real iDRAC. Before `reportOnly: false`, read a real run's `idrac_reset.not_sent`
+lines and confirm the `JobState` values, that `$expand=*($levels=1)` on `/redfish/v1/JobService/Jobs` is honoured, and
+that the shared account holds Configure Manager. The seeded fake fleet has no all-UNKNOWN Dell (convention 10: not added).
+
 **2026-10-25 — CI 6m11s to 2m21s (measured): tests do not sleep or wait for a poll, pytest runs `-n 4`, images prebuild in parallel (ADR-0049).**
 Moved to `docs/notes/session-log.md`: the all-UNKNOWN NICs/disks unit.
 

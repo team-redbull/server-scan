@@ -4,16 +4,24 @@ import { isHealthSeverity } from "@/components/severity";
 import { sortDrivesByCapacity } from "@/features/servers/drives";
 import type { ComponentHealth, HardwareInfo } from "@/types/server";
 
-const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
-
-function formatBytes(bytes: number): string {
+/** Memory and GPU VRAM are binary: GiB, or MiB below 1 GiB. */
+function formatMemory(bytes: number): string {
   if (bytes <= 0) {
     return "0 B";
   }
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), BYTE_UNITS.length - 1);
-  const value = bytes / 1024 ** exponent;
-  const unit = BYTE_UNITS[exponent] ?? "B";
-  return `${value.toFixed(exponent === 0 ? 0 : 1)} ${unit}`;
+  return bytes >= 1024 ** 3
+    ? `${(bytes / 1024 ** 3).toFixed(1)} GiB`
+    : `${(bytes / 1024 ** 2).toFixed(0)} MiB`;
+}
+
+/** Storage is decimal, as drives are sold and as a `-10tb` server name counts it. */
+function formatStorage(bytes: number): string {
+  if (bytes <= 0) {
+    return "0 B";
+  }
+  return bytes >= 1000 ** 4
+    ? `${(bytes / 1000 ** 4).toFixed(2)} TB`
+    : `${(bytes / 1000 ** 3).toFixed(1)} GB`;
 }
 
 /** A PSU's rated/real-time wattage, joined so a missing one never leaves a stray separator. */
@@ -68,7 +76,7 @@ export function HardwareTab({
         >
           {memory ? (
             <p className="mt-2 text-sm">
-              {formatBytes(memory.total_bytes)} total ({memory.modules.length} module
+              {formatMemory(memory.total_bytes)} total ({memory.modules.length} module
               {memory.modules.length === 1 ? "" : "s"})
             </p>
           ) : (
@@ -87,7 +95,7 @@ export function HardwareTab({
           empty={!storage || storage.total_bytes <= 0}
         >
           {storage ? (
-            <p className="mt-2 text-sm">{formatBytes(storage.total_bytes)} total</p>
+            <p className="mt-2 text-sm">{formatStorage(storage.total_bytes)} total</p>
           ) : (
             <p className="mt-2 text-sm text-gray-500">No storage data.</p>
           )}
@@ -114,7 +122,7 @@ export function HardwareTab({
                     <td className="py-1 pr-4">{drive.serial ?? "—"}</td>
                     <td className="py-1 pr-4">{drive.media_type}</td>
                     <td className="py-1 pr-4">
-                      {drive.capacity_bytes != null ? formatBytes(drive.capacity_bytes) : "—"}
+                      {drive.capacity_bytes != null ? formatStorage(drive.capacity_bytes) : "—"}
                     </td>
                     <td className="py-1 pr-4">
                       <Health value={drive.health} detail={drive.health_detail} />
@@ -159,7 +167,7 @@ export function HardwareTab({
                       <td className="py-1 pr-4">{gpu.serial ?? "—"}</td>
                       <td className="py-1 pr-4">{gpu.pci_address ?? "—"}</td>
                       <td className="py-1 pr-4">
-                        {gpu.memory_bytes != null ? formatBytes(gpu.memory_bytes) : "—"}
+                        {gpu.memory_bytes != null ? formatMemory(gpu.memory_bytes) : "—"}
                       </td>
                       <td className="py-1 pr-4">{gpu.memory_type ?? "—"}</td>
                       <td className="py-1 pr-4">

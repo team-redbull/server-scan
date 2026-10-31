@@ -391,7 +391,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; iDRAC reset on all-UNKNOWN disks/NICs 0050.
+  CI parallel tests and image prebuild 0049; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051.
 
 ## Verifying your work
 
@@ -460,14 +460,11 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-10-28 — the OPENMANAGE collector restarts the iDRAC of a Dell server whose disks or NICs are all UNKNOWN; `CLASSIFICATION_CHANGED` carries the rename (ADR-0050).**
-Moved to `docs/notes/session-log.md`: the CI speed-up unit (ADR-0049).
+**2026-11-01 — a server rename is its own `SERVER_RENAMED` audit event; storage shows as decimal TB, memory/VRAM as GiB, and policy templates gain `{x:tb}`/`{x:gib}`/`{x:tib}` (ADR-0051).**
+Moved to `docs/notes/session-log.md`: the iDRAC-reset unit (ADR-0050).
 
-**Shipped:** `BmcResetService` (called from `IngestService.ingest()`), `reset_trigger`, `IdracResetter` over a new
-never-retrying `RedfishClient.post`, `EventType.IDRAC_RESET`, `INVENTORY_IDRAC_RESET_*` / Helm
-`collectors.ome.idracReset` (report-only, 12 h, 10 per run), `name_from`/`name_to` on `CLASSIFICATION_CHANGED`, the
-Events UI sentence, unit tests plus `tests/integration/test_ingest_idrac_reset.py`.
+**Shipped:** `EventType.SERVER_RENAMED` from `IngestService._emit_transition_events`, the Events UI sentence and
+filter, byte-unit format specs in `health/template.py`, the `storage.name_capacity_mismatch` message in TB, the
+Hardware tab's `formatMemory`/`formatStorage` (it labelled base-1024 values KB..TB), tests, the API skill's event enum.
 
-**Open:** nothing has touched a real iDRAC. Before `reportOnly: false`, read a real run's `idrac_reset.not_sent`
-lines and confirm the `JobState` values, that `$expand=*($levels=1)` on `/redfish/v1/JobService/Jobs` is honoured, and
-that the shared account holds Configure Manager. The seeded fake fleet has no all-UNKNOWN Dell (convention 10: not added).
+**Open:** events written before this keep the "bytes" wording (append-only); the fake fleet never renames a server.
