@@ -29,6 +29,7 @@ const TYPE_TINT: [prefix: string, tint: string][] = [
   ["SERVER_RELEASED", "--tint-info"],
   ["OPENSHIFT_", "--tint-info"],
   ["CLASSIFICATION_", "--tint-major"],
+  ["SERVER_RENAMED", "--tint-info"],
   ["SERVER_CREATED", "--tint-healthy"],
 ];
 

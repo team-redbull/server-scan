@@ -926,6 +926,15 @@ class IngestService:
             )
             return
 
+        if server.name != existing.name:
+            await self._audit.record(
+                EventType.SERVER_RENAMED,
+                actor=SYSTEM_INGEST_ACTOR,
+                server_id=server.id,
+                server_name=server.name,
+                data={"name_from": existing.name, "name_to": server.name},
+            )
+
         if server.classification.installation_type != existing.classification.installation_type:
             await self._audit.record(
                 EventType.CLASSIFICATION_CHANGED,

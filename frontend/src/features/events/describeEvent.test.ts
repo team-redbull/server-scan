@@ -28,6 +28,11 @@ describe("describeEvent", () => {
   it.each([
     ["SERVER_CREATED", { vendor: "dell", name: "x" }, "Server discovered"],
     [
+      "SERVER_RENAMED",
+      { name_from: "ocp-a-5tb", name_to: "ocp-a-10tb" },
+      "Renamed ocp-a-5tb → ocp-a-10tb",
+    ],
+    [
       "SERVER_PRUNED",
       { reason: "r" },
       "Pruned: no longer listed by its manager",

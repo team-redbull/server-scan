@@ -6,6 +6,7 @@ import type { AuditEventResponse } from "@/types/events";
 /** The `event_type`s the backend actually writes, in filter-menu order. */
 export const WRITTEN_EVENT_TYPES = [
   "SERVER_CREATED",
+  "SERVER_RENAMED",
   "SERVER_PRUNED",
   "HEALTH_CHANGED",
   "CLASSIFICATION_CHANGED",
@@ -135,6 +136,8 @@ export function describeEvent(event: AuditEventResponse): string {
   switch (event.event_type) {
     case "SERVER_CREATED":
       return "Server discovered";
+    case "SERVER_RENAMED":
+      return `Renamed ${str(d.name_from) ?? "?"} → ${str(d.name_to) ?? "?"}`;
     case "SERVER_PRUNED":
       return "Pruned: no longer listed by its manager";
     case "LOGIN_SUCCEEDED":
