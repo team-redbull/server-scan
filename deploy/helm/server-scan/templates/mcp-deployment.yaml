@@ -1,0 +1,68 @@
+{{- $mcp := .Values.mcp | default dict }}
+{{- if $mcp.enabled }}
+{{- /*
+The MCP server (ADR-0054): the same image as the API with another command, no database,
+no credentials. It calls the API Service with the caller's own bearer token, so it can
+never see more than that token may. Reached only through the frontend's nginx at /mcp.
+*/ -}}
+{{- $port := $mcp.port | default 8090 }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-mcp
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-mcp
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: server-scan
+spec:
+  replicas: {{ $mcp.replicaCount | default 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-mcp
+        app.kubernetes.io/component: mcp
+        app.kubernetes.io/part-of: server-scan
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mcp
+          image: {{ include "serverScan.apiImage" . | quote }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          command: ["python", "-m", "tools.mcp_server", "--http"]
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+              protocol: TCP
+          env:
+            - name: INVENTORY_MCP_API_URL
+              value: {{ printf "http://%s-api:80" .Release.Name | quote }}
+            - name: INVENTORY_MCP_PORT
+              value: {{ $port | quote }}
+            # nginx forwards with `Host: <release>-mcp`, so only that name is accepted
+            # (the SDK's DNS-rebinding guard), whatever the Route's host is.
+            - name: INVENTORY_MCP_ALLOWED_HOSTS
+              value: {{ printf "%s-mcp,%s-mcp:80" .Release.Name .Release.Name | quote }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml ($mcp.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "256Mi"))) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+{{- end }}

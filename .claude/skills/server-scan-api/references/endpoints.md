@@ -11,6 +11,7 @@ mutations need the admin token. Generated from the app's own OpenAPI schema -
 - Events
 - Sites
 - Policies and rules
+- Skill
 - Auth and health
 - Write endpoints (admin only)
 
@@ -81,6 +82,16 @@ Use it to learn the valid `site_id` codes.
 `GET /api/v1/health-policies[?enabled=]`, `/{policy_id}`, `GET /api/v1/health-metrics` (what
 policies can test), `GET /api/v1/classification-rules[?enabled=]`, `/{rule_id}`. Read-only:
 they ship with the platform.
+
+## Skill
+
+`GET /api/v1/skill` - this skill's own files and metadata, read from disk per call: `{name, description,
+when_to_use, allowed_tools, version, updated_at, files: [{path, content}]}`. `GET /api/v1/skill/download?base_url=`
+- the same as a zip for `~/.claude/skills/`. Any role.
+
+A signed-in user's one personal token (a session cookie is required; a token cannot issue one):
+`GET/POST/DELETE /api/v1/auth/token` (POST returns the secret once). Admin: `GET /api/v1/auth/tokens`,
+`DELETE /api/v1/auth/tokens/{username}`. They answer 404 when login is off.
 
 ## Auth and health
 

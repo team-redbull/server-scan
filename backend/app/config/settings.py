@@ -46,6 +46,8 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173"]
     )
 
+    skill_dir: str | None = None
+
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "server-scan"
     mongo_connect_timeout_ms: int = 5_000
@@ -262,6 +264,7 @@ class Settings(BaseSettings):
     api_token_admin: SecretStr = SecretStr("")
     api_token_viewer: SecretStr = SecretStr("")
     api_token_auditor: SecretStr = SecretStr("")
+    personal_token_ttl_days: int = Field(default=90, ge=1, le=365)
 
     @field_validator("audit_retention_days")
     @classmethod

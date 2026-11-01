@@ -1,6 +1,6 @@
 ---
 name: server-scan-api
-description: Queries the Server Scan REST API to answer questions about the bare-metal server fleet - list or count servers by vendor, site, health, role, OpenShift cluster or availability, look up one server, read audit events, site overviews and health policies. Use whenever the user asks for servers ("all Dell servers in tlv", "which servers are available", "what changed on srv-12", "how many critical servers per site") or mentions Server Scan, the inventory API, or the fleet.
+description: Queries the Server Scan REST API to answer questions about the bare-metal server fleet - list or count servers by vendor, site, health, role, OpenShift cluster or availability, look up one server, read audit events, site overviews and health policies. Use whenever the user asks for servers ("all Dell servers in bat yam", "which servers are available", "what changed on server-12", "how many critical servers per site") or mentions Server Scan, the inventory API, or the fleet.
 when_to_use: Also for questions about a server's BMC address, MACs, maintenance state, cluster membership or why its health changed.
 allowed-tools: Bash(curl *) Bash(jq *)
 ---
@@ -18,6 +18,7 @@ BASE_URL=https://server-scan.example.internal
 AUDITOR_TOKEN=REPLACE_WITH_AUDITOR_TOKEN
 ```
 
+Create your own token on the server's **Claude Skill** page in the UI (it is tied to you and read-only).
 The values above are placeholders. In the air-gapped environment, replace both lines
 here (do not commit the real token). Treat `AUDITOR_TOKEN` as a secret: pass it only in the
 `Authorization` header and never echo it back to the user or print it in command output.

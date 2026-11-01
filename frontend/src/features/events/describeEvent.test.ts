@@ -188,6 +188,18 @@ describe("describeEvent", () => {
     );
   });
 
+  it("describes creating and revoking a personal token", () => {
+    expect(
+      describeEvent({
+        ...ev("TOKEN_CREATED"),
+        data: { role: "AUDITOR", expires_at: "2027-01-30T10:00:00+00:00" },
+      }),
+    ).toBe("Created a personal API token (auditor, expires 2027-01-30)");
+    expect(describeEvent({ ...ev("TOKEN_REVOKED"), data: { user: "dana", by_admin: true } })).toBe(
+      "Personal API token of dana revoked by an admin",
+    );
+  });
+
   it("covers every written type", () => {
     for (const t of WRITTEN_EVENT_TYPES) {
       expect(describeEvent(ev(t))).not.toBe(t);

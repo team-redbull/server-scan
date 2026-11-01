@@ -33,6 +33,8 @@ from app.api.v1.events import router as events_router
 from app.api.v1.health_policies import router as health_policies_router
 from app.api.v1.servers import router as servers_router
 from app.api.v1.sites import router as sites_router
+from app.api.v1.skill import router as skill_router
+from app.api.v1.tokens import router as tokens_router
 from app.application.services.bootstrap import (
     ensure_default_classification_rules,
     ensure_default_health_policies,
@@ -209,6 +211,8 @@ def create_app() -> FastAPI:
     # The audit trail is admin/auditor only (docs/adr/0043); a viewer is 403.
     app.include_router(events_router, dependencies=[*_authenticated, Depends(require_audit_access)])
     app.include_router(sites_router, dependencies=_authenticated)
+    app.include_router(skill_router, dependencies=_authenticated)
+    app.include_router(tokens_router, dependencies=_authenticated)
 
     if settings.metrics_enabled:
 

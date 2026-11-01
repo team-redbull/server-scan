@@ -125,7 +125,10 @@ cursor: pass the response's `next_cursor` back until `has_more` is false. Errors
 shape with a stable `code` field you can branch on.
 
 Claude Code users: the project ships a skill, `.claude/skills/server-scan-api`,
-that teaches Claude to query this API; set the base URL and a viewer token in it.
+that teaches Claude to query this API; set the base URL and a viewer token in it. The UI's
+**Claude** page (`/skill`) shows it live and downloads it with this server's address filled in, creates your
+personal token, and gives the one-line `claude mcp add` command for the read-only MCP server (`/mcp`, Helm
+`mcp.enabled`, `docs/adr/0054-mcp-server.md`).
 
 ## Authentication
 

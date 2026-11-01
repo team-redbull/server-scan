@@ -7,6 +7,7 @@ import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
 import { EventsPage } from "@/features/events/EventsPage";
 import { InventoryPage } from "@/features/inventory/InventoryPage";
 import { RulesPage } from "@/features/rules/RulesPage";
+import { SkillPage } from "@/features/skill/SkillPage";
 import { ServerDetailPage } from "@/features/servers/ServerDetailPage";
 import { SitesOverviewPage } from "@/features/sites/SitesOverviewPage";
 import { StatusPage } from "@/routes/StatusPage";
@@ -45,6 +46,11 @@ export const router = createBrowserRouter([
         // Pre-built diagrams under public/architecture/ (archify); no data fetch.
         path: "/architecture",
         element: <ArchitecturePage />,
+      },
+      {
+        // Read live from the API: editing the skill changes this page, not the SPA.
+        path: "/skill",
+        element: <SkillPage />,
       },
       {
         path: "/status",

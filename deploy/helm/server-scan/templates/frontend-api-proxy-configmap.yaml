@@ -19,6 +19,7 @@ until it does — seconds, self-healing, and not worth a `resolver`
 directive whose address differs between OpenShift and vanilla k8s.
 */ -}}
 {{- $api := printf "http://%s-api:80" .Release.Name }}
+{{- $mcp := .Values.mcp | default dict }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -48,6 +49,22 @@ data:
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    {{- if $mcp.enabled }}
+
+    # The MCP server (ADR-0054). Only rendered when it exists: nginx refuses to start
+    # on an upstream name that does not resolve. `Host` is the Service name, which is
+    # what the MCP pod's host guard accepts; responses stream, so no buffering.
+    location ^~ /mcp {
+      proxy_pass http://{{ .Release.Name }}-mcp:80;
+      proxy_http_version 1.1;
+      proxy_set_header Host {{ .Release.Name }}-mcp;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_buffering off;
+      proxy_read_timeout {{ .Values.route.timeoutSeconds | default 300 }}s;
+    }
+    {{- end }}
 
     # Trailing slash on purpose: the SPA's status page calls
     # /health/ready, while the SPA's OWN client routes include

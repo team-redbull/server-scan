@@ -83,6 +83,8 @@ class EventType(StrEnum):
     LOGIN_DENIED = "LOGIN_DENIED"
     SITE_UPDATED = "SITE_UPDATED"
     IDRAC_RESET = "IDRAC_RESET"
+    TOKEN_CREATED = "TOKEN_CREATED"  # noqa: S105 - an event label, not a credential
+    TOKEN_REVOKED = "TOKEN_REVOKED"  # noqa: S105 - an event label, not a credential
 
 
 LEGACY_EVENT_TYPES = {"HEALTH_STATUS_CHANGED": EventType.HEALTH_CHANGED.value}

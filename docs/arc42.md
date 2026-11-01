@@ -563,6 +563,9 @@ of it.
 | 0049 | CI runs `pytest -n 4` (a Mongo and Redis database per xdist worker, no real sleeps or poll waits in the Redfish tests) and builds both images in a main-only `prebuild` job while the tests run, so a main run dropped from 6m11s to 2m21s (measured, first run) |
 | 0050 | The `OPENMANAGE` collector restarts the iDRAC (never the host) of a Dell server whose every disk or every NIC reads UNKNOWN, right after reading it: report-only by default, skipped while an iDRAC job is unfinished, 12 h cooldown per server and 10 per run (Helm `collectors.ome.idracReset`), each attempt an `IDRAC_RESET` audit event; `CLASSIFICATION_CHANGED` also carries `name_from`/`name_to` on a rename |
 | 0051 | A server rename is its own `SERVER_RENAMED` audit event (`name_from`/`name_to`); sizes display as decimal TB for storage and GiB for memory/VRAM, and policy templates gain `{x:tb}`/`{x:gib}`/`{x:tib}` format specs |
+| 0052 | The UI's `/skill` page and `GET /api/v1/skill` (+ `/download`) read the Claude skill from disk per request, so editing the skill updates the page with no UI change |
+| 0053 | A signed-in user gets one personal, read-only API token (`/api/v1/auth/token`): hashed at rest, 90-day expiry, acts as `token:<username>` in the audit trail; admins can list and revoke |
+| 0054 | A read-only MCP server (`tools/mcp_server`, `/mcp` on the frontend host, off by default) calls the REST API with each caller's own personal token; eight tools, no `servers/available` |
 
 ---
 

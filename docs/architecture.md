@@ -1857,6 +1857,17 @@ flips back and is never flagged. An Agent is identified by its CR `metadata.uid`
 `openshift.contested_claim`, sets the `server_scan_openshift_contested_servers`
 gauge and `ServerRow.contested_with` (inventory filter "Duplicate Server").
 
+**The Claude skill page (ADR-0052).** `/skill` shows how to install `.claude/skills/server-scan-api`
+and its source. `GET /api/v1/skill` (`app.application.services.skill_bundle`) reads the folder on
+every call and `GET /api/v1/skill/download` zips it with this origin as `BASE_URL`; nothing about
+the skill is written in the SPA. A signed-in user also creates their **personal API token** there (ADR-0053):
+one per user, read-only, hashed in `api_tokens`, resolved in `get_current_actor` after the static tokens and
+recorded as `token:<username>`.
+
+**The MCP server (ADR-0054).** `tools/mcp_server` exposes eight read-only tools over streamable HTTP at `/mcp`
+(Helm `mcp.enabled`, frontend nginx forwards the path). It calls the REST API with the caller's own
+`Authorization` header and imports nothing from `app`; the API decides access and audits.
+
 ### CI supply chain
 
 Every GitHub Action is pinned to a commit SHA rather than a tag, because

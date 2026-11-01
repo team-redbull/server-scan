@@ -23,11 +23,14 @@ from typing import Annotated
 import structlog
 from fastapi import Depends, Request
 
+from app.application.services.personal_token import TOKEN_PREFIX
+from app.application.services.personal_token import authenticate as authenticate_personal_token
 from app.config import Settings, get_settings
 from app.domain.models.audit_event import Actor, ActorType, Role
 from app.domain.services.session import SESSION_COOKIE_NAME, decode_session
 from app.errors import ForbiddenError, UnauthorizedError
 from app.infrastructure.mongodb import MongoClientHolder
+from app.infrastructure.mongodb.api_token_repository import MongoApiTokenRepository
 from app.infrastructure.redis import RedisClientHolder
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +82,26 @@ async def get_request_id(request: Request) -> str | None:
 _DEV_ACTOR = Actor(type=ActorType.USER, id="dev", display="Dev (auth disabled)", role=Role.ADMIN)
 
 
+async def _personal_token_actor(request: Request, token: str) -> Actor | None:
+    """
+    Resolve a personal API token (ADR-0053), treating any store failure as "no".
+
+    Args:
+        request (Request): Reaches the Mongo holder on `app.state`.
+        token (str): The bearer value.
+
+    Returns:
+        Actor | None: The token owner's actor, or `None` (unknown, expired, or store down).
+    """
+    try:
+        return await authenticate_personal_token(
+            MongoApiTokenRepository(request.app.state.mongo), token
+        )
+    except Exception:
+        logger.exception("auth.personal_token_failed")
+        return None
+
+
 async def get_current_actor(
     request: Request, settings: Annotated[Settings, Depends(get_settings)]
 ) -> Actor:
@@ -116,6 +139,15 @@ async def get_current_actor(
         auditor_token = settings.api_token_auditor.get_secret_value()
         if auditor_token and hmac.compare_digest(token, auditor_token):
             return Actor(type=ActorType.TOKEN, id="api-token-auditor", role=Role.AUDITOR)
+        if token.startswith(TOKEN_PREFIX):
+            # A personal token that fails is refused outright, never rescued by a session cookie.
+            personal = await _personal_token_actor(request, token)
+            if personal is None:
+                logger.warning(
+                    "auth.rejected", reason="personal_token_invalid", path=request.url.path
+                )
+                raise UnauthorizedError("Login required.")
+            return personal
 
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     claims = decode_session(cookie, secret=settings.session_secret) if cookie else None

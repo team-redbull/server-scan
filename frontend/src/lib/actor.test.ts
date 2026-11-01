@@ -32,3 +32,13 @@ describe("actorLabel", () => {
     expect(actorIdLabel("bob")).toBe("bob");
   });
 });
+
+describe("a personal token", () => {
+  it("reads as its owner, so an audited action is attributable", () => {
+    expect(actorIdLabel("token:dana")).toBe("dana (personal token)");
+    expect(actorLabel({ type: "TOKEN", id: "token:dana", display: "dana" })).toEqual({
+      label: "dana (personal token)",
+      kind: "token",
+    });
+  });
+});

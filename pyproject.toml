@@ -27,6 +27,8 @@ dependencies = [
     # difference within 8.x carries negligible risk.
     "redis==8.0.1",
     "httpx==0.28.1",
+    # The MCP server (`tools/mcp_server`, ADR-0054): the newest stable 1.x line, not 2.x.
+    "mcp==1.30.0",
     # Signs Cisco Intersight API requests (HTTP Signature hs2019). It is
     # the only way to talk to Intersight at all — there is no password
     # login for its REST API — and the alternative was the official

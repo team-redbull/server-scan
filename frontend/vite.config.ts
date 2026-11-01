@@ -25,6 +25,8 @@ export default defineConfig({
       "/api": "http://localhost:8080",
       "^/health/": "http://localhost:8080",
       "/metrics": "http://localhost:8080",
+      // The MCP server (`python -m tools.mcp_server --http`, port 8091 here; ADR-0054).
+      "/mcp": "http://localhost:8091",
     },
   },
   test: {

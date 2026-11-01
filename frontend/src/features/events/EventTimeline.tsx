@@ -24,6 +24,7 @@ const TYPE_TINT: [prefix: string, tint: string][] = [
   ["IDRAC_RESET", "--tint-warning"],
   ["LOGIN_DENIED", "--tint-critical"],
   ["LOGIN_", "--tint-info"],
+  ["TOKEN_", "--tint-info"],
   ["SERVER_RESERVATION_REFUSED", "--tint-critical"],
   ["SERVER_RES", "--tint-info"],
   ["SERVER_RELEASED", "--tint-info"],

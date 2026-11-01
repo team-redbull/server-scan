@@ -30,6 +30,12 @@ export const queryKeys = {
     all: ["healthMetrics"] as const,
     list: () => [...queryKeys.healthMetrics.all, "list"] as const,
   },
+  skill: {
+    all: ["skill"] as const,
+  },
+  personalToken: {
+    all: ["personalToken"] as const,
+  },
   sites: {
     all: ["sites"] as const,
     list: () => [...queryKeys.sites.all, "list"] as const,

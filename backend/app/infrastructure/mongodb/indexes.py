@@ -69,6 +69,7 @@ MEMBERSHIP_RUNS_COLLECTION = "membership_runs"
 CLASSIFICATION_RULES_COLLECTION = "classification_rules"
 HEALTH_POLICIES_COLLECTION = "health_policies"
 AUDIT_EVENTS_COLLECTION = "audit_events"
+API_TOKENS_COLLECTION = "api_tokens"
 
 SERVER_INDEXES: list[IndexModel] = [
     IndexModel(
@@ -201,6 +202,10 @@ CLASSIFICATION_RULE_INDEXES: list[IndexModel] = [
 ]
 
 # Every index ends in the fixed keyset sort `(created_at DESC, _id DESC)`.
+API_TOKEN_INDEXES: list[IndexModel] = [
+    IndexModel([("token_hash", ASCENDING)], unique=True, name="uniq_token_hash"),
+]
+
 AUDIT_EVENT_INDEXES: list[IndexModel] = [
     IndexModel([("created_at", DESCENDING), ("_id", DESCENDING)], name="created_at_id"),
     IndexModel(
@@ -324,3 +329,4 @@ async def ensure_indexes(db: AsyncDatabase[dict[str, Any]]) -> None:
     await _create_indexes(db, HEALTH_POLICIES_COLLECTION, HEALTH_POLICY_INDEXES)
     await _create_indexes(db, CLASSIFICATION_RULES_COLLECTION, CLASSIFICATION_RULE_INDEXES)
     await _create_indexes(db, AUDIT_EVENTS_COLLECTION, AUDIT_EVENT_INDEXES)
+    await _create_indexes(db, API_TOKENS_COLLECTION, API_TOKEN_INDEXES)

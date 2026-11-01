@@ -21,6 +21,8 @@ export const WRITTEN_EVENT_TYPES = [
   "AUDIT_PURGED",
   "LOGIN_SUCCEEDED",
   "LOGIN_DENIED",
+  "TOKEN_CREATED",
+  "TOKEN_REVOKED",
 ] as const;
 
 function str(value: unknown): string | null {
@@ -144,6 +146,12 @@ export function describeEvent(event: AuditEventResponse): string {
       return `Logged in as ${str(d.role)?.toLowerCase() ?? "?"}`;
     case "LOGIN_DENIED":
       return "Login refused: authenticated, but in no admin, auditor or viewer list";
+    case "TOKEN_CREATED":
+      return `Created a personal API token (${str(d.role)?.toLowerCase() ?? "?"}, expires ${str(d.expires_at)?.slice(0, 10) ?? "?"})`;
+    case "TOKEN_REVOKED":
+      return d.by_admin === true
+        ? `Personal API token of ${str(d.user) ?? "?"} revoked by an admin`
+        : "Revoked their personal API token";
     case "AUDIT_PURGED":
       return `Purged ${count(d.deleted)} audit events older than ${count(d.retention_days)} days`;
     case "HEALTH_CHANGED":

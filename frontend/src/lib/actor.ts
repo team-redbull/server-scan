@@ -3,10 +3,13 @@ import type { Actor } from "@/types/events";
 export type ActorKind = "user" | "token" | "system";
 
 const TOKEN_ID = /^api-token-(.+)$/;
+const PERSONAL_TOKEN_ID = /^token:(.+)$/;
 
 /** Human name for an actor id alone (a maintenance `created_by`): the
  * static API tokens read "API token (admin)", anything else is the id. */
 export function actorIdLabel(id: string): string {
+  const personal = PERSONAL_TOKEN_ID.exec(id);
+  if (personal) return `${personal[1] ?? ""} (personal token)`;
   const m = TOKEN_ID.exec(id);
   return m ? `API token (${m[1] ?? ""})` : id;
 }

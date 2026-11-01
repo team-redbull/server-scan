@@ -166,3 +166,8 @@ Loaded only when a `frontend/` file is open.
   server-side substring, never resolved client-side; `since`/`until` are
   UTC ISO built from Israel-time `DD/MM/YYYY` input (`parseIsraelInput`);
   every actor is rendered by `lib/actor.ts`'s `actorLabel`.
+- **The nav calls `/skill` "Claude"** (before Architecture); the page also holds the personal token (ADR-0053) and the
+  `claude mcp add` command (ADR-0054, `McpSection`).
+- **The `/skill` page (`features/skill/`, ADR-0052) holds no skill text**: version, prompts, files and
+  allowed tools all come from `GET /api/v1/skill`, which reads the folder per request. Do not paste skill
+  content into the SPA; the example prompts are the quoted phrases in the skill's `description`.

@@ -26,6 +26,7 @@ COPY --from=deps /opt/venv /opt/venv
 WORKDIR /app
 COPY backend/app ./app
 COPY tools ./tools
+COPY .claude/skills/server-scan-api ./skill
 
 # Required for OpenShift's arbitrary UID: useradd -d /app leaves it 0700. See deploy/README.md.
 RUN chgrp -R 0 /app && chmod -R g=u /app

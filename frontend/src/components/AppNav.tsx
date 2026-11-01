@@ -7,6 +7,7 @@ const LINKS = [
   { to: "/servers", label: "Servers", audit: false },
   { to: "/events", label: "Events", audit: true },
   { to: "/rules", label: "Rules & Policies", audit: false },
+  { to: "/skill", label: "Claude", audit: false },
   { to: "/architecture", label: "Architecture", audit: false },
 ];
 

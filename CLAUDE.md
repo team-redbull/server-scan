@@ -312,6 +312,12 @@ long form of each entry is in the 2026-09-13 archive.
   included), one `AUDIT_PURGED` event per purge (also a partial one, `complete: false`). `created_at` is
   a string, so there is no TTL index. `purge_before` must never be referenced under `backend/app`
   outside its repository (a unit test enforces it); the Helm template reads every key with `hasKey`.
+- **The MCP server is a thin client of the REST API** (ADR-0054, `tools/mcp_server`): it imports nothing from `app`,
+  forwards the caller's `Authorization` header and holds no credentials, so a new tool is one or two `GET`s and
+  never a database read. `servers/available` is deliberately not a tool. Helm `mcp.enabled` (off by default).
+- **A personal API token is one per user, read-only and hashed** (ADR-0053): `ssk_...`, `api_tokens`, role
+  `VIEWER` or `AUDITOR` (an admin gets `AUDITOR`, never `ADMIN`), acts as `token:<username>`. A token cannot
+  create a token, and membership is not re-checked, so an admin revokes a leaver's.
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
@@ -462,12 +468,12 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-01 — an MCE Agent is identified by its CR `metadata.uid`, and a run writes a server once (ADR-0041 update).**
-Moved to `docs/notes/session-log.md`: the rename-event and byte-units unit (ADR-0051).
+**2026-11-01 — a "Claude" page (`/skill`) with the live-read skill, personal API tokens and a read-only MCP server (ADR-0052, 0053, 0054).**
+Moved to `docs/notes/session-log.md`: the MCE Agent UID unit (ADR-0041 update).
 
-**Shipped:** `agent_uid`/`previous_agent_uid` on `OpenShiftLifecycle`, `_claim_history`/`_same_claimant` keyed on the UID
-(one Agent unbinding and rebinding is no longer "contested" with its own MCE), `_apply_all` chaining several claims on
-one serial in memory so a run writes once and the stored state settles on `INSTALLED`, fake-fleet UIDs, tests.
+**Shipped:** `GET /api/v1/skill` (+ `/download`, reads `INVENTORY_SKILL_DIR` / `/app/skill` per request, the image copies the
+skill); one hashed, read-only personal token per user (`/api/v1/auth/token`, `api_tokens`, 90 days, acts as
+`token:<username>`, `TOKEN_CREATED`/`TOKEN_REVOKED`); `tools/mcp_server` (eight read tools, `/mcp`, Helm `mcp.enabled`).
 
-**Open:** not seen on real data. Two MCEs holding one serial still flip the state every run (detection only, no
-precedence rule; the fix is deleting the stale Agent CR); the first Agent write over a pre-UID value clears its history once.
+**Open:** the page was never seen in a browser here (no usable Chromium in this WSL), and the MCP was not connected from a real Claude
+Code over HTTP. Check the air-gapped mirror carries `mcp==1.30.0`. Refused writes by a token are not audited; membership is not re-checked.

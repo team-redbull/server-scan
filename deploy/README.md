@@ -1,7 +1,7 @@
 # Deployment
 
-Two Helm charts. `helm/server-scan` is the platform — API, frontend
-and the per-vendor collector CronJobs — and is what the rest of this
+Two Helm charts. `helm/server-scan` is the platform — API, frontend,
+an optional MCP server and the per-vendor collector CronJobs — and is what the rest of this
 document is about. `helm/nodes-status` is the pair of jobs that
 run *inside* every OpenShift cluster to report what it is using, one
 release per cluster; it has its own README, and the section below says
@@ -189,6 +189,15 @@ render on an air-gapped cluster (the proxy's `/api/` and `/health/` locations ar
 **`route.host` is no longer mandatory with the frontend on.** One Route
 means an OpenShift-generated hostname works; set `route.host` when you
 want a specific one.
+
+## The MCP server (ADR-0054)
+
+`mcp.enabled: true` (default false; needs `frontend.enabled`) adds a `<release>-mcp` Deployment and Service
+running `python -m tools.mcp_server --http` from the API image, and a `/mcp` location in the frontend's nginx
+proxy, so Claude Code connects at `https://<route host>/mcp` with no second Route. It holds no database access or
+credentials: it calls `<release>-api` with each caller's own `Authorization` header. Values: `mcp.replicaCount`
+(2), `mcp.port` (8090), `mcp.resources`. The key is read with `default`, so the Deploy job's `values.yaml` need
+not carry it.
 
 ## Container security
 

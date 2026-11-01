@@ -45,6 +45,14 @@ backend:
   cursorSecret: ""
   existingCursorSecret: ""
 
+# The MCP server for Claude Code (ADR-0054): `python -m tools.mcp_server --http` from the API image,
+# reached at /mcp on the frontend's host (so it needs `frontend.enabled`). Off by default; it holds
+# no credentials and calls the API with each caller's own token.
+mcp:
+  enabled: false
+  replicaCount: 2
+  port: 8090
+
 # The React admin UI (the `server-scan-frontend` image CI publishes
 # alongside the API). Off by default so an existing install is unchanged;
 # turning it on requires `route.host`, because the SPA and the API then

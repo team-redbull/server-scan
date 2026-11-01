@@ -8,6 +8,16 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-01 — an MCE Agent is identified by its CR `metadata.uid`, and a run writes a server once (ADR-0041 update).**
+Moved to `docs/notes/session-log.md`: the rename-event and byte-units unit (ADR-0051).
+
+**Shipped:** `agent_uid`/`previous_agent_uid` on `OpenShiftLifecycle`, `_claim_history`/`_same_claimant` keyed on the UID
+(one Agent unbinding and rebinding is no longer "contested" with its own MCE), `_apply_all` chaining several claims on
+one serial in memory so a run writes once and the stored state settles on `INSTALLED`, fake-fleet UIDs, tests.
+
+**Open:** not seen on real data. Two MCEs holding one serial still flip the state every run (detection only, no
+precedence rule; the fix is deleting the stale Agent CR); the first Agent write over a pre-UID value clears its history once.
+
 **2026-11-01 — a server rename is its own `SERVER_RENAMED` audit event; storage shows as decimal TB, memory/VRAM as GiB, and policy templates gain `{x:tb}`/`{x:gib}`/`{x:tib}` (ADR-0051).**
 Moved to `docs/notes/session-log.md`: the iDRAC-reset unit (ADR-0050).
 
