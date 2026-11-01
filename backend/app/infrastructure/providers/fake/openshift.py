@@ -110,6 +110,7 @@ def _membership_for(server: Server, rng: random.Random) -> OpenShiftLifecycle:
             last_reported_at=now,
             reported_by_agent_id=mce,
             reported_name=_reported_name(rng, server),
+            agent_uid=f"agent-{server.id}",
         )
 
     # A hub's own nodes are cluster nodes like any other, so both are
@@ -135,6 +136,7 @@ def _membership_for(server: Server, rng: random.Random) -> OpenShiftLifecycle:
         last_reported_at=now,
         reported_by_agent_id=mce,
         reported_name=_reported_name(rng, server),
+        agent_uid=f"agent-{server.id}",
     )
 
 

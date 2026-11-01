@@ -69,6 +69,8 @@ class ClusterObservation:
         serial (str | None): The hardware serial, on the agents path only
             (ADR-0036) — read from the Agent's own inventory, no SSH
             needed. `None` when the Agent hasn't reported it yet.
+        agent_uid (str | None): The Agent CR's `metadata.uid`, on the agents
+            path only (ADR-0041): what tells one Agent changing state from two.
     """
 
     hostname: str
@@ -77,6 +79,7 @@ class ClusterObservation:
     mce_name: str | None = None
     address: str | None = None
     serial: str | None = None
+    agent_uid: str | None = None
 
 
 def node_internal_ip(node: dict[str, Any]) -> str | None:
@@ -151,6 +154,8 @@ def agent_observation(agent: dict[str, Any], *, mce_name: str) -> ClusterObserva
 
     serial = _opt_str((inventory.get("systemVendor") or {}).get("serialNumber"))
 
+    agent_uid = _opt_str((agent.get("metadata") or {}).get("uid"))
+
     cluster = spec.get("clusterDeploymentName") or {}
     cluster_name = cluster.get("name") if isinstance(cluster, dict) else None
 
@@ -161,6 +166,7 @@ def agent_observation(agent: dict[str, Any], *, mce_name: str) -> ClusterObserva
             cluster_name=str(cluster_name),
             mce_name=mce_name,
             serial=serial,
+            agent_uid=agent_uid,
         )
 
     # Registered to the MCE, bound to nothing: the spare pool cluster
@@ -171,6 +177,7 @@ def agent_observation(agent: dict[str, Any], *, mce_name: str) -> ClusterObserva
         lifecycle_state=OpenShiftState.INSTALLED_TO_INVENTORY,
         mce_name=mce_name,
         serial=serial,
+        agent_uid=agent_uid,
     )
 
 

@@ -462,11 +462,12 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-01 — a server rename is its own `SERVER_RENAMED` audit event; storage shows as decimal TB, memory/VRAM as GiB, and policy templates gain `{x:tb}`/`{x:gib}`/`{x:tib}` (ADR-0051).**
-Moved to `docs/notes/session-log.md`: the iDRAC-reset unit (ADR-0050).
+**2026-11-01 — an MCE Agent is identified by its CR `metadata.uid`, and a run writes a server once (ADR-0041 update).**
+Moved to `docs/notes/session-log.md`: the rename-event and byte-units unit (ADR-0051).
 
-**Shipped:** `EventType.SERVER_RENAMED` from `IngestService._emit_transition_events`, the Events UI sentence and
-filter, byte-unit format specs in `health/template.py`, the `storage.name_capacity_mismatch` message in TB, the
-Hardware tab's `formatMemory`/`formatStorage` (it labelled base-1024 values KB..TB), tests, the API skill's event enum.
+**Shipped:** `agent_uid`/`previous_agent_uid` on `OpenShiftLifecycle`, `_claim_history`/`_same_claimant` keyed on the UID
+(one Agent unbinding and rebinding is no longer "contested" with its own MCE), `_apply_all` chaining several claims on
+one serial in memory so a run writes once and the stored state settles on `INSTALLED`, fake-fleet UIDs, tests.
 
-**Open:** events written before this keep the "bytes" wording (append-only); the fake fleet never renames a server.
+**Open:** not seen on real data. Two MCEs holding one serial still flip the state every run (detection only, no
+precedence rule; the fix is deleting the stale Agent CR); the first Agent write over a pre-UID value clears its history once.

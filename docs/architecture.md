@@ -1852,7 +1852,8 @@ artifact left by a reinstall (an old Agent CR on an MCE, a NotReady node) makes 
 jobs claim one server and flip it every cron period. `OpenShiftMembershipService`
 keeps `previous_reporter`/`claim_changed_at`; a writer that held the server before
 the current claimant, within one hour, sets `contested_with`. A single move never
-flips back and is never flagged. Detection only: it logs
+flips back and is never flagged. An Agent is identified by its CR `metadata.uid`
+(`agent_uid`), so one Agent unbinding and rebinding is not a contest. Detection only: it logs
 `openshift.contested_claim`, sets the `server_scan_openshift_contested_servers`
 gauge and `ServerRow.contested_with` (inventory filter "Duplicate Server").
 

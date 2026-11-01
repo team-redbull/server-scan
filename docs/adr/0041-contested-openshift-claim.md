@@ -36,6 +36,25 @@ claimants, the gauge `server_scan_openshift_contested_servers`, and
 chip and a **Duplicate Server** filter (the server's Overview names the other claim and its hostname) (`?contested=true`), beside **Duplicate
 Name** (`?duplicate=true`, the existing same-name check).
 
+## Update 2026-11-01: an Agent is identified by its UID
+
+A bound and an unbound Agent have different claim keys (`mce/X`, `mce`), so one Agent CR
+unbinding and rebinding within an hour (a retry, a re-create) read as A, B, A and was flagged
+against its own MCE. `agent_observation` now reads `metadata.uid` into `agent_uid`
+(`OpenShiftLifecycle.agent_uid`, `previous_agent_uid`; both default `None`). When both sides
+carry a UID, the same UID is one claimant whatever it is bound to, and two UIDs are two
+claimants even on the same cluster. A node job has no UID and a value stored before this
+change has none either: both fall back to the claim-key rule above. The first Agent write on
+an old value keeps no claim history (it cannot say which Agent made it), so the flag clears
+once. Hosted clusters have no nodes job here (the MCE's Agents are the only source), so a
+node lingering after an unbind is not a case this covers.
+
+A run also writes a server once, however many claims reported it: two Agent CRs for one
+serial (a stale unbound one beside the live bound one) used to each write, flipping
+`INSTALLED_TO_INVENTORY` and `INSTALLED` and two audit events every 15 minutes. The claims are
+chained in memory (bound claim last, so the stored state is `INSTALLED`) and the result is
+compared with the stored value (`_apply_all`).
+
 ## Consequences
 
 No precedence rule: nothing decides who is right, so the flip-flop continues until

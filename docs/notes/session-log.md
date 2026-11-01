@@ -8,6 +8,15 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-01 — a server rename is its own `SERVER_RENAMED` audit event; storage shows as decimal TB, memory/VRAM as GiB, and policy templates gain `{x:tb}`/`{x:gib}`/`{x:tib}` (ADR-0051).**
+Moved to `docs/notes/session-log.md`: the iDRAC-reset unit (ADR-0050).
+
+**Shipped:** `EventType.SERVER_RENAMED` from `IngestService._emit_transition_events`, the Events UI sentence and
+filter, byte-unit format specs in `health/template.py`, the `storage.name_capacity_mismatch` message in TB, the
+Hardware tab's `formatMemory`/`formatStorage` (it labelled base-1024 values KB..TB), tests, the API skill's event enum.
+
+**Open:** events written before this keep the "bytes" wording (append-only); the fake fleet never renames a server.
+
 **2026-10-28 — the OPENMANAGE collector restarts the iDRAC of a Dell server whose disks or NICs are all UNKNOWN; `CLASSIFICATION_CHANGED` carries the rename (ADR-0050).**
 Moved to `docs/notes/session-log.md`: the CI speed-up unit (ADR-0049).
 

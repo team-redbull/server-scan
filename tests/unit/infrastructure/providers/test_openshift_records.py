@@ -32,6 +32,7 @@ def _agent(
     cluster: str | None = None,
     name: str = "agent-abc123",
     serial: str | None = None,
+    uid: str | None = None,
 ) -> dict[str, Any]:
     """
     One `Agent` custom resource.
@@ -43,6 +44,7 @@ def _agent(
         name (str): `metadata.name`.
         serial (str | None): `status.inventory.systemVendor.serialNumber`
             (ADR-0036).
+        uid (str | None): `metadata.uid`.
 
     Returns:
         dict[str, Any]: The resource as the API would return it.
@@ -58,7 +60,7 @@ def _agent(
     if serial is not None:
         inventory["systemVendor"] = {"serialNumber": serial}
     return {
-        "metadata": {"name": name},
+        "metadata": {"name": name, **({"uid": uid} if uid else {})},
         "spec": spec,
         "status": {"inventory": inventory},
     }
@@ -139,6 +141,15 @@ class TestAgentState:
         assert observation.lifecycle_state is OpenShiftState.INSTALLED
         assert observation.cluster_name == "hc-tlv-02"
         assert observation.mce_name == "mce-tlv"
+
+    def test_the_agent_uid_is_read_bound_or_not(self) -> None:
+        bound = agent_observation(
+            _agent(requested="h-01", cluster="hc-1", uid="u-1"), mce_name="mce-tlv"
+        )
+        unbound = agent_observation(_agent(requested="h-01", uid="u-1"), mce_name="mce-tlv")
+
+        assert bound is not None and unbound is not None
+        assert bound.agent_uid == unbound.agent_uid == "u-1"
 
     def test_an_unbound_agent_is_in_inventory_with_no_cluster(self) -> None:
         """`cluster_name` stays None rather than empty: there is no

@@ -61,7 +61,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 import structlog
 
@@ -100,9 +100,58 @@ def _claim_key(reporter: str, cluster: str | None) -> str:
     return reporter if cluster in (None, reporter) else f"{reporter}/{cluster}"
 
 
+class _ClaimHistory(NamedTuple):
+    """
+    The claim-tracking fields of an `OpenShiftLifecycle`, as `_claim_history` works them out.
+
+    Attributes:
+        previous_reporter (str | None): The claim that held the server before.
+        previous_agent_uid (str | None): That claim's Agent UID, if it was an Agent.
+        claim_changed_at (datetime | None): When ownership last changed.
+        contested_with (str | None): The other claim, when the two are fighting.
+        contested_name (str | None): The hostname the other claim reports.
+    """
+
+    previous_reporter: str | None = None
+    previous_agent_uid: str | None = None
+    claim_changed_at: datetime | None = None
+    contested_with: str | None = None
+    contested_name: str | None = None
+
+
+def _same_claimant(
+    before: OpenShiftLifecycle, reported_by: str, cluster: str | None, agent_uid: str | None
+) -> bool:
+    """
+    Whether the writer is the claim already holding the server.
+
+    Agents with known UIDs are one claimant exactly when the UIDs match
+    (ADR-0041); otherwise the claim key or a shared cluster decides.
+
+    Args:
+        before (OpenShiftLifecycle): The stored membership.
+        reported_by (str): The job writing now.
+        cluster (str | None): The cluster the new claim names.
+        agent_uid (str | None): The writing Agent's UID, `None` for a node or unknown.
+
+    Returns:
+        bool: True when no other claimant is involved.
+    """
+    if before.agent_uid and agent_uid:
+        return before.agent_uid == agent_uid
+    held = _claim_key(before.reported_by_agent_id or "", before.cluster_name)
+    return held == _claim_key(reported_by, cluster) or (
+        cluster is not None and cluster == before.cluster_name
+    )
+
+
 def _claim_history(
-    before: OpenShiftLifecycle, reported_by: str, cluster: str | None, now: datetime
-) -> tuple[str | None, datetime | None, str | None, str | None]:
+    before: OpenShiftLifecycle,
+    reported_by: str,
+    cluster: str | None,
+    now: datetime,
+    agent_uid: str | None = None,
+) -> _ClaimHistory:
     """
     Work out who held a server before, and whether two claims are fighting over it.
 
@@ -114,28 +163,41 @@ def _claim_history(
         reported_by (str): The job writing now.
         cluster (str | None): The cluster the new claim names.
         now (datetime): The current time.
+        agent_uid (str | None): The writing Agent CR's UID, `None` for a node.
 
     Returns:
-        tuple[str | None, datetime | None, str | None, str | None]:
-            `previous_reporter`, `claim_changed_at`, `contested_with` and
-            `contested_name` for the new value.
+        _ClaimHistory: The claim-tracking fields for the new value.
     """
     if before.lifecycle_state is OpenShiftState.AVAILABLE or not before.reported_by_agent_id:
-        return None, None, None, None
+        return _ClaimHistory()
+    legacy_agent_value = before.mce_name is not None and before.agent_uid is None
+    if agent_uid and legacy_agent_value and before.reported_by_agent_id == reported_by:
+        # Written before UIDs were stored: its history cannot say which Agent made it.
+        return _ClaimHistory()
     held = _claim_key(before.reported_by_agent_id, before.cluster_name)
     changed_at = before.claim_changed_at
     recent = changed_at is not None and now - changed_at < _CONTEST_WINDOW
-    agrees = cluster is not None and cluster == before.cluster_name
-    if held == _claim_key(reported_by, cluster) or agrees:
+    if _same_claimant(before, reported_by, cluster, agent_uid):
         kept = recent and before.contested_with
-        return (
+        return _ClaimHistory(
             before.previous_reporter,
+            before.previous_agent_uid,
             changed_at,
             before.contested_with if kept else None,
             before.contested_name if kept else None,
         )
-    flipped_back = before.previous_reporter == _claim_key(reported_by, cluster) and recent
-    return held, now, held if flipped_back else None, before.reported_name if flipped_back else None
+    if before.previous_agent_uid and agent_uid:
+        came_back = before.previous_agent_uid == agent_uid
+    else:
+        came_back = before.previous_reporter == _claim_key(reported_by, cluster)
+    flipped_back = came_back and recent
+    return _ClaimHistory(
+        held,
+        before.agent_uid,
+        now,
+        held if flipped_back else None,
+        before.reported_name if flipped_back else None,
+    )
 
 
 class SerialReader(Protocol):
@@ -246,6 +308,7 @@ class OpenShiftMembershipService:
         seen_ids: set[str] = set()
         protected_ids: set[str] = set()
 
+        matches: dict[str, list[tuple[Server, ClusterObservation, str | None]]] = {}
         for observation in observations:
             server, reported_name = await self._resolve(
                 observation, reported_by, summary, protected_ids
@@ -254,9 +317,10 @@ class OpenShiftMembershipService:
                 continue
             summary.matched += 1
             seen_ids.add(server.id)
-            if await self._apply(
-                server, observation, reported_by, reported_name=reported_name, dry_run=dry_run
-            ):
+            matches.setdefault(server.id, []).append((server, observation, reported_name))
+
+        for found in matches.values():
+            if await self._apply_all(found, reported_by, dry_run=dry_run):
                 summary.claimed += 1
 
         if protected_ids:
@@ -558,33 +622,63 @@ class OpenShiftMembershipService:
                 return found
             cursor = page.next_cursor
 
-    async def _apply(
+    async def _apply_all(
         self,
-        server: Server,
-        observation: ClusterObservation,
+        found: list[tuple[Server, ClusterObservation, str | None]],
         reported_by: str,
         *,
-        reported_name: str | None,
         dry_run: bool,
     ) -> bool:
         """
-        Write one observation onto a server, if it changes anything.
+        Write what one run saw of one server, once, however many claims reported it.
+
+        Two Agent CRs for one serial would otherwise each write every run; the
+        bound claim goes last so the stored state is stable (ADR-0041).
 
         Args:
-            server (Server): The matched server.
-            observation (ClusterObservation): What the cluster reported.
+            found (list[tuple[Server, ClusterObservation, str | None]]): The server,
+                each observation of it this run, and its `reported_name`.
             reported_by (str): The reporting cluster or MCE.
-            reported_name (str | None): The cluster's hostname for this
-                server, when it differs from `server.name` (ADR-0036).
             dry_run (bool): Compute only.
 
         Returns:
             bool: Whether the stored value changed.
         """
+        server = found[0][0]
+        stored = server.openshift
+        ordered = sorted(found, key=lambda m: m[1].lifecycle_state is OpenShiftState.INSTALLED)
+        updated = stored
+        for _, observation, reported_name in ordered:
+            updated = self._next(server, observation, reported_by, reported_name)
+            server.openshift = updated
+        server.openshift = stored
+        return await self._write(server, updated, dry_run=dry_run)
+
+    def _next(
+        self,
+        server: Server,
+        observation: ClusterObservation,
+        reported_by: str,
+        reported_name: str | None,
+    ) -> OpenShiftLifecycle:
+        """
+        Work out a server's membership after one observation of it.
+
+        Args:
+            server (Server): The matched server, its `openshift` the value to build on.
+            observation (ClusterObservation): What the cluster reported.
+            reported_by (str): The reporting cluster or MCE.
+            reported_name (str | None): The cluster's hostname for this
+                server, when it differs from `server.name` (ADR-0036).
+
+        Returns:
+            OpenShiftLifecycle: The new membership, not yet stored.
+        """
         now = utcnow()
-        previous, changed_at, contested, contested_name = _claim_history(
-            server.openshift, reported_by, observation.cluster_name, now
+        history = _claim_history(
+            server.openshift, reported_by, observation.cluster_name, now, observation.agent_uid
         )
+        contested, contested_name = history.contested_with, history.contested_name
         updated = OpenShiftLifecycle(
             lifecycle_state=observation.lifecycle_state,
             cluster_name=observation.cluster_name,
@@ -592,8 +686,10 @@ class OpenShiftMembershipService:
             last_reported_at=now,
             reported_by_agent_id=reported_by,
             reported_name=reported_name,
-            previous_reporter=previous,
-            claim_changed_at=changed_at,
+            agent_uid=observation.agent_uid,
+            previous_reporter=history.previous_reporter,
+            previous_agent_uid=history.previous_agent_uid,
+            claim_changed_at=history.claim_changed_at,
             contested_with=contested,
             contested_name=contested_name,
         )
@@ -606,7 +702,7 @@ class OpenShiftMembershipService:
                 claimed_by=reported_by,
                 also_claimed_by=contested,
             )
-        return await self._write(server, updated, dry_run=dry_run)
+        return updated
 
     async def _free(self, server: Server, *, dry_run: bool) -> bool:
         """
@@ -649,6 +745,8 @@ class OpenShiftMembershipService:
             and before.contested_with == updated.contested_with
             and before.contested_name == updated.contested_name
             and before.previous_reporter == updated.previous_reporter
+            and before.agent_uid == updated.agent_uid
+            and before.previous_agent_uid == updated.previous_agent_uid
         ):
             return False
         if dry_run:

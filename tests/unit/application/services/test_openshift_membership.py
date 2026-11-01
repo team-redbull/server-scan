@@ -898,13 +898,14 @@ class TestContestedClaim:
         assert server.openshift.contested_with is None
 
 
-def _agent(mce: str, cluster: str | None = None) -> ClusterObservation:
+def _agent(mce: str, cluster: str | None = None, uid: str | None = None) -> ClusterObservation:
     """
     One MCE agent observation for the shared test server.
 
     Args:
         mce (str): The reporting MCE.
         cluster (str | None): The hosted cluster it is bound to, or `None` if unbound.
+        uid (str | None): The Agent CR's UID, `None` for one that predates UIDs.
 
     Returns:
         ClusterObservation: The agent's claim.
@@ -917,6 +918,7 @@ def _agent(mce: str, cluster: str | None = None) -> ClusterObservation:
         cluster_name=cluster,
         mce_name=mce,
         serial="SN1",
+        agent_uid=uid,
     )
 
 
@@ -1004,3 +1006,85 @@ class TestEveryPairingOfClaimants:
             await _report(repo, "mce-x hosted h1")
 
         assert server.openshift.contested_with is None
+
+
+class TestAgentIdentity:
+    """ADR-0041 (2026-11-01): one Agent CR changing state is one claimant."""
+
+    @staticmethod
+    async def _run(repo: FakeRepo, *agents: ClusterObservation) -> None:
+        await _service(repo, FakeAudit()).reconcile(
+            list(agents), scope={"openshift.mce_name": "mce-x"}, reported_by="mce-x"
+        )
+
+    async def test_one_agent_unbinding_and_rebinding_is_not_contested(self) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+
+        for cluster in (None, "h1", None, "h1", "h2", None):
+            await self._run(repo, _agent("mce-x", cluster, uid="u1"))
+            assert server.openshift.contested_with is None
+
+    async def test_two_agents_bound_to_the_same_cluster_are_contested(self) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+
+        for _ in range(2):
+            await self._run(repo, _agent("mce-x", "h1", uid="u1"), _agent("mce-x", "h1", uid="u2"))
+
+        assert server.openshift.contested_with == "mce-x/h1"
+
+    async def test_a_replaced_agent_is_written_even_when_nothing_else_changed(self) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+
+        await self._run(repo, _agent("mce-x", "h1", uid="u1"))
+        await self._run(repo, _agent("mce-x", "h1", uid="u2"))
+
+        assert server.openshift.agent_uid == "u2"
+
+    async def test_a_value_stored_before_uids_existed_starts_a_clean_history(self) -> None:
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        await self._run(repo, _agent("mce-x"))
+        await self._run(repo, _agent("mce-x", "h1"))
+        assert server.openshift.agent_uid is None
+
+        await self._run(repo, _agent("mce-x", uid="u1"))
+
+        assert server.openshift.contested_with is None
+        assert server.openshift.previous_reporter is None
+        assert server.openshift.agent_uid == "u1"
+
+    async def test_a_node_job_and_a_uid_bearing_agent_flipping_are_still_contested(self) -> None:
+        """A node value has no UID but is not a legacy Agent value: history stays."""
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        node = _seen("ocp4-x-worker-01", cluster="mce-x")
+
+        for _ in range(3):
+            await self._run(repo, _agent("mce-x", "h1", uid="u1"))
+            await _service(repo, FakeAudit()).reconcile(
+                [node], scope={"openshift.cluster_name": "mce-x"}, reported_by="mce-x"
+            )
+
+        assert server.openshift.contested_with is not None
+
+    async def test_two_agents_for_one_serial_write_once_per_run_and_settle(self) -> None:
+        """A stale unbound CR beside the live bound one must not flip the state every run."""
+        server = _server("ocp4-x-worker-01", serial="SN1")
+        repo = FakeRepo([server])
+        revisions = []
+
+        for _ in range(4):
+            audit = FakeAudit()
+            await _service(repo, audit).reconcile(
+                [_agent("mce-x", uid="u1"), _agent("mce-x", "h1", uid="u2")],
+                scope={"openshift.mce_name": "mce-x"},
+                reported_by="mce-x",
+            )
+            revisions.append(server.revision)
+
+        assert server.openshift.lifecycle_state is OpenShiftState.INSTALLED
+        assert server.openshift.contested_with is not None
+        assert revisions[-1] == revisions[-2] == revisions[-3]
