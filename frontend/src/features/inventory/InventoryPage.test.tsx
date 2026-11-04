@@ -166,6 +166,27 @@ describe("InventoryPage", () => {
     expect(screen.getByText(/^Updated /)).toBeInTheDocument();
   });
 
+  it("keeps the severity edge on the last row", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ id: "a", name: "crit-a", health: "CRITICAL" }),
+          makeServer({ id: "b", name: "crit-b", health: "CRITICAL" }),
+        ]),
+      ),
+    );
+
+    renderInventoryPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("crit-b")).toBeInTheDocument();
+    });
+    for (const tr of screen.getAllByRole("row").slice(1)) {
+      expect(tr.className).toContain("border-l-[var(--color-status-critical)]");
+      expect(tr.className).not.toMatch(/(^|\s)last:border-0(\s|$)/);
+    }
+  });
+
   it("links each row's BMC host to its own console, and renders nothing without one", async () => {
     mockRows(() =>
       jsonResponse(
