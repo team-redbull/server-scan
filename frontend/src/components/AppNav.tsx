@@ -1,14 +1,15 @@
 import { Link, useLocation } from "react-router";
 
-import { useAuth, useCanReadAudit, useLogoutMutation } from "@/features/auth/useAuth";
+import { useAuth, useCanReadAudit, useIsAdmin, useLogoutMutation } from "@/features/auth/useAuth";
 
 const LINKS = [
-  { to: "/", label: "Sites", audit: false },
-  { to: "/servers", label: "Servers", audit: false },
-  { to: "/events", label: "Events", audit: true },
-  { to: "/rules", label: "Rules & Policies", audit: false },
-  { to: "/skill", label: "Claude", audit: false },
-  { to: "/architecture", label: "Architecture", audit: false },
+  { to: "/", label: "Sites", audit: false, admin: false },
+  { to: "/servers", label: "Servers", audit: false, admin: false },
+  { to: "/events", label: "Events", audit: true, admin: false },
+  { to: "/jobs", label: "Jobs", audit: false, admin: true },
+  { to: "/rules", label: "Rules & Policies", audit: false, admin: false },
+  { to: "/skill", label: "Claude", audit: false, admin: false },
+  { to: "/architecture", label: "Architecture", audit: false, admin: false },
 ];
 
 /** The signed-in username, role badge and "Log out" — only when
@@ -47,7 +48,8 @@ function AccountMenu() {
 export function AppNav() {
   const location = useLocation();
   const canReadAudit = useCanReadAudit();
-  const links = LINKS.filter((link) => canReadAudit || !link.audit);
+  const isAdmin = useIsAdmin();
+  const links = LINKS.filter((link) => (canReadAudit || !link.audit) && (isAdmin || !link.admin));
 
   return (
     <nav className="border-b border-[var(--border-subtle)] bg-[var(--surface-raised)]">

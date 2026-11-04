@@ -21,6 +21,13 @@ export function useCanReadAudit(): boolean {
   return me?.role === "ADMIN" || me?.role === "AUDITOR";
 }
 
+/** Whether the caller is an admin (the Jobs page, docs/adr/0055). False until `/auth/me`
+ * resolves. The API enforces it with a 403; this only decides what is shown. */
+export function useIsAdmin(): boolean {
+  const { data: me } = useAuth();
+  return me?.role === "ADMIN";
+}
+
 export function useLoginMutation() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -6,9 +6,12 @@ kind: CronJob
 metadata:
   name: {{ .Release.Name }}-prune-servers
   labels:
+    server-scan.io/triggerable: "true"
     app.kubernetes.io/name: {{ .Release.Name }}-prune-servers
     app.kubernetes.io/component: maintenance
     app.kubernetes.io/part-of: server-scan
+  annotations:
+    server-scan.io/trigger-warning: "This run can permanently delete data: servers no collector has seen for the prune window."
 spec:
   schedule: {{ $pr.schedule | default "0 3,9,15,21 * * *" | quote }}
   {{- with .Values.collectors.timeZone }}

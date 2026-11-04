@@ -33,6 +33,11 @@ export const queryKeys = {
   skill: {
     all: ["skill"] as const,
   },
+  jobs: {
+    all: ["jobs"] as const,
+    logs: (cronjob: string, job: string, pod: string) =>
+      ["jobs", "logs", cronjob, job, pod] as const,
+  },
   personalToken: {
     all: ["personalToken"] as const,
   },

@@ -1910,6 +1910,19 @@ Real authentication landed 2026-09-22 — see "Authentication and
 authorization" above and ADR-0034, rather than the placeholder this
 paragraph used to be.
 
+## Running a CronJob from the UI (ADR-0055)
+
+`GET /api/v1/jobs`, `POST /api/v1/jobs/{cronjob}/run` and `GET /api/v1/jobs/{cronjob}/runs/{job}/pods/{pod}/logs`
+(`app/api/v1/jobs.py`), all behind `require_admin`. The `JobRunner` port (`app/domain/ports/job_runner.py`) has
+two adapters in `app/infrastructure/jobs/`: `KubernetesJobRunner` (plain `httpx` with the ServiceAccount token;
+`manifest.py` builds the Job from `spec.jobTemplate` as `kubectl create job --from` does) and `FakeJobRunner`
+(dev and tests). `INVENTORY_JOBS_BACKEND` (`kubernetes`/`fake`/`off`, `app/config/jobs.py`) picks one in the
+lifespan; `off` makes `GET /jobs` answer `enabled: false` and the others 404. A CronJob is triggerable only with
+the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace; a running Job gives 409.
+`JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
+`useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane
+that refreshes every 3 s while the Job is active.
+
 ## Audit trail UI
 
 The server detail page has a **History** tab (`GET /servers/{id}/events`)

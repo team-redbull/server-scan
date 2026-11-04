@@ -1,0 +1,51 @@
+{{- /* "Run job" (docs/adr/0055): the API's ServiceAccount and a Role in this namespace only. The platform repo's values.yaml may lack `jobTrigger`; the read tolerates that. */ -}}
+{{- $jobTrigger := .Values.jobTrigger | default dict }}
+{{- if $jobTrigger.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-api
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-api
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: server-scan
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-api-job-trigger
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-api
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: server-scan
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-api-job-trigger
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-api
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: server-scan
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-api-job-trigger
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-api
+    namespace: {{ .Release.Namespace }}
+{{- end }}

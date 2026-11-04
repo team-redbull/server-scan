@@ -9,9 +9,12 @@ kind: CronJob
 metadata:
   name: {{ .Release.Name }}-prune-events
   labels:
+    server-scan.io/triggerable: "true"
     app.kubernetes.io/name: {{ .Release.Name }}-prune-events
     app.kubernetes.io/component: maintenance
     app.kubernetes.io/part-of: server-scan
+  annotations:
+    server-scan.io/trigger-warning: "This run can permanently delete audit events older than the retention window."
 spec:
   schedule: {{ $ar.schedule | default "30 3 * * 0" | quote }}
   {{- with .Values.collectors.timeZone }}

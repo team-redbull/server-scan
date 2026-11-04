@@ -23,6 +23,7 @@ export const WRITTEN_EVENT_TYPES = [
   "LOGIN_DENIED",
   "TOKEN_CREATED",
   "TOKEN_REVOKED",
+  "JOB_TRIGGERED",
 ] as const;
 
 function str(value: unknown): string | null {
@@ -152,6 +153,8 @@ export function describeEvent(event: AuditEventResponse): string {
       return d.by_admin === true
         ? `Personal API token of ${str(d.user) ?? "?"} revoked by an admin`
         : "Revoked their personal API token";
+    case "JOB_TRIGGERED":
+      return `Ran CronJob ${str(d.cronjob) ?? "?"} by hand as Job ${str(d.job) ?? "?"}`;
     case "AUDIT_PURGED":
       return `Purged ${count(d.deleted)} audit events older than ${count(d.retention_days)} days`;
     case "HEALTH_CHANGED":

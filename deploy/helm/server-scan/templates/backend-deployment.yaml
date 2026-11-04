@@ -18,7 +18,14 @@ spec:
         app.kubernetes.io/component: backend
         app.kubernetes.io/part-of: server-scan
     spec:
+      {{- $jobTrigger := .Values.jobTrigger | default dict }}
+      {{- if $jobTrigger.enabled }}
+      # Needed only to reach the Kubernetes API for "Run job" (docs/adr/0055); the Role is namespaced.
+      serviceAccountName: {{ .Release.Name }}-api
+      automountServiceAccountToken: true
+      {{- else }}
       automountServiceAccountToken: false
+      {{- end }}
       {{- $auth := .Values.auth | default dict }}
       containers:
         - name: api
@@ -31,6 +38,16 @@ spec:
           env:
             - name: INVENTORY_ENVIRONMENT
               value: production
+            {{- if $jobTrigger.enabled }}
+            - name: INVENTORY_JOBS_BACKEND
+              value: kubernetes
+            - name: INVENTORY_JOBS_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: INVENTORY_JOBS_CATALOG_FILE
+              value: /etc/server-scan/jobs/catalog.json
+            {{- end }}
             {{- include "serverScan.dbEnv" . | nindent 12 }}
             # A volume mount (below), not envFrom: kubelet keeps a mounted
             # ConfigMap's files in sync with no pod restart, unlike env
@@ -81,6 +98,11 @@ spec:
             - name: api-config
               mountPath: /etc/server-scan/config
               readOnly: true
+            {{- if $jobTrigger.enabled }}
+            - name: jobs-catalog
+              mountPath: /etc/server-scan/jobs
+              readOnly: true
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health/live
@@ -108,3 +130,8 @@ spec:
         - name: api-config
           configMap:
             name: {{ .Release.Name }}-api-config
+        {{- if $jobTrigger.enabled }}
+        - name: jobs-catalog
+          configMap:
+            name: {{ .Release.Name }}-jobs-catalog
+        {{- end }}

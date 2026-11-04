@@ -31,6 +31,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.classification_rules import router as classification_rules_router
 from app.api.v1.events import router as events_router
 from app.api.v1.health_policies import router as health_policies_router
+from app.api.v1.jobs import router as jobs_router
 from app.api.v1.servers import router as servers_router
 from app.api.v1.sites import router as sites_router
 from app.api.v1.skill import router as skill_router
@@ -40,11 +41,14 @@ from app.application.services.bootstrap import (
     ensure_default_health_policies,
 )
 from app.config import get_settings
+from app.config.jobs import effective_backend, get_jobs_settings
 from app.dependencies import get_current_actor, require_audit_access
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.site import site_catalog
 from app.exception_handlers import register_exception_handlers
+from app.infrastructure.jobs.factory import build_job_runner
+from app.infrastructure.jobs.kubernetes import KubernetesJobRunner
 from app.infrastructure.logging import configure_logging
 from app.infrastructure.mongodb import MongoClientHolder
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
@@ -120,6 +124,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     redis = RedisClientHolder(settings)
     await redis.connect()
     app.state.redis = redis
+    app.state.job_runner = build_job_runner(
+        effective_backend(get_jobs_settings(), settings.environment), get_jobs_settings().namespace
+    )
 
     logger.info("app.ready")
     try:
@@ -130,6 +137,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await drain_singleflight()
         await redis.close()
         await mongo.close()
+        if isinstance(app.state.job_runner, KubernetesJobRunner):
+            await app.state.job_runner.close()
 
 
 DOCS_ASSETS_URL = "/api/docs-assets"
@@ -213,6 +222,8 @@ def create_app() -> FastAPI:
     app.include_router(sites_router, dependencies=_authenticated)
     app.include_router(skill_router, dependencies=_authenticated)
     app.include_router(tokens_router, dependencies=_authenticated)
+    # Admin only on every route, reads included (docs/adr/0055); the router adds `require_admin`.
+    app.include_router(jobs_router, dependencies=_authenticated)
 
     if settings.metrics_enabled:
 

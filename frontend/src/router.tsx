@@ -1,11 +1,13 @@
 import { createBrowserRouter } from "react-router";
 
 import { AppLayout } from "@/components/AppLayout";
+import { AdminGate } from "@/components/AdminGate";
 import { AuditGate } from "@/components/AuditGate";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
 import { EventsPage } from "@/features/events/EventsPage";
 import { InventoryPage } from "@/features/inventory/InventoryPage";
+import { JobsPage } from "@/features/jobs/JobsPage";
 import { RulesPage } from "@/features/rules/RulesPage";
 import { SkillPage } from "@/features/skill/SkillPage";
 import { ServerDetailPage } from "@/features/servers/ServerDetailPage";
@@ -35,6 +37,15 @@ export const router = createBrowserRouter([
           <AuditGate>
             <EventsPage />
           </AuditGate>
+        ),
+      },
+      {
+        // Run a collector or prune CronJob and read its logs; admin only (docs/adr/0055).
+        path: "/jobs",
+        element: (
+          <AdminGate>
+            <JobsPage />
+          </AdminGate>
         ),
       },
       {

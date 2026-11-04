@@ -354,6 +354,13 @@ long form of each entry is in the 2026-09-13 archive.
   agree; a code may be `|`-separated aliases; a Cisco name with no token falls
   back to the profile's org DN. Known collision: a code that is a substring of
   `infra` makes every `-infra-` server ambiguous.
+- **"Run job" creates a real Job from a CronJob's `jobTemplate` through the Kubernetes API** (ADR-0055, plain `httpx` + ServiceAccount
+  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 6 collectors
+  and 2 prunes, never `nodes-status`), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
+  triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
+  `jobTrigger.enabled` (off by default) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
+- **Site fallback order is name, profile DN, then BMC IP prefix** (ADR-0056, `INVENTORY_SITE_BMC_PREFIXES`,
+  `SiteCatalog.parse_bmc`): whole octets, longest wins, IPv4 only; any caller building a catalog for ingest passes both specs.
 - **`Vendor` is dell/cisco/hp/standalone, no `UNKNOWN`.** `STANDALONE` is a
   manufacturer not modelled *or* not reported by the BMC — never "collected
   without a manager". Correlation is `(vendor, serial_normalized)`, so moving a
@@ -399,7 +406,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051.
+  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051.
 
 ## Verifying your work
 
@@ -468,12 +475,13 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-01 — a "Claude" page (`/skill`) with the live-read skill, personal API tokens and a read-only MCP server (ADR-0052, 0053, 0054).**
-Moved to `docs/notes/session-log.md`: the MCE Agent UID unit (ADR-0041 update).
+**2026-11-04 — an admin "Run job" page (ADR-0055), a BMC-IP site fallback (ADR-0056), nodes-status every 5 minutes, and a severity-edge fix.**
+Moved to `docs/notes/session-log.md`: the "Claude" page, personal tokens and MCP server unit (ADR-0052-0054).
 
-**Shipped:** `GET /api/v1/skill` (+ `/download`, reads `INVENTORY_SKILL_DIR` / `/app/skill` per request, the image copies the
-skill); one hashed, read-only personal token per user (`/api/v1/auth/token`, `api_tokens`, 90 days, acts as
-`token:<username>`, `TOKEN_CREATED`/`TOKEN_REVOKED`); `tools/mcp_server` (eight read tools, `/mcp`, Helm `mcp.enabled`).
+**Shipped:** `/api/v1/jobs` (admin-only, real Jobs from a CronJob's `jobTemplate` via httpx, 409 while one is unfinished, logs in a card, `enabled`
+per job from the chart's `jobs-catalog` ConfigMap); `INVENTORY_SITE_BMC_PREFIXES` as the last site fallback; `nodes.schedule`/`agents.schedule`
+`*/5`; the last inventory row keeps its severity edge (`last:border-b-0`).
 
-**Open:** the page was never seen in a browser here (no usable Chromium in this WSL), and the MCP was not connected from a real Claude
-Code over HTTP. Check the air-gapped mirror carries `mcp==1.30.0`. Refused writes by a token are not audited; membership is not re-checked.
+**Open:** the Kubernetes path was only tested against a mocked API: on a real cluster with `jobTrigger.enabled` check the CA path, `limitBytes` and
+RBAC. Two admins within the same second can both pass the 409 check. `membershipSilentForSeconds` (1800) was left at six missed cycles.
+The Jobs page and the BMC fallback were never exercised against real hardware; fake servers all carry a site in their name.

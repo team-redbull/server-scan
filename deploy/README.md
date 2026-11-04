@@ -1,7 +1,7 @@
 # Deployment
 
 Two Helm charts. `helm/server-scan` is the platform — API, frontend,
-an optional MCP server and the per-vendor collector CronJobs — and is what the rest of this
+an optional MCP server, an optional "Run job" RBAC and the per-vendor collector CronJobs — and is what the rest of this
 document is about. `helm/nodes-status` is the pair of jobs that
 run *inside* every OpenShift cluster to report what it is using, one
 release per cluster; it has its own README, and the section below says
@@ -198,6 +198,19 @@ proxy, so Claude Code connects at `https://<route host>/mcp` with no second Rout
 credentials: it calls `<release>-api` with each caller's own `Authorization` header. Values: `mcp.replicaCount`
 (2), `mcp.port` (8090), `mcp.resources`. The key is read with `default`, so the Deploy job's `values.yaml` need
 not carry it.
+
+## Running a CronJob from the UI (ADR-0055)
+
+`jobTrigger.enabled: true` (default false; read with `default`, so the Deploy job's `values.yaml` need not
+carry it) lets an admin start a collector or prune CronJob from the UI's **Jobs** page, like
+`oc create job --from=cronjob/<name>`, and read its pods' logs there (in a card over the page). Each job shows its `enabled` flag from `values.yaml`, read from a `<release>-jobs-catalog` ConfigMap the chart renders and mounts (a switched-off job renders no CronJob, so the cluster alone cannot list it). It adds a `<release>-api`
+ServiceAccount, mounts its token into the API pod (`automountServiceAccountToken` is otherwise `false`) and
+binds a Role **in the release namespace only**: `cronjobs` get/list, `jobs` get/list/create, `pods`
+get/list, `pods/log` get. It sets `INVENTORY_JOBS_BACKEND=kubernetes` and `INVENTORY_JOBS_NAMESPACE` (downward
+API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the six collectors and the two
+prune jobs of this chart, never the `nodes-status` jobs. `server-scan.io/trigger-warning` on a CronJob is the
+text of the UI's confirm dialog (set on `openmanage` and both prunes). The API pod can then create Jobs in its
+namespace; read the trade-off in ADR-0055 before enabling it.
 
 ## Container security
 

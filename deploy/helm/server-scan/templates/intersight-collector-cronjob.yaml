@@ -4,6 +4,7 @@ kind: CronJob
 metadata:
   name: {{ .Release.Name }}-collector-intersight
   labels:
+    server-scan.io/triggerable: "true"
     app.kubernetes.io/name: {{ .Release.Name }}-collector-intersight
     app.kubernetes.io/component: collector
     app.kubernetes.io/part-of: server-scan

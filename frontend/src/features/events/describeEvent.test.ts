@@ -200,6 +200,15 @@ describe("describeEvent", () => {
     );
   });
 
+  it("describes a job run by hand", () => {
+    expect(
+      describeEvent({
+        ...ev("JOB_TRIGGERED"),
+        data: { cronjob: "r-collector-oneview", job: "r-collector-oneview-manual-ab12cd" },
+      }),
+    ).toBe("Ran CronJob r-collector-oneview by hand as Job r-collector-oneview-manual-ab12cd");
+  });
+
   it("covers every written type", () => {
     for (const t of WRITTEN_EVENT_TYPES) {
       expect(describeEvent(ev(t))).not.toBe(t);

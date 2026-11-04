@@ -566,6 +566,8 @@ of it.
 | 0052 | The UI's `/skill` page and `GET /api/v1/skill` (+ `/download`) read the Claude skill from disk per request, so editing the skill updates the page with no UI change |
 | 0053 | A signed-in user gets one personal, read-only API token (`/api/v1/auth/token`): hashed at rest, 90-day expiry, acts as `token:<username>` in the audit trail; admins can list and revoke |
 | 0054 | A read-only MCP server (`tools/mcp_server`, `/mcp` on the frontend host, off by default) calls the REST API with each caller's own personal token; eight tools, no `servers/available` |
+| 0055 | Admins run a collector or prune CronJob from the UI as a real Job (Kubernetes API via httpx, label allow-list, admin-only, 409 while active, `JOB_TRIGGERED` event); never `nodes-status` |
+| 0056 | A BMC IP prefix (`INVENTORY_SITE_BMC_PREFIXES`) is the last fallback for a server's site, after name and profile DN |
 
 ---
 

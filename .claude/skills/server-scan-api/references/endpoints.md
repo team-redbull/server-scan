@@ -14,6 +14,7 @@ mutations need the admin token. Generated from the app's own OpenAPI schema -
 - Skill
 - Auth and health
 - Write endpoints (admin only)
+- Jobs (admin only)
 
 ## Servers
 
@@ -69,7 +70,7 @@ Auditor or admin token only.
 Event: `id, event_type, server_id, server_name, actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED` (data has `from`/`to` and, when the server was renamed in the same collection, `name_from`/`name_to`),
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
-`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), plus rule/policy/site/manager events.
+`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), plus rule/policy/site/manager events.
 
 ## Sites
 
@@ -108,3 +109,11 @@ for one username; wait it out, do not retry.
 (install lock, ADR-0035), `POST /api/v1/servers/{id}/reclassify`,
 `POST /api/v1/servers/{id}/health/recalculate`. Do not call these unless the user asks and
 has supplied the admin token.
+
+## Jobs (admin only, every route, reads included)
+
+A viewer, an auditor and every personal token get `403`. Do not call these unless the user asks and
+has supplied the admin token. ADR-0055.
+`GET /api/v1/jobs` - `{enabled, backend, namespace, cronjobs[]}`; each cronjob has `name, schedule, suspend, last_schedule_time, last_successful_time, warning, active` (a Job of it is running), `enabled` (the job's flag in the deployment's values.yaml), `deployed` (the CronJob exists; a switched-off one does not) and `jobs[]` newest first (`name, created_at, started_at, finished_at, active, succeeded, failed, state` = `active|succeeded|failed|pending`, `manual, triggered_by, pods[{name, phase, started_at}]`). `enabled: false` means the deployment does not offer it.
+`POST /api/v1/jobs/{cronjob}/run` - starts a real Job from the CronJob (`201`, the new Job). `409` when one of its Jobs is running, `404` when the name is not a triggerable CronJob (only the collector and prune CronJobs of the platform chart are; never the `nodes-status` jobs). The Job runs exactly as scheduled: the Dell collector can restart an iDRAC and the prune jobs delete data.
+`GET /api/v1/jobs/{cronjob}/runs/{job}/pods/{pod}/logs?tail=500` - `{pod, tail, text}`; `404` unless the pod belongs to that Job of that CronJob.

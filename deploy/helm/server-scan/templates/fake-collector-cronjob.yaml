@@ -4,6 +4,7 @@ kind: CronJob
 metadata:
   name: {{ .Release.Name }}-collector-fake
   labels:
+    server-scan.io/triggerable: "true"
     app.kubernetes.io/name: {{ .Release.Name }}-collector-fake
     app.kubernetes.io/component: collector
     app.kubernetes.io/part-of: server-scan

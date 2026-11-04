@@ -8,6 +8,16 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-01 — a "Claude" page (`/skill`) with the live-read skill, personal API tokens and a read-only MCP server (ADR-0052, 0053, 0054).**
+Moved to `docs/notes/session-log.md`: the MCE Agent UID unit (ADR-0041 update).
+
+**Shipped:** `GET /api/v1/skill` (+ `/download`, reads `INVENTORY_SKILL_DIR` / `/app/skill` per request, the image copies the
+skill); one hashed, read-only personal token per user (`/api/v1/auth/token`, `api_tokens`, 90 days, acts as
+`token:<username>`, `TOKEN_CREATED`/`TOKEN_REVOKED`); `tools/mcp_server` (eight read tools, `/mcp`, Helm `mcp.enabled`).
+
+**Open:** the page was never seen in a browser here (no usable Chromium in this WSL), and the MCP was not connected from a real Claude
+Code over HTTP. Check the air-gapped mirror carries `mcp==1.30.0`. Refused writes by a token are not audited; membership is not re-checked.
+
 **2026-11-01 — an MCE Agent is identified by its CR `metadata.uid`, and a run writes a server once (ADR-0041 update).**
 Moved to `docs/notes/session-log.md`: the rename-event and byte-units unit (ADR-0051).
 

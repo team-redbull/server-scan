@@ -45,6 +45,15 @@ backend:
   cursorSecret: ""
   existingCursorSecret: ""
 
+# "Run job" in the UI (docs/adr/0055): admins start one of this chart's collector or prune
+# CronJobs like `kubectl create job --from=cronjob/<name>` and read its pods' logs. Off by
+# default. On gives the API pod a ServiceAccount, mounts its token, and binds a Role in THIS
+# namespace only: cronjobs get/list, jobs get/list/create, pods get/list, pods/log get. Only
+# CronJobs labelled `server-scan.io/triggerable: "true"` (this chart's eight) can be run, and
+# the endpoints are admin only. The `nodes-status` chart's jobs are never triggerable.
+jobTrigger:
+  enabled: false
+
 # The MCP server for Claude Code (ADR-0054): `python -m tools.mcp_server --http` from the API image,
 # reached at /mcp on the frontend's host (so it needs `frontend.enabled`). Off by default; it holds
 # no credentials and calls the API with each caller's own token.
@@ -263,6 +272,13 @@ config:
   #     --set-string 'config.sites=nyc:New York City\,tlv:Tel Aviv'
   sites: ""
 
+  # Last-resort site for a server whose name and profile DN name none: the
+  # BMC IP's leading octets, as `prefix=site` pairs (a site from `sites`
+  # above), e.g. "10=tlv,149=bat-yam,69=tokyo". Whole octets, longest prefix
+  # wins ("10" never matches 100.x). Empty disables it. Same `--set` comma
+  # gotcha as `sites`. See docs/adr/0056-site-from-bmc-ip.md.
+  siteBmcPrefixes: ""
+
   # GPU VRAM overrides, as `PID:Friendly Name:VRAM_GB` triples. No
   # management plane reports GPU memory, so the platform ships a built-in
   # table of 30 NVIDIA and AMD datacenter cards — empty means that table
@@ -272,13 +288,6 @@ config:
   # is a Cisco PID or a vendor model string (`NVIDIA A100-PCIE-40GB`);
   # both match. A malformed entry fails the collector pod at startup
   # rather than silently reporting no VRAM. Same comma-splitting gotcha
-  # Last-resort site for a server whose name and profile DN name none: the
-  # BMC IP's leading octets, as `prefix=site` pairs (a site from `sites`
-  # above), e.g. "10=tlv,149=bat-yam,69=tokyo". Whole octets, longest prefix
-  # wins ("10" never matches 100.x). Empty disables it. Same `--set` comma
-  # gotcha as `sites`. See docs/adr/0056-site-from-bmc-ip.md.
-  siteBmcPrefixes: ""
-
   # as `sites` above applies to `--set` on the command line. See
   # docs/adr/0021-built-in-gpu-catalog-with-model-matching.md.
   gpuModels: ""

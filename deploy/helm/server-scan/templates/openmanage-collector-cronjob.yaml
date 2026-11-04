@@ -4,9 +4,12 @@ kind: CronJob
 metadata:
   name: {{ .Release.Name }}-collector-openmanage
   labels:
+    server-scan.io/triggerable: "true"
     app.kubernetes.io/name: {{ .Release.Name }}-collector-openmanage
     app.kubernetes.io/component: collector
     app.kubernetes.io/part-of: server-scan
+  annotations:
+    server-scan.io/trigger-warning: "This run can restart an iDRAC (ADR-0050) when a Dell has every disk or NIC UNKNOWN."
 spec:
   schedule: {{ .Values.collectors.ome.schedule | quote }}
   {{- with .Values.collectors.timeZone }}

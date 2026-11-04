@@ -25,6 +25,7 @@ const TYPE_TINT: [prefix: string, tint: string][] = [
   ["LOGIN_DENIED", "--tint-critical"],
   ["LOGIN_", "--tint-info"],
   ["TOKEN_", "--tint-info"],
+  ["JOB_", "--tint-warning"],
   ["SERVER_RESERVATION_REFUSED", "--tint-critical"],
   ["SERVER_RES", "--tint-info"],
   ["SERVER_RELEASED", "--tint-info"],
