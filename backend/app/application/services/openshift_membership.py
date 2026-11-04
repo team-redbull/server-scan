@@ -80,7 +80,7 @@ logger = structlog.get_logger(__name__)
 _PAGE = 500
 
 # A server is contested when ownership flips back to its earlier claimant
-# within this long (ADR-0041); both jobs run every 15 minutes.
+# within this long (ADR-0041); both jobs run every 5 minutes.
 _CONTEST_WINDOW = timedelta(hours=1)
 
 

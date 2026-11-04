@@ -1107,7 +1107,7 @@ and exposed via reclassify/recalculate endpoints.
   events written before this carry `reasons`/`resolved` instead) — never a generic "updated" event, since ingestion touches
   `last_seen_at` on every server on every run and a naive audit-on-every-
   write would be pure noise with no signal. `OPENSHIFT_STATE_CHANGED`
-  follows the same rule: the membership jobs run every 15 minutes over
+  follows the same rule: the membership jobs run every 5 minutes over
   the whole fleet, so an event per observation would be noise measured
   in millions, and the only interesting moment is the transition.
   `EventType` is a closed, append-only registry — values are added at

@@ -342,3 +342,18 @@ mechanism: when a hostname is not a unique match (a miss, or two servers
 sharing it), the service falls back to the machine's hardware serial
 (SSH for a node, the Agent CR's own inventory for an agent) rather than
 freeing the server or guessing between duplicates.
+
+## Update (2026-11-04): every 5 minutes, not 15
+
+`nodes.schedule` and `agents.schedule` now default to `*/5 * * * *` (operator's call: a node
+joining or leaving shows up three times sooner). What this changes, so the older notes still read right:
+
+- ADR-0041's "flagged 15 minutes after it first appears" is now 5, and a server two jobs keep flipping
+  between writes three times the audit events per hour while it lasts.
+- ADR-0036's "every 15-minute run" is every 5-minute run: an unreachable node costs an SSH attempt
+  three times as often.
+- `membershipSilentForSeconds` (ADR-0029) is unchanged at 1800 s, which is now six missed cycles, not
+  two; lower it to 600 to keep the old sensitivity.
+- `activeDeadlineSeconds` stays 600: under `concurrencyPolicy: Forbid` a run longer than 5 minutes skips
+  the next tick instead of stacking, and killing a slow but healthy run would be worse.
+- `jobTtlSeconds` 1800 now keeps about six finished Jobs per CronJob for log reading.

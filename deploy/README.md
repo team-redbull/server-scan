@@ -320,7 +320,7 @@ metrics:
 **`silentForSeconds` and `membershipSilentForSeconds` are two separate
 values on purpose.** The vendor collectors (`collectors.*.schedule`,
 default every 3h) and the `nodes-status` membership jobs
-(`nodes.schedule`/`agents.schedule`, default every 15min) run on very
+(`nodes.schedule`/`agents.schedule`, default every 5min) run on very
 different cadences, and a single shared threshold cannot fit both: sized
 for the collectors (12h) it tolerates 48 missed membership-job runs
 before `ServerScanClusterSilent`/`ServerScanMembershipRunSilent` fire —
@@ -557,7 +557,7 @@ beside the API. One release per cluster, deployed by ArgoCD: a UPI
 cluster sets `nodes.enabled` + `nodes.clusterName`, an MCE hub also sets
 `agents.enabled` + `agents.mceName`. Both names are Helm `required`, so a
 misconfigured release fails at template time instead of running a job
-that exits 2 every 15 minutes.
+that exits 2 every 5 minutes.
 
 Each cluster needs network to this platform's MongoDB and the `mongo-uri`
 and `cursor-secret` Secrets — the jobs write directly, like every

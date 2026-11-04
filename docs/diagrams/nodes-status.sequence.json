@@ -15,13 +15,13 @@
       "id": "nodes_job",
       "type": "backend",
       "label": "nodes CronJob",
-      "sublabel": "every cluster, */15"
+      "sublabel": "every cluster, */5"
     },
     {
       "id": "agents_job",
       "type": "backend",
       "label": "agents CronJob",
-      "sublabel": "MCE hubs only, */15"
+      "sublabel": "MCE hubs only, */5"
     },
     {
       "id": "kube",
