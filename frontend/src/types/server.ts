@@ -46,6 +46,15 @@ export type UnreachableReason =
   | "timeout"
   | "protocol_error";
 
+/** One policy that fired in the last evaluation (worst first, capped by the API). */
+export interface HealthReason {
+  policy_key: string;
+  policy_name: string;
+  category: string;
+  severity: HealthSeverity;
+  message: string | null;
+}
+
 export interface HealthSummary {
   overall: HealthSeverity;
   memory: HealthSeverity;
@@ -56,6 +65,8 @@ export interface HealthSummary {
   power: HealthSeverity;
   gpu: HealthSeverity;
   bmc: HealthSeverity;
+  /** Absent on a document written before the API recorded them. */
+  reasons?: HealthReason[];
 }
 
 export interface MaintenanceState {

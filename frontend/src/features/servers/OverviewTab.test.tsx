@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { OverviewTab } from "@/features/servers/OverviewTab";
@@ -119,6 +119,40 @@ describe("OverviewTab matched rule", () => {
 });
 
 describe("OverviewTab health breakdown", () => {
+  it("says why a category is critical, e.g. a storage total that contradicts the name", () => {
+    const server = makeServer({
+      health: {
+        ...makeServer().health,
+        overall: "CRITICAL",
+        storage: "CRITICAL",
+        reasons: [
+          {
+            policy_key: "storage.name_capacity_mismatch",
+            policy_name: "Storage doesn't match the server's own name",
+            category: "storage",
+            severity: "CRITICAL",
+            message: "5 TB of storage, but the name promises 10 TB",
+          },
+        ],
+      },
+    });
+    render(<OverviewTab server={server} />);
+
+    const why = screen.getByRole("list", { name: "Why this health" });
+    expect(within(why).getByText("Storage")).toBeInTheDocument();
+    expect(
+      within(why).getByText("5 TB of storage, but the name promises 10 TB"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no reasons list for a healthy server", () => {
+    render(<OverviewTab server={makeServer()} />);
+
+    expect(
+      screen.queryByRole("list", { name: "Why this health" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("hides the GPU row on a server without GPUs", () => {
     render(<OverviewTab server={makeServer()} />);
     expect(screen.queryByText("GPU")).not.toBeInTheDocument();

@@ -216,7 +216,7 @@ const UNREACHABLE_LABELS: Record<UnreachableReason, string> = {
 
 /** The categories behind "Overall health"; `overall` has its own field. */
 const HEALTH_CATEGORIES: {
-  key: keyof Omit<HealthSummary, "overall">;
+  key: Exclude<keyof HealthSummary, "overall" | "reasons">;
   label: string;
 }[] = [
   { key: "memory", label: "Memory" },
@@ -269,15 +269,37 @@ function HealthBreakdown({
     if (key === "gpu") return hasGpus;
     return true;
   });
+  const labels = new Map(
+    HEALTH_CATEGORIES.map(({ key, label }) => [key as string, label]),
+  );
+  const reasons = health.reasons ?? [];
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-      {categories.map(({ key, label }) => (
-        <span key={key} className="inline-flex items-center gap-1.5 text-xs">
-          <span className="text-gray-500">{label}</span>
-          <HealthBadge severity={health[key]} />
-          {key === "raid" && raid && <RaidNote raid={raid} />}
-        </span>
-      ))}
+    <div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {categories.map(({ key, label }) => (
+          <span key={key} className="inline-flex items-center gap-1.5 text-xs">
+            <span className="text-gray-500">{label}</span>
+            <HealthBadge severity={health[key]} />
+            {key === "raid" && raid && <RaidNote raid={raid} />}
+          </span>
+        ))}
+      </div>
+      {reasons.length > 0 && (
+        <ul aria-label="Why this health" className="mt-2 space-y-1">
+          {reasons.map((reason) => (
+            <li
+              key={reason.policy_key}
+              className="flex items-center gap-1.5 text-xs"
+            >
+              <HealthBadge severity={reason.severity} />
+              <span className="text-gray-500">
+                {labels.get(reason.category) ?? reason.category}
+              </span>
+              <span>{reason.message ?? reason.policy_name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
