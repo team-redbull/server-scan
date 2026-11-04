@@ -510,7 +510,8 @@ async def _dry_run_one_manager(
             ),
             name_pattern,
         )
-        sites = site_catalog(settings.sites if settings is not None else get_settings().sites)
+        effective = settings if settings is not None else get_settings()
+        sites = site_catalog(effective.sites, effective.site_bmc_prefixes)
         gpus_catalog = gpu_catalog(
             settings.gpu_models if settings is not None else get_settings().gpu_models
         )
@@ -525,7 +526,12 @@ async def _dry_run_one_manager(
         async with contextlib.aclosing(provider.collect()) as servers:
             async for ps in servers:
                 count += 1
-                site = parse_site_code(ps.name, sites) or parse_site_code(ps.profile_dn, sites)
+                bmc = parse_bmc_address(ps.bmc_address_raw)
+                site = (
+                    parse_site_code(ps.name, sites)
+                    or parse_site_code(ps.profile_dn, sites)
+                    or sites.parse_bmc(bmc.host if bmc else None)
+                )
                 memory = (
                     f"{ps.memory_total_bytes / 1024**3:.1f} GiB"
                     if ps.memory_total_bytes is not None
@@ -809,7 +815,7 @@ async def _run(
                 server_repo=server_repo,
                 site_repo=MongoSiteRepository(mongo),
                 manager_repo=manager_repo,
-                sites=site_catalog(settings.sites),
+                sites=site_catalog(settings.sites, settings.site_bmc_prefixes),
                 gpu_catalog=gpu_catalog(settings.gpu_models),
                 classification_service=ClassificationService(
                     rule_repo=rule_repo, engine=regex_engine

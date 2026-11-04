@@ -115,7 +115,7 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
         # Also seeded at app startup; repeated here for a database no API has touched.
         rule_repo = MongoClassificationRuleRepository(mongo)
         policy_repo = MongoHealthPolicyRepository(mongo)
-        sites = site_catalog(settings.sites)
+        sites = site_catalog(settings.sites, settings.site_bmc_prefixes)
         registry = build_default_registry()
         regex_engine = RegexModuleEngine(
             max_pattern_length=settings.regex_max_pattern_length,

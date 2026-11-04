@@ -1200,8 +1200,15 @@ class IngestService:
         )
 
         # The name is the authority; the org path only when it says nothing.
-        site_id = parse_site_code(ps.name, self._sites) or parse_site_code(
-            ps.profile_dn, self._sites
+        site_id = (
+            parse_site_code(ps.name, self._sites)
+            or parse_site_code(ps.profile_dn, self._sites)
+            or self._sites.parse_bmc(bmc_parsed.host if bmc_parsed else None)
+            or (
+                existing.site_id
+                if bmc_parsed is None and existing is not None and self._sites.bmc_prefixes
+                else None
+            )
         )
 
         # A stub read nothing, so it must not bump `last_seen_at`; a server the

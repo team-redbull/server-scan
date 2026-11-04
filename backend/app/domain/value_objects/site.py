@@ -36,6 +36,9 @@ canonical-before-alias tier and the leftmost-alias tiebreak followed on
 2026-09-10. ADR-0018's dated updates carry each decision and the
 collision that forced it.
 
+When neither says anything, the BMC IP is the last fallback
+(`INVENTORY_SITE_BMC_PREFIXES`, ADR-0056).
+
 A name with no site token returns `None`. That is a real state the UI
 surfaces ("Unassigned"), never a silent default to some arbitrary site —
 mislabelling a server's location is worse than admitting the name
@@ -44,8 +47,9 @@ doesn't say.
 
 from __future__ import annotations
 
+import ipaddress
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 # An explicit class, not `\W+`: an unexpected name format yields no
@@ -102,9 +106,10 @@ class SiteCatalog:
     """
 
     definitions: tuple[SiteDefinition, ...]
+    bmc_prefixes: tuple[tuple[tuple[int, ...], str], ...] = ()
 
     @classmethod
-    def from_spec(cls, spec: str) -> SiteCatalog:
+    def from_spec(cls, spec: str, bmc_prefixes: str = "") -> SiteCatalog:
         """
         Parse `INVENTORY_SITES` (`code:Display Name`, comma-separated) into a catalog.
 
@@ -115,6 +120,8 @@ class SiteCatalog:
             spec (str): The raw configured value. Empty means the shipped
                 default rather than "no sites", since a deployment with no
                 sites could label nothing at all.
+            bmc_prefixes (str): `INVENTORY_SITE_BMC_PREFIXES`, e.g.
+                `"10=tlv,149=bat-yam"`; empty means no BMC fallback.
 
         Returns:
             SiteCatalog: The parsed catalog, in configured order.
@@ -157,7 +164,8 @@ class SiteCatalog:
                 "INVENTORY_SITES is set but lists no sites. Leave it unset for the "
                 f"default ({DEFAULT_SITES_SPEC!r}), or name at least one site."
             )
-        return cls(definitions=tuple(definitions))
+        catalog = cls(definitions=tuple(definitions))
+        return replace(catalog, bmc_prefixes=_parse_bmc_prefixes(bmc_prefixes, catalog))
 
     @property
     def codes(self) -> tuple[str, ...]:
@@ -251,6 +259,35 @@ class SiteCatalog:
         # 2+ aliases at once picks the leftmost (ADR-0018, 2026-09-10).
         return min(found.items(), key=lambda item: item[1])[0]
 
+    def parse_bmc(self, host: str | None) -> str | None:
+        """
+        The site whose configured IP prefix is the longest match for a BMC host.
+
+        The last fallback after the name and the profile DN (ADR-0056); matches
+        whole octets, so `10` never matches `100.x`.
+
+        Args:
+            host (str | None): The parsed BMC host.
+
+        Returns:
+            str | None: The canonical site code, or `None` for no rule, a
+                hostname or an IPv6 address.
+        """
+        if not host or not self.bmc_prefixes:
+            return None
+        try:
+            address = ipaddress.ip_address(host.strip())
+        except ValueError:
+            return None
+        if address.version != 4:
+            return None
+        octets = tuple(address.packed)
+        best: tuple[int, str] | None = None
+        for prefix, code in self.bmc_prefixes:
+            if octets[: len(prefix)] == prefix and (best is None or len(prefix) > best[0]):
+                best = (len(prefix), code)
+        return best[1] if best else None
+
     @staticmethod
     def _matches(tokens: list[str], by_value: dict[str, str]) -> dict[str, int]:
         """
@@ -286,6 +323,53 @@ class SiteCatalog:
         return positions
 
 
+def _parse_bmc_prefixes(spec: str, catalog: SiteCatalog) -> tuple[tuple[tuple[int, ...], str], ...]:
+    """
+    Parse `INVENTORY_SITE_BMC_PREFIXES` into (octets, canonical site code) pairs.
+
+    Args:
+        spec (str): `prefix=site` entries, comma-separated, where a prefix is
+            one to four dotted octets (`10`, `149`, `10.20`).
+        catalog (SiteCatalog): The configured sites every rule must name.
+
+    Returns:
+        tuple[tuple[tuple[int, ...], str], ...]: The rules, in configured order.
+
+    Raises:
+        SiteConfigurationError: On a malformed entry, a duplicate prefix or a site
+            that is not in `INVENTORY_SITES`.
+    """
+    canonical = {
+        token: definition.code
+        for definition in catalog.definitions
+        for token in (definition.code, *definition.aliases)
+    }
+    rules: dict[tuple[int, ...], str] = {}
+    for entry in spec.split(","):
+        if not entry.strip():
+            continue
+        prefix_text, sep, site = entry.partition("=")
+        parts = prefix_text.strip().split(".")
+        valid = sep and 1 <= len(parts) <= 4 and all(p.isdigit() and int(p) <= 255 for p in parts)
+        if not valid:
+            raise SiteConfigurationError(
+                f"INVENTORY_SITE_BMC_PREFIXES: {entry.strip()!r} is not 'prefix=site' with a "
+                "prefix of one to four dotted octets, e.g. '10=tlv' or '10.20=bat-yam'."
+            )
+        code = canonical.get(site.strip().lower())
+        if code is None:
+            raise SiteConfigurationError(
+                f"INVENTORY_SITE_BMC_PREFIXES: site {site.strip()!r} is not in INVENTORY_SITES."
+            )
+        octets = tuple(int(p) for p in parts)
+        if octets in rules:
+            raise SiteConfigurationError(
+                f"INVENTORY_SITE_BMC_PREFIXES: prefix {prefix_text.strip()!r} is listed twice."
+            )
+        rules[octets] = code
+    return tuple(rules.items())
+
+
 def _title_case(code: str) -> str:
     """
     A readable label for a code with no configured name.
@@ -300,14 +384,15 @@ def _title_case(code: str) -> str:
 
 
 @lru_cache(maxsize=8)
-def site_catalog(spec: str) -> SiteCatalog:
+def site_catalog(spec: str, bmc_prefixes: str = "") -> SiteCatalog:
     """
     A cached catalog for one configured spec.
 
-    Keyed on the spec, not `Settings`, so a test can pass a literal.
+    Keyed on the specs, not `Settings`, so a test can pass a literal.
 
     Args:
         spec (str): The `INVENTORY_SITES` value.
+        bmc_prefixes (str): The `INVENTORY_SITE_BMC_PREFIXES` value.
 
     Returns:
         SiteCatalog: The parsed catalog.
@@ -315,7 +400,7 @@ def site_catalog(spec: str) -> SiteCatalog:
     Raises:
         SiteConfigurationError: On a malformed entry.
     """
-    return SiteCatalog.from_spec(spec)
+    return SiteCatalog.from_spec(spec, bmc_prefixes)
 
 
 def parse_site_code(name: str | None, catalog: SiteCatalog) -> str | None:

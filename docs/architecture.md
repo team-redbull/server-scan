@@ -142,6 +142,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   ls-<name>`), which `parse_site_code` falls back to for a siteless name;
   an Intersight `server.Profile` has no `Dn` at all, so a siteless name
   there really does resolve to no site — a real gap shown, not papered over.
+  Since 2026-11-04 `INVENTORY_SITE_BMC_PREFIXES` is a third fallback (ADR-0056): a
+  server still siteless after name and DN gets the site of its BMC IP's leading octets.
 - **Attachments only from the two fabric-interconnect collectors**, the
   set the seeded `connectivity.fabric_paths_down` policies are scoped to
   (ADR-0030), reporting both the physical `adaptorExtEthIf` uplinks and

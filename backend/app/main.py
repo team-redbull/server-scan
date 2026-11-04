@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     await ensure_default_classification_rules(
         MongoClassificationRuleRepository(mongo),
-        site_catalog(settings.sites),
+        site_catalog(settings.sites, settings.site_bmc_prefixes),
         engine=regex_engine,
     )
     await ensure_default_health_policies(

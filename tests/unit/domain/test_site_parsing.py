@@ -332,3 +332,57 @@ def test_the_regex_alternation_includes_aliases() -> None:
     catalog = SiteCatalog.from_spec("znif|prep:Znif")
 
     assert catalog.alternation() == "znif|prep"
+
+
+BMC_SPEC = "nyc:New York,tlv:Tel Aviv,bat-yam:Bat Yam,tokyo:Tokyo"
+
+
+def bmc_catalog(rules: str) -> SiteCatalog:
+    """
+    A catalog with BMC prefix rules.
+
+    Args:
+        rules (str): The `INVENTORY_SITE_BMC_PREFIXES` value.
+
+    Returns:
+        SiteCatalog: The parsed catalog.
+    """
+    return SiteCatalog.from_spec(BMC_SPEC, rules)
+
+
+def test_a_bmc_prefix_names_its_site_by_whole_octets() -> None:
+    catalog = bmc_catalog("10=tlv,149=bat-yam,69=tokyo")
+    assert catalog.parse_bmc("10.4.5.6") == "tlv"
+    assert catalog.parse_bmc("149.1.2.3") == "bat-yam"
+    assert catalog.parse_bmc("69.0.0.1") == "tokyo"
+    assert catalog.parse_bmc("100.1.1.1") is None
+    assert catalog.parse_bmc("1.10.1.1") is None
+
+
+def test_the_longest_bmc_prefix_wins() -> None:
+    catalog = bmc_catalog("10=tlv,10.20=bat-yam")
+    assert catalog.parse_bmc("10.20.1.1") == "bat-yam"
+    assert catalog.parse_bmc("10.21.1.1") == "tlv"
+
+
+def test_a_bmc_rule_may_name_an_alias_and_stores_the_canonical_code() -> None:
+    catalog = SiteCatalog.from_spec("tlv|telaviv:Tel Aviv", "10=telaviv")
+    assert catalog.parse_bmc("10.1.1.1") == "tlv"
+
+
+@pytest.mark.parametrize("host", [None, "", "idrac-01.example.com", "fe80::1", "10.1.1"])
+def test_a_bmc_host_that_is_not_an_ipv4_address_names_no_site(host: str | None) -> None:
+    assert bmc_catalog("10=tlv").parse_bmc(host) is None
+
+
+def test_no_bmc_rules_means_no_bmc_site() -> None:
+    assert bmc_catalog("").parse_bmc("10.1.1.1") is None
+
+
+@pytest.mark.parametrize(
+    "rules",
+    ["10", "10=", "300=tlv", "10.1.2.3.4=tlv", "a=tlv", "10=nowhere", "10=tlv,10=nyc"],
+)
+def test_a_malformed_bmc_rule_is_rejected_at_startup(rules: str) -> None:
+    with pytest.raises(SiteConfigurationError):
+        bmc_catalog(rules)

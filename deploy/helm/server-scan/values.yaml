@@ -272,6 +272,13 @@ config:
   # is a Cisco PID or a vendor model string (`NVIDIA A100-PCIE-40GB`);
   # both match. A malformed entry fails the collector pod at startup
   # rather than silently reporting no VRAM. Same comma-splitting gotcha
+  # Last-resort site for a server whose name and profile DN name none: the
+  # BMC IP's leading octets, as `prefix=site` pairs (a site from `sites`
+  # above), e.g. "10=tlv,149=bat-yam,69=tokyo". Whole octets, longest prefix
+  # wins ("10" never matches 100.x). Empty disables it. Same `--set` comma
+  # gotcha as `sites`. See docs/adr/0056-site-from-bmc-ip.md.
+  siteBmcPrefixes: ""
+
   # as `sites` above applies to `--set` on the command line. See
   # docs/adr/0021-built-in-gpu-catalog-with-model-matching.md.
   gpuModels: ""

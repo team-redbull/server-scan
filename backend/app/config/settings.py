@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     available_recheck_timeouts: str = ""
 
     sites: str = ""
+    site_bmc_prefixes: str = ""
 
     # The field name must equal the env var suffix — deploy/README.md,
     # "Configuration notes".

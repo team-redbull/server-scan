@@ -321,7 +321,7 @@ async def _ingest_service(
         server_repo=server_repo,
         site_repo=MongoSiteRepository(mongo),
         manager_repo=MongoManagerRepository(mongo),
-        sites=site_catalog(settings.sites),
+        sites=site_catalog(settings.sites, settings.site_bmc_prefixes),
         gpu_catalog=gpu_catalog(settings.gpu_models),
         classification_service=classification_service,
         health_service=health_service,
