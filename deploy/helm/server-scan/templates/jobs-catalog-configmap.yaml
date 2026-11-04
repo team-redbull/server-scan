@@ -1,6 +1,7 @@
 {{- /* Every triggerable CronJob and whether values.yaml turns it on, for the Jobs page. A disabled job renders no CronJob, so the API cannot learn it from the cluster. Mounted (not env) so a values change shows without a pod restart. Each key is read tolerantly: the platform repo's values.yaml may lack newer ones. */ -}}
 {{- $jobTrigger := .Values.jobTrigger | default dict }}
-{{- if $jobTrigger.enabled }}
+{{- $jobTriggerOn := ternary $jobTrigger.enabled true (hasKey $jobTrigger "enabled") }}
+{{- if $jobTriggerOn }}
 {{- $c := .Values.collectors | default dict }}
 {{- $pr := $c.prune | default dict }}
 {{- $ar := $c.auditRetention | default dict }}

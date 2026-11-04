@@ -1,6 +1,7 @@
-{{- /* "Run job" (docs/adr/0055): the API's ServiceAccount and a Role in this namespace only. The platform repo's values.yaml may lack `jobTrigger`; the read tolerates that. */ -}}
+{{- /* "Run job" (docs/adr/0055): the API's ServiceAccount and a Role in this namespace only. An absent `jobTrigger.enabled` (the platform repo's values.yaml) counts as true, the chart default. */ -}}
 {{- $jobTrigger := .Values.jobTrigger | default dict }}
-{{- if $jobTrigger.enabled }}
+{{- $jobTriggerOn := ternary $jobTrigger.enabled true (hasKey $jobTrigger "enabled") }}
+{{- if $jobTriggerOn }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

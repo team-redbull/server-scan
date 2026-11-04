@@ -358,7 +358,7 @@ long form of each entry is in the 2026-09-13 archive.
   token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 6 collectors
   and 2 prunes, never `nodes-status`), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
   triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
-  `jobTrigger.enabled` (off by default) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
+  `jobTrigger.enabled` (on by default, absent = on) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
 - **Site fallback order is name, profile DN, then BMC IP prefix** (ADR-0056, `INVENTORY_SITE_BMC_PREFIXES`,
   `SiteCatalog.parse_bmc`): whole octets, longest wins, IPv4 only; any caller building a catalog for ingest passes both specs.
 - **`Vendor` is dell/cisco/hp/standalone, no `UNKNOWN`.** `STANDALONE` is a

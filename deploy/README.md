@@ -201,8 +201,7 @@ not carry it.
 
 ## Running a CronJob from the UI (ADR-0055)
 
-`jobTrigger.enabled: true` (default false; read with `default`, so the Deploy job's `values.yaml` need not
-carry it) lets an admin start a collector or prune CronJob from the UI's **Jobs** page, like
+`jobTrigger.enabled` (default **true**; an absent key counts as true, so the Deploy job's `values.yaml` gets it without carrying it; set `false` to remove the ServiceAccount, Role and catalog) lets an admin start a collector or prune CronJob from the UI's **Jobs** page, like
 `oc create job --from=cronjob/<name>`, and read its pods' logs there (in a card over the page). Each job shows its `enabled` flag from `values.yaml`, read from a `<release>-jobs-catalog` ConfigMap the chart renders and mounts (a switched-off job renders no CronJob, so the cluster alone cannot list it). It adds a `<release>-api`
 ServiceAccount, mounts its token into the API pod (`automountServiceAccountToken` is otherwise `false`) and
 binds a Role **in the release namespace only**: `cronjobs` get/list, `jobs` get/list/create, `pods`

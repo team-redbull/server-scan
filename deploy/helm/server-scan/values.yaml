@@ -46,13 +46,14 @@ backend:
   existingCursorSecret: ""
 
 # "Run job" in the UI (docs/adr/0055): admins start one of this chart's collector or prune
-# CronJobs like `kubectl create job --from=cronjob/<name>` and read its pods' logs. Off by
-# default. On gives the API pod a ServiceAccount, mounts its token, and binds a Role in THIS
+# CronJobs like `kubectl create job --from=cronjob/<name>` and read its pods' logs. On by
+# default (an absent key counts as on, so the platform repo's values.yaml gets it too; set
+# `enabled: false` to remove it). On gives the API pod a ServiceAccount, mounts its token, and binds a Role in THIS
 # namespace only: cronjobs get/list, jobs get/list/create, pods get/list, pods/log get. Only
 # CronJobs labelled `server-scan.io/triggerable: "true"` (this chart's eight) can be run, and
 # the endpoints are admin only. The `nodes-status` chart's jobs are never triggerable.
 jobTrigger:
-  enabled: false
+  enabled: true
 
 # The MCP server for Claude Code (ADR-0054): `python -m tools.mcp_server --http` from the API image,
 # reached at /mcp on the frontend's host (so it needs `frontend.enabled`). Off by default; it holds

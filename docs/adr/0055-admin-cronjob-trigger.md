@@ -55,9 +55,9 @@ The Route-exposed API pod now carries a ServiceAccount token and a namespaced Ro
 get/list/create; pods get/list; pods/log get. Kubernetes RBAC cannot restrict `create` on Jobs by label or by
 spec, so the allow-list is enforced in our code, not by the cluster. An attacker who gets code execution in
 the API pod could create any Job in this namespace (with its ServiceAccounts and mounted Secrets). The
-mitigations are: off by default (`jobTrigger.enabled: false`), nothing cluster-wide, admin-only endpoints, the
+mitigations are: on by default since 2026-11-04 (operator's call; `jobTrigger.enabled: false` removes it), nothing cluster-wide, admin-only endpoints, the
 namespace's own pod-security admission, and the Job pods keep `automountServiceAccountToken: false`.
-Enable it only where that trade is accepted.
+Where that trade is not accepted, set `jobTrigger.enabled: false`.
 
 ## Which jobs are switched off (2026-11-04 update)
 

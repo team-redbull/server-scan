@@ -19,7 +19,8 @@ spec:
         app.kubernetes.io/part-of: server-scan
     spec:
       {{- $jobTrigger := .Values.jobTrigger | default dict }}
-      {{- if $jobTrigger.enabled }}
+{{- $jobTriggerOn := ternary $jobTrigger.enabled true (hasKey $jobTrigger "enabled") }}
+      {{- if $jobTriggerOn }}
       # Needed only to reach the Kubernetes API for "Run job" (docs/adr/0055); the Role is namespaced.
       serviceAccountName: {{ .Release.Name }}-api
       automountServiceAccountToken: true
@@ -38,7 +39,7 @@ spec:
           env:
             - name: INVENTORY_ENVIRONMENT
               value: production
-            {{- if $jobTrigger.enabled }}
+            {{- if $jobTriggerOn }}
             - name: INVENTORY_JOBS_BACKEND
               value: kubernetes
             - name: INVENTORY_JOBS_NAMESPACE
@@ -98,7 +99,7 @@ spec:
             - name: api-config
               mountPath: /etc/server-scan/config
               readOnly: true
-            {{- if $jobTrigger.enabled }}
+            {{- if $jobTriggerOn }}
             - name: jobs-catalog
               mountPath: /etc/server-scan/jobs
               readOnly: true
@@ -130,7 +131,7 @@ spec:
         - name: api-config
           configMap:
             name: {{ .Release.Name }}-api-config
-        {{- if $jobTrigger.enabled }}
+        {{- if $jobTriggerOn }}
         - name: jobs-catalog
           configMap:
             name: {{ .Release.Name }}-jobs-catalog
