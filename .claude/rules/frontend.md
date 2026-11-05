@@ -89,10 +89,11 @@ Loaded only when a `frontend/` file is open.
   params, OR within, AND across; ADR-0033 2026-10-12): a tick is applied to the live URL via `toggleMulti`, never
   to the rendered list, and an E2E clicks `#filter-<name>` then a checkbox in the group named `"<Label> options"`
   (not `selectOption`; the group's name differs from the button's so `getByLabel` stays unique). **Maintenance
-  is its own Include / Hide / Only control** (2026-10-25, ADR-0046 update), not a Health option and not a
-  checkbox: `maintenance=exclude` hides servers in maintenance, `maintenance=true` (also `only`; the Sites
-  cards link it) keeps just them, unset includes them, and the severities stay ticked in every mode. Its
-  button counts ignore the maintenance filter itself (`dropdownFacetCounts`), every other count follows it. **`MaintenanceToggle`'s reason card is a portal
+  is the last entry of the Health dropdown again** (2026-11-05, ADR-0046 update; the Include / Hide / Only
+  control of 2026-10-25 is gone): ticking it sets `maintenance=true` (the Sites cards link it) and it is
+  ANDed with any severity ticked, so Critical + Maintenance is the critical servers in maintenance. A URL's
+  `maintenance=exclude` still hides them, but no control sets it. Its count ignores the maintenance filter
+  itself (`dropdownFacetCounts`), every other count follows it. **`MaintenanceToggle`'s reason card is a portal
   on `document.body`**, positioned from the button: inside the table's `overflow-x-auto` it was clipped
   (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`. Its list scroller has `scrollbar-gutter: stable`: Firefox sizes a `w-max` box without a classic
   scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with
@@ -126,8 +127,8 @@ Loaded only when a `frontend/` file is open.
   inventory row's `aria-label="Put X into maintenance"` buttons made a
   bare `getByLabel("Maintenance")` a 51-element strict-mode violation.
   Scope with `getByRole("checkbox", { name: ... })` for a toggle, or
-  `getByRole("radio", { name: /^Only/ })` for Maintenance (the Include/Hide/Only control since
-  2026-10-25, ADR-0046; it was a Health option from 2026-10-11 and a checkbox before) — `role: "checkbox"` excludes every button. **A third one, same day
+  the Maintenance entry in `#filter-health`'s "Health options" group (a Health option again since
+  2026-11-05, ADR-0046; it was an Include/Hide/Only control 2026-10-25 to 2026-11-05) — `role: "checkbox"` excludes every button. **A third one, same day
   the BMC column shipped (also broke CI, also missed locally because
   `npm run test/lint/typecheck/build` never runs Playwright — only
   `npx playwright test` does):** an inventory row now carries two

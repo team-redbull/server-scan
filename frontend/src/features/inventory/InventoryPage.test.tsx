@@ -693,40 +693,93 @@ describe("InventoryPage", () => {
     expect(screen.getByLabelText("Health")).toHaveTextContent("HEALTHY");
   });
 
-  it("hides, keeps only, or includes servers in maintenance without touching the severities", async () => {
+  it("offers Maintenance as the last entry of the Health dropdown, ANDed with the severities", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
     const { router } = renderInventoryPage("/?health_overall=HEALTHY");
     await screen.findByLabelText("Health");
     // The page edits the live location; a memory router does not update it, so mirror it by hand.
-    const mirror = () => window.history.replaceState(null, "", `/${router.state.location.search}`);
+    const mirror = () =>
+      window.history.replaceState(null, "", `/${router.state.location.search}`);
     mirror();
+    expect(
+      screen.queryByRole("radiogroup", { name: "Maintenance" }),
+    ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("radio", { name: /^Hide/ }));
+    pick("Health", /^Maintenance/);
     await waitFor(() => {
-      expect(router.state.location.search).toBe("?health_overall=HEALTHY&maintenance=exclude");
+      expect(router.state.location.search).toBe(
+        "?health_overall=HEALTHY&maintenance=true",
+      );
     });
-    expect(screen.getByRole("radio", { name: /^Hide/ })).toBeChecked();
-    expect(screen.getByRole("button", { name: /Maintenance hidden/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Health")).toHaveTextContent(
+      "HEALTHY, Maintenance",
+    );
+    expect(
+      screen.getByRole("button", { name: /Maintenance only/ }),
+    ).toBeInTheDocument();
     mirror();
 
-    fireEvent.click(screen.getByRole("radio", { name: /^Only/ }));
-    await waitFor(() => {
-      expect(router.state.location.search).toBe("?health_overall=HEALTHY&maintenance=true");
-    });
-    mirror();
-
-    fireEvent.click(screen.getByRole("radio", { name: /^Include/ }));
+    pick("Health", /^Maintenance/);
     await waitFor(() => {
       expect(router.state.location.search).toBe("?health_overall=HEALTHY");
     });
   });
 
-  it("reads the old maintenance=true link (the Sites card) as Only, severities untouched", async () => {
+  it("shows only the servers in maintenance when Maintenance alone is ticked", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({
+            id: "a",
+            name: "in-maint",
+            maintenance: { enabled: true, reason: "disk" },
+          }),
+          makeServer({ id: "b", name: "not-in-maint" }),
+        ]),
+      ),
+    );
+    renderInventoryPage("/?maintenance=true");
+
+    expect(await screen.findByText("in-maint")).toBeInTheDocument();
+    expect(screen.queryByText("not-in-maint")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Health")).toHaveTextContent("Maintenance");
+  });
+
+  it("Maintenance plus a severity shows that severity's servers that are in maintenance", async () => {
+    const inMaint = { enabled: true, reason: "disk" };
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({
+            id: "a",
+            name: "crit-in-maint",
+            health: "CRITICAL",
+            maintenance: inMaint,
+          }),
+          makeServer({ id: "b", name: "crit-live", health: "CRITICAL" }),
+          makeServer({
+            id: "c",
+            name: "ok-in-maint",
+            health: "HEALTHY",
+            maintenance: inMaint,
+          }),
+        ]),
+      ),
+    );
+    renderInventoryPage("/?maintenance=true&health_overall=CRITICAL");
+
+    expect(await screen.findByText("crit-in-maint")).toBeInTheDocument();
+    expect(screen.queryByText("crit-live")).not.toBeInTheDocument();
+    expect(screen.queryByText("ok-in-maint")).not.toBeInTheDocument();
+  });
+
+  it("reads the old maintenance=true link (the Sites card) as Maintenance ticked, severities untouched", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
     renderInventoryPage("/?maintenance=true&health_overall=CRITICAL");
 
-    expect(await screen.findByRole("radio", { name: /^Only/ })).toBeChecked();
-    expect(screen.getByLabelText("Health")).toHaveTextContent("CRITICAL");
+    expect(await screen.findByLabelText("Health")).toHaveTextContent(
+      "CRITICAL, Maintenance",
+    );
   });
 
   it("asks why before putting a server into maintenance, and sends the reason", async () => {

@@ -65,3 +65,12 @@ card's "12 healthy" opens a list of 12), **Hide** and **Only**.
   numbers are always visible. A chip ("Maintenance hidden" / "Maintenance only") removes it.
 - Default Include rather than Hide on purpose: hiding by default would silently disagree with the Sites
   counts. Frontend only; no API change.
+
+## Update 2026-11-05: Maintenance is back in the Health dropdown
+
+The Include / Hide / Only control is removed (operator's call). **Maintenance** is the last entry of the
+Health dropdown: ticking it sets `maintenance=true` and is ANDed with the severities ticked, so
+"Critical + Maintenance" is the critical servers that are in maintenance, which was the point of the
+2026-10-25 change. The count beside it ignores the maintenance filter itself; the severity counts follow it.
+`maintenance=true` links (Sites cards, bookmarks) keep working; `maintenance=exclude` in a URL still hides
+servers in maintenance, but nothing in the UI sets it any more. The "Maintenance only" chip stays.

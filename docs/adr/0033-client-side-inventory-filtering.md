@@ -228,7 +228,7 @@ option with the heading count compared to the server's own facet total
   `random-server-0276` *in* site nyc server-side and not client-side.
   `searchRows` now covers the same fields; the parity check is
   "client substring count ≥ server prefix-token count" for every query.
-- **The filter row reflowed.** (Superseded 2026-10-11 and again 2026-10-25: Maintenance is now its own Include/Hide/Only control, ADR-0046.) The form was `flex-wrap`, so a wide count
+- **The filter row reflowed.** (Superseded 2026-10-11 and again 2026-10-25: Maintenance was its own Include/Hide/Only control, ADR-0046.) The form was `flex-wrap`, so a wide count
   (`All sites (50004)`) wrapped Health under Search and ticking
   "Maintenance only" moved the checkbox to the row above. The form is now
   two fixed rows — the seven fields share the first and shrink to fit;
