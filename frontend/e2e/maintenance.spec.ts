@@ -59,6 +59,7 @@ test.describe("Maintenance", () => {
       .getByRole("group", { name: "Health options" })
       .getByRole("checkbox", { name: /^Maintenance/ })
       .click();
+    await page.keyboard.press("Escape"); // the open checklist would cover the row's buttons
     await expect(page.getByRole("button", { name: /Maintenance only/ })).toBeVisible();
     await expect(page.getByRole("link", { name: server.name, exact: true })).toBeVisible();
 
