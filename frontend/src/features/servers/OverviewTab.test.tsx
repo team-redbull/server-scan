@@ -119,6 +119,21 @@ describe("OverviewTab matched rule", () => {
   });
 });
 
+describe("OverviewTab unreachable reason", () => {
+  it("names a target that is not an iDRAC", () => {
+    render(
+      <OverviewTab
+        server={makeServer({
+          reachable: false,
+          unreachable_reason: "not_an_idrac",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Not an iDRAC")).toBeInTheDocument();
+  });
+});
+
 describe("OverviewTab health breakdown", () => {
   it("says why a category is critical, e.g. a storage total that contradicts the name", () => {
     const server = makeServer({

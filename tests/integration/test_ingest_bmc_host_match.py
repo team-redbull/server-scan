@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -137,8 +138,11 @@ async def test_a_stub_that_later_answers_gains_its_serial_not_a_twin(
 async def test_the_match_is_scoped_to_standalone_redfish(
     mongo_holder: MongoClientHolder,
 ) -> None:
+    # Same BMC host, different profile names: only a standalone Redfish stub is matched by host.
     await _ingest(mongo_holder, _stub(), provider_type="OPENMANAGE")
-    await _ingest(mongo_holder, _stub(), provider_type="OPENMANAGE")
+    await _ingest(
+        mongo_holder, dataclasses.replace(_stub(), name="bmc-b"), provider_type="OPENMANAGE"
+    )
 
     assert len(await _all(mongo_holder)) == 2
 

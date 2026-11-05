@@ -20,6 +20,7 @@ existed only because OME did not report the real values, and Redfish does.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass, replace
 from typing import Any
@@ -67,6 +68,24 @@ def _network_address(device: dict[str, Any]) -> str | None:
     if not isinstance(first, dict):
         return None
     return _opt_str(first.get("NetworkAddress"))
+
+
+def _is_ip(value: str | None) -> bool:
+    """
+    Whether `value` is an IPv4 address literal (the BMC URI builder does not bracket IPv6).
+
+    Args:
+        value (str | None): A display name that might be an address.
+
+    Returns:
+        bool: `True` for an IPv4 literal.
+    """
+    if not value:
+        return False
+    try:
+        return ipaddress.ip_address(value.strip()).version == 4
+    except ValueError:
+        return False
 
 
 def idrac_bmc_address(idrac_ip: str | None) -> str | None:
@@ -152,6 +171,9 @@ class OmeIdentity:
             (SPT) this profile was created from.
         profile_template_external_id (str | None): That template's OME id.
         bmc_address_raw (str | None): The Metal3-shaped BMC URI.
+        refused_target (str | None): The display name OME gave as the target when the device
+            has no `DeviceManagement` address and that name is not an IP (an OS hostname such as
+            `MINWINPC`). It is never dialled: the server is recorded `not_an_idrac` instead.
     """
 
     name: str
@@ -161,6 +183,7 @@ class OmeIdentity:
     profile_template_name: str | None
     profile_template_external_id: str | None
     bmc_address_raw: str | None
+    refused_target: str | None = None
 
 
 def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) -> OmeIdentity:
@@ -182,11 +205,16 @@ def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) ->
             is intentionally absent — it is parsed from the name downstream.
     """
     name = _opt_str(profile.get("ProfileName")) or ""
-    idrac_ip = (
-        _network_address(device)
-        or _opt_str(profile.get("TargetName"))
-        or _opt_str(device.get("DeviceName"))
-    )
+    idrac_ip = _network_address(device)
+    refused_target = None
+    if idrac_ip is None:
+        # OME has no address for this device: the display name is a guess, trusted only
+        # when it is an IP (docs/dell-collectors.md, 2026-11-05).
+        display = _opt_str(profile.get("TargetName")) or _opt_str(device.get("DeviceName"))
+        if _is_ip(display):
+            idrac_ip = display
+        else:
+            refused_target = display
     return OmeIdentity(
         name=name,
         idrac_ip=idrac_ip,
@@ -196,4 +224,5 @@ def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) ->
         profile_template_name=_opt_str(profile.get("TemplateName")) or "",
         profile_template_external_id=_opt_str(profile.get("TemplateId")) or "",
         bmc_address_raw=idrac_bmc_address(idrac_ip),
+        refused_target=refused_target,
     )

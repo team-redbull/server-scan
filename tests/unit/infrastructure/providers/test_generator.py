@@ -9,7 +9,7 @@ from collections import Counter
 
 from tools.run_collector import PROVIDER_FACTORIES, manager_for
 
-from app.domain.enums import HealthSeverity, ManagerType, Vendor
+from app.domain.enums import HealthSeverity, ManagerType, UnreachableReason, Vendor
 from app.domain.models.hardware import Gpu
 from app.domain.ports.credentials import ManagerConnection
 from app.domain.value_objects.gpu_catalog import gpu_catalog
@@ -146,6 +146,9 @@ def test_bmc_address_forms_match_the_collector_that_reported_them() -> None:
     """
     servers = list(generate_servers(seed=42, count=300))
     for s in servers:
+        if s.unreachable_reason is UnreachableReason.NOT_AN_IDRAC:
+            assert s.bmc_address_raw is None  # OME's target was a hostname: nothing to dial
+            continue
         assert s.bmc_address_raw is not None
         if s.vendor == "cisco":
             assert s.bmc_address_raw.startswith("ipmi://")

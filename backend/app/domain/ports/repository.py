@@ -232,6 +232,22 @@ class ServerRepository(Protocol):
         """
         ...
 
+    async def find_serialless_by_name(
+        self, source_provider: str, manager_id: str | None, name_normalized: str
+    ) -> list[Server]:
+        """
+        Serial-less servers one collector and manager recorded under this name (ADR-0037).
+
+        Args:
+            source_provider (str): The collector's `ManagerType` value.
+            manager_id (str | None): The manager that listed the server.
+            name_normalized (str): The name, run through `normalize_text`.
+
+        Returns:
+            list[Server]: The matching stubs, usually zero or one.
+        """
+        ...
+
     async def list_page(
         self,
         *,

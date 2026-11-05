@@ -107,6 +107,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 _BMC_MATCHED_PROVIDER = ManagerType.REDFISH_STANDALONE.value
+_NAME_STUB_PROVIDER = ManagerType.OPENMANAGE.value
 
 # Bounds the read-build-write loop when another writer keeps moving the document (ADR-0044).
 _MAX_WRITE_ATTEMPTS = 3
@@ -774,6 +775,30 @@ class IngestService:
             )
         return matches[0]
 
+    async def _find_name_stub(self, ps: ProviderServer, provider_type: str) -> Server | None:
+        """
+        The serial-less stub an OpenManage profile left behind, matched by name.
+
+        Why a name is the only key here: ADR-0037, 2026-11-05 update.
+
+        Args:
+            ps (ProviderServer): The provider's record, with or without a serial.
+            provider_type (str): The collector's `ManagerType` value.
+
+        Returns:
+            Server | None: The stub to update in place, or `None` to create a document.
+        """
+        matches = await self._server_repo.find_serialless_by_name(
+            provider_type, ps.manager_id, normalize_text(ps.name)
+        )
+        if len(matches) > 1:
+            logger.warning(
+                "ingest.name_stub_ambiguous",
+                name=ps.name,
+                server_ids=[m.id for m in matches],
+            )
+        return matches[0] if matches else None
+
     async def _ingest_one(
         self,
         ps: ProviderServer,
@@ -822,6 +847,8 @@ class IngestService:
             )
             if existing is None and provider_type == _BMC_MATCHED_PROVIDER:
                 existing = await self._find_by_bmc_host(ps, has_serial=bool(serial_normalized))
+            if existing is None and provider_type == _NAME_STUB_PROVIDER:
+                existing = await self._find_name_stub(ps, provider_type)
             doc_vendor = (
                 existing.identity.vendor
                 if existing is not None and not serial_normalized

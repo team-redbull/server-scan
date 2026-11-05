@@ -210,8 +210,10 @@ class OpenManageProvider(ServerInventoryProvider):
         """
         async with self._new_client() as client:
             identity_ome = await self._discover_one(client, identity)
-        if identity_ome is None or not identity_ome.idrac_ip:
+        if identity_ome is None:
             return None
+        if not identity_ome.idrac_ip:
+            return self._not_an_idrac_server(identity_ome) if identity_ome.refused_target else None
 
         target = self._target_for(identity_ome)
         redfish = self._redfish_provider_factory([target])
@@ -289,7 +291,9 @@ class OpenManageProvider(ServerInventoryProvider):
                 as a `reachable=False` server instead and never aborts
                 the run.
         """
-        identities = await self._discover()
+        identities, refused = await self._discover()
+        for identity in refused:
+            yield self._not_an_idrac_server(identity)
         if not identities:
             logger.info("ome.no_matching_profiles", endpoint=self._endpoint)
             return
@@ -331,17 +335,17 @@ class OpenManageProvider(ServerInventoryProvider):
         for host, reason in uncollected.items():
             yield self._unreachable_server(identities[host], reason)
 
-    async def _discover(self) -> dict[str, OmeIdentity]:
+    async def _discover(self) -> tuple[dict[str, OmeIdentity], list[OmeIdentity]]:
         """
         Enumerate the appliance in two bulk calls and keep the matched profiles.
 
         See docs/dell-collectors.md, "Collection flow".
 
         Returns:
-            dict[str, OmeIdentity]: Matched identities, keyed by BMC
-                address (`OmeIdentity.idrac_ip`). Keyed by address because
-                that is what the Redfish pass reports back and what joins
-                the two halves.
+            tuple[dict[str, OmeIdentity], list[OmeIdentity]]: Matched identities keyed by BMC
+                address (`OmeIdentity.idrac_ip`; keyed by address because that is what the
+                Redfish pass reports back and what joins the two halves), and the matched
+                profiles whose target is not an address and was refused (never dialled).
         """
         async with self._new_client() as client:
             profiles = await client.get_all("/ProfileService/Profiles")
@@ -361,6 +365,7 @@ class OpenManageProvider(ServerInventoryProvider):
         )
 
         identities: dict[str, OmeIdentity] = {}
+        refused: list[OmeIdentity] = []
         unassigned = 0
         for profile in profiles:
             if not self._matches(profile):
@@ -371,7 +376,10 @@ class OpenManageProvider(ServerInventoryProvider):
             )
             host = identity.idrac_ip
             if not host:
-                unassigned += 1
+                if identity.refused_target:
+                    refused.append(identity)
+                else:
+                    unassigned += 1
                 continue
             identities[host] = identity
 
@@ -385,7 +393,7 @@ class OpenManageProvider(ServerInventoryProvider):
                     "with no server behind them and were not collected."
                 ),
             )
-        return identities
+        return identities, refused
 
     def _matches(self, profile: dict[str, Any]) -> bool:
         """
@@ -455,6 +463,35 @@ class OpenManageProvider(ServerInventoryProvider):
             profile_template_external_id=identity.profile_template_external_id,
             reachable=False,
             unreachable_reason=reason,
+        )
+
+    def _not_an_idrac_server(self, identity: OmeIdentity) -> ProviderServer:
+        """
+        Build the CRITICAL placeholder for a profile whose OME target is not an address.
+
+        OME has no iDRAC address for the device and its display name is something like an OS
+        hostname, so nothing is dialled (docs/dell-collectors.md, 2026-11-05).
+
+        Args:
+            identity (OmeIdentity): The profile's identity, with `refused_target` set.
+
+        Returns:
+            ProviderServer: `reachable=False`, `not_an_idrac`, no BMC address, every hardware
+                field `None`. Logged, not counted as a failed run: it repeats until OME is fixed.
+        """
+        logger.error("ome.target_not_an_idrac", target=identity.refused_target, name=identity.name)
+        return ProviderServer(
+            external_id=f"ome-not-an-idrac:{identity.name}",
+            vendor=Vendor.DELL.value,
+            name=identity.name,
+            model=identity.model,
+            serial=identity.serial,
+            bmc_address_raw=None,
+            manager_id=self._manager.id,
+            profile_template_name=identity.profile_template_name,
+            profile_template_external_id=identity.profile_template_external_id,
+            reachable=False,
+            unreachable_reason=UnreachableReason.NOT_AN_IDRAC,
         )
 
     def _merged(self, server: ProviderServer, by_host: dict[str, OmeIdentity]) -> ProviderServer:

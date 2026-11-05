@@ -955,6 +955,8 @@ _REDFISH_REASONS = (
     UnreachableReason.TIMEOUT,
 )
 _REDFISH_REASON_WEIGHTS = (4, 3, 1, 2)
+_OME_REASONS = (*_REDFISH_REASONS, UnreachableReason.NOT_AN_IDRAC)
+_OME_REASON_WEIGHTS = (4, 3, 1, 2, 1)
 _ONEVIEW_REASONS = (UnreachableReason.NETWORK_UNREACHABLE, UnreachableReason.TIMEOUT)
 
 
@@ -984,6 +986,8 @@ def _bmc_reachability(
         return True, None
     if collector is ManagerType.ONEVIEW:
         return False, rng.choice(_ONEVIEW_REASONS)
+    if collector is ManagerType.OPENMANAGE:
+        return False, rng.choices(_OME_REASONS, weights=_OME_REASON_WEIGHTS)[0]
     return False, rng.choices(_REDFISH_REASONS, weights=_REDFISH_REASON_WEIGHTS)[0]
 
 
@@ -1256,7 +1260,11 @@ def generate_servers(
             unreachable_reason=reason,
             nic_macs=nic_macs,
             nics=nics,
-            bmc_address_raw=_bmc_address(collector, bmc_ip),
+            bmc_address_raw=(
+                None
+                if reason is UnreachableReason.NOT_AN_IDRAC
+                else _bmc_address(collector, bmc_ip)
+            ),
             bmc_mac=bmc_mac,
             manager_id=manager_id_for(collector),
             profile_dn=_profile_dn(collector, name=name, site_code=site_code),

@@ -34,7 +34,7 @@ stops listing. `IngestService.ingest` is an upsert loop; the only signal is
 
 A new field beside `reachable`/`unreachable_since`, set whenever
 `reachable=False` and cleared with it: `network_unreachable`,
-`auth_rejected`, `tls_error`, `timeout`, `protocol_error`.
+`auth_rejected`, `tls_error`, `timeout`, `protocol_error`, and (2026-11-05) `not_an_idrac`.
 
 ### 2. A `bmc` health category
 
@@ -205,3 +205,21 @@ current schedule).
 
 - Probe timeout and concurrency are estimates; measure against the 821-server
   OneView appliance before fixing defaults.
+
+## Update (2026-11-05): `not_an_idrac`, a target that is not an address
+
+OpenManage reaches an iDRAC through the device's `DeviceManagement[0].NetworkAddress`. When OME has none,
+the old code dialled the profile's `TargetName`/`DeviceName`, which with OME's "Server Device Naming" set
+to System Hostname is an OS hostname (`MINWINPC`): a login to the wrong host, or to nothing. Now the
+fallback is trusted only when it is an IP literal. Anything else is never dialled: the server is recorded
+`reachable=False`, `unreachable_reason=not_an_idrac`, with no BMC address, so the existing CRITICAL
+`bmc.unreachable` policy reads "BMC unreachable (not_an_idrac)" and the detail page says "Not an iDRAC".
+It is logged (`ome.target_not_an_idrac`) but does not make the run PARTIAL: it repeats until OME is fixed.
+
+A stub with no serial and no address has nothing to correlate on, so ingest matches an OpenManage
+document by profile name, collector and manager among **serial-less documents only**
+(`find_serialless_by_name`; several matches log `ingest.name_stub_ambiguous` and take the oldest). The same
+lookup adopts the stub when OME later supplies a service tag, so it neither mints a document per run nor is
+orphaned. A server that already has a serial is never adopted: a serial-less stub for it becomes its own
+document until pruned. A DNS-named iDRAC reached only through the fallback is
+flagged too: syntax cannot tell it from an OS hostname, and this estate uses IPs.

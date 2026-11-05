@@ -260,6 +260,30 @@ class MongoServerRepository:
         )
         return [Server.model_validate(doc) for doc in await cursor.to_list(length=None)]
 
+    async def find_serialless_by_name(
+        self, source_provider: str, manager_id: str | None, name_normalized: str
+    ) -> list[Server]:
+        """
+        Serial-less servers one collector and manager recorded under this name (ADR-0037).
+
+        Args:
+            source_provider (str): The collector's `ManagerType` value.
+            manager_id (str | None): The manager that listed the server.
+            name_normalized (str): The name, run through `normalize_text`.
+
+        Returns:
+            list[Server]: The matching stubs, oldest first, usually zero or one.
+        """
+        cursor = self._collection.find(
+            {
+                "source_provider": source_provider,
+                "manager_id": manager_id,
+                "name_normalized": name_normalized,
+                "identity.serial_normalized": "",
+            }
+        ).sort("_id", 1)
+        return [Server.model_validate(doc) for doc in await cursor.to_list(length=None)]
+
     async def delete(self, server_id: str) -> bool:
         """
         Delete one server document by id.

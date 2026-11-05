@@ -454,6 +454,69 @@ class TestPartialRuns:
         assert provider.collection_errors == ("10.0.0.3: unreachable",)
 
 
+class TestTargetThatIsNotAnIdrac:
+    """OME has no address for the device and its display name is an OS hostname (2026-11-05)."""
+
+    async def test_a_hostname_target_is_never_dialled_and_is_flagged_not_an_idrac(self) -> None:
+        provider, recorded = _provider(
+            profiles=[_profile("ocp4-nyc-prod-worker-03", "MINWINPC")],
+            devices=[_device("MINWINPC", service_tag="7XKD9P3")],
+            servers=[],
+        )
+        servers = [s async for s in provider.collect()]
+
+        assert "redfish" not in recorded  # no Redfish pass was even built
+        [stub] = servers
+        assert stub.reachable is False
+        assert stub.unreachable_reason is UnreachableReason.NOT_AN_IDRAC
+        assert stub.bmc_address_raw is None
+        assert stub.name == "ocp4-nyc-prod-worker-03"
+        assert stub.serial == "7XKD9P3"
+        assert provider.collection_errors == ()
+
+    async def test_a_hostname_target_does_not_stop_the_other_servers(self) -> None:
+        provider, recorded = _provider(
+            profiles=[
+                _profile("ocp4-nyc-prod-worker-03", "10.0.0.1"),
+                _profile("ocp4-nyc-prod-worker-04", "MINWINPC"),
+            ],
+            devices=[_device("10.0.0.1", service_tag="A"), _device("MINWINPC", service_tag="B")],
+            servers=[_collected("10.0.0.1")],
+        )
+        servers = [s async for s in provider.collect()]
+
+        assert [t.host for t in recorded["redfish"].targets] == ["10.0.0.1"]
+        reasons = {s.name: s.unreachable_reason for s in servers}
+        assert reasons["ocp4-nyc-prod-worker-04"] is UnreachableReason.NOT_AN_IDRAC
+
+    async def test_an_ip_target_still_works_without_a_network_address(self) -> None:
+        identity = identity_from_profile(
+            profile=_profile("ocp4-nyc-prod-worker-03", "10.0.0.1"),
+            device=_device("10.0.0.1", service_tag="A"),
+        )
+        assert identity.idrac_ip == "10.0.0.1"
+        assert identity.refused_target is None
+
+    async def test_the_network_address_wins_even_when_the_target_is_a_hostname(self) -> None:
+        identity = identity_from_profile(
+            profile=_profile("n", "MINWINPC"),
+            device=_device("MINWINPC", service_tag="A", network_address="10.0.0.9"),
+        )
+        assert identity.idrac_ip == "10.0.0.9"
+        assert identity.refused_target is None
+
+    async def test_an_ipv6_or_bracketed_target_is_refused_too(self) -> None:
+        for target in ("fe80::1", "[10.0.0.1]", "10.0.0.1:443"):
+            identity = identity_from_profile(profile=_profile("n", target), device={})
+            assert identity.idrac_ip is None
+            assert identity.refused_target == target
+
+    async def test_a_profile_with_no_target_at_all_is_still_just_undeployed(self) -> None:
+        identity = identity_from_profile(profile={"ProfileName": "tpl"}, device={})
+        assert identity.idrac_ip is None
+        assert identity.refused_target is None
+
+
 class TestUnreachableHosts:
     """A profile OME knows whose iDRAC did not answer this run."""
 

@@ -226,6 +226,10 @@ error (`network_unreachable`, `auth_rejected`, `tls_error`, `timeout`,
 `get_one` swallows it. The `bmc` health category makes such a server
 CRITICAL.
 
+**2026-11-05: a target that is not an address (`not_an_idrac`).** The display-name fallback is used only
+when it is an IP literal; an OS hostname such as `MINWINPC` is never dialled and the server is a
+CRITICAL stub with reason `not_an_idrac` and no BMC address (ADR-0037 update).
+
 ## Profile template
 
 An OME server profile carries the deployment template it was created from

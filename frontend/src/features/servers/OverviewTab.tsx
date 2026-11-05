@@ -212,6 +212,7 @@ const UNREACHABLE_LABELS: Record<UnreachableReason, string> = {
   tls_error: "TLS error",
   timeout: "Timed out",
   protocol_error: "Protocol error",
+  not_an_idrac: "Not an iDRAC",
 };
 
 /** The categories behind "Overall health"; `overall` has its own field. */

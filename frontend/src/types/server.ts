@@ -44,7 +44,8 @@ export type UnreachableReason =
   | "auth_rejected"
   | "tls_error"
   | "timeout"
-  | "protocol_error";
+  | "protocol_error"
+  | "not_an_idrac";
 
 /** One policy that fired in the last evaluation (worst first, capped by the API). */
 export interface HealthReason {
