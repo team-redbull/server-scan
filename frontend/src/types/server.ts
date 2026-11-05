@@ -65,6 +65,7 @@ export interface HealthSummary {
   power: HealthSeverity;
   gpu: HealthSeverity;
   bmc: HealthSeverity;
+  name: HealthSeverity;
   /** Absent on a document written before the API recorded them. */
   reasons?: HealthReason[];
 }

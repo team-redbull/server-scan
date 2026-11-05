@@ -28,6 +28,7 @@ _SEVERITY_FIELDS = (
     "power",
     "gpu",
     "bmc",
+    "name",
 )
 
 
@@ -79,6 +80,7 @@ class Health(BaseModel):
     power: HealthSeverity = HealthSeverity.UNKNOWN
     gpu: HealthSeverity = HealthSeverity.UNKNOWN
     bmc: HealthSeverity = HealthSeverity.UNKNOWN
+    name: HealthSeverity = HealthSeverity.UNKNOWN
     evaluated_at: datetime | None = None
     # The `policy_key`s that fired, so "what is wrong across the fleet" is
     # one aggregation (ADR-0029). Absent on documents written before it.

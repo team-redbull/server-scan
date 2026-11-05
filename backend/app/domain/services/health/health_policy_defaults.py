@@ -372,7 +372,7 @@ def default_system_policies() -> list[HealthPolicy]:
             "2026-09-17)."
         ),
         policy_key="storage.name_capacity_mismatch",
-        category="storage",
+        category="name",
         severity=HealthSeverity.CRITICAL,
         condition=Condition(
             all_of=[
@@ -390,6 +390,31 @@ def default_system_policies() -> list[HealthPolicy]:
             EvidenceField(key="expected", metric="storage.name_capacity_bytes"),
         ],
         message_template="{total:tb} of storage, but the name promises {expected:tb}",
+        scope=PolicyScope(),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    site_conflict = HealthPolicy(
+        id=new_id("health_policy"),
+        name="BMC IP and the server's name name different sites",
+        description=(
+            "Fires when the BMC IP prefix (INVENTORY_SITE_BMC_PREFIXES) names one site and the "
+            "server's own name names another. The BMC is the source of truth for the site "
+            "(ADR-0057), so this means the name is wrong or the prefix rule is."
+        ),
+        policy_key="name.site_conflict",
+        category="name",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="name.site_conflict", operator="EQ", value=True),
+        evidence=[
+            EvidenceField(key="bmc", metric="name.site_by_bmc"),
+            EvidenceField(key="name", metric="name.site_by_name"),
+        ],
+        message_template="BMC IP says {bmc}, but the name says {name}",
         scope=PolicyScope(),
         source="SYSTEM_DEFAULT",
         priority=100,
@@ -574,6 +599,7 @@ def default_system_policies() -> list[HealthPolicy]:
         large_storage_data_critical,
         data_disk_warning,
         name_capacity_mismatch,
+        site_conflict,
         degraded_dimm,
         all_links_down,
         single_link_up,

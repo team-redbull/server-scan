@@ -1,4 +1,4 @@
-"""A server whose name and profile say no site gets one from its BMC IP (ADR-0056)."""
+"""The BMC IP names the site first, then the name, then the profile DN (ADR-0057)."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ class _Provider(ServerInventoryProvider):
         )
 
 
-async def test_the_bmc_prefix_is_the_last_fallback_and_survives_an_unread_bmc(
+async def test_the_bmc_prefix_wins_over_the_name_and_survives_an_unread_bmc(
     mongo_holder: MongoClientHolder,
 ) -> None:
     repo = MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret")
@@ -54,17 +54,17 @@ async def test_the_bmc_prefix_is_the_last_fallback_and_survives_an_unread_bmc(
         manager_repo=MongoManagerRepository(mongo_holder),
     )
 
-    async def site_of(name: str, bmc: str | None) -> str | None:
+    async def site_of(name: str, bmc: str | None) -> tuple[str | None, str | None, str | None]:
         await service.ingest(_Provider(name, bmc))
         server = await repo.find_one_by_name(name.lower(), filters={})
         assert server is not None
-        return server.site_id
+        return server.site_id, server.site_from_bmc, server.site_from_name
 
-    assert (
-        await site_of("host-without-a-site", "idrac-virtualmedia://149.1.2.3/redfish") == "bat-yam"
-    )
-    assert await site_of("host-without-a-site", None) == "bat-yam"
-    assert await site_of("ocp4-tlv-worker-01", "idrac-virtualmedia://149.1.2.3/redfish") == "tlv"
+    bmc = "idrac-virtualmedia://149.1.2.3/redfish"
+    assert await site_of("host-without-a-site", bmc) == ("bat-yam", "bat-yam", None)
+    assert await site_of("host-without-a-site", None) == ("bat-yam", "bat-yam", None)
+    # The BMC is the source of truth; the name's disagreement is kept for the health check.
+    assert await site_of("ocp4-tlv-worker-01", bmc) == ("bat-yam", "bat-yam", "tlv")
 
 
 async def test_an_ip_derived_site_survives_repeated_unread_bmc_collections(
@@ -83,3 +83,26 @@ async def test_an_ip_derived_site_survives_repeated_unread_bmc_collections(
     server = await repo.find_one_by_name("host-without-a-site", filters={})
     assert server is not None
     assert server.site_id == "tlv"
+
+
+async def test_a_document_from_before_the_site_fields_keeps_its_site_when_the_bmc_is_unread(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    repo = MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret")
+    service = IngestService(
+        sites=SiteCatalog.from_spec("tlv:Tel Aviv", "10=tlv"),
+        server_repo=repo,
+        site_repo=MongoSiteRepository(mongo_holder),
+        manager_repo=MongoManagerRepository(mongo_holder),
+    )
+    await service.ingest(_Provider("host-without-a-site", "idrac-virtualmedia://10.1.2.3/redfish"))
+    await mongo_holder.db["servers"].update_many(
+        {}, {"$unset": {"site_from_bmc": "", "site_from_name": "", "health.name": ""}}
+    )
+
+    await service.ingest(_Provider("host-without-a-site", None))
+
+    server = await repo.find_one_by_name("host-without-a-site", filters={})
+    assert server is not None
+    assert server.site_id == "tlv"
+    assert server.site_from_bmc == "tlv"

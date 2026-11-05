@@ -1200,16 +1200,19 @@ class IngestService:
         )
 
         # The name is the authority; the org path only when it says nothing.
-        site_id = (
-            parse_site_code(ps.name, self._sites)
-            or parse_site_code(ps.profile_dn, self._sites)
-            or self._sites.parse_bmc(bmc_parsed.host if bmc_parsed else None)
-            or (
-                existing.site_id
-                if bmc_parsed is None and existing is not None and self._sites.bmc_prefixes
-                else None
-            )
-        )
+        site_from_name = parse_site_code(ps.name, self._sites)
+        site_from_dn = parse_site_code(ps.profile_dn, self._sites)
+        if bmc_parsed is None and existing is not None and self._sites.bmc_prefixes:
+            # BMC unread this run: keep what it said. A document from before the field
+            # existed (ADR-0056) stored a BMC-derived site only in `site_id`, and only
+            # when neither the name nor the DN named one.
+            if "site_from_bmc" in existing.model_fields_set:
+                site_from_bmc = existing.site_from_bmc
+            else:
+                site_from_bmc = None if site_from_name or site_from_dn else existing.site_id
+        else:
+            site_from_bmc = self._sites.parse_bmc(bmc_parsed.host if bmc_parsed else None)
+        site_id = site_from_bmc or site_from_name or site_from_dn
 
         # A stub read nothing, so it must not bump `last_seen_at`; a server the
         # manager did read (OneView with a dead iLO) still advances it.
@@ -1244,6 +1247,8 @@ class IngestService:
             network=network,
             connectivity=connectivity,
             site_id=site_id,
+            site_from_bmc=site_from_bmc,
+            site_from_name=site_from_name,
             manager_id=ps.manager_id,
             tags=list(ps.tags),
             source_provider=provider_type,

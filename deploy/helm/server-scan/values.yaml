@@ -273,7 +273,8 @@ config:
   #     --set-string 'config.sites=nyc:New York City\,tlv:Tel Aviv'
   sites: ""
 
-  # Last-resort site for a server whose name and profile DN name none: the
+  # The BMC IP names a server's site first, before the name and profile DN
+  # (ADR-0057; a disagreeing name is a CRITICAL health reason): the
   # BMC IP's leading octets, as `prefix=site` pairs (a site from `sites`
   # above), e.g. "10=tlv,149=bat-yam,69=tokyo". Whole octets, longest prefix
   # wins ("10" never matches 100.x). Empty disables it. Same `--set` comma

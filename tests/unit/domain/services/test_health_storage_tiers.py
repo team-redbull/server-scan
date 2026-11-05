@@ -8,6 +8,8 @@ refuse to guess.
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain.enums import HEALTH_SEVERITY_RANK, HealthSeverity, LinkState
 from app.domain.models.hardware import Hardware, Memory, MemoryModule, Storage, StorageDrive
 from app.domain.models.network import NetworkInfo, NetworkInterface
@@ -285,7 +287,7 @@ class TestLargeStorageName:
 
 
 class TestNameCapacityMismatch:
-    """`storage.name_capacity_mismatch` — one symmetric rule for any
+    """`storage.name_capacity_mismatch` (category `name`, ADR-0057) — one symmetric rule for any
     `-<N>tb` name token, replacing the old 5TB/10TB-specific ones
     (2026-09-17).
     """
@@ -314,7 +316,21 @@ class TestNameCapacityMismatch:
             manager_type=None,
             site_id=None,
         )
-        return state.categories["storage"].severity
+        return state.categories["name"].severity
+
+    def test_the_mismatch_no_longer_colours_the_storage_category(self) -> None:
+        server = _server(name="ocp4-nyc-10tb-01", drives=[_drive(7 * _TB)])
+        state = evaluate_health(
+            extract_facts(server),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+        assert state.categories["storage"].severity != HealthSeverity.CRITICAL
+        assert state.categories["name"].severity == HealthSeverity.CRITICAL
+        assert state.overall == HealthSeverity.CRITICAL
 
     def test_within_1_5tb_either_way_is_not_critical(self) -> None:
         assert self._storage_severity("ocp4-nyc-10tb-01", 9 * _TB) != HealthSeverity.CRITICAL
@@ -454,3 +470,37 @@ class TestSingleLinkUp:
             _server(interfaces=[NetworkInterface(name="a", link_state=LinkState.DOWN)])
         )
         assert facts["network.links_up_count"] == 0
+
+
+class TestSiteConflict:
+    """`name.site_conflict` — the BMC IP and the name name different sites (ADR-0057)."""
+
+    @staticmethod
+    def _state(bmc: str | None, name: str | None):  # noqa: ANN205
+        server = _server(name="ocp4-x-01")
+        server.site_from_bmc = bmc
+        server.site_from_name = name
+        return evaluate_health(
+            extract_facts(server),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="dell",
+            manager_type=None,
+            site_id=None,
+        )
+
+    def test_a_disagreement_is_critical_and_says_both_sites(self) -> None:
+        state = self._state("bat-yam", "tlv")
+
+        assert state.categories["name"].severity == HealthSeverity.CRITICAL
+        message = next(e.message for e in state.evaluations if e.policy_key == "name.site_conflict")
+        assert message == "BMC IP says bat-yam, but the name says tlv"
+
+    @pytest.mark.parametrize(
+        ("bmc", "name"), [("tlv", "tlv"), ("tlv", None), (None, "tlv"), (None, None)]
+    )
+    def test_agreement_or_a_missing_side_is_not_a_conflict(
+        self, bmc: str | None, name: str | None
+    ) -> None:
+        expected = HealthSeverity.HEALTHY if bmc and name else HealthSeverity.UNKNOWN
+        assert self._state(bmc, name).categories["name"].severity == expected

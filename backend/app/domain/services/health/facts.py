@@ -200,6 +200,19 @@ def extract_facts(server: Server) -> dict[str, Any]:
         "power.has_data": bool(server.hardware.power.psus),
         "gpu.has_data": bool(gpus),
         "bmc.has_data": _bmc_probed(server),
+        # Something to compare: a capacity token against a storage total that was read, or
+        # a BMC site against a name site. Otherwise UNKNOWN, never a free HEALTHY (ADR-0027).
+        "name.has_data": (
+            (name_capacity_bytes is not None and server.hardware.storage.total_bytes > 0)
+            or bool(server.site_from_bmc and server.site_from_name)
+        ),
+        "name.site_conflict": bool(
+            server.site_from_bmc
+            and server.site_from_name
+            and server.site_from_bmc != server.site_from_name
+        ),
+        "name.site_by_bmc": server.site_from_bmc,
+        "name.site_by_name": server.site_from_name,
         "bmc.unreachable_count": 0 if server.reachable else 1,
         "bmc.unreachable_reason": (
             server.unreachable_reason.value if server.unreachable_reason else "unknown"

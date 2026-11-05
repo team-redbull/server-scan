@@ -227,6 +227,7 @@ const HEALTH_CATEGORIES: {
   { key: "power", label: "Power" },
   { key: "gpu", label: "GPU" },
   { key: "bmc", label: "BMC" },
+  { key: "name", label: "Name" },
 ];
 
 /** Cisco servers sit behind the fabric interconnects and are never probed, so
@@ -267,6 +268,7 @@ function HealthBreakdown({
     if (key === "connectivity") return FABRIC_PROVIDERS.has(provider);
     if (key === "raid") return RAID_PROVIDERS.has(provider);
     if (key === "gpu") return hasGpus;
+    if (key === "name") return health.name !== "UNKNOWN";
     return true;
   });
   const labels = new Map(

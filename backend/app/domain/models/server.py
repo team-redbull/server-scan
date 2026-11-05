@@ -75,6 +75,10 @@ class Server(BaseModel):
 
     # A plain `str`, not an enum, so a document outlives a site rename (ADR-0018).
     site_id: str | None = None
+    # What the BMC IP and the name each say alone; `site_id` is the BMC's first (ADR-0057), and a
+    # disagreement between the two is a CRITICAL health reason in the `name` category.
+    site_from_bmc: str | None = None
+    site_from_name: str | None = None
     manager_id: str | None = None
 
     tags: list[str] = Field(default_factory=list)

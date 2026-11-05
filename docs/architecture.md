@@ -142,8 +142,10 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   ls-<name>`), which `parse_site_code` falls back to for a siteless name;
   an Intersight `server.Profile` has no `Dn` at all, so a siteless name
   there really does resolve to no site — a real gap shown, not papered over.
-  Since 2026-11-04 `INVENTORY_SITE_BMC_PREFIXES` is a third fallback (ADR-0056): a
-  server still siteless after name and DN gets the site of its BMC IP's leading octets.
+  Since 2026-11-05 the order is BMC IP prefix, then name, then DN (ADR-0057, reversing ADR-0056):
+  `INVENTORY_SITE_BMC_PREFIXES` names a site from the BMC IP's leading octets and that wins. Both
+  answers are stored (`site_from_bmc`, `site_from_name`); a disagreement is the CRITICAL
+  `name.site_conflict` health reason.
 - **Attachments only from the two fabric-interconnect collectors**, the
   set the seeded `connectivity.fabric_paths_down` policies are scoped to
   (ADR-0030), reporting both the physical `adaptorExtEthIf` uplinks and
@@ -705,7 +707,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   | `storage.data_disk_bad_large_major_multiple` | 10TB-named node, 2+ data disks bad, **none actually failed** | MAJOR |
   | `storage.data_disk_bad_large_critical` | 10TB-named node, 2+ data disks bad, **at least one actually failed** | CRITICAL |
   | `storage.data_disk_bad_warning` | any other node, 1+ data disks bad | WARNING |
-  | `storage.name_capacity_mismatch` | `-<N>tb`-named node whose storage was read, total more than 1.5 TB off `N` TB either way | CRITICAL |
+  | `storage.name_capacity_mismatch` | `-<N>tb`-named node whose storage was read, total more than 1.5 TB off `N` TB either way; category `name` since 2026-11-05 (the key keeps its `storage.` prefix so alerts and dashboards keep matching) | CRITICAL |
+  | `name.site_conflict` | the BMC IP prefix and the server's name name different sites (ADR-0057) | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
   | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
   | `network.single_link_up` | exactly one link up, however many were readable | CRITICAL |

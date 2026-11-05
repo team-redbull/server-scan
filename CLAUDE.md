@@ -359,8 +359,10 @@ long form of each entry is in the 2026-09-13 archive.
   and 2 prunes, never `nodes-status`), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
   triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
   `jobTrigger.enabled` (on by default, absent = on) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
-- **Site fallback order is name, profile DN, then BMC IP prefix** (ADR-0056, `INVENTORY_SITE_BMC_PREFIXES`,
-  `SiteCatalog.parse_bmc`): whole octets, longest wins, IPv4 only; any caller building a catalog for ingest passes both specs.
+- **A server's site is the BMC IP prefix first, then the name, then the profile DN** (ADR-0057 reverses ADR-0056; the iDRAC
+  is the source of truth). `INVENTORY_SITE_BMC_PREFIXES`, `SiteCatalog.parse_bmc`: whole octets, longest wins, IPv4 only; any
+  caller building a catalog for ingest passes both specs. `Server.site_from_bmc`/`site_from_name` keep both answers, and a
+  disagreement is the CRITICAL `name.site_conflict` reason in the new `name` health category (which also holds the capacity-vs-name check).
 - **`Vendor` is dell/cisco/hp/standalone, no `UNKNOWN`.** `STANDALONE` is a
   manufacturer not modelled *or* not reported by the BMC — never "collected
   without a manager". Correlation is `(vendor, serial_normalized)`, so moving a
@@ -406,7 +408,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051.
+  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051.
 
 ## Verifying your work
 

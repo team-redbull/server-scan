@@ -2,6 +2,8 @@
 
 **Status:** Accepted, implemented 2026-11-04.
 
+**Superseded in part by ADR-0057 (2026-11-05): the BMC IP now wins over the name.**
+
 **Extends** ADR-0018 (sites from configuration) and ADR-0011 (a site is derived, never declared).
 
 ## Context

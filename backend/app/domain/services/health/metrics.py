@@ -456,6 +456,33 @@ def build_default_registry() -> MetricRegistry:
             resolver=lambda f: _get(f, "bmc.unreachable_reason", "unknown"),
         )
     )
+    registry.register(
+        MetricDef(
+            name="name.site_conflict",
+            type=MetricType.BOOL,
+            category="name",
+            description="Whether the BMC IP and the server's name name different sites",
+            resolver=lambda f: _get(f, "name.site_conflict", False),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="name.site_by_bmc",
+            type=MetricType.STRING,
+            category="name",
+            description="The site the BMC IP prefix says, or empty",
+            resolver=lambda f: _get(f, "name.site_by_bmc", None) or "",
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="name.site_by_name",
+            type=MetricType.STRING,
+            category="name",
+            description="The site the server's name says, or empty",
+            resolver=lambda f: _get(f, "name.site_by_name", None) or "",
+        )
+    )
     return registry
 
 

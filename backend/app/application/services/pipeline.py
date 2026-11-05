@@ -98,6 +98,7 @@ def health_from_state(state: HealthState) -> Health:
         power=severities["power"],
         gpu=severities["gpu"],
         bmc=severities["bmc"],
+        name=severities["name"],
         evaluated_at=state.evaluated_at,
         active_policy_keys=sorted(e.policy_key for e in state.evaluations if e.active),
         reasons=_health_reasons(state),

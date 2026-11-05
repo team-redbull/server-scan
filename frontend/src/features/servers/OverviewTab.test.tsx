@@ -56,6 +56,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       power: "HEALTHY",
       gpu: "UNKNOWN",
       bmc: "UNKNOWN",
+      name: "UNKNOWN",
     },
     maintenance: { enabled: false, reason: null },
     reservation: {
@@ -143,6 +144,20 @@ describe("OverviewTab health breakdown", () => {
     expect(
       within(why).getByText("5 TB of storage, but the name promises 10 TB"),
     ).toBeInTheDocument();
+  });
+
+  it("shows the Name badge only when there is something to compare", () => {
+    const { rerender } = render(<OverviewTab server={makeServer()} />);
+    const before = screen.getAllByText("Name").length; // the field label of the server's own name
+
+    rerender(
+      <OverviewTab
+        server={makeServer({
+          health: { ...makeServer().health, name: "HEALTHY" },
+        })}
+      />,
+    );
+    expect(screen.getAllByText("Name")).toHaveLength(before + 1);
   });
 
   it("shows no reasons list for a healthy server", () => {

@@ -528,9 +528,9 @@ async def _dry_run_one_manager(
                 count += 1
                 bmc = parse_bmc_address(ps.bmc_address_raw)
                 site = (
-                    parse_site_code(ps.name, sites)
+                    sites.parse_bmc(bmc.host if bmc else None)
+                    or parse_site_code(ps.name, sites)
                     or parse_site_code(ps.profile_dn, sites)
-                    or sites.parse_bmc(bmc.host if bmc else None)
                 )
                 memory = (
                     f"{ps.memory_total_bytes / 1024**3:.1f} GiB"
