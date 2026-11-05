@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { LinkStateBadge } from "@/components/LinkStateBadge";
 import { Reported } from "@/components/Reported";
 import type { NetworkInfo, NetworkInterface } from "@/types/server";
@@ -44,7 +45,20 @@ export function NetworkTab({
             {/* The host alone; the full URI is still stored for the Metal3
              * `BareMetalHost` round-trip. */}
             <Stat label="Address" value={bmc.host ?? bmc.address_raw ?? "—"} />
-            {bmc.mac && <Stat label="MAC" value={bmc.mac} />}
+            {bmc.mac && (
+              <Stat
+                label="MAC"
+                value={
+                  <Reported
+                    unread={unread.has("network.bmc.mac")}
+                    empty={false}
+                    inline
+                  >
+                    {bmc.mac}
+                  </Reported>
+                }
+              />
+            )}
           </dl>
         ) : (
           <p className="mt-2 text-sm text-gray-500">No BMC data.</p>
@@ -55,7 +69,12 @@ export function NetworkTab({
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
           Interfaces
         </h2>
-        <Reported unread={unread.has("identity.nic_macs")} empty={interfaces.length === 0}>
+        <Reported
+          unread={
+            unread.has("identity.nic_macs") || unread.has("network.interfaces")
+          }
+          empty={interfaces.length === 0}
+        >
           {interfaces.length > 0 ? (
             <ul className="mt-2 divide-y divide-gray-100 dark:divide-gray-800">
               {interfaces.map((iface, index) => {
@@ -79,7 +98,9 @@ export function NetworkTab({
                       <span>MAC #{index + 1}</span>
                       <span aria-hidden>·</span>
                       <span>
-                        {iface.speed_mbps != null ? `${iface.speed_mbps} Mbps` : "—"}
+                        {iface.speed_mbps != null
+                          ? `${iface.speed_mbps} Mbps`
+                          : "—"}
                       </span>
                       <span aria-hidden>·</span>
                       <LinkStateBadge state={iface.link_state} />
@@ -106,7 +127,7 @@ export function NetworkTab({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="text-xs text-gray-500">{label}</dt>

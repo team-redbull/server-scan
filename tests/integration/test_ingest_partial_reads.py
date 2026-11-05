@@ -437,6 +437,7 @@ async def test_the_document_records_which_fields_this_run_could_not_read(
         "hardware.storage.drives",
         "hardware.storage.total_bytes",
         "identity.nic_macs",
+        "network.interfaces",
         # `_fully_read()`'s base never sets these, so they read as unread.
         "profile_template.external_id",
         "profile_template.name",
@@ -602,3 +603,46 @@ async def test_the_raid_verdict_is_carried_forward_when_unread_and_replaced_when
     unknown = {"state": "UNKNOWN", "reason": "software RAID"}
     await service.ingest(_OneShotProvider(_fully_read(serial=serial, raid_check=unknown)))
     assert (await _stored(mongo_holder, serial.lower())).hardware.storage.raid.state == "UNKNOWN"
+
+
+async def test_an_unreachable_server_keeps_its_last_nics_and_bmc_mac_marked_unread(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    from app.domain.ports.provider import ProviderNic
+
+    service = _service(mongo_holder)
+    repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+    nic = ProviderNic(
+        name="NIC.Slot.2-1-1", mac="00:00:5e:00:53:01", speed_mbps=25000, link_state="UP"
+    )
+    await service.ingest(
+        _OneShotProvider(_fully_read(serial="SN-NET-1", nics=(nic,), bmc_mac="00:00:5e:00:53:99"))
+    )
+    # The BMC then stops answering: identity only, no NICs, no MACs, no BMC MAC.
+    await service.ingest(
+        _OneShotProvider(
+            ProviderServer(
+                external_id="redfish://10.20.30.41/redfish/v1/Systems/1",
+                vendor="dell",
+                name="ocp4-prod-tlv-infra-01",
+                serial="SN-NET-1",
+                reachable=False,
+            )
+        )
+    )
+
+    page = await repo.list_page(
+        filters={"identity.serial_normalized": "sn-net-1"},
+        search=None,
+        sort="name",
+        sort_desc=False,
+        cursor=None,
+        page_size=1,
+        with_count=False,
+    )
+    server = page.items[0]
+    assert [i.name for i in server.network.interfaces] == ["NIC.Slot.2-1-1"]
+    assert server.network.bmc.mac == "00:00:5e:00:53:99"
+    assert {"network.interfaces", "network.bmc.mac", "identity.nic_macs"} <= set(
+        server.unread_fields
+    )

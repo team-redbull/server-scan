@@ -9,10 +9,55 @@ function partialNetwork(): NetworkInfo {
   return {
     bmc: { address_raw: null, scheme: null, host: null, port: null, mac: null },
     interfaces: [
-      { name: "NIC.Slot.1-1", mac: null, speed_mbps: null, link_state: "UNKNOWN", location: null },
+      {
+        name: "NIC.Slot.1-1",
+        mac: null,
+        speed_mbps: null,
+        link_state: "UNKNOWN",
+        location: null,
+      },
     ],
   };
 }
+
+describe("NetworkTab carried-forward values", () => {
+  it("shows the last known NICs and BMC MAC as unconfirmed when the BMC stopped answering", () => {
+    const network: NetworkInfo = {
+      bmc: {
+        address_raw: null,
+        scheme: null,
+        host: "10.0.0.5",
+        port: null,
+        mac: "aa:bb:cc:dd:ee:ff",
+      },
+      interfaces: [
+        {
+          name: "NIC.Slot.2-1-1",
+          mac: "00:00:5e:00:53:01",
+          speed_mbps: 25000,
+          link_state: "UP",
+          location: null,
+        },
+      ],
+    };
+    render(
+      <NetworkTab
+        network={network}
+        unreadFields={["network.interfaces", "network.bmc.mac"]}
+      />,
+    );
+
+    expect(screen.getByText("00:00:5e:00:53:01")).toBeInTheDocument();
+    expect(screen.getByText("aa:bb:cc:dd:ee:ff")).toBeInTheDocument();
+    expect(screen.getAllByText("unconfirmed")).toHaveLength(2);
+  });
+
+  it("marks nothing unconfirmed on a server that answered", () => {
+    render(<NetworkTab network={partialNetwork()} unreadFields={[]} />);
+
+    expect(screen.queryByText("unconfirmed")).not.toBeInTheDocument();
+  });
+});
 
 describe("NetworkTab unread fields", () => {
   it("dashes a BMC address and a NIC MAC the collector could not read", () => {
@@ -43,7 +88,13 @@ describe("NetworkTab OS names", () => {
   /** A Dell with its onboard LOM and a card in slot 8. */
   function dellNetwork(): NetworkInfo {
     return {
-      bmc: { address_raw: null, scheme: null, host: "10.0.0.5", port: null, mac: null },
+      bmc: {
+        address_raw: null,
+        scheme: null,
+        host: "10.0.0.5",
+        port: null,
+        mac: null,
+      },
       interfaces: [
         {
           name: "NIC.Integrated.1-1-1",

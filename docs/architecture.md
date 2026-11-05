@@ -1021,17 +1021,15 @@ Smaller ingest facts, moved here from `ingest.py`'s comments 2026-09-13:
   `classification` and `health` are carried and then overwritten only
   when the matching engine service was supplied; a first-seen server
   takes each model's zero value. **Tracked debt (`# ponytail:` in
-  `_build_server`)**: `network.interfaces` and `connectivity.attachments`
-  are the two collected sub-resources *not* in that set, and cannot be
-  while `ProviderServer.nics`/`.attachments` are `tuple[...] = ()` —
-  with no `None` state, "could not read" is indistinguishable from
-  "read, none present", so carrying them forward would pin a genuinely
-  emptied list forever. Every other sub-resource is three-state and goes
-  through `_carry_forward`. Dormant only because every collector that
-  populates them repopulates them on each run; the day a second provider
-  ingests the same `(vendor, serial_normalized)` without them, it blanks
-  both. Upgrade path: `nics: tuple[ProviderNic, ...] | None = None`, the
-  same for `attachments`, then `_carry_forward` for each.
+  `_build_server`)**: `connectivity.attachments` is the one collected sub-resource *not* in that set,
+  and cannot be while `ProviderServer.attachments` is `tuple[...] = ()` — with no `None` state,
+  "could not read" is indistinguishable from "read, none present", so carrying it forward would pin a
+  genuinely emptied list forever. Every other sub-resource is three-state and goes through
+  `_carry_forward`. **`network.interfaces` (2026-11-05)** has the same two-state `nics`, so it is
+  carried forward (and listed as `network.interfaces` in `unread_fields`) only when the provider read
+  neither NICs nor `nic_macs`: an unreachable server keeps its last NICs. An unreachable server also
+  keeps its last BMC MAC (`network.bmc.mac`). The Network tab marks both "unconfirmed". Upgrade path
+  for the rest: `nics: tuple[ProviderNic, ...] | None = None`, the same for `attachments`.
 
 ## What's implemented vs. planned
 

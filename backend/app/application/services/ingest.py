@@ -1029,6 +1029,15 @@ class IngestService:
 
         bmc_parsed = parse_bmc_address(ps.bmc_address_raw)
         bmc_mac = normalize_mac(ps.bmc_mac)
+        if bmc_mac is None and not ps.reachable:
+            # A server whose BMC answered nothing keeps the MAC it last had, marked unread.
+            bmc_mac = _carry_forward(
+                None,
+                existing.network.bmc.mac if existing is not None else None,
+                default=None,
+                unread=unread,
+                name="network.bmc.mac",
+            )
         nic_macs = _carry_forward(
             [mac for mac in (normalize_mac(m) for m in ps.nic_macs) if mac is not None]
             if ps.nic_macs is not None
@@ -1087,16 +1096,24 @@ class IngestService:
                 path=bmc_parsed.path if bmc_parsed else None,
                 mac=bmc_mac,
             ),
-            interfaces=[
-                NetworkInterface(
-                    name=nic.name,
-                    mac=normalize_mac(nic.mac),
-                    speed_mbps=nic.speed_mbps,
-                    link_state=_link_state(nic.link_state),
-                    location=nic.location,
-                )
-                for nic in ps.nics
-            ],
+            interfaces=_carry_forward(
+                [
+                    NetworkInterface(
+                        name=nic.name,
+                        mac=normalize_mac(nic.mac),
+                        speed_mbps=nic.speed_mbps,
+                        link_state=_link_state(nic.link_state),
+                        location=nic.location,
+                    )
+                    for nic in ps.nics
+                ]
+                if ps.nics or ps.nic_macs is not None
+                else None,  # neither NICs nor MACs read: the interfaces were not read either
+                existing.network.interfaces if existing is not None else None,
+                default=[],
+                unread=unread,
+                name="network.interfaces",
+            ),
         )
 
         attachments = [
@@ -1289,8 +1306,8 @@ class IngestService:
             created_at=created_at,
             updated_at=now,
             # The carry-forward set — see the module docstring.
-            # ponytail: `nics`/`attachments` are two-state (`()`) and cannot
-            # join it; docs/architecture.md "Ingestion" has the upgrade path.
+            # ponytail: `attachments` is two-state (`()`) and cannot join it; `nics` is
+            # carried only when `nic_macs` is unread too. docs/architecture.md "Ingestion".
             classification=existing.classification if existing is not None else Classification(),
             health=existing.health if existing is not None else Health(),
             maintenance=existing.maintenance if existing is not None else Maintenance(),
