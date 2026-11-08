@@ -5,12 +5,13 @@ manager reports, works out what each machine is for and whether it is healthy,
 and serves it through a REST API and an admin UI.
 
 Built for a fleet of ~2,500 servers (up to 5,000), across Dell, Cisco, HPE and
-standalone BMCs, in several sites.
+standalone BMCs, plus OpenShift Virtualization VMs, in several sites.
 
 ## What it does
 
 - **One inventory from every manager.** Cisco UCS Central and Intersight, Dell
-  OpenManage, HPE OneView, plus direct Redfish for machines no manager owns.
+  OpenManage, HPE OneView, plus direct Redfish for machines no manager owns and
+  OpenShift Virtualization VMs through kubevirt-redfish.
 - **Classifies** each server (UPI, hosted cluster, MCE) with regex rules and
   **scores its health** with declarative policies. Both ship with the platform,
   so every deployment judges the same way.
@@ -28,15 +29,17 @@ standalone BMCs, in several sites.
  Intersight ──┤   one Kubernetes CronJob           ┌─ FastAPI ── React UI
  OpenManage ──┼── per manager type ──▶ MongoDB ────┤  (Redis cache-aside)
  OneView ─────┤   classify, score,    (source of   └─ /servers/available ─▶ vendor
- Redfish ─────┘   audit, upsert        truth)         (live recheck, only here)
+ Redfish ─────┤   audit, upsert        truth)         (live recheck, only here)
+ KubeVirt ────┘
                                           ▲
  nodes-status jobs, one per OpenShift     │
  cluster ─────────────────────────────────┘ writes Server.openshift only
 ```
 
 MongoDB is the only link between a collector run and what the API serves. Adding a
-vendor means one `ServerInventoryProvider` implementation and one CronJob; nothing
-else changes.
+vendor means one `ServerInventoryProvider` implementation, a factory entry, a CronJob
+and a fake shape, plus the closed lists that name every vendor or collector (the UI
+filters, the MCP literals, guard tests catch a miss); the API and engines are unchanged.
 
 Deep dives: [`docs/arc42.md`](docs/arc42.md) (structured overview),
 [`docs/architecture.md`](docs/architecture.md) (per subsystem), and the
@@ -62,8 +65,8 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
 
 - **Site.** Parsed from the server's own hostname (`ocp4-prod-tlv-infra-01` is site
   `tlv`), never configured per manager. A name with no site token is `Unassigned`.
-- **Vendor and source.** `vendor` is `dell`, `cisco`, `hp` or `standalone` (a maker the
-  platform does not model). `source_provider` is the collector that found it, so a Dell
+- **Vendor and source.** `vendor` is `dell`, `cisco`, `hp`, `standalone` (a maker the
+  platform does not model) or `kubevirt` (an OpenShift Virtualization VM). `source_provider` is the collector that found it, so a Dell
   reached directly at its BMC is still `vendor: dell`.
 - **Installation type.** A regex verdict on the hostname: `UPI`, `HOSTED_CLUSTER`, `MCE` or
   `UNCLASSIFIED`. It says what a machine was *named* to be.
@@ -111,6 +114,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/servers` | List with filters, search and cursor paging. |
 | `GET /api/v1/servers/rows` | The whole fleet as flat rows (what the UI loads; ETag, so a poll is a 304). |
 | `GET /api/v1/servers/{id}` | Full detail for one server. |
+| `GET /api/v1/servers/{id}/vm-host` | The bare-metal server a KubeVirt VM runs on, resolved at read time ([ADR-0059](docs/adr/0059-vm-host.md)). |
 | `GET /api/v1/servers/available` | Live-verified assignable servers for BareMetalHost creation. |
 | `GET /api/v1/sites` | Per-site and fleet-wide counts. |
 | `GET /api/v1/events`, `/servers/{id}/events` | Audit trail. |
@@ -154,7 +158,7 @@ them all. The ones that matter first:
 | Variable | Meaning |
 |---|---|
 | `INVENTORY_SITES` | Site codes and names, e.g. `tlv:Tel Aviv,nyc:New York`. A server's site is parsed from its hostname ([ADR-0018](docs/adr/0018-sites-from-configuration.md)). |
-| `INVENTORY_<MANAGER>_IP` / `_USERNAME` / `_PASSWORD` | One set per manager: `UCS_CENTRAL`, `OME`, `ONEVIEW`. Intersight signs requests instead: `INVENTORY_INTERSIGHT_IP`, `_API_KEY_ID`, `_API_KEY_PEM`. |
+| `INVENTORY_<MANAGER>_IP` / `_USERNAME` / `_PASSWORD` | One set per manager: `UCS_CENTRAL`, `OME`, `ONEVIEW`. Intersight signs requests instead: `INVENTORY_INTERSIGHT_IP`, `_API_KEY_ID`, `_API_KEY_PEM`. KubeVirt takes a URL: `INVENTORY_KUBEVIRT_URL` (plus an optional `INVENTORY_KUBEVIRT_CLUSTER_NAME`). |
 
 Run a collector by hand with `uv run python -m tools.run_collector --manager-type
 <TYPE> --dry-run`. Per-vendor setup and field-test steps are in

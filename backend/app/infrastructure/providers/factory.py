@@ -32,6 +32,7 @@ from app.infrastructure.bmc_probe import BmcProbedProvider
 from app.infrastructure.credentials import EnvConnectionResolver
 from app.infrastructure.credentials.env import resolve_login
 from app.infrastructure.providers.intersight.provider import IntersightProvider
+from app.infrastructure.providers.kubevirt.provider import KubeVirtProvider
 from app.infrastructure.providers.oneview.provider import OneViewProvider
 from app.infrastructure.providers.openmanage.provider import OpenManageProvider
 from app.infrastructure.providers.redfish.mapping import (
@@ -348,6 +349,48 @@ def _oneview_provider(
     return BmcProbedProvider(provider)
 
 
+def _kubevirt_provider(
+    *,
+    manager: Manager,
+    credentials: ManagerConnection,
+    timeout_seconds: float,
+    settings: Settings,
+    name_pattern: str,
+) -> ServerInventoryProvider:
+    """
+    Build the KubeVirt collector: one kubevirt-redfish endpoint, every VM it lists.
+
+    See docs/adr/0058-kubevirt-collector.md.
+
+    Args:
+        manager (Manager): The `Manager` projection for `KUBEVIRT`.
+        credentials (ManagerConnection): `INVENTORY_KUBEVIRT_URL` and its Basic login.
+        timeout_seconds (float): The connect timeout, so
+            `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS` applies to a recheck.
+        settings (Settings): Process-wide settings, for the KubeVirt knobs.
+        name_pattern (str): Unused — every VM costs the same to list;
+            `_NameFilteredProvider` still applies it.
+
+    Returns:
+        ServerInventoryProvider: The KubeVirt collector.
+    """
+    return KubeVirtProvider(
+        manager=manager,
+        url=credentials.endpoint,
+        username=credentials.username,
+        password=credentials.password,
+        verify_tls=settings.kubevirt_verify_tls,
+        ca_bundle=settings.kubevirt_ca_bundle,
+        connect_timeout=timeout_seconds,
+        read_timeout=settings.kubevirt_read_timeout_seconds,
+        vm_budget_seconds=settings.kubevirt_vm_budget_seconds,
+        run_budget_seconds=settings.kubevirt_run_budget_seconds,
+        concurrency=settings.kubevirt_concurrency,
+        cluster_name=settings.kubevirt_cluster_name,
+        debug_http=debug_http_enabled(),
+    )
+
+
 def _optional_login(settings: Settings, manager_type: ManagerType) -> tuple[str, str] | None:
     """
     A type's fleet-wide login, or None when none is configured.
@@ -378,6 +421,7 @@ NAME_PATTERN_FIELD: dict[ManagerType, str] = {
     ManagerType.OPENMANAGE: "ome_name_pattern",
     ManagerType.ONEVIEW: "oneview_name_pattern",
     ManagerType.REDFISH_STANDALONE: "redfish_name_pattern",
+    ManagerType.KUBEVIRT: "kubevirt_name_pattern",
 }
 
 
@@ -411,6 +455,7 @@ PROVIDER_FACTORIES: dict[ManagerType, Callable[..., ServerInventoryProvider]] = 
     ManagerType.REDFISH_STANDALONE: _redfish_provider,
     ManagerType.INTERSIGHT: _intersight_provider,
     ManagerType.ONEVIEW: _oneview_provider,
+    ManagerType.KUBEVIRT: _kubevirt_provider,
 }
 
 

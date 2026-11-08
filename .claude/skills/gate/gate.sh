@@ -71,6 +71,7 @@ if [ "$want_helm" = 1 ]; then
       --set collectors.redfishStandalone.credentialsFile=files/redfish/credentials.toml \
       --set collectors.ucsCentral.enabled=true --set collectors.intersight.enabled=true \
       --set collectors.openmanage.enabled=true --set collectors.oneview.enabled=true \
+      --set collectors.kubevirt.enabled=true --set collectors.kubevirt.caBundleConfigMap=kv-ca \
       --set collectors.fake.enabled=true > /dev/null'
   step "deploy render (templates + redbull-platform values)" deploy_render
   step "helm template nodes-status" \

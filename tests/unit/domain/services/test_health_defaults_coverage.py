@@ -12,7 +12,7 @@ import pytest
 
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.pipeline import health_from_state
-from app.domain.enums import HealthSeverity, LinkState, Vendor
+from app.domain.enums import HealthSeverity, LinkState, ManagerType, Vendor
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
 from app.domain.models.hardware import (
     Gpu,
@@ -241,12 +241,14 @@ class TestUnknownIsNotAVerdict:
     """A field a collector could not read must not be judged (ADR-0027)."""
 
     @staticmethod
-    def _network_severity(*states: LinkState) -> HealthSeverity:
+    def _network_severity(*states: LinkState, manager_type: str = "INTERSIGHT") -> HealthSeverity:
         """
         Run the seeded defaults over a server with just these link states.
 
         Args:
             states (LinkState): One per interface, in order.
+            manager_type (str): The collector; physical by default, since
+                `network.single_link_up` is scoped to physical servers (ADR-0058).
 
         Returns:
             HealthSeverity: The rolled-up `network` category severity.
@@ -264,7 +266,7 @@ class TestUnknownIsNotAVerdict:
             default_system_policies(),
             build_default_registry(),
             vendor="cisco",
-            manager_type=None,
+            manager_type=manager_type,
             site_id=None,
         )
         return state.categories["network"].severity
@@ -356,7 +358,60 @@ class TestManagerScopedDefaults:
             "UCS fabric path down (warning)",
             "UCS fabric paths down (critical)",
             "No RAID 1 configured for the OS",
+            "Only one network link up",
         }
+
+    def test_single_link_up_covers_every_physical_collector_and_no_vm(self) -> None:
+        (policy,) = [
+            p for p in default_system_policies() if p.policy_key == "network.single_link_up"
+        ]
+        physical = {t.value for t in ManagerType} - {ManagerType.KUBEVIRT.value}
+        assert set(policy.scope.manager_types) == physical
+
+
+class TestKubeVirtVms:
+    """A VM's network rules (ADR-0058): one NIC is normal, a stopped VM is UNKNOWN."""
+
+    @staticmethod
+    def _severity(*states: LinkState) -> HealthSeverity:
+        """
+        Evaluate the defaults for a KubeVirt VM with these link states.
+
+        Args:
+            states (LinkState): One per interface.
+
+        Returns:
+            HealthSeverity: The `network` category severity.
+        """
+        return TestUnknownIsNotAVerdict._network_severity(*states, manager_type="KUBEVIRT")
+
+    def test_a_running_vm_with_one_nic_is_healthy(self) -> None:
+        assert self._severity(LinkState.UP) == HealthSeverity.HEALTHY
+
+    def test_a_running_vm_with_two_nics_and_one_up_is_healthy(self) -> None:
+        assert self._severity(LinkState.UP, LinkState.DOWN) == HealthSeverity.HEALTHY
+
+    def test_a_running_vm_with_every_nic_disconnected_is_still_critical(self) -> None:
+        assert self._severity(LinkState.DOWN) == HealthSeverity.CRITICAL
+
+    def test_a_stopped_vm_reads_unknown_not_critical(self) -> None:
+        assert self._severity(LinkState.UNKNOWN) == HealthSeverity.UNKNOWN
+
+    def test_a_stopped_vm_is_unknown_overall(self) -> None:
+        server = _server(
+            network=NetworkInfo(
+                interfaces=[NetworkInterface(name="default", link_state=LinkState.UNKNOWN)]
+            )
+        )
+        state = evaluate_health(
+            extract_facts(server),
+            default_system_policies(),
+            build_default_registry(),
+            vendor="kubevirt",
+            manager_type="KUBEVIRT",
+            site_id=None,
+        )
+        assert state.overall == HealthSeverity.UNKNOWN
 
 
 class TestEveryPolicyCategoryReachesOverall:

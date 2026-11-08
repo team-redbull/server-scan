@@ -31,6 +31,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+from app.application.services.vm_host import HostMatch, VmHostResolution
 from app.domain.enums import (
     HealthSeverity,
     InstallationType,
@@ -42,13 +43,13 @@ from app.domain.enums import (
 )
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
-from app.domain.models.hardware import Hardware
+from app.domain.models.hardware import Cpu, Hardware
 from app.domain.models.health import Health, decode_retired_severity
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
-from app.domain.models.server import Identity, ProfileTemplate, Server
+from app.domain.models.server import Identity, ProfileTemplate, Server, VmHost
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
 from app.utils.timeutil import utcnow
 
@@ -391,6 +392,7 @@ class ServerDetail(BaseModel):
     maintenance: Maintenance
     reservation: Reservation
     openshift: OpenShiftLifecycle
+    vm_host: VmHost | None = None
     site_id: str | None
     manager_id: str | None
     tags: list[str]
@@ -451,6 +453,7 @@ class ServerDetail(BaseModel):
             maintenance=server.maintenance,
             reservation=server.reservation,
             openshift=server.openshift,
+            vm_host=server.vm_host,
             site_id=server.site_id,
             manager_id=server.manager_id,
             tags=server.tags,
@@ -496,7 +499,8 @@ def bmc_vendor_for(vendor: Vendor, source_provider: str | None) -> str | None:
 
     Returns:
         str | None: `HP`, `DELL`, `CISCO` or `INTERSIGHT`; `None` for a
-            `STANDALONE` machine, whose driver the caller must decide.
+            `STANDALONE` machine, whose driver the caller must decide, and for a
+            `KUBEVIRT` VM, which bmhgen has no driver string for (ADR-0058).
     """
     if vendor == Vendor.CISCO:
         return "INTERSIGHT" if source_provider == ManagerType.INTERSIGHT.value else "CISCO"
@@ -576,3 +580,59 @@ class AvailableServersResponse(BaseModel):
     mode: str
     requested: int
     returned: int
+
+
+class VmHostServer(BaseModel):
+    """The bare-metal server a VM runs on: the few fields worth showing beside the VM."""
+
+    id: str
+    name: str
+    vendor: Vendor
+    model: str | None
+    site_id: str | None
+    cpu: Cpu
+    memory_total_bytes: int | None
+    health: HealthSeverity
+    maintenance: bool
+    cluster_name: str | None
+
+
+class VmHostResponse(BaseModel):
+    """`GET /servers/{id}/vm-host`: a VM's host, resolved now, never cached (ADR-0059)."""
+
+    cluster_name: str | None
+    node_name: str | None
+    match: HostMatch
+    host: VmHostServer | None
+
+    @classmethod
+    def from_resolution(cls, resolution: VmHostResolution) -> VmHostResponse:
+        """
+        Build the response from a resolution.
+
+        Args:
+            resolution (VmHostResolution): The resolved host.
+
+        Returns:
+            VmHostResponse: The response model.
+        """
+        host = resolution.host
+        return cls(
+            cluster_name=resolution.vm_host.cluster_name,
+            node_name=resolution.vm_host.node_name,
+            match=resolution.match,
+            host=VmHostServer(
+                id=host.id,
+                name=host.name,
+                vendor=host.identity.vendor,
+                model=host.model,
+                site_id=host.site_id,
+                cpu=host.hardware.cpu,
+                memory_total_bytes=host.hardware.memory.total_bytes,
+                health=host.health.overall,
+                maintenance=host.maintenance.enabled,
+                cluster_name=host.openshift.cluster_name,
+            )
+            if host is not None
+            else None,
+        )

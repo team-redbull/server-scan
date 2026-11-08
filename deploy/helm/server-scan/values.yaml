@@ -868,6 +868,43 @@ collectors:
         # response this collector handles.
         memory: 1Gi
 
+  # KubeVirt — OpenShift Virtualization VMs through a kubevirt-redfish facade
+  # (docs/adr/0058). One URL, one HTTP Basic user; every VM that user can see.
+  kubevirt:
+    enabled: false
+    # namePattern: "^ocp"      # the global collectors.namePattern applies to VM names too
+    # The facade's Route, e.g. https://kubevirt-redfish.apps.<cluster-domain>.
+    url: ""
+    # The cluster the facade serves, exactly as that cluster's nodes-status release names it, so
+    # a VM's node resolves to its bare-metal server through the membership (ADR-0059).
+    clusterName: ""
+    username: ""
+    password: ""
+    # The ingress certificate is cluster-signed: put its CA in a ConfigMap
+    # under the key ca-bundle.crt and name it here (also mounted in the API pod).
+    verifyTls: true
+    caBundleConfigMap: ""
+    # The facade blocks an IP after 10 failed logins in 5 minutes; a rejected
+    # login is never retried and fails the run (exit 1).
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+    activeDeadlineSeconds: 2400
+    # VMs read at once. Each PVC-backed disk costs the facade one live API GET
+    # behind client-go's 5 qps / burst 10, so raise this only together with
+    # the facade's own kubevirt.qps/burst.
+    concurrency: 4
+    # connectTimeoutSeconds: 15
+    # Just above the Route's 30 s timeout, so a stall surfaces as its 504.
+    readTimeoutSeconds: 35
+    vmBudgetSeconds: 60
+    runBudgetSeconds: 1800
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
   # Dell — OME discovers, Redfish collects.
   #
   # Two bulk REST calls against the one OpenManage Enterprise appliance

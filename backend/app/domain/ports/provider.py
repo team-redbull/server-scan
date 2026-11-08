@@ -1,8 +1,8 @@
 """The collector seam every vendor provider implements.
 
-`ServerInventoryProvider` and `ProviderServer` are the interface all seven
+`ServerInventoryProvider` and `ProviderServer` are the interface all eight
 providers (`fake`, `ucs_manager`, `ucs_central`, `intersight`,
-`openmanage`, `oneview`, `redfish`) implement/produce.
+`openmanage`, `oneview`, `redfish`, `kubevirt`) implement/produce.
 `app.application.services.ingest` is the one caller: it drives
 `collect()`, then normalizes each `ProviderServer` into a domain `Server`
 (correlate -> classify -> health-evaluate -> upsert).
@@ -139,6 +139,10 @@ class ProviderServer:
     attachments: tuple[ProviderAttachment, ...] = ()
 
     tags: tuple[str, ...] = field(default_factory=tuple)
+
+    # A VM's host (ADR-0059); both None for a physical server. Node: None unread, "" not running.
+    vm_host_cluster: str | None = None
+    vm_host_node: str | None = None
 
 
 class ServerInventoryProvider(ABC):

@@ -18,23 +18,28 @@ class _Clock:
         return self.now
 
 
-async def test_eight_cronjobs_with_history_and_warnings() -> None:
+async def test_nine_cronjobs_with_history_and_warnings() -> None:
     cronjobs = await FakeJobRunner().list_cronjobs()
 
-    assert len(cronjobs) == 8
+    assert len(cronjobs) == 9
     warned = {c.name.removeprefix("server-scan-") for c in cronjobs if c.warning}
     assert warned == {"collector-openmanage", "prune-events", "prune-servers"}
     assert all(c.jobs and not c.active for c in cronjobs if c.deployed)
 
 
-async def test_one_fake_cronjob_is_switched_off_and_cannot_be_run() -> None:
+async def test_the_two_collectors_shipped_off_are_switched_off_and_cannot_be_run() -> None:
     runner = FakeJobRunner()
-    (off,) = [c for c in await runner.list_cronjobs() if not c.deployed]
+    off = [c for c in await runner.list_cronjobs() if not c.deployed]
 
-    assert off.enabled is False
-    assert off.jobs == ()
-    with pytest.raises(NotFoundError):
-        await runner.run(off.name, triggered_by="dana")
+    assert {c.name for c in off} == {
+        "server-scan-collector-redfish-standalone",
+        "server-scan-collector-kubevirt",
+    }
+    for cronjob in off:
+        assert cronjob.enabled is False
+        assert cronjob.jobs == ()
+        with pytest.raises(NotFoundError):
+            await runner.run(cronjob.name, triggered_by="dana")
 
 
 async def test_a_manual_run_is_active_then_succeeds_and_blocks_a_second() -> None:

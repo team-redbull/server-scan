@@ -6,15 +6,18 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, get_args
 from unittest import mock
 
 import httpx
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
+from tools.mcp_server import server as mcp_server
 from tools.mcp_server.api import ScanApi
 from tools.mcp_server.server import build_server
+from tools.run_collector import PROVIDER_FACTORIES
 
+from app.domain.enums import Vendor
 from app.domain.services.search import FILTER_FIELDS
 
 _SERVER = {
@@ -192,3 +195,10 @@ async def test_the_http_app_forwards_the_authorization_header_and_guards_the_hos
 
     assert fake.requests[0].headers["authorization"] == "Bearer ssk_from_header"
     assert wrong.status_code in (400, 421)
+
+
+def test_the_vendor_and_source_literals_match_the_backend() -> None:
+    """The MCP server imports nothing from `app`, so its literals are copies: a new vendor or
+    collector left out makes the tool reject a valid filter (KUBEVIRT, ADR-0058)."""
+    assert set(get_args(mcp_server.Vendor)) == {v.value for v in Vendor}
+    assert set(get_args(mcp_server.Provider)) == {t.value for t in PROVIDER_FACTORIES}

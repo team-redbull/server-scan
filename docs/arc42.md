@@ -16,7 +16,7 @@ of a technical explanation is a second copy to keep true:
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
 | Air-gapped mirroring | `docs/air-gap.md` |
-| A picture of the runtime, and one per collector | the in-app **Architecture** page (`/architecture`), or open `frontend/public/architecture/*.html` directly — sources are `docs/diagrams/*.json`, regenerated with the archify skill. The seven diagrams (full flow, five collectors, `nodes-status`) are listed under "Diagrams" in §5 |
+| A picture of the runtime, and one per collector | the in-app **Architecture** page (`/architecture`), or open `frontend/public/architecture/*.html` directly — sources are `docs/diagrams/*.json`, regenerated with the archify skill. The seven diagrams (full flow, five collectors, `nodes-status`; none yet for KubeVirt, ADR-0058) are listed under "Diagrams" in §5 |
 
 Sections 4–8 therefore read as maps with pointers, not as prose
 duplicates. Where this document is the only place a fact is written
@@ -79,8 +79,10 @@ sense against them.
    Cisco Intersight ──┤                                    │
    Dell OpenManage ───┼──▶  Server Scan                ────┤
    HPE OneView ───────┤         (this system)              └─ Prometheus (scrape)
-   Standalone BMCs ───┘
-   (Redfish)
+   Standalone BMCs ───┤
+   (Redfish)          │
+   kubevirt-redfish ──┘
+   (OpenShift Virtualization VMs)
 ```
 
 | External | Direction | Exchanged |
@@ -90,6 +92,7 @@ sense against them.
 | Dell OpenManage Enterprise + each server's iDRAC | in | Names, deployment templates and iDRAC addresses from the appliance; measured hardware from each BMC over Redfish (ADR-0020) |
 | HPE OneView (one appliance) | in | Server profiles and complete per-server hardware over its REST API. The **only** HPE source — no iLO/Redfish pass at any generation (ADR-0022) |
 | Standalone BMCs | in | Per-server inventory over DMTF Redfish |
+| kubevirt-redfish (one facade per cluster) | in | OpenShift Virtualization VMs as Redfish ComputerSystems, HTTP Basic, one listing then per-VM reads (ADR-0058) |
 | Operator | in/out | React admin UI over the REST API |
 | Prometheus | out | `/metrics` |
 
@@ -194,6 +197,7 @@ directly (ADR-0024).
 | `redfish` | Implemented, validated | One BMC at a time from an inventory file |
 | `openmanage` | Implemented; validated against a live OME appliance and iDRAC9 on 2026-09-08, which found the Service Tag defect (ADR-0020) | OME says who exists and what it is called; each iDRAC says what it is, over Redfish |
 | `oneview` | Implemented, validated against a live appliance (2026-09-07) — GPU field mapping remains unverified (ADR-0022) | Three bulk calls per appliance, `expand=all`; the only HPE source at any iLO generation |
+| `kubevirt` | Implemented, validated against OpenShift Virtualization 4.22 (2026-11-08, ADR-0058) | One `GET /Systems` through the kubevirt-redfish facade, then each VM's sub-resources; VMs, not hardware |
 | `fake` | Implemented | Deterministic dev/CI data through the same port |
 
 Every `ManagerType` now has an entry in `PROVIDER_FACTORIES` except
@@ -370,7 +374,8 @@ OpenShift namespace                        (chart: deploy/helm/server-scan)
 ├── CronJob  collector-oneview              (3-hourly, opt-in)
 ├── CronJob  collector-openmanage           (3-hourly, opt-in)
 ├── CronJob  collector-redfish-standalone   (3-hourly, opt-in, ships suspended)
-│      all five: envFrom the SAME api-config ConfigMap + the collector Secret
+├── CronJob  collector-kubevirt             (3-hourly, opt-in, ADR-0058)
+│      all six: envFrom the SAME api-config ConfigMap + the collector Secret
 ├── CronJob  prune-servers                  (03/09/15/21h, opt-in, report-only
 │      until collectors.prune.apply; deletes unlisted servers, ADR-0037)
 ├── CronJob  prune-events                   (weekly, report-only until
@@ -464,13 +469,13 @@ collector does, and never call this platform's API.
 
 | Concept | Where it lives | The one-line version |
 |---|---|---|
-| **Domain model** | `domain/models` | `Server` composed of `identity`, `profile_template`, `hardware`, `network`, `connectivity`, `classification`, `health`, `maintenance`, `openshift`; plus `Site`, `Manager`, `ClassificationRule`, `HealthPolicy`, `AuditEvent`. `Vendor` is `dell`/`cisco`/`hp`/`standalone`; `InstallationType` is `HOSTED_CLUSTER`/`MCE`/`UPI`/`UNCLASSIFIED` |
+| **Domain model** | `domain/models` | `Server` composed of `identity`, `profile_template`, `hardware`, `network`, `connectivity`, `classification`, `health`, `maintenance`, `openshift`; plus `Site`, `Manager`, `ClassificationRule`, `HealthPolicy`, `AuditEvent`. `Vendor` is `dell`/`cisco`/`hp`/`standalone`/`kubevirt`; `InstallationType` is `HOSTED_CLUSTER`/`MCE`/`UPI`/`UNCLASSIFIED` |
 | **Error handling** | `exception_handlers` | RFC 9457 Problem Details, extended with a stable `code`, `request_id` and structured `details` (ADR-0002) |
 | **Persistence rules** | `infrastructure/mongodb` | Datetimes stored as ISO 8601 **strings**; range/cursor queries must compare against that type (ADR-0006 — this caused a real silent-wrong-results bug) |
 | **Search** | `domain/services/search_tokens` | Anchored, escaped prefix match over a multikey-indexed token array; structurally incapable of ReDoS or an unanchored scan (ADR-0004). Tokens are word-boundary **suffixes**, so the anchored query still finds a fragment from the middle of a name — `cisco-m6` matches `ocp-cisco-m6-bat-yam-…` (ADR-0025) |
-| **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS and Intersight are UNKNOWN, skipped (ADR-0037) |
+| **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS, Intersight and KubeVirt are UNKNOWN, skipped (ADR-0037; a VM's "BMC" is the shared facade, ADR-0058) |
 | **Staleness** | `observability/fleet_gauges` | `/metrics` carries gauges derived from MongoDB on scrape, throttled to once per 30s: servers not seen within `INVENTORY_STALE_AFTER_SECONDS` per collector, each collector's and each cluster's newest report as a Unix timestamp, the health mix, and (2026-09-16) duplicate-name group/server counts. A CronJob pod is never scraped, so this is the only signal that a collector or membership job has *stopped* (ADR-0029). Each `nodes`/`agents` membership job's most recent run (observed/matched/unmatched hostnames, duration, PARTIAL) is a further gauge set added 2026-09-24, present even when every hostname was unmatched. Shipped with a `ServiceMonitor` and a `PrometheusRule` (fleet, login/dependency, API/frontend pod and audit-retention alerts; the 2026-10-07 updates also add the audit-trail size/oldest-event and unchanged-server gauges) |
-| **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — five CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
+| **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — six CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
 | **Pagination** | `domain/services/cursor` | Keyset only, HMAC-signed cursor bound to the filter/sort combination. A **nullable** sort field needs the null-aware clause: Mongo's range operators are type-bracketed, so a naive `$gt`/`$lt` cursor drops rows with no error (ADR-0026) |
 | **Caching** | `infrastructure/redis` | Cache-aside; revision-keyed detail entries; every method returns a miss on error rather than raising |
 | **Classification** | `domain/services/classification` | Total order `(priority, specificity, order, id)` computed in Python; conflicts recorded, not hidden (ADR-0005 for the sibling idea) |
@@ -567,8 +572,10 @@ of it.
 | 0053 | A signed-in user gets one personal, read-only API token (`/api/v1/auth/token`): hashed at rest, 90-day expiry, acts as `token:<username>` in the audit trail; admins can list and revoke |
 | 0054 | A read-only MCP server (`tools/mcp_server`, `/mcp` on the frontend host, off by default) calls the REST API with each caller's own personal token; eight tools, no `servers/available` |
 | 0055 | Admins run a collector or prune CronJob from the UI as a real Job (Kubernetes API via httpx, label allow-list, admin-only, 409 while active, `JOB_TRIGGERED` event); never `nodes-status` |
-| 0057 | The BMC IP names a server's site first (then name, then profile DN); a BMC/name disagreement is CRITICAL in the new `name` health category, which also takes the capacity-vs-name check |
 | 0056 | A BMC IP prefix (`INVENTORY_SITE_BMC_PREFIXES`) is the last fallback for a server's site, after name and profile DN |
+| 0057 | The BMC IP names a server's site first (then name, then profile DN); a BMC/name disagreement is CRITICAL in the new `name` health category, which also takes the capacity-vs-name check |
+| 0058 | A sixth collector, `KUBEVIRT`, reads OpenShift Virtualization VMs through kubevirt-redfish (HTTP Basic, one login per run, never retried); no unreachable stub, a stopped VM's links are UNKNOWN, `network.single_link_up` scoped to the physical collectors |
+| 0059 | A VM stores the cluster and node it runs on (`Server.vm_host`, names only); `GET /servers/{id}/vm-host` resolves the node to its bare-metal server when read (membership first, then name), never cached; `host-model` is a CPU mode, stored as no model |
 
 ---
 
@@ -598,7 +605,7 @@ Modifiability ─ a new vendor is a new module; a site rename is a config change
 | Q6 | A site is renamed | One environment variable, pod restart. Reaches API, UI, filters and seeded rules. No code change, no image rebuild. |
 | Q7 | Two classification rules tie and disagree | Winner is deterministic (lowest id); the disagreement is persisted in `conflicts[]` so the authoring mistake surfaces. |
 | Q8 | A collector is pointed at a wrong/half-configured vendor | Fails before any connection with a message naming the exact variables to set (exit 2). |
-| Q9 | A new vendor collector is added | New provider module + factory entry + CronJob. No change to API, engines or frontend. |
+| Q9 | A new vendor collector is added | New provider module + factory entry + CronJob + fake shape, and the closed vendor/collector lists (UI filters, MCP literals; guard tests catch a miss). No change to the API's endpoints or the engines (ADR-0058 is the latest example). |
 | Q10 | `GET /servers/available` is called for a manager type this process has no credentials for | The live recheck is skipped for that candidate and it is returned trusting the last stored document — never a hard error (ADR-0032). |
 
 ---
@@ -627,6 +634,8 @@ go stale — treat its date as load-bearing.
 | No session revocation | ADR-0034's login cookie is a stateless HMAC signature, not a server-side session — a removed admin/viewer keeps working until the cookie's TTL (default 8h) expires. Accepted trade-off of not using Redis for sessions (Redis here is deliberately non-persistent). |
 | Redis persistence | Deliberately none: cache-aside, degrades to Mongo. **MongoDB HA/backup is not a risk of this platform** — production Mongo is an operated service in the air-gapped estate, not the chart's bundled Bitnami pod (operator, 2026-09-13); the bundled one is for demos and dev. |
 | No concurrency cap on `GET /servers/available`'s live rechecks | Each request can open up to `count` vendor-manager sessions (UCS Manager, OneView, iDRAC all have hard concurrent-session caps). A retry-looping caller would exhaust those and fail the scheduled collector's login — a vendor-side outage, not an API slowdown. `RateLimitedError` (429) exists and nothing raises it; a per-`ManagerType` semaphore is the fix, before bmhgen goes to production. |
+| KubeVirt lockout through a shared egress IP | kubevirt-redfish blocks an IP for 15 minutes after 10 failed logins in 5. The collector spends one 401 per run and never retries one, but the API pod's `/servers/available` rechecks may leave through the same egress IP, so a misconfigured API pod can lock the collector out (ADR-0058). |
+| Rolling back past ADR-0058 | An image older than the `KUBEVIRT` collector cannot load a `vendor: kubevirt` document (`Vendor` is a validated enum). Delete them (`source_provider: KUBEVIRT`) before rolling back. |
 | Manual dependency maintenance | Dependabot was deliberately removed (ADR-0013), making pin currency and CVE checks a standing quarterly chore. |
 | **OneView's GPU field mapping is still unverified** | Validated against a live appliance 2026-09-07 (821 servers) — core count and profile paging both confirmed correct, and a real storage-mapping bug was found and fixed the same day — but that estate has no GPU-bearing HPE server, so the GPU product-name-matching rules (ADR-0022, "GPU matching") remain built against realistic spellings, not observed ones. Demoted from High: every other headline unknown that ADR listed is now settled. |
 | **Intersight's `get_one()` owner-relation filters are unverified** | `ComputeBlade.Moid eq '...'`-style nested-property `$filter`s (ADR-0032) mirror the relation shape the fleet-wide join already parses from full rows, but have never been exercised as a filter expression against a live tenant. Affects only `GET /servers/available`'s live recheck for Intersight-sourced servers — the bulk collector's own join is untouched and unaffected. |
@@ -641,7 +650,7 @@ go stale — treat its date as load-bearing.
   inventory. `--dry-run` prints the resolved site per server for this.
 - Frontend copies of `ManagerType` are hand-maintained (now guarded by a
   test after they silently drifted). `SOURCE_PROVIDERS`
-  (`frontend/src/api/sites.ts`) is one such list — it now covers all five
+  (`frontend/src/api/sites.ts`) is one such list — it now covers all six
   collectors and is itself guarded by
   `tests/unit/test_frontend_manager_types.py`, but nothing stops a future
   hand-maintained list elsewhere from drifting the same way this one once
@@ -660,7 +669,7 @@ go stale — treat its date as load-bearing.
 | **Collector** | A scheduled process that reads one vendor manager type and ingests what it finds. One CronJob per manager type. |
 | **Provider** | The code implementing `ServerInventoryProvider` for a vendor. Lives in `infrastructure/providers/<vendor>`. |
 | **`ProviderServer`** | The vendor-neutral DTO a provider emits — flatter than the domain `Server`, already normalised, not yet correlated. |
-| **Manager type** | How a server is reached (`UCS_CENTRAL`, `INTERSIGHT`, `REDFISH_STANDALONE`, …). Distinct from **vendor**, which is who built it. |
+| **Manager type** | How a server is reached (`UCS_CENTRAL`, `INTERSIGHT`, `REDFISH_STANDALONE`, `KUBEVIRT`, …). Distinct from **vendor**, which is who built it. |
 | **`source_provider`** | Which collector found a given server. Filterable in the UI. |
 | **Site** | A location, identified by a short code embedded in server hostnames (`ocp4-prod-**tlv**-infra-01`). Configured via `INVENTORY_SITES`. |
 | **Classification** | Deciding what a server *is* (`HOSTED_CLUSTER`, `MCE`, `UPI`, `UNCLASSIFIED`) from declarative rules. |
@@ -668,8 +677,9 @@ go stale — treat its date as load-bearing.
 | **Specificity** | Scope precision as powers of two (`site:4 + manager:2 + vendor:1`), so a more specific scope strictly outranks a less specific one. |
 | **Service profile** | UCS's logical server definition. **The source of a UCS server's real name** — `computeBlade.name` is empty in practice. |
 | **IMM** | Intersight Managed Mode. Servers Intersight manages directly, as opposed to `UCSM`-mode servers that UCS Central owns. |
+| **VM host** | `Server.vm_host`: the cluster and node a KubeVirt VM runs on, as names. Resolved to the node's own server record only by `GET /servers/{id}/vm-host` (ADR-0059). |
 | **PARTIAL run** | Exit code 3: some servers were written, but the run did not see the whole fleet. |
-| **`Server.reachable`** | `False` when a provider could not reach a server's management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. Written by `OPENMANAGE`, `REDFISH_STANDALONE` (stub documents) and, via an unauthenticated probe, `ONEVIEW` (ADR-0037). |
+| **`Server.reachable`** | `False` when a provider could not reach a server's management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. Written by `OPENMANAGE`, `REDFISH_STANDALONE` (stub documents) and, via an unauthenticated probe, `ONEVIEW` (ADR-0037); never by `KUBEVIRT`, whose VMs are always `True` (ADR-0058). |
 | **`Server.unreachable_reason`** | Why `reachable` is `False`: `network_unreachable`, `auth_rejected`, `tls_error`, `timeout` or `protocol_error`. Set and cleared together with `unreachable_since` (ADR-0037). |
 | **`Server.listed_at`** | The last time any manager listed the server, reachable or not. Unlike `last_seen_at` it does not freeze for an unreachable server; `tools.prune_servers` deletes on it (ADR-0037). |
 | **UCSPE** | Cisco's free UCS Platform Emulator — the test target that validated the UCS collector. |

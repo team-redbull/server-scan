@@ -80,6 +80,21 @@ spec:
               value: {{ .readTimeoutSeconds | quote }}
             {{- end }}
             {{- end }}
+            {{- /* A KubeVirt VM's recheck needs the collector's own TLS settings (ADR-0058). */}}
+            {{- with (.Values.collectors | default dict).kubevirt }}
+            {{- if hasKey . "verifyTls" }}
+            - name: INVENTORY_KUBEVIRT_VERIFY_TLS
+              value: {{ .verifyTls | quote }}
+            {{- end }}
+            {{- if .caBundleConfigMap }}
+            - name: INVENTORY_KUBEVIRT_CA_BUNDLE
+              value: /etc/kubevirt-ca/ca-bundle.crt
+            {{- end }}
+            {{- with .clusterName }}
+            - name: INVENTORY_KUBEVIRT_CLUSTER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-api-config
@@ -102,6 +117,11 @@ spec:
             {{- if $jobTriggerOn }}
             - name: jobs-catalog
               mountPath: /etc/server-scan/jobs
+              readOnly: true
+            {{- end }}
+            {{- if ((.Values.collectors | default dict).kubevirt | default dict).caBundleConfigMap }}
+            - name: kubevirt-ca
+              mountPath: /etc/kubevirt-ca
               readOnly: true
             {{- end }}
           livenessProbe:
@@ -135,4 +155,9 @@ spec:
         - name: jobs-catalog
           configMap:
             name: {{ .Release.Name }}-jobs-catalog
+        {{- end }}
+        {{- with ((.Values.collectors | default dict).kubevirt | default dict).caBundleConfigMap }}
+        - name: kubevirt-ca
+          configMap:
+            name: {{ . }}
         {{- end }}

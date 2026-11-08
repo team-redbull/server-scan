@@ -15,11 +15,13 @@ from pydantic import Field
 
 from tools.mcp_server.api import ApiError, ScanApi
 
-Vendor = Literal["dell", "cisco", "hp", "standalone"]
+Vendor = Literal["dell", "cisco", "hp", "standalone", "kubevirt"]
 Health = Literal["HEALTHY", "WARNING", "MAJOR", "CRITICAL", "UNKNOWN"]
 Installation = Literal["UPI", "HOSTED_CLUSTER", "MCE", "UNCLASSIFIED"]
 OpenShift = Literal["AVAILABLE", "INSTALLED"]
-Provider = Literal["UCS_CENTRAL", "INTERSIGHT", "OPENMANAGE", "ONEVIEW", "REDFISH_STANDALONE"]
+Provider = Literal[
+    "UCS_CENTRAL", "INTERSIGHT", "OPENMANAGE", "ONEVIEW", "REDFISH_STANDALONE", "KUBEVIRT"
+]
 GroupBy = Literal["site", "vendor", "health", "installation_type", "openshift_state", "model"]
 
 _ROW_FIELD = {

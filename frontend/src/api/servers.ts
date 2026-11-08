@@ -1,5 +1,9 @@
 import { apiFetch } from "@/api/client";
-import type { ServerDetail, ServerRowsResponse } from "@/types/server";
+import type {
+  ServerDetail,
+  ServerRowsResponse,
+  VmHostResponse,
+} from "@/types/server";
 
 export function listServerRows(): Promise<ServerRowsResponse> {
   return apiFetch<ServerRowsResponse>("/api/v1/servers/rows");
@@ -7,6 +11,13 @@ export function listServerRows(): Promise<ServerRowsResponse> {
 
 export function getServer(id: string): Promise<ServerDetail> {
   return apiFetch<ServerDetail>(`/api/v1/servers/${encodeURIComponent(id)}`);
+}
+
+/** Resolved on every call, never cached; 404 for a server that is not a VM. */
+export function getServerVmHost(id: string): Promise<VmHostResponse> {
+  return apiFetch<VmHostResponse>(
+    `/api/v1/servers/${encodeURIComponent(id)}/vm-host`,
+  );
 }
 
 export interface MaintenanceEnableRequest {

@@ -124,6 +124,9 @@ async def test_source_provider_names_the_collector_that_found_each_server(
             # over Redfish from each iDRAC (ADR-0020), so the two are
             # distinguishable only by vendor, never by `external_id`.
             assert server.source_provider == "OPENMANAGE"
+        elif server.identity.vendor == Vendor.KUBEVIRT:
+            # A VM is only ever reached through kubevirt-redfish (ADR-0058).
+            assert server.source_provider == "KUBEVIRT"
         else:
             # What is left is a manufacturer this platform does not model,
             # reached at its own BMC because no aggregator owns it.

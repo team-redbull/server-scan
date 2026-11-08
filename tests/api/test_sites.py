@@ -219,6 +219,7 @@ async def test_installation_type_slice_carries_health_vendor_and_maintenance(
         "cisco": 1,
         "hp": 0,
         "standalone": 0,
+        "kubevirt": 0,
     }
 
 
@@ -276,6 +277,7 @@ async def test_fleet_summary_sums_every_site_including_unassigned(
         "cisco": 1,
         "hp": 0,
         "standalone": 0,
+        "kubevirt": 0,
     }
     assert fleet["by_installation_type"]["UPI"]["total"] == 2
     assert fleet["by_installation_type"]["HOSTED_CLUSTER"]["total"] == 1

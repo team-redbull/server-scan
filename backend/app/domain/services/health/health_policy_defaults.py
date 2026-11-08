@@ -472,7 +472,17 @@ def default_system_policies() -> list[HealthPolicy]:
             EvidenceField(key="interfaces", metric="network.links_known_count"),
         ],
         message_template="only {up} of {interfaces} readable network links is up",
-        scope=PolicyScope(),
+        # Physical servers only: a one-NIC VM is normal (ADR-0058).
+        scope=PolicyScope(
+            manager_types=[
+                ManagerType.OPENMANAGE.value,
+                ManagerType.REDFISH_STANDALONE.value,
+                ManagerType.ONEVIEW.value,
+                ManagerType.INTERSIGHT.value,
+                ManagerType.UCS_CENTRAL.value,
+                ManagerType.UCS_MANAGER.value,
+            ]
+        ),
         source="SYSTEM_DEFAULT",
         priority=100,
         system=True,

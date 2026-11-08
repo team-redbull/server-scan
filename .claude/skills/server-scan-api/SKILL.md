@@ -8,7 +8,7 @@ allowed-tools: Bash(curl *) Bash(jq *)
 # Server Scan API
 
 Server Scan is an air-gapped inventory of ~2,500 physical servers (Dell, Cisco, HPE,
-standalone Redfish). Collectors write to MongoDB; this REST API reads it. You answer
+standalone Redfish) plus OpenShift Virtualization VMs (`kubevirt`). Collectors write to MongoDB; this REST API reads it. You answer
 fleet questions by building `curl` requests, never by guessing.
 
 ## Connection - edit these two lines for your environment
@@ -43,6 +43,7 @@ token, everything works except events, which answer `403`.
 | Free-text find by part of a name, serial or model | `GET /api/v1/servers?search=<text>` |
 | Counts or group-bys across the whole fleet (per site, per health) | `GET /api/v1/sites` first; for anything else `GET /api/v1/servers/rows`, then `jq` |
 | One server in full detail (hardware, NICs, BMC, health reasons) | `GET /api/v1/servers/{id}` (id comes from a list result) |
+| The physical server (and CPU) a KubeVirt VM runs on | `GET /api/v1/servers/{id}/vm-host` |
 | What happened to a server or the fleet | `GET /api/v1/events`, `GET /api/v1/servers/{id}/events` |
 | Servers to provision a BareMetalHost on | `GET /api/v1/servers/available` - see the warning below |
 | Why a health verdict exists | `GET /api/v1/health-policies`, `GET /api/v1/classification-rules` |
@@ -56,12 +57,12 @@ else (model, MCE, MAC, BMC host, reachability).
 
 Values are case-sensitive:
 
-- `vendor`: `dell` `cisco` `hp` `standalone` (HPE is `hp`)
+- `vendor`: `dell` `cisco` `hp` `standalone` `kubevirt` (HPE is `hp`; `kubevirt` is an OpenShift Virtualization VM)
 - `site_id`: the lowercase site code, e.g. `tlv`; `unassigned` for servers whose name has no site. List the real codes with `GET /api/v1/sites`.
 - `health_overall`: `HEALTHY` `WARNING` `MAJOR` `CRITICAL` `UNKNOWN`
 - `installation_type`: `UPI` `HOSTED_CLUSTER` `MCE` `UNCLASSIFIED`
 - `openshift_state`: `AVAILABLE` (no cluster is using it) or `INSTALLED`
-- `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE`
+- `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE` `KUBEVIRT`
 
 Paging: `page_size` defaults to 50, max 200. The response has `page.next_cursor` and
 `page.has_more`; pass `cursor=<next_cursor>` with the same filters until `has_more` is

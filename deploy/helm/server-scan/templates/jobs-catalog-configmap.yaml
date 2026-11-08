@@ -12,6 +12,7 @@
   (dict "name" (printf "%s-collector-oneview" $rel) "enabled" (($c.oneview | default dict).enabled | default false))
   (dict "name" (printf "%s-collector-openmanage" $rel) "enabled" (($c.ome | default dict).enabled | default false))
   (dict "name" (printf "%s-collector-redfish-standalone" $rel) "enabled" (($c.redfishStandalone | default dict).enabled | default false))
+  (dict "name" (printf "%s-collector-kubevirt" $rel) "enabled" (($c.kubevirt | default dict).enabled | default false))
   (dict "name" (printf "%s-collector-fake" $rel) "enabled" (($c.fake | default dict).enabled | default false))
   (dict "name" (printf "%s-prune-servers" $rel) "enabled" ($pr.enabled | default false))
   (dict "name" (printf "%s-prune-events" $rel) "enabled" (ternary $ar.enabled true (hasKey $ar "enabled")))

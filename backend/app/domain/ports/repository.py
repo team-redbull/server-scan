@@ -322,6 +322,23 @@ class ServerRepository(Protocol):
         """
         ...
 
+    async def find_vm_host_candidates(
+        self, node_name: str, *, cluster_name: str | None, limit: int = 2
+    ) -> tuple[list[Server], bool]:
+        """
+        Find the bare-metal server an OpenShift node name belongs to (ADR-0059).
+
+        Args:
+            node_name (str): The node, cleaned like a `nodes-status` hostname.
+            cluster_name (str | None): Narrows the membership match when known.
+            limit (int): Most candidates to return; 2 is enough to see ambiguity.
+
+        Returns:
+            tuple[list[Server], bool]: The candidates, and whether they came from the
+                cluster membership (`True`) or from the server name alone (`False`).
+        """
+        ...
+
     async def sample_available_tier(
         self,
         *,

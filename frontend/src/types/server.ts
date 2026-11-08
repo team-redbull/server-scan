@@ -7,7 +7,7 @@
  * `null.toFixed()` unmount the page once (commit 1a896af).
  */
 
-export type Vendor = "dell" | "cisco" | "hp" | "standalone";
+export type Vendor = "dell" | "cisco" | "hp" | "standalone" | "kubevirt";
 
 /** Not a union: the closed set is `INVENTORY_SITES`, read via
  * `GET /api/v1/sites` — a copy here drifted once when sites were renamed. */
@@ -320,6 +320,8 @@ export interface ServerDetail {
   /** Never reconciled with `classification.installation_type`: the two
    * disagreeing is the signal, not a bug (ADR-0024). */
   openshift: OpenShiftLifecycle;
+  /** Where a KubeVirt VM runs (ADR-0059); `null` for every physical server. */
+  vm_host: VmHost | null;
   /** Dotted paths the most recent collection could not read; the stored
    * value there is carried forward or the model's zero, never a reading. */
   unread_fields: string[];
@@ -335,6 +337,37 @@ export interface ServerDetail {
   unreachable_reason: UnreachableReason | null;
   updated_at: string;
   created_at: string;
+}
+
+export interface VmHost {
+  cluster_name: string | null;
+  /** `null` while the VM is stopped. */
+  node_name: string | null;
+}
+
+/** How `GET /servers/{id}/vm-host` resolved the node, most certain first. */
+export type HostMatch =
+  "MEMBERSHIP" | "NAME" | "AMBIGUOUS" | "NOT_IN_INVENTORY" | "NOT_RUNNING";
+
+export interface VmHostServer {
+  id: string;
+  name: string;
+  vendor: Vendor;
+  model: string | null;
+  site_id: SiteCode | null;
+  cpu: CpuInfo;
+  memory_total_bytes: number | null;
+  health: HealthSeverity;
+  maintenance: boolean;
+  cluster_name: string | null;
+}
+
+/** `host` is set only for a `MEMBERSHIP` or `NAME` match. */
+export interface VmHostResponse {
+  cluster_name: string | null;
+  node_name: string | null;
+  match: HostMatch;
+  host: VmHostServer | null;
 }
 
 /** `AVAILABLE` is the default; there is no "nothing reported yet" state. */

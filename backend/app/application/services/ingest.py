@@ -83,7 +83,7 @@ from app.domain.models.manager import Manager
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
-from app.domain.models.server import Identity, ProfileTemplate, Server
+from app.domain.models.server import Identity, ProfileTemplate, Server, VmHost
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
 from app.domain.ports.repository import ServerRepository
@@ -345,6 +345,30 @@ def _opt_float(value: object) -> float | None:
 
 def _opt_bool(value: object) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def _vm_host(ps: ProviderServer, previous: VmHost | None, unread: list[str]) -> VmHost | None:
+    """
+    Resolve a VM's host from what the provider reported (ADR-0059).
+
+    Args:
+        ps (ProviderServer): The reported server.
+        previous (VmHost | None): The stored host, or `None`.
+        unread (list[str]): This ingest's unread-path accumulator.
+
+    Returns:
+        VmHost | None: `None` for a physical server (neither field reported).
+    """
+    if ps.vm_host_cluster is None and ps.vm_host_node is None:
+        return None
+    node = _carry_forward(
+        ps.vm_host_node,
+        previous.node_name if previous is not None else None,
+        default=None,
+        unread=unread,
+        name="vm_host.node_name",
+    )
+    return VmHost(cluster_name=ps.vm_host_cluster or None, node_name=node or None)
 
 
 def _carry_forward[T](
@@ -1086,6 +1110,8 @@ class IngestService:
             or None,
         )
 
+        vm_host = _vm_host(ps, existing.vm_host if existing is not None else None, unread)
+
         network = NetworkInfo(
             bmc=BmcInfo(
                 address_raw=ps.bmc_address_raw,
@@ -1163,13 +1189,15 @@ class IngestService:
                     unread=unread,
                     name="hardware.cpu.threads",
                 ),
+                # `""` is "read, no model" (a VM on the cluster default CPU): stored as None.
                 model=_carry_forward(
                     ps.cpu_model,
                     existing_hardware.cpu.model if existing_hardware else None,
                     default=None,
                     unread=unread,
                     name="hardware.cpu.model",
-                ),
+                )
+                or None,
             ),
             memory=Memory(
                 total_bytes=_carry_forward(
@@ -1316,6 +1344,7 @@ class IngestService:
             # hands a machine that is mid-install to a second cluster.
             reservation=existing.reservation if existing is not None else Reservation(),
             openshift=existing.openshift if existing is not None else OpenShiftLifecycle(),
+            vm_host=vm_host,
         )
 
         if self._classification_service is not None:

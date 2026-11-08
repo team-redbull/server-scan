@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+import pytest
 from tools.run_collector import PROVIDER_FACTORIES, manager_for
 
 from app.domain.enums import HealthSeverity, ManagerType, UnreachableReason, Vendor
@@ -19,6 +20,7 @@ from app.infrastructure.providers.fake.generator import (
     COLLECTOR_TYPES,
     collector_for,
     generate_servers,
+    kubevirt_count,
     list_managers,
     list_sites,
     manager_id_for,
@@ -153,6 +155,10 @@ def test_bmc_address_forms_match_the_collector_that_reported_them() -> None:
         if s.vendor == "cisco":
             assert s.bmc_address_raw.startswith("ipmi://")
             assert s.bmc_address_raw.endswith(":623")
+        elif s.vendor == "kubevirt":
+            # The shared facade's Route host plus the VM's own System (ADR-0058).
+            assert s.bmc_address_raw.startswith("redfish://")
+            assert s.bmc_address_raw == s.external_id.replace("kubevirt://", "redfish://")
         else:
             assert s.bmc_address_raw.startswith("redfish://")
             assert s.bmc_address_raw.endswith("/redfish/v1/Systems/1")
@@ -174,6 +180,9 @@ def test_external_ids_match_the_collector_that_reported_them() -> None:
             assert len(s.external_id[len("intersight/") :]) == 24
         elif collector == ManagerType.ONEVIEW.value:
             assert s.external_id.startswith("/rest/server-hardware/")
+        elif collector == ManagerType.KUBEVIRT.value:
+            assert s.external_id.startswith("kubevirt://")
+            assert "/redfish/v1/Systems/" in s.external_id
         else:
             assert s.external_id.startswith("redfish://")
 
@@ -476,6 +485,10 @@ def test_every_collector_with_a_template_concept_can_report_one() -> None:
         if collector == ManagerType.REDFISH_STANDALONE.value:
             assert s.profile_template_name is None
             continue
+        if collector == ManagerType.KUBEVIRT.value:
+            # Read, and a VM has none: "" clears, never None (ADR-0058).
+            assert s.profile_template_name == s.profile_template_external_id == ""
+            continue
         if s.profile_template_name is not None:
             seen_with_template.add(collector)
             # The fake provider references a template by name, unlike production.
@@ -574,8 +587,10 @@ def test_every_readable_server_reports_power_supplies() -> None:
     UP/DOWN vocabulary `power.failed_psu_count` counts, never `HealthSeverity`.
     """
     servers = list(generate_servers(seed=42, count=300))
-    readable = [s for s in servers if s.psus is not None]
+    readable = [s for s in servers if s.psus is not None and s.vendor != "kubevirt"]
     assert readable
+    # A VM has no power supply: read, and none (ADR-0058).
+    assert all(s.psus == () for s in servers if s.vendor == "kubevirt")
 
     for s in readable:
         assert s.psus
@@ -719,3 +734,57 @@ class TestEpochs:
         one = list(generate_servers(seed=42, count=1000, sites=SITES, epoch=1))
         two = list(generate_servers(seed=42, count=1000, sites=SITES, epoch=2))
         assert one != two
+
+
+class TestKubeVirtTail:
+    """The last 4% are KubeVirt VMs from their own RNG (ADR-0058, convention 10)."""
+
+    def test_the_tail_is_the_only_thing_that_changes_with_the_count(self) -> None:
+        """A VM never draws from the fleet RNG, so a physical server is the same
+        whatever the fleet size: the seeded names, figures and E2E fixtures hold."""
+        small = list(generate_servers(seed=42, count=1000))
+        large = list(generate_servers(seed=42, count=2000))
+        physical = 1000 - kubevirt_count(1000)
+
+        assert small[:physical] == large[:physical]
+        assert all(s.vendor != "kubevirt" for s in small[:physical])
+        assert all(s.vendor == "kubevirt" for s in small[physical:])
+
+    @pytest.mark.parametrize(("count", "vms"), [(0, 0), (24, 0), (25, 1), (1000, 40), (2500, 100)])
+    def test_the_share(self, count: int, vms: int) -> None:
+        assert kubevirt_count(count) == vms
+        assert sum(s.vendor == "kubevirt" for s in generate_servers(seed=1, count=count)) == vms
+
+    def test_a_vm_has_the_collectors_shape(self) -> None:
+        vms = [s for s in generate_servers(seed=42, count=1000) if s.vendor == "kubevirt"]
+
+        assert {provider_type_for(s) for s in vms} == {ManagerType.KUBEVIRT.value}
+        assert len({s.serial for s in vms}) == len(vms)
+        for vm in vms:
+            assert vm.reachable and vm.unreachable_reason is None
+            assert vm.manager_id == "mgr_kubevirt"
+            assert vm.psus == () and vm.gpus == () and vm.attachments == ()
+            assert vm.profile_template_name == vm.profile_template_external_id == ""
+            assert vm.bmc_mac is None and vm.raid_check is None
+            assert vm.cpu_sockets == 1 and vm.cpu_cores == vm.cpu_threads
+            assert vm.nic_macs and all(m.startswith("02:") and len(m) == 17 for m in vm.nic_macs)
+            assert [n.mac for n in vm.nics] == list(vm.nic_macs)
+            assert {n.link_state for n in vm.nics} <= {"UP", "UNKNOWN"}
+            if {n.link_state for n in vm.nics} == {"UNKNOWN"}:
+                assert vm.cpu_model == ""  # a stopped VM reports no CPU model
+            assert vm.storage_controllers is not None
+            assert vm.storage_controllers[0]["drive_count"] == len(vm.storage_drives or ())
+
+    def test_some_vms_are_stopped_and_some_run(self) -> None:
+        vms = [s for s in generate_servers(seed=42, count=2500) if s.vendor == "kubevirt"]
+        states = {frozenset(n.link_state for n in vm.nics) for vm in vms}
+
+        assert frozenset({"UP"}) in states
+        assert frozenset({"UNKNOWN"}) in states
+
+    def test_vms_are_never_epoch_flapped(self) -> None:
+        base = [s for s in generate_servers(seed=42, count=1000) if s.vendor == "kubevirt"]
+        later = [
+            s for s in generate_servers(seed=42, count=1000, epoch=3) if s.vendor == "kubevirt"
+        ]
+        assert base == later

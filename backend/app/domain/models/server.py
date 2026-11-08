@@ -39,6 +39,23 @@ class Identity(BaseModel):
     external_ids: dict[str, str] = Field(default_factory=dict)  # manager_id -> external id
 
 
+class VmHost(BaseModel):
+    """
+    Where a virtual machine runs: the OpenShift cluster and node hosting it (ADR-0059).
+
+    Stored as names only; the node's own server record is looked up when read, never copied here.
+
+    Attributes:
+        cluster_name (str | None): The cluster the VM's facade serves, as
+            configured; `None` if unset.
+        node_name (str | None): The node, cleaned like a `nodes-status`
+            hostname; `None` when the VM is stopped.
+    """
+
+    cluster_name: str | None = None
+    node_name: str | None = None
+
+
 class ProfileTemplate(BaseModel):
     """
     The reusable template this server's profile was provisioned from.
@@ -72,6 +89,7 @@ class Server(BaseModel):
     maintenance: Maintenance = Field(default_factory=Maintenance)
     reservation: Reservation = Field(default_factory=Reservation)
     openshift: OpenShiftLifecycle = Field(default_factory=OpenShiftLifecycle)
+    vm_host: VmHost | None = None  # set for a VM only (ADR-0059)
 
     # A plain `str`, not an enum, so a document outlives a site rename (ADR-0018).
     site_id: str | None = None

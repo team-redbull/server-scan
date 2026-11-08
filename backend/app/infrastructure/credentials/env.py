@@ -21,7 +21,8 @@ gets each domain's address from Central itself
 express that with an empty-string or `None` endpoint field, which would
 make `resolve()` fail with "set INVENTORY_UCS_MANAGER_IP" — naming a
 variable that does not exist. Splitting the maps makes the absence a
-fact of the type instead of a runtime surprise.
+fact of the type instead of a runtime surprise. An endpoint is an IP or host
+for the appliance managers and a full URL for `KUBEVIRT` (`INVENTORY_KUBEVIRT_URL`).
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ _LOGIN_FIELDS: dict[ManagerType, tuple[str, str]] = {
     ManagerType.OPENMANAGE: ("ome_username", "ome_password"),
     ManagerType.INTERSIGHT: ("intersight_api_key_id", "intersight_api_key_pem"),
     ManagerType.REDFISH_STANDALONE: ("redfish_username", "redfish_password"),
+    ManagerType.KUBEVIRT: ("kubevirt_username", "kubevirt_password"),
 }
 
 # `UCS_MANAGER` and `REDFISH_STANDALONE` are absent on purpose (ADR-0012).
@@ -51,6 +53,7 @@ _ENDPOINT_FIELD: dict[ManagerType, str] = {
     ManagerType.ONEVIEW: "oneview_ip",
     ManagerType.OPENMANAGE: "ome_ip",
     ManagerType.INTERSIGHT: "intersight_ip",
+    ManagerType.KUBEVIRT: "kubevirt_url",
 }
 
 

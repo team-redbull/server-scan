@@ -36,8 +36,9 @@ CronJob — `UCS_CENTRAL` discovers every domain's address at runtime and logs
 into each with `INVENTORY_UCS_MANAGER_USERNAME`/`_PASSWORD`. Its absence
 from `PROVIDER_FACTORIES` is deliberate.
 
-Five collectors: `UCS_CENTRAL`, `INTERSIGHT`, `OPENMANAGE`, `ONEVIEW`,
-`REDFISH_STANDALONE`. All five have had a live field pass and every one
+Six collectors: `UCS_CENTRAL`, `INTERSIGHT`, `OPENMANAGE`, `ONEVIEW`,
+`REDFISH_STANDALONE`, `KUBEVIRT` (VMs, ADR-0058). All six have had a live
+field pass (KubeVirt's 2026-11-08); each of the five physical ones
 found at least one defect the contract alone could not (ADR-0009/0014,
 0017, 0020, 0022, 0016 — their dated updates).
 
@@ -54,8 +55,8 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   per-host failure (dead, rejected login, TLS, budget, protocol); a
   standalone stub has `serial=None` and is matched at ingest by
   `(source_provider, BMC host)`. `ONEVIEW` gets it from an unauthenticated
-  `GET /redfish/v1` probe (`bmc_probe.py`). It drives the `bmc` health
-  category. A server a manager still lists keeps `listed_at` fresh even
+  `GET /redfish/v1` probe (`bmc_probe.py`). `KUBEVIRT` never writes it (the
+  "BMC" is the shared facade). It drives the `bmc` health category. A server a manager still lists keeps `listed_at` fresh even
   while unreachable; pruning reads `listed_at`, never `last_seen_at`.
 - **No `site_id`** — parsed from the name at ingest. **`nic_macs` is the
   minimum; `nics` the richer view.** `interface_kind` is `PHYSICAL` or
@@ -68,7 +69,8 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   sixth abstract method, for `GET /servers/available`'s live recheck.
   Fetch that one server directly — a scoped `$filter` (Intersight), a
   direct-by-URI/DN read (OneView; UCS Manager's `query_dn(hierarchy=True)`),
-  a single-host recollect (Redfish; OpenManage via a one-off target), or
+  a single-host recollect (Redfish; OpenManage via a one-off target), one
+  System read by its `external_id` path (KubeVirt), or
   a small directory query plus per-domain delegation (UCS Central).
   **Never `_list_servers()` re-run and filtered.** `FakeProvider` has a
   test-only `get_one_overrides`. Intersight's owner-relation `$filter`s
@@ -84,6 +86,7 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   failed; a PSU `health` is `UP`/`DOWN`/`DISABLED`/`UNKNOWN`, **never a
   `HealthSeverity`** — this exact confusion has shipped three times, last
   in OneView (fixed 2026-09-07). Redfish `Warning` -> `UNKNOWN` on purpose.
+  `KUBEVIRT` sends `()` (a VM has none, "read, none").
 - **GPU VRAM**: only Redfish (and so Dell) reads it; OneView/Intersight/UCS
   hardcode `None` and `GpuCatalog` fills it in at ingest (ADR-0021). A
   value a provider read is never overridden.
@@ -189,6 +192,12 @@ the global and filter on the override, silently.
   `cpu_cores = processorCount * processorCoreCount`; `count=-1` means 64
   with a 256 ceiling; `InsufficientFirmware`/`CollectedStale` are `None`,
   not zero.
+- **`KUBEVIRT`** (ADR-0058, `docs/kubevirt-collectors.md`): HTTP Basic, no sessions, so not
+  `RedfishClient`. The facade blocks an IP after 10 failed logins in 5 minutes: a 401 is never
+  retried, and `health_check` reads only the open service root. **No `reachable=False` stub**
+  (the BMC is the shared facade). A stopped VM's links are `UNKNOWN`, never `DOWN`. Serial is
+  the VM's firmware serial, else the System `Id`; KubeVirt writes a random `firmware.serial`
+  into every VM, so recreating one from a manifest without its firmware block mints a new document.
 
 ## The research bar for any vendor work
 

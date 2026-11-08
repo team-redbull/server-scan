@@ -214,7 +214,8 @@ as its per-domain engine), `INTERSIGHT`, `OPENMANAGE`, `ONEVIEW`,
 `REDFISH_STANDALONE` — **and each has had a live field pass against real
 hardware, each finding at least one defect the API contract alone could not.**
 Results are in ADR-0009/0014 (UCS), 0017 (Intersight), 0020 (Dell), 0022 (HPE),
-0016 (Redfish); `.claude/rules/collectors.md` holds the traps.
+0016 (Redfish); `.claude/rules/collectors.md` holds the traps. A sixth, `KUBEVIRT`,
+reads OpenShift Virtualization VMs through kubevirt-redfish (ADR-0058, live pass 2026-11-08).
 
 Narrow items still open, none blocking: Intersight's DOWN/CRITICAL vocabulary
 (nothing on the tenant has failed yet) and `FlexUtil`/`FlexFlash` boot storage
@@ -283,6 +284,8 @@ long form of each entry is in the 2026-09-13 archive.
   `REDFISH_STANDALONE`'s per-host TOML files (CronJob-only, so BMC passwords
   stay out of the Route-exposed pod). No reservation/lock: concurrent callers
   can draw the same server (accepted in the ADR).
+- **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
+  (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
 - **Every call on the login path has a timeout, and a 503 says why** (ADR-0042). ldap3's sync
   `recv()` blocks forever without `receive_timeout`; never put a bare float there (`struct.error`),
   never go back to `get_info=ALL` (a schema download per login), never serve stale group membership on
@@ -355,7 +358,7 @@ long form of each entry is in the 2026-09-13 archive.
   back to the profile's org DN. Known collision: a code that is a substring of
   `infra` makes every `-infra-` server ambiguous.
 - **"Run job" creates a real Job from a CronJob's `jobTemplate` through the Kubernetes API** (ADR-0055, plain `httpx` + ServiceAccount
-  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 6 collectors
+  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 7 collectors
   and 2 prunes, never `nodes-status`), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
   triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
   `jobTrigger.enabled` (on by default, absent = on) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
@@ -363,7 +366,7 @@ long form of each entry is in the 2026-09-13 archive.
   is the source of truth). `INVENTORY_SITE_BMC_PREFIXES`, `SiteCatalog.parse_bmc`: whole octets, longest wins, IPv4 only; any
   caller building a catalog for ingest passes both specs. `Server.site_from_bmc`/`site_from_name` keep both answers, and a
   disagreement is the CRITICAL `name.site_conflict` reason in the new `name` health category (which also holds the capacity-vs-name check).
-- **`Vendor` is dell/cisco/hp/standalone, no `UNKNOWN`.** `STANDALONE` is a
+- **`Vendor` is dell/cisco/hp/standalone/kubevirt, no `UNKNOWN`.** `KUBEVIRT` is a VM (ADR-0058). `STANDALONE` is a
   manufacturer not modelled *or* not reported by the BMC — never "collected
   without a manager". Correlation is `(vendor, serial_normalized)`, so moving a
   machine between vendors splits it into two documents; the collector is
@@ -408,7 +411,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051.
+  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058; a VM's host (`Server.vm_host`, `GET /servers/{id}/vm-host`) and CPU modes stored as no model 0059.
 
 ## Verifying your work
 
@@ -477,13 +480,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-04 — an admin "Run job" page (ADR-0055), a BMC-IP site fallback (ADR-0056), nodes-status every 5 minutes, and a severity-edge fix.**
-Moved to `docs/notes/session-log.md`: the "Claude" page, personal tokens and MCP server unit (ADR-0052-0054).
+**2026-11-08 — a KubeVirt VM records the node it runs on, resolved to its bare-metal server when read (ADR-0059).**
+Moved to `docs/notes/session-log.md`: the `KUBEVIRT` collector unit (ADR-0058).
 
-**Shipped:** `/api/v1/jobs` (admin-only, real Jobs from a CronJob's `jobTemplate` via httpx, 409 while one is unfinished, logs in a card, `enabled`
-per job from the chart's `jobs-catalog` ConfigMap); `INVENTORY_SITE_BMC_PREFIXES` as the last site fallback; `nodes.schedule`/`agents.schedule`
-`*/5`; the last inventory row keeps its severity edge (`last:border-b-0`).
+**Shipped:** the fork's `Oem.KubeVirt.NodeName` (change 11, `139404d` on fork `main`); `Server.vm_host` (`cluster_name`, `node_name`, names
+only), `INVENTORY_KUBEVIRT_CLUSTER_NAME` / Helm `collectors.kubevirt.clusterName`; uncached `GET /servers/{id}/vm-host` (membership, then name);
+the Overview "Host" row with the host's CPU; `host-model`/`host-passthrough` stored as no CPU model; fake VMs on same-site hosts. Live on
+cluster-2qsc5 (`docs/kubevirt-collectors.md`, second pass): the platform's Argo `kubevirt-redfish` app now runs the fork image (redbull-platform).
 
-**Open:** the Kubernetes path was only tested against a mocked API: on a real cluster with `jobTrigger.enabled` check the CA path, `limitBytes` and
-RBAC. Two admins within the same second can both pass the 409 check. `membershipSilentForSeconds` (1800) was left at six missed cycles.
-The Jobs page and the BMC fallback were never exercised against real hardware; fake servers all carry a site in their name.
+**Open:** `MEMBERSHIP` resolution was never seen live (cluster-2qsc5's nodes are AWS instances, not inventoried). Test release `ssk` in
+`server-scan-kubevirt` and VMs in `server-scan-vms` on cluster-2qsc5 (`helm uninstall ssk -n server-scan-kubevirt`, `oc delete ns` both).
+`frontend/Containerfile` fails under buildah (`npm ci` EACCES on a root-owned `/app`); CI's BuildKit is unaffected. Branch not merged to `main`.

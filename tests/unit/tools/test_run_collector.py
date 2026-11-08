@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from tests.kubevirt_fixture import KubeVirtFixture, Vm, kubevirt_tree
 from tools import run_collector
 from tools.run_collector import (
     _build_provider,
@@ -41,6 +42,9 @@ from app.domain.ports.provider import (
     ServerInventoryProvider,
 )
 from app.infrastructure.bmc_probe import BmcProbedProvider
+from app.infrastructure.credentials import EnvConnectionResolver
+from app.infrastructure.providers.kubevirt.client import KubeVirtClient
+from app.infrastructure.providers.kubevirt.provider import KubeVirtProvider
 from app.infrastructure.providers.oneview.provider import OneViewProvider
 from app.infrastructure.providers.openmanage.provider import OpenManageProvider
 from app.infrastructure.providers.ucs_central.provider import UcsCentralProvider
@@ -1551,3 +1555,120 @@ class TestParseArgs:
         assert args.dry_run is False
         assert args.debug_xml is False
         assert args.limit is None
+
+
+class TestKubeVirt:
+    """The `KUBEVIRT` collector end to end through the CLI (ADR-0058)."""
+
+    @pytest.fixture(autouse=True)
+    def _no_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def instant(_self: object, attempt: int, retry_after: str | None) -> None:
+            return None
+
+        monkeypatch.setattr(KubeVirtClient, "_backoff", instant)
+
+    @staticmethod
+    def _settings_for(url: str, **overrides: Any) -> Settings:
+        values: dict[str, Any] = {
+            "kubevirt_url": url,
+            "kubevirt_username": "scan",
+            "kubevirt_password": "secret",
+            "collector_name_pattern": "^ocp",
+        }
+        values.update(overrides)
+        return _settings(**values)
+
+    def test_the_factory_threads_every_setting_through(self) -> None:
+        settings = self._settings_for(
+            "https://kv.apps.example/redfish/v1",
+            kubevirt_verify_tls=False,
+            kubevirt_ca_bundle="/etc/ca.pem",
+            kubevirt_read_timeout_seconds=12.0,
+            kubevirt_vm_budget_seconds=7.0,
+            kubevirt_run_budget_seconds=99.0,
+            kubevirt_concurrency=2,
+        )
+        provider = _build_provider(
+            _manager(type=ManagerType.KUBEVIRT, endpoint="https://kv.apps.example"),
+            credential_resolver=EnvConnectionResolver(settings),
+            timeout_seconds=5.0,
+            settings=settings,
+        )
+
+        assert isinstance(provider, KubeVirtProvider)
+        assert provider.provider_type == "KUBEVIRT"
+        assert provider._origin == "https://kv.apps.example"
+        assert provider._verify_tls is False
+        assert provider._ca_bundle == "/etc/ca.pem"
+        assert provider._connect_timeout == 5.0
+        assert provider._read_timeout == 12.0
+        assert (provider._vm_budget, provider._run_budget, provider._concurrency) == (7.0, 99.0, 2)
+
+    def test_the_global_name_pattern_applies_to_vms(self) -> None:
+        assert (
+            resolve_name_pattern(ManagerType.KUBEVIRT, _settings(collector_name_pattern="^ocp"))
+            == "^ocp"
+        )
+        settings = _settings(collector_name_pattern="^ocp", kubevirt_name_pattern="")
+        assert resolve_name_pattern(ManagerType.KUBEVIRT, settings) == ""
+
+    @pytest.mark.parametrize(
+        ("overrides", "missing"),
+        [
+            ({}, "INVENTORY_KUBEVIRT_URL"),
+            ({"kubevirt_url": "https://kv"}, "INVENTORY_KUBEVIRT_PASSWORD"),
+            (
+                {"kubevirt_url": "https://kv", "kubevirt_password": "p"},
+                "INVENTORY_KUBEVIRT_USERNAME",
+            ),
+        ],
+    )
+    async def test_unconfigured_exits_two_naming_the_variable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: Any,
+        overrides: dict[str, str],
+        missing: str,
+    ) -> None:
+        monkeypatch.setattr(run_collector, "get_settings", lambda: _settings(**overrides))
+
+        assert await _run(manager_type=ManagerType.KUBEVIRT) == 2
+        captured = capsys.readouterr()
+        assert missing in captured.out + captured.err
+
+    async def test_a_dry_run_prints_every_vm_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
+        vms = (Vm(name="ocp-tlv-kv-01"), Vm(name="ocp-tlv-kv-03", power="Off"), Vm(name="lab-vm"))
+        with KubeVirtFixture(resources=kubevirt_tree(*vms)) as facade:
+            monkeypatch.setattr(
+                run_collector, "get_settings", lambda: self._settings_for(facade.url)
+            )
+            code = await _run(manager_type=ManagerType.KUBEVIRT, dry_run=True)
+
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "ocp-tlv-kv-01" in out
+        assert "ocp-tlv-kv-03" in out
+        assert "lab-vm" not in out  # the global ^ocp pattern filters VMs too
+
+    async def test_a_wrong_password_exits_one_after_a_single_401(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with KubeVirtFixture(resources=kubevirt_tree(Vm(name="ocp-tlv-kv-01"))) as facade:
+            monkeypatch.setattr(
+                run_collector,
+                "get_settings",
+                lambda: self._settings_for(facade.url, kubevirt_password="wrong"),
+            )
+            code = await _run(manager_type=ManagerType.KUBEVIRT, dry_run=True)
+
+        assert code == 1
+        assert facade.unauthorized_count() == 1
+
+    async def test_an_unreachable_facade_exits_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        with KubeVirtFixture() as facade:
+            url = facade.url
+        monkeypatch.setattr(run_collector, "get_settings", lambda: self._settings_for(url))
+
+        assert await _run(manager_type=ManagerType.KUBEVIRT, dry_run=True) == 1

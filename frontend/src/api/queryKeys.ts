@@ -14,6 +14,7 @@ export const queryKeys = {
     rows: () => [...queryKeys.servers.all, "rows"] as const,
     details: () => [...queryKeys.servers.all, "detail"] as const,
     detail: (id: string) => [...queryKeys.servers.details(), id] as const,
+    vmHost: (id: string) => [...queryKeys.servers.detail(id), "vm-host"] as const,
   },
   classificationRules: {
     all: ["classificationRules"] as const,

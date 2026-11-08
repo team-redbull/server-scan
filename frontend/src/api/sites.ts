@@ -66,13 +66,14 @@ export function siteOptions(
   }));
 }
 
-export const VENDORS: readonly Vendor[] = ["dell", "cisco", "hp", "standalone"];
+export const VENDORS: readonly Vendor[] = ["dell", "cisco", "hp", "standalone", "kubevirt"];
 
 const VENDOR_LABELS: Record<string, string> = {
   dell: "Dell",
   cisco: "Cisco",
   hp: "HPE",
   standalone: "Standalone",
+  kubevirt: "KubeVirt",
 };
 
 /** An unlabelled vendor renders under its own name, never dropped. */
@@ -89,4 +90,5 @@ export const SOURCE_PROVIDERS: readonly { value: string; label: string }[] = [
   { value: "OPENMANAGE", label: "OpenManage (Dell)" },
   { value: "ONEVIEW", label: "OneView (HPE)" },
   { value: "REDFISH_STANDALONE", label: "Standalone (Redfish)" },
+  { value: "KUBEVIRT", label: "KubeVirt (VMs)" },
 ];
