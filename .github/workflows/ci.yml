@@ -176,6 +176,8 @@ jobs:
             --set collectors.intersight.enabled=true \
             --set collectors.openmanage.enabled=true \
             --set collectors.oneview.enabled=true \
+            --set collectors.kubevirt.enabled=true \
+            --set collectors.kubevirt.caBundleConfigMap=kv-ca \
             --set collectors.fake.enabled=true > /dev/null
           helm template ci-lint deploy/helm/nodes-status \
             --set nodes.clusterName=ci-cluster > /dev/null

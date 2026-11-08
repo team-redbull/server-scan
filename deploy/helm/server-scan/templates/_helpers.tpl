@@ -65,5 +65,6 @@ A key a values file lacks is skipped, which leaves the shared 15 s default for t
 {{- with $c.intersight }}{{- if hasKey . "connectTimeoutSeconds" }}{{- $parts = append $parts (printf "INTERSIGHT:%v" .connectTimeoutSeconds) }}{{- end }}{{- end -}}
 {{- with $c.oneview }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "ONEVIEW:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
 {{- with $c.ome }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "OPENMANAGE:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
+{{- with $c.kubevirt }}{{- if hasKey . "connectTimeoutSeconds" }}{{- $parts = append $parts (printf "KUBEVIRT:%v" .connectTimeoutSeconds) }}{{- end }}{{- end -}}
 {{- join "," $parts -}}
 {{- end -}}

@@ -206,8 +206,8 @@ not carry it.
 ServiceAccount, mounts its token into the API pod (`automountServiceAccountToken` is otherwise `false`) and
 binds a Role **in the release namespace only**: `cronjobs` get/list, `jobs` get/list/create, `pods`
 get/list, `pods/log` get. It sets `INVENTORY_JOBS_BACKEND=kubernetes` and `INVENTORY_JOBS_NAMESPACE` (downward
-API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the six collectors and the two
-prune jobs of this chart, never the `nodes-status` jobs. `server-scan.io/trigger-warning` on a CronJob is the
+API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the seven collectors (`fake` and
+`kubevirt` included) and the two prune jobs of this chart, never the `nodes-status` jobs. `server-scan.io/trigger-warning` on a CronJob is the
 text of the UI's confirm dialog (set on `openmanage` and both prunes). The API pod can then create Jobs in its
 namespace; read the trade-off in ADR-0055 before enabling it.
 
@@ -638,8 +638,8 @@ BMC password within reach of the pod the Route exposes.
 **`GET /api/v1/servers/available`'s live recheck waits as long as each collector's own CronJob does**
 (ADR-0032, 2026-10-11 update). `backend-deployment.yaml` renders `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS` from
 `collectors.ucsCentral.timeoutSeconds`, `collectors.intersight.connectTimeoutSeconds` (plus
-`readTimeoutSeconds`), and the optional `collectors.oneview.timeoutSeconds` / `collectors.ome.timeoutSeconds`
-(also applied to those CronJobs). A key a values file lacks is skipped and that manager keeps the 15 s default.
+`readTimeoutSeconds`), and the optional `collectors.oneview.timeoutSeconds` / `collectors.ome.timeoutSeconds` /
+`collectors.kubevirt.connectTimeoutSeconds` (also applied to those CronJobs). A key a values file lacks is skipped and that manager keeps the 15 s default.
 `activeDeadlineSeconds` is a whole-job limit and is not used. A vendor failure is a 503 naming the manager.
 A caller going through the Route would otherwise give up first (Route 30 s, frontend nginx 60 s), so
 `route.timeoutSeconds` (default 300, keep it above the slowest collector timeout) sets the Route's
@@ -666,7 +666,7 @@ INVENTORY_UCS_MANAGER_PASSWORD
 ```
 
 Other vendors follow the `INVENTORY_<TYPE>_IP`/`_USERNAME`/`_PASSWORD`
-shape; `templates/collector-credentials-secret.yaml` is the full list.
+shape (KubeVirt takes a URL, `INVENTORY_KUBEVIRT_URL`); `templates/collector-credentials-secret.yaml` is the full list.
 
 `envFrom` a Secret rather than inline `env` values is deliberate:
 `kubectl get cronjob -o yaml` and `kubectl describe pod` both print plain
@@ -675,7 +675,7 @@ shape; `templates/collector-credentials-secret.yaml` is the full list.
 
 `UCS_CENTRAL` covers the whole Cisco fleet — every domain registered with
 Central, read through that domain's own UCS Manager. `OPENMANAGE`,
-`INTERSIGHT`, `ONEVIEW` and `REDFISH_STANDALONE` each have a CronJob of
+`INTERSIGHT`, `ONEVIEW`, `REDFISH_STANDALONE` and `KUBEVIRT` each have a CronJob of
 their own, all shipped disabled.
 
 A collector pod's exit code is the only signal a CronJob carries: `0`
@@ -687,7 +687,8 @@ written but not the whole fleet. On `OPENMANAGE` and `REDFISH_STANDALONE`
 every failed host is logged at ERROR and written as a stub server with an
 `unreachable_reason`; only a plain unreachable host or a rejected login
 exits `0` (ADR-0016's 2026-09-10 updates), a TLS, budget or protocol failure
-still exits `3`.
+still exits `3`. `KUBEVIRT` never writes a stub: a failed or rejected listing exits `1`, one VM that fails
+exits `3`, a VM deleted since the listing (404) is skipped.
 Each run also
 writes its outcome onto the `Manager` document, which is what the
 `server_scan_collector_last_run_*` gauges above read.
@@ -724,7 +725,20 @@ string: `db.audit_events.countDocuments({created_at: {$not: /Z$/}})` should be
 0. Every key is optional in the platform repo's `values.yaml`: absent means
 enabled, report-only, 180 days.
 
-`collectors.fake` is the sixth CronJob and the one that reaches no vendor
+`collectors.kubevirt` (ADR-0058, `docs/kubevirt-collectors.md`) inventories OpenShift Virtualization VMs
+through one kubevirt-redfish facade, **off by default**. `url` (the facade's Route), `username` and `password`
+go into the collector-credentials Secret as `INVENTORY_KUBEVIRT_URL`/`_USERNAME`/`_PASSWORD`. The facade
+blocks an IP for 15 minutes after 10 failed logins in 5, so a rejected login is never retried and fails the
+run. `verifyTls` defaults to true; the Route's certificate is signed by the cluster's ingress CA, so put that
+CA in a ConfigMap under the key `ca-bundle.crt` and name it in `caBundleConfigMap`: it is mounted at
+`/etc/kubevirt-ca` in **both** the CronJob and the API pod (for `/servers/available` rechecks). `schedule`
+(`"0 */3 * * *"`), `activeDeadlineSeconds` (2400), `concurrency` (4, raise it only with the facade's own
+`kubevirt.qps`/`burst`), `readTimeoutSeconds` (35, above the Route's 30 s), `vmBudgetSeconds` (60) and `runBudgetSeconds` (1800);
+optional `connectTimeoutSeconds` (also the API's recheck timeout, `KUBEVIRT:<n>`) and `namePattern`
+(otherwise `collectors.namePattern` applies to VM names). Every key is read with a default, so the platform
+repo's `values.yaml` may omit the block.
+
+`collectors.fake` is the seventh CronJob and the one that reaches no vendor
 at all: it runs `tools/seed_inventory.py`, for a cluster with no UCS,
 OneView, OME, Intersight or BMC to talk to — a demo, a UI environment, or
 a soak test of the ingest path itself. It is not a shortcut around the
