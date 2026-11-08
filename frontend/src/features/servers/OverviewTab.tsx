@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 
 import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { ReservationBadge } from "@/components/ReservationBadge";
+import { useVmHostQuery } from "@/features/servers/hooks";
 import { actorIdLabel } from "@/lib/actor";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
 import { inferredGpuModel } from "@/lib/gpuModel";
@@ -12,6 +14,7 @@ import type {
   RaidDetection,
   ServerDetail,
   UnreachableReason,
+  VmHost,
 } from "@/types/server";
 
 interface OverviewTabProps {
@@ -45,6 +48,12 @@ export function OverviewTab({ server }: OverviewTabProps) {
         <Field label="Serial" value={server.identity?.serial ?? "—"} />
         <Field label="Manager" value={server.manager_id ?? "—"} />
         <Field label="OpenShift" value={<OpenShiftValue server={server} />} />
+        {server.vm_host && (
+          <Field
+            label="Host"
+            value={<HostValue serverId={server.id} vmHost={server.vm_host} />}
+          />
+        )}
         <Field
           label="Health breakdown"
           value={
@@ -200,6 +209,62 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
               as <span className="font-medium">{contested_name}</span>
             </>
           )}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The node a KubeVirt VM runs on and, when the inventory holds it, that
+ * server's CPU: the physical CPU behind the VM (ADR-0059). Mounted only for a
+ * VM, so a physical server never requests `/vm-host`. */
+function HostValue({ serverId, vmHost }: { serverId: string; vmHost: VmHost }) {
+  const { data, isError } = useVmHostQuery(serverId);
+  const { node_name, cluster_name } = vmHost;
+  const host = data?.host;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-medium">
+        {node_name ?? "Not running"}
+        {node_name && cluster_name && (
+          <span className="font-normal text-[var(--text-secondary)]">
+            {" "}
+            · cluster {cluster_name}
+          </span>
+        )}
+      </span>
+      {host && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to={`/servers/${encodeURIComponent(host.id)}`}
+            className="text-[var(--color-status-info)] hover:underline"
+          >
+            {host.name}
+          </Link>
+          <HealthBadge severity={host.health} />
+          {host.maintenance && <Badge tone="warning">Maintenance</Badge>}
+        </div>
+      )}
+      {host && (
+        <span className="text-xs text-[var(--text-secondary)]">
+          CPU {host.cpu.model ?? "—"}
+          {data.match === "NAME" && " · matched by name only"}
+        </span>
+      )}
+      {node_name && data?.match === "NOT_IN_INVENTORY" && (
+        <span className="text-xs text-[var(--text-secondary)]">
+          Node {node_name} is not in the inventory
+        </span>
+      )}
+      {node_name && data?.match === "AMBIGUOUS" && (
+        <span className="text-xs text-[var(--text-secondary)]">
+          Node {node_name} matches more than one server
+        </span>
+      )}
+      {isError && (
+        <span className="text-xs text-[var(--text-secondary)]">
+          Could not look up the host
         </span>
       )}
     </div>

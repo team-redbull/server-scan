@@ -140,6 +140,10 @@ class ProviderServer:
 
     tags: tuple[str, ...] = field(default_factory=tuple)
 
+    # A VM's host (ADR-0059); both None for a physical server. Node: None unread, "" not running.
+    vm_host_cluster: str | None = None
+    vm_host_node: str | None = None
+
 
 class ServerInventoryProvider(ABC):
     """

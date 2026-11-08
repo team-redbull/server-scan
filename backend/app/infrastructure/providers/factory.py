@@ -386,6 +386,7 @@ def _kubevirt_provider(
         vm_budget_seconds=settings.kubevirt_vm_budget_seconds,
         run_budget_seconds=settings.kubevirt_run_budget_seconds,
         concurrency=settings.kubevirt_concurrency,
+        cluster_name=settings.kubevirt_cluster_name,
         debug_http=debug_http_enabled(),
     )
 

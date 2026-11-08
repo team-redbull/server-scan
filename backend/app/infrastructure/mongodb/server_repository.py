@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import TypeAdapter
 from pymongo.asynchronous.collection import AsyncCollection
 
+from app.domain.enums import OpenShiftState, Vendor
 from app.domain.models.server import Server
 from app.domain.ports.repository import (
     ClusterSnapshotRow,
@@ -464,6 +465,41 @@ class MongoServerRepository:
         """
         doc = await self._collection.find_one({**filters, "name_normalized": name_normalized})
         return Server.model_validate(doc) if doc is not None else None
+
+    async def find_vm_host_candidates(
+        self, node_name: str, *, cluster_name: str | None, limit: int = 2
+    ) -> tuple[list[Server], bool]:
+        """
+        Find the bare-metal server an OpenShift node name belongs to (ADR-0059).
+
+        The membership match is the one `nodes-status` writes: `reported_name` when the cluster's
+        hostname differs from the server's name, else `name_normalized`. VMs are never candidates.
+
+        Args:
+            node_name (str): The node, cleaned like a `nodes-status` hostname.
+            cluster_name (str | None): Narrows the membership match when known.
+            limit (int): Most candidates to return; 2 is enough to see ambiguity.
+
+        Returns:
+            tuple[list[Server], bool]: The candidates, and whether they came from the
+                cluster membership (`True`) or from the server name alone (`False`).
+        """
+        not_a_vm = {"identity.vendor": {"$ne": Vendor.KUBEVIRT.value}}
+        membership: dict[str, object] = {
+            **not_a_vm,
+            "openshift.lifecycle_state": OpenShiftState.INSTALLED.value,
+            "$or": [
+                {"openshift.reported_name": node_name},
+                {"openshift.reported_name": None, "name_normalized": node_name},
+            ],
+        }
+        if cluster_name:
+            membership["openshift.cluster_name"] = cluster_name
+        docs = await self._collection.find(membership).limit(limit).to_list(length=limit)
+        if docs:
+            return [Server.model_validate(doc) for doc in docs], True
+        cursor = self._collection.find({**not_a_vm, "name_normalized": node_name}).limit(limit)
+        return [Server.model_validate(doc) for doc in await cursor.to_list(length=limit)], False
 
     async def sample_available_tier(
         self,

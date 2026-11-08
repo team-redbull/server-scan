@@ -735,7 +735,9 @@ CA in a ConfigMap under the key `ca-bundle.crt` and name it in `caBundleConfigMa
 (`"0 */3 * * *"`), `activeDeadlineSeconds` (2400), `concurrency` (4, raise it only with the facade's own
 `kubevirt.qps`/`burst`), `readTimeoutSeconds` (35, above the Route's 30 s), `vmBudgetSeconds` (60) and `runBudgetSeconds` (1800);
 optional `connectTimeoutSeconds` (also the API's recheck timeout, `KUBEVIRT:<n>`) and `namePattern`
-(otherwise `collectors.namePattern` applies to VM names). Every key is read with a default, so the platform
+(otherwise `collectors.namePattern` applies to VM names). `clusterName` (`INVENTORY_KUBEVIRT_CLUSTER_NAME`, in the
+CronJob and the API pod) is the cluster the facade serves, spelled as that cluster's `nodes-status` release names it,
+so a VM's node resolves to its bare-metal server through the membership (ADR-0059); unset, it resolves by name only. Every key is read with a default, so the platform
 repo's `values.yaml` may omit the block.
 
 `collectors.fake` is the seventh CronJob and the one that reaches no vendor

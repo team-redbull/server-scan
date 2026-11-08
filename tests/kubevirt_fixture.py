@@ -42,6 +42,7 @@ class Vm:
         nics (list[tuple[str, str | None]]): `(name, mac)` per interface.
         disks (list[tuple[str, int | None]]): `(name, capacity_bytes)` per drive.
         legacy_id (bool): Use the `legacy` convention, `Id == name`.
+        node (str | None): `Oem.KubeVirt.NodeName`, None to omit (stopped, or an older facade).
     """
 
     name: str
@@ -61,6 +62,7 @@ class Vm:
         default_factory=lambda: [("rootdisk", None), ("scratch", 1024**3)]
     )
     legacy_id: bool = False
+    node: str | None = None
 
     @property
     def system_id(self) -> str:
@@ -147,6 +149,8 @@ def _system(vm: Vm) -> dict[str, Any]:
         if vm.cpu_model:
             summary["Model"] = vm.cpu_model
         system["ProcessorSummary"] = summary
+    if vm.node:
+        system["Oem"] = {"KubeVirt": {"NodeName": vm.node}}
     return system
 
 

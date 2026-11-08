@@ -1,8 +1,10 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OverviewTab } from "@/features/servers/OverviewTab";
-import type { ServerDetail } from "@/types/server";
+import type { ServerDetail, VmHostResponse } from "@/types/server";
 
 function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
   return {
@@ -78,6 +80,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       contested_with: null,
       contested_name: null,
     },
+    vm_host: null,
     tags: [],
     created_at: "2026-08-13T10:00:00Z",
     site_id: "tlv",
@@ -627,5 +630,166 @@ describe("OverviewTab collection status", () => {
   it("shows no install lock on a server nobody is installing", () => {
     render(<OverviewTab server={makeServer()} />);
     expect(screen.queryByText(/Installing to/)).not.toBeInTheDocument();
+  });
+});
+
+describe("OverviewTab VM host", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubVmHost(body: VmHostResponse) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(body),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function renderWithClient(server: ServerDetail) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <OverviewTab server={server} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  function makeVm(nodeName: string | null): ServerDetail {
+    return makeServer({
+      id: "vm_1",
+      name: "vm-tlv-01",
+      identity: { ...makeServer().identity, vendor: "kubevirt" },
+      source_provider: "KUBEVIRT",
+      vm_host: { cluster_name: "ocp4-tlv", node_name: nodeName },
+    });
+  }
+
+  it("shows the node, a link to the host server and its CPU model", async () => {
+    const fetchMock = stubVmHost({
+      cluster_name: "ocp4-tlv",
+      node_name: "worker-3",
+      match: "MEMBERSHIP",
+      host: {
+        id: "srv_host",
+        name: "ocp4-tlv-worker-3",
+        vendor: "dell",
+        model: "PowerEdge R650",
+        site_id: "tlv",
+        cpu: { sockets: 2, cores: 64, threads: 128, model: "Xeon Gold 6348" },
+        memory_total_bytes: 549755813888,
+        health: "WARNING",
+        maintenance: false,
+        cluster_name: "ocp4-tlv",
+      },
+    });
+
+    renderWithClient(makeVm("worker-3"));
+
+    expect(screen.getByText("Host")).toBeInTheDocument();
+    expect(screen.getByText("worker-3")).toBeInTheDocument();
+    expect(screen.getByText(/cluster ocp4-tlv/)).toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: "ocp4-tlv-worker-3" });
+    expect(link).toHaveAttribute("href", "/servers/srv_host");
+    expect(screen.getByText(/Xeon Gold 6348/)).toBeInTheDocument();
+    expect(screen.queryByText(/matched by name only/)).not.toBeInTheDocument();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/api/v1/servers/vm_1/vm-host",
+    );
+  });
+
+  it("says a host matched by name only is less certain", async () => {
+    stubVmHost({
+      cluster_name: "ocp4-tlv",
+      node_name: "worker-3",
+      match: "NAME",
+      host: {
+        id: "srv_host",
+        name: "worker-3",
+        vendor: "hp",
+        model: null,
+        site_id: null,
+        cpu: { sockets: 2, cores: 48, threads: 96, model: "EPYC 7443" },
+        memory_total_bytes: null,
+        health: "HEALTHY",
+        maintenance: false,
+        cluster_name: null,
+      },
+    });
+
+    renderWithClient(makeVm("worker-3"));
+
+    expect(await screen.findByText(/matched by name only/)).toBeInTheDocument();
+  });
+
+  it("says a stopped VM is not running", async () => {
+    const fetchMock = stubVmHost({
+      cluster_name: "ocp4-tlv",
+      node_name: null,
+      match: "NOT_RUNNING",
+      host: null,
+    });
+
+    renderWithClient(makeVm(null));
+
+    expect(screen.getByText("Not running")).toBeInTheDocument();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("names a node the inventory does not hold", async () => {
+    stubVmHost({
+      cluster_name: "ocp4-tlv",
+      node_name: "worker-9",
+      match: "NOT_IN_INVENTORY",
+      host: null,
+    });
+
+    renderWithClient(makeVm("worker-9"));
+
+    expect(
+      await screen.findByText("Node worker-9 is not in the inventory"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the Overview when the lookup fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        json: () => Promise.resolve({ detail: "boom" }),
+        text: () => Promise.resolve("boom"),
+      }),
+    );
+
+    renderWithClient(makeVm("worker-3"));
+
+    expect(
+      await screen.findByText("Could not look up the host"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("worker-3")).toBeInTheDocument();
+    expect(screen.getByText("Memory")).toBeInTheDocument();
+  });
+
+  it("never asks for a host, and shows no Host row, for a physical server", () => {
+    const fetchMock = stubVmHost({
+      cluster_name: null,
+      node_name: null,
+      match: "NOT_RUNNING",
+      host: null,
+    });
+
+    renderWithClient(makeServer());
+
+    expect(screen.queryByText("Host")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

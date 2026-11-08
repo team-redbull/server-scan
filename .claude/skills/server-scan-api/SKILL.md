@@ -43,6 +43,7 @@ token, everything works except events, which answer `403`.
 | Free-text find by part of a name, serial or model | `GET /api/v1/servers?search=<text>` |
 | Counts or group-bys across the whole fleet (per site, per health) | `GET /api/v1/sites` first; for anything else `GET /api/v1/servers/rows`, then `jq` |
 | One server in full detail (hardware, NICs, BMC, health reasons) | `GET /api/v1/servers/{id}` (id comes from a list result) |
+| The physical server (and CPU) a KubeVirt VM runs on | `GET /api/v1/servers/{id}/vm-host` |
 | What happened to a server or the fleet | `GET /api/v1/events`, `GET /api/v1/servers/{id}/events` |
 | Servers to provision a BareMetalHost on | `GET /api/v1/servers/available` - see the warning below |
 | Why a health verdict exists | `GET /api/v1/health-policies`, `GET /api/v1/classification-rules` |

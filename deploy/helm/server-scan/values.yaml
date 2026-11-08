@@ -875,6 +875,9 @@ collectors:
     # namePattern: "^ocp"      # the global collectors.namePattern applies to VM names too
     # The facade's Route, e.g. https://kubevirt-redfish.apps.<cluster-domain>.
     url: ""
+    # The cluster the facade serves, exactly as that cluster's nodes-status release names it, so
+    # a VM's node resolves to its bare-metal server through the membership (ADR-0059).
+    clusterName: ""
     username: ""
     password: ""
     # The ingress certificate is cluster-signed: put its CA in a ConfigMap

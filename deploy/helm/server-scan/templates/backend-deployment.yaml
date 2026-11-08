@@ -90,6 +90,10 @@ spec:
             - name: INVENTORY_KUBEVIRT_CA_BUNDLE
               value: /etc/kubevirt-ca/ca-bundle.crt
             {{- end }}
+            {{- with .clusterName }}
+            - name: INVENTORY_KUBEVIRT_CLUSTER_NAME
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
           envFrom:
             - configMapRef:

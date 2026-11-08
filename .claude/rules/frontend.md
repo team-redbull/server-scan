@@ -115,6 +115,9 @@ Loaded only when a `frontend/` file is open.
   `cpu` was removed then. The Overview breakdown shows Connectivity only for the fabric collectors
   (UCS_CENTRAL/UCS_MANAGER/INTERSIGHT) and RAID only for OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER; a KUBEVIRT VM shows no BMC or Power row (ADR-0058); RAID carries the BMC label,
   method and (when Unknown) the reason beside the badge from `hardware.storage.raid`.
+- **A KubeVirt VM's Overview "Host" row fetches `GET /servers/{id}/vm-host` from `HostValue`**, a child mounted only
+  when `vm_host` is non-null (ADR-0059): `OverviewTab` itself holds no query, so a physical server never calls it and
+  the tab's tests render without a `QueryClientProvider`. Keep a new fetch there the same way.
 - **Playwright: if you add a page with sibling `<select>` fields, do not
   use `getByLabel`.** A real Chromium quirk makes a `<label>`'s computed
   name include every nested `<option>`'s text, so "Source" resolves to

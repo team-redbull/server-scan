@@ -35,7 +35,7 @@ _SECRET = "test-cursor-secret"
 _NS = "kv-ingest"
 
 
-def _vms(*, kv01_power: str = "On") -> tuple[Vm, ...]:
+def _vms(*, kv01_power: str = "On", kv01_node: str | None = "worker-1") -> tuple[Vm, ...]:
     return (
         Vm(
             name="ocp4-tlv-kv-01",
@@ -44,12 +44,14 @@ def _vms(*, kv01_power: str = "On") -> tuple[Vm, ...]:
             serial="KV01-SERIAL-0001",
             cpu_model="Icelake-Server-v2" if kv01_power == "On" else None,
             nics=[("default", "02:5c:00:00:01:01")],
+            node=kv01_node if kv01_power == "On" else None,
         ),
         Vm(
             name="ocp4-tlv-kv-02",
             namespace=_NS,
             serial=None,
             nics=[("default", "02:5c:00:00:01:02")],
+            node="worker-2",
         ),
         Vm(
             name="ocp4-tlv-kv-03",
@@ -67,7 +69,7 @@ def facade() -> Iterator[KubeVirtFixture]:
         yield fixture
 
 
-def _provider(url: str) -> KubeVirtProvider:
+def _provider(url: str, *, cluster_name: str = "") -> KubeVirtProvider:
     return KubeVirtProvider(
         manager=Manager(
             _id="mgr_kubevirt",
@@ -87,6 +89,7 @@ def _provider(url: str) -> KubeVirtProvider:
         vm_budget_seconds=10.0,
         run_budget_seconds=30.0,
         concurrency=4,
+        cluster_name=cluster_name,
     )
 
 
@@ -240,3 +243,86 @@ async def test_a_recheck_writes_the_same_document(
 
     assert updated.id == stored.id
     assert updated.revision == stored.revision
+
+
+class TestVmHost:
+    """Where a VM runs is stored as names only and carried like any read field (ADR-0059)."""
+
+    async def test_the_cluster_and_node_are_stored_and_a_stopped_vm_has_no_node(
+        self, clean: MongoClientHolder, facade: KubeVirtFixture
+    ) -> None:
+        await _service(clean).ingest(_provider(facade.url, cluster_name="ocp4-tlv"))
+        servers = await _servers(clean)
+
+        kv01 = servers["ocp4-tlv-kv-01"].vm_host
+        assert kv01 is not None
+        assert (kv01.cluster_name, kv01.node_name) == ("ocp4-tlv", "worker-1")
+        kv03 = servers["ocp4-tlv-kv-03"].vm_host
+        assert kv03 is not None
+        assert (kv03.cluster_name, kv03.node_name) == ("ocp4-tlv", None)
+        assert "vm_host.node_name" not in servers["ocp4-tlv-kv-03"].unread_fields
+
+    async def test_an_unset_cluster_is_stored_as_none(
+        self, clean: MongoClientHolder, facade: KubeVirtFixture
+    ) -> None:
+        await _service(clean).ingest(_provider(facade.url))
+        kv01 = (await _servers(clean))["ocp4-tlv-kv-01"].vm_host
+
+        assert kv01 is not None
+        assert (kv01.cluster_name, kv01.node_name) == (None, "worker-1")
+
+    async def test_a_migration_is_a_content_change(
+        self, clean: MongoClientHolder, facade: KubeVirtFixture
+    ) -> None:
+        service = _service(clean)
+        await service.ingest(_provider(facade.url))
+
+        facade.resources = kubevirt_tree(*_vms(kv01_node="worker-9"))
+        summary = await service.ingest(_provider(facade.url))
+        kv01 = (await _servers(clean))["ocp4-tlv-kv-01"]
+
+        assert (summary.updated, summary.unchanged) == (1, 2)
+        assert kv01.vm_host is not None
+        assert kv01.vm_host.node_name == "worker-9"
+
+    async def test_a_running_vm_that_names_no_node_keeps_the_stored_one(
+        self, clean: MongoClientHolder, facade: KubeVirtFixture
+    ) -> None:
+        service = _service(clean)
+        await service.ingest(_provider(facade.url))
+
+        facade.resources = kubevirt_tree(*_vms(kv01_node=None))
+        await service.ingest(_provider(facade.url))
+        kv01 = (await _servers(clean))["ocp4-tlv-kv-01"]
+
+        assert kv01.vm_host is not None
+        assert kv01.vm_host.node_name == "worker-1"
+        assert "vm_host.node_name" in kv01.unread_fields
+
+    async def test_stopping_a_vm_clears_its_node(
+        self, clean: MongoClientHolder, facade: KubeVirtFixture
+    ) -> None:
+        service = _service(clean)
+        await service.ingest(_provider(facade.url))
+
+        facade.resources = kubevirt_tree(*_vms(kv01_power="Off"))
+        await service.ingest(_provider(facade.url))
+        kv01 = (await _servers(clean))["ocp4-tlv-kv-01"]
+
+        assert kv01.vm_host is not None
+        assert kv01.vm_host.node_name is None
+
+    async def test_a_vm_stored_before_vm_host_existed_is_updated_once(
+        self, clean: MongoClientHolder, facade: KubeVirtFixture
+    ) -> None:
+        service = _service(clean)
+        await service.ingest(_provider(facade.url))
+        await clean.db["servers"].update_many(
+            {"source_provider": "KUBEVIRT"}, {"$unset": {"vm_host": ""}}
+        )
+
+        first = await service.ingest(_provider(facade.url))
+        second = await service.ingest(_provider(facade.url))
+
+        assert (first.updated, first.unchanged) == (3, 0)
+        assert (second.updated, second.unchanged) == (0, 3)

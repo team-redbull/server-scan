@@ -84,7 +84,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   each drawn from its own `random.Random(f"kubevirt/{seed}/{index}")`, so servers `0 .. count - k` are
   byte-identical to a fleet seeded before the VMs existed. A VM is always reachable and has no PSU, GPU,
   template (`""`) or RAID verdict; 10% are stopped, so every link is `UNKNOWN` and the VM is `UNKNOWN`
-  overall. VMs are never epoch-flapped: the facade's `Status` is always OK.
+  overall. VMs are never epoch-flapped: the facade's `Status` is always OK. A running VM's `vm_host` names a
+  non-hypershift physical server of its own site in cluster `upi-<site>` (5% name a node that does not exist),
+  drawn after every other draw so no earlier value moved (ADR-0059).
 - **Hostnames span the estate's real shapes**, drawn from a weighted
   family list: `ocp4-hypershift[-data]-<site>-NN`,
   `ocp-<vendor>-<model>-<site>-<cores>c-<gib>gb-[<hw>-]<serial>`,
@@ -1663,8 +1665,13 @@ firmware serial/UUID. `app.infrastructure.providers.kubevirt` keeps the Redfish 
   `_CA_BUNDLE`.
 - **`get_one`** re-reads one System by the path in its `external_id` (`kubevirt://<host>/redfish/v1/Systems/...`),
   against the configured `INVENTORY_KUBEVIRT_URL`, never a host taken from the id.
+- **Where a VM runs** (ADR-0059): the fork's `Oem.KubeVirt.NodeName`, cleaned with `clean_hostname`, and
+  `INVENTORY_KUBEVIRT_CLUSTER_NAME` are stored as `Server.vm_host` (names only; `node_name` is `None` when
+  stopped, carried forward when a running VM names none). `GET /servers/{id}/vm-host` resolves the node to its
+  bare-metal server when read: the `nodes-status` membership first, then the server name; never cached, never
+  copied onto the VM. `host-model`/`host-passthrough` are CPU modes, stored as no model.
 
-Decision and consequences: `docs/adr/0058`. Verified facts from the live pass: `docs/kubevirt-collectors.md`.
+Decision and consequences: `docs/adr/0058`, `docs/adr/0059`. Verified facts from the live pass: `docs/kubevirt-collectors.md`.
 
 ### Cisco Intersight (`INTERSIGHT`)
 

@@ -40,7 +40,7 @@ from __future__ import annotations
 import random
 import uuid
 import zlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 
 from app.domain.enums import ManagerType, UnreachableReason
@@ -49,6 +49,7 @@ from app.domain.models.manager import Manager
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderAttachment, ProviderNic, ProviderServer
 from app.domain.value_objects.site import SiteCatalog, site_catalog
+from app.infrastructure.openshift.records import clean_hostname
 from app.infrastructure.providers.fake.epochs import apply_epoch
 
 # Managers are fixed; sites come from the catalog — see docs/architecture.md,
@@ -1173,8 +1174,11 @@ def _build_storage_controllers(
 _KUBEVIRT_PER_MILLE = 40
 _KUBEVIRT_FACADE = "kubevirt-redfish.apps.example.internal"
 _KUBEVIRT_MACHINES = ("pc-q35-rhel9.8.0", "pc-q35-rhel9.6.0", "q35")
-_KUBEVIRT_CPU_MODELS = ("", "", "Icelake-Server-v2", "Cascadelake-Server-v5", "host-model")
+# "" twice: a VM on the cluster default, or on `host-model`, which the collector stores as "".
+_KUBEVIRT_CPU_MODELS = ("", "", "Icelake-Server-v2", "Cascadelake-Server-v5", "")
 _KUBEVIRT_STOPPED_SHARE = 0.1
+# Running VMs whose node is no server in the inventory, so the UI's "not in the inventory" has data.
+_KUBEVIRT_UNKNOWN_HOST_SHARE = 0.05
 
 
 def kubevirt_count(count: int) -> int:
@@ -1190,7 +1194,7 @@ def kubevirt_count(count: int) -> int:
     return count * _KUBEVIRT_PER_MILLE // 1000
 
 
-def _kubevirt_vm(seed: int, index: int, site_code: str) -> ProviderServer:
+def _kubevirt_vm(seed: int, index: int, site_code: str, hosts: Sequence[str]) -> ProviderServer:
     """
     One KubeVirt VM as the `KUBEVIRT` collector reports it (ADR-0058).
 
@@ -1200,6 +1204,7 @@ def _kubevirt_vm(seed: int, index: int, site_code: str) -> ProviderServer:
         seed (int): The fleet seed.
         index (int): The VM's position in the fleet.
         site_code (str): The site token its name carries.
+        hosts (Sequence[str]): Physical server names at the same site, any of which may host it.
 
     Returns:
         ProviderServer: Always reachable; no BMC MAC, PSU, GPU, template or RAID verdict.
@@ -1234,7 +1239,7 @@ def _kubevirt_vm(seed: int, index: int, site_code: str) -> ProviderServer:
     if rng.random() < 0.5:
         disks.append({**disks[0], "id": f"{path}/Storage/1/Drives/data", "capacity_bytes": 1024**4})
     total = sum(d["capacity_bytes"] for d in disks if isinstance(d["capacity_bytes"], int))
-    return ProviderServer(
+    vm = ProviderServer(
         external_id=f"kubevirt://{_KUBEVIRT_FACADE}{path}",
         vendor="kubevirt",
         name=name,
@@ -1285,6 +1290,14 @@ def _kubevirt_vm(seed: int, index: int, site_code: str) -> ProviderServer:
         psus=(),
         gpus=(),
     )
+    # Drawn last, so every value above is what it was before hosts existed (ADR-0059).
+    node = ""
+    if running:
+        if not hosts or rng.random() < _KUBEVIRT_UNKNOWN_HOST_SHARE:
+            node = f"ocp4-{site_code}-gone-{index % 100:02d}"
+        else:
+            node = clean_hostname(rng.choice(hosts)) or ""
+    return replace(vm, vm_host_cluster=f"upi-{site_code}", vm_host_node=node)
 
 
 def generate_servers(
@@ -1310,13 +1323,14 @@ def generate_servers(
     rng = random.Random(seed)  # noqa: S311 - deterministic fake data, never security-sensitive
     site_codes = (sites if sites is not None else _DEFAULT_SITES).codes
     physical = count - kubevirt_count(count)
+    hosts: dict[str, list[str]] = {}
 
     for index in range(count):
         site_index = index % len(site_codes)
         site_code = site_codes[site_index]
         if index >= physical:
             # VMs are never epoch-flapped: the facade's Status is always OK.
-            yield _kubevirt_vm(seed, index, site_code)
+            yield _kubevirt_vm(seed, index, site_code, hosts.get(site_code, ()))
             continue
         # Stepped by site cycle, not index, then jittered — see the doc above.
         vendor = _VENDORS[(index // len(site_codes)) % len(_VENDORS)]
@@ -1330,6 +1344,8 @@ def generate_servers(
         memory_total_bytes = memory_gib * 1024**3
 
         name = _build_name(rng, vendor, index, site_code, model, memory_gib, collector)
+        if "hypershift" not in name.lower():
+            hosts.setdefault(site_code, []).append(name)
         serial = f"{vendor[:3].upper()}{index:07d}"
         system_uuid = _random_uuid(rng)
 

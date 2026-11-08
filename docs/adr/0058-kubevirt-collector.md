@@ -74,3 +74,11 @@ Three facts about the facade shaped the design:
 - **Lockout:** the collector and the API pod's rechecks may share an egress IP; a misconfigured API pod
   could lock the collector out for 15 minutes.
 - The Architecture page has no KubeVirt diagram yet.
+
+## Amended by ADR-0059 (2026-11-08)
+
+- A VM now stores the cluster and node it runs on (`Server.vm_host`), from the fork's `Oem.KubeVirt.NodeName`.
+- `host-model` and `host-passthrough` are libvirt CPU modes, not models; the collector stores them as `""`,
+  like an undeclared model (point 7), so a VM no longer flips between `host-model` and `null` on start/stop.
+- Point 2's "recommend `enhanced`": the redbull-platform facade runs `legacy` by its own decision (2026-11-05).
+  Harmless with the fork's `SerialNumber`, which the collector correlates on before the System `Id`.

@@ -114,6 +114,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/servers` | List with filters, search and cursor paging. |
 | `GET /api/v1/servers/rows` | The whole fleet as flat rows (what the UI loads; ETag, so a poll is a 304). |
 | `GET /api/v1/servers/{id}` | Full detail for one server. |
+| `GET /api/v1/servers/{id}/vm-host` | The bare-metal server a KubeVirt VM runs on, resolved at read time ([ADR-0059](docs/adr/0059-vm-host.md)). |
 | `GET /api/v1/servers/available` | Live-verified assignable servers for BareMetalHost creation. |
 | `GET /api/v1/sites` | Per-site and fleet-wide counts. |
 | `GET /api/v1/events`, `/servers/{id}/events` | Audit trail. |
@@ -157,7 +158,7 @@ them all. The ones that matter first:
 | Variable | Meaning |
 |---|---|
 | `INVENTORY_SITES` | Site codes and names, e.g. `tlv:Tel Aviv,nyc:New York`. A server's site is parsed from its hostname ([ADR-0018](docs/adr/0018-sites-from-configuration.md)). |
-| `INVENTORY_<MANAGER>_IP` / `_USERNAME` / `_PASSWORD` | One set per manager: `UCS_CENTRAL`, `OME`, `ONEVIEW`. Intersight signs requests instead: `INVENTORY_INTERSIGHT_IP`, `_API_KEY_ID`, `_API_KEY_PEM`. KubeVirt takes a URL: `INVENTORY_KUBEVIRT_URL`. |
+| `INVENTORY_<MANAGER>_IP` / `_USERNAME` / `_PASSWORD` | One set per manager: `UCS_CENTRAL`, `OME`, `ONEVIEW`. Intersight signs requests instead: `INVENTORY_INTERSIGHT_IP`, `_API_KEY_ID`, `_API_KEY_PEM`. KubeVirt takes a URL: `INVENTORY_KUBEVIRT_URL` (plus an optional `INVENTORY_KUBEVIRT_CLUSTER_NAME`). |
 
 Run a collector by hand with `uv run python -m tools.run_collector --manager-type
 <TYPE> --dry-run`. Per-vendor setup and field-test steps are in

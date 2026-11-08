@@ -25,7 +25,8 @@ edge Route, with three cirros VMs: two running, one `Halted`.
 | `PowerState` | `On` | `Off` |
 | `Status` | `{Enabled, OK}` | `{Enabled, OK}` (not a verdict) |
 | `Model` | machine type (`q35`, `pc-q35-rhel9.8.0`) | same, persisted in the template |
-| `ProcessorSummary.Model` | the CPU model, e.g. `Icelake-Server-v2` | absent |
+| `ProcessorSummary.Model` | the CPU model, e.g. `Icelake-Server-v2`, or `host-model` when the cluster sets no default (stored as no model, ADR-0059) | absent |
+| `Oem.KubeVirt.NodeName` (fork change 11) | the node the VMI runs on | absent |
 | `EthernetInterface.LinkStatus` | `LinkUp` | `NoLink`, MAC kept, no IPs |
 | `Drive.CapacityBytes` | absent on a `containerDisk`, set on an `emptyDisk`/PVC | same, read from the spec |
 | `Memory/1.CapacityMiB` | set | set (from the template) |
@@ -68,3 +69,22 @@ with the chart's rules minus `namespaces` and `storageclasses` (nothing on the r
 logged no `forbidden`). Nothing cluster-scoped is created, so deleting the namespace removes everything. The
 Route's certificate is signed by the ingress CA:
 `oc -n openshift-config-managed get cm default-ingress-cert -o jsonpath='{.data.ca-bundle\.crt}'`.
+
+## Second live pass: the platform's facade on cluster-2qsc5 (2026-11-08)
+
+The redbull-platform hub cluster: OpenShift Virtualization 4.20.27, software emulation (`useEmulation: true`
+on m5 workers, no KVM). The facade is the Argo-managed `kubevirt-redfish` app on the fork image
+(`ghcr.io/team-redbull/kubevirt-redfish:sha-<commit>`), `system_id_convention: legacy` (the platform's
+decision), chassis `vms` over namespace `server-scan-vms` with selector `redfish-enabled: "true"`. Three
+cirros VMs (`ocp-tlv-kv-01..03`, two running, one `Halted`); server-scan ran as a separate test release.
+
+- **Under `legacy` the System `Id` is the bare VM name**; `SerialNumber` is present, so the collector
+  correlates on it and the `Id` fallback never fires.
+- **The Route's certificate is publicly trusted** on this cluster: `verifyTls: true` with no
+  `caBundleConfigMap`.
+- **`host-model` is what a VM with no declared CPU model reports while running**, because neither the
+  HyperConverged `defaultCPUModel` nor the KubeVirt `cpuModel` is set; a stopped VM reports none. Under
+  emulation the CPU that mode resolves to is not the node's: an Intel Xeon Platinum 8259CL node is labelled
+  `host-model-cpu.node.kubevirt.io/EPYC`, and the guest's libvirt domain says `EPYC`, vendor `AMD`.
+- Run 1: `fetched=3 created=3 errors=0` in 0.3 s from inside the cluster; run 2: `unchanged=3`. Every
+  sub-resource answered 200 for the halted VM.

@@ -41,6 +41,15 @@ Note `health` here is the overall severity string, not an object. `UNKNOWN` also
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail`: hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
+`vm_host` is `{cluster_name, node_name}` for a KubeVirt VM (`node_name` null when stopped), null otherwise.
+
+`GET /api/v1/servers/{server_id}/vm-host` - the bare-metal server a KubeVirt VM runs on, resolved
+now (404 for a non-VM). Response: `cluster_name, node_name, match, host`; `match` is `MEMBERSHIP`
+(through the cluster's nodes-status membership), `NAME` (server name only), `AMBIGUOUS`,
+`NOT_IN_INVENTORY` or `NOT_RUNNING`; `host` (only on MEMBERSHIP/NAME) is `id, name, vendor, model,
+site_id, cpu{sockets, cores, threads, model}, memory_total_bytes, health, maintenance, cluster_name`.
+Use it for "which physical CPU/server does VM X run on"; a VM's own `hardware.cpu.model` is the
+guest's virtual CPU (often null).
 
 ## Available servers
 

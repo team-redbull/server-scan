@@ -34,7 +34,12 @@ arrive as `OPENMANAGE`; genuinely standalone whiteboxes arrive as
 (40 of 1000) are OpenShift Virtualization VMs arriving as `KUBEVIRT` with
 `kubevirt://` ids (ADR-0058). Each VM is drawn from its own RNG, so a physical
 server is identical whatever `--count` is; VMs carry no PSU, GPU, template or
-RAID verdict, and about 10% are stopped (every link `UNKNOWN`). All six
+RAID verdict, and about 10% are stopped (every link `UNKNOWN`). A running VM
+names a physical server of its own site as its node, in cluster `upi-<site>`,
+so its Overview's Host row resolves (through the membership when that server
+is installed there, else by name); about 5% name a node that does not exist
+(ADR-0059). At `--count 1000 --seed 42`: 33 VMs on a host, 2 on a missing
+node, 5 stopped. All six
 collectors are seeded and filterable from the UI's Source filter. Each collector's
 *absences* are reproduced too, because a fixture richer than the real
 thing hides the gaps worth seeing. Names span the estate's real shapes,

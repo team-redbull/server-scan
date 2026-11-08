@@ -53,6 +53,7 @@ from app.api.v1.schemas import (
     ServerListResponse,
     ServerRowsResponse,
     ServerSummary,
+    VmHostResponse,
 )
 from app.application.services.audit_service import AuditService
 from app.application.services.available_servers import (
@@ -72,6 +73,7 @@ from app.application.services.pipeline import (
     health_from_state,
 )
 from app.application.services.reservation_service import ReservationService
+from app.application.services.vm_host import resolve_vm_host
 from app.config import Settings, get_settings
 from app.dependencies import (
     get_mongo_holder,
@@ -775,6 +777,36 @@ async def get_server(
         detail_key, detail.model_dump(mode="json"), ttl_seconds=SERVER_DETAIL_TTL_SECONDS
     )
     return detail
+
+
+@router.get("/servers/{server_id}/vm-host", response_model=VmHostResponse)
+async def get_vm_host(
+    server_id: str,
+    repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+) -> VmHostResponse:
+    """
+    Get the bare-metal server a VM runs on, resolved now (ADR-0059).
+
+    Never cached: the host's health and maintenance change without the VM's revision changing.
+
+    Args:
+        server_id (str): The VM's ID.
+        repo (MongoServerRepository): The server repository.
+
+    Returns:
+        VmHostResponse: The VM's cluster and node, how they resolved, and the host's summary.
+
+    Raises:
+        NotFoundError: No server has that ID, or it is not a VM.
+    """
+    server = await repo.get_by_id(server_id)
+    if server is None:
+        raise NotFoundError(f"No server with id {server_id!r}.", details={"server_id": server_id})
+    if server.vm_host is None:
+        raise NotFoundError(
+            f"Server {server.name!r} is not a virtual machine.", details={"server_id": server_id}
+        )
+    return VmHostResponse.from_resolution(await resolve_vm_host(repo, server.vm_host))
 
 
 async def _invalidate_detail_cache(server_id: str, cache: CacheClient) -> None:

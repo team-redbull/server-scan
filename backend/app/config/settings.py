@@ -190,6 +190,8 @@ class Settings(BaseSettings):
     kubevirt_vm_budget_seconds: float = Field(default=60.0, gt=0)
     kubevirt_run_budget_seconds: float = Field(default=1800.0, gt=0)
     kubevirt_concurrency: int = Field(default=4, ge=1)
+    # The cluster the facade serves; must equal that cluster's nodes-status name (ADR-0059).
+    kubevirt_cluster_name: str = ""
 
     collector_name_pattern: str = ""
 

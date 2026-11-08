@@ -53,6 +53,8 @@ spec:
                 - name: INVENTORY_KUBEVIRT_CA_BUNDLE
                   value: /etc/kubevirt-ca/ca-bundle.crt
                 {{- end }}
+                - name: INVENTORY_KUBEVIRT_CLUSTER_NAME
+                  value: {{ $kv.clusterName | default "" | quote }}
                 - name: INVENTORY_KUBEVIRT_CONCURRENCY
                   value: {{ $kv.concurrency | default 4 | quote }}
                 - name: INVENTORY_KUBEVIRT_READ_TIMEOUT_SECONDS

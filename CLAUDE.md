@@ -284,6 +284,8 @@ long form of each entry is in the 2026-09-13 archive.
   `REDFISH_STANDALONE`'s per-host TOML files (CronJob-only, so BMC passwords
   stay out of the Route-exposed pod). No reservation/lock: concurrent callers
   can draw the same server (accepted in the ADR).
+- **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
+  (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
 - **Every call on the login path has a timeout, and a 503 says why** (ADR-0042). ldap3's sync
   `recv()` blocks forever without `receive_timeout`; never put a bare float there (`struct.error`),
   never go back to `get_info=ALL` (a schema download per login), never serve stale group membership on
@@ -409,7 +411,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058.
+  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058; a VM's host (`Server.vm_host`, `GET /servers/{id}/vm-host`) and CPU modes stored as no model 0059.
 
 ## Verifying your work
 
@@ -478,13 +480,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-08 — a sixth collector, `KUBEVIRT`: OpenShift Virtualization VMs through the kubevirt-redfish fork (ADR-0058).**
-Moved to `docs/notes/session-log.md`: the Jobs page / BMC-IP site fallback unit (ADR-0055, 0056).
+**2026-11-08 — a KubeVirt VM records the node it runs on, resolved to its bare-metal server when read (ADR-0059).**
+Moved to `docs/notes/session-log.md`: the `KUBEVIRT` collector unit (ADR-0058).
 
-**Shipped:** `providers/kubevirt/` (HTTP Basic client, one 401 per run, no stub, stopped VM = links UNKNOWN), `Vendor.KUBEVIRT`,
-`INVENTORY_KUBEVIRT_*`, Helm `collectors.kubevirt` (CA mounted in the CronJob and the API pod), `network.single_link_up` scoped to physical
-collectors, a 4% VM tail in the fake fleet. The fork gained `SerialNumber`/`UUID`/`Manufacturer`/`Model` on branch `feat/system-identity-fields`
-(`1ba743c`, pushed, no PR). Live pass on OCP Virt 4.22.12 (`docs/kubevirt-collectors.md`): run 2 `unchanged=3`, wrong password = one 401.
+**Shipped:** the fork's `Oem.KubeVirt.NodeName` (change 11, `139404d` on fork `main`); `Server.vm_host` (`cluster_name`, `node_name`, names
+only), `INVENTORY_KUBEVIRT_CLUSTER_NAME` / Helm `collectors.kubevirt.clusterName`; uncached `GET /servers/{id}/vm-host` (membership, then name);
+the Overview "Host" row with the host's CPU; `host-model`/`host-passthrough` stored as no CPU model; fake VMs on same-site hosts. Live on
+cluster-2qsc5 (`docs/kubevirt-collectors.md`, second pass): the platform's Argo `kubevirt-redfish` app now runs the fork image (redbull-platform).
 
-**Open:** whether `/servers/available` should offer a stopped VM (it never does: UNKNOWN health). `PowerState` has no field. No
-Architecture-page diagram for KubeVirt. The test facade and VMs live in namespace `server-scan-kubevirt-test` (`oc delete project` removes all).
+**Open:** `MEMBERSHIP` resolution was never seen live (cluster-2qsc5's nodes are AWS instances, not inventoried). Test release `ssk` in
+`server-scan-kubevirt` and VMs in `server-scan-vms` on cluster-2qsc5 (`helm uninstall ssk -n server-scan-kubevirt`, `oc delete ns` both).
+`frontend/Containerfile` fails under buildah (`npm ci` EACCES on a root-owned `/app`); CI's BuildKit is unaffected. Branch not merged to `main`.

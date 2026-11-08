@@ -109,13 +109,24 @@ async def test_the_listing_is_read_once_and_processors_only_when_needed(
 
 
 async def test_an_unread_topology_falls_back_to_the_processors(facade: KubeVirtFixture) -> None:
-    vm = Vm(name="v", processor_summary=False, cpu_model="host-model")
+    vm = Vm(name="v", processor_summary=False, cpu_model="Skylake-Client")
     facade.resources = kubevirt_tree(vm)
 
     (server,) = (await _collect(_provider(facade.url))).values()
 
-    assert server.cpu_model == "host-model"
+    assert server.cpu_model == "Skylake-Client"
     assert f"{vm.path}/Processors" in facade.paths()
+
+
+async def test_each_vm_carries_the_configured_cluster_and_its_node(
+    facade: KubeVirtFixture,
+) -> None:
+    facade.resources = kubevirt_tree(Vm(name="up", node="worker-1"), Vm(name="down", power="Off"))
+
+    servers = await _collect(_provider(facade.url, cluster_name=" ocp4-tlv "))
+
+    assert (servers["up"].vm_host_cluster, servers["up"].vm_host_node) == ("ocp4-tlv", "worker-1")
+    assert (servers["down"].vm_host_cluster, servers["down"].vm_host_node) == ("ocp4-tlv", "")
 
 
 async def test_an_empty_listing_yields_nothing_and_no_error(facade: KubeVirtFixture) -> None:

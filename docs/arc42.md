@@ -575,6 +575,7 @@ of it.
 | 0056 | A BMC IP prefix (`INVENTORY_SITE_BMC_PREFIXES`) is the last fallback for a server's site, after name and profile DN |
 | 0057 | The BMC IP names a server's site first (then name, then profile DN); a BMC/name disagreement is CRITICAL in the new `name` health category, which also takes the capacity-vs-name check |
 | 0058 | A sixth collector, `KUBEVIRT`, reads OpenShift Virtualization VMs through kubevirt-redfish (HTTP Basic, one login per run, never retried); no unreachable stub, a stopped VM's links are UNKNOWN, `network.single_link_up` scoped to the physical collectors |
+| 0059 | A VM stores the cluster and node it runs on (`Server.vm_host`, names only); `GET /servers/{id}/vm-host` resolves the node to its bare-metal server when read (membership first, then name), never cached; `host-model` is a CPU mode, stored as no model |
 
 ---
 
@@ -676,6 +677,7 @@ go stale — treat its date as load-bearing.
 | **Specificity** | Scope precision as powers of two (`site:4 + manager:2 + vendor:1`), so a more specific scope strictly outranks a less specific one. |
 | **Service profile** | UCS's logical server definition. **The source of a UCS server's real name** — `computeBlade.name` is empty in practice. |
 | **IMM** | Intersight Managed Mode. Servers Intersight manages directly, as opposed to `UCSM`-mode servers that UCS Central owns. |
+| **VM host** | `Server.vm_host`: the cluster and node a KubeVirt VM runs on, as names. Resolved to the node's own server record only by `GET /servers/{id}/vm-host` (ADR-0059). |
 | **PARTIAL run** | Exit code 3: some servers were written, but the run did not see the whole fleet. |
 | **`Server.reachable`** | `False` when a provider could not reach a server's management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. Written by `OPENMANAGE`, `REDFISH_STANDALONE` (stub documents) and, via an unauthenticated probe, `ONEVIEW` (ADR-0037); never by `KUBEVIRT`, whose VMs are always `True` (ADR-0058). |
 | **`Server.unreachable_reason`** | Why `reachable` is `False`: `network_unreachable`, `auth_rejected`, `tls_error`, `timeout` or `protocol_error`. Set and cleared together with `unreachable_since` (ADR-0037). |

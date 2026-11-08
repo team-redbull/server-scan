@@ -8,6 +8,17 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-08 — a sixth collector, `KUBEVIRT`: OpenShift Virtualization VMs through the kubevirt-redfish fork (ADR-0058).**
+Moved to `docs/notes/session-log.md`: the Jobs page / BMC-IP site fallback unit (ADR-0055, 0056).
+
+**Shipped:** `providers/kubevirt/` (HTTP Basic client, one 401 per run, no stub, stopped VM = links UNKNOWN), `Vendor.KUBEVIRT`,
+`INVENTORY_KUBEVIRT_*`, Helm `collectors.kubevirt` (CA mounted in the CronJob and the API pod), `network.single_link_up` scoped to physical
+collectors, a 4% VM tail in the fake fleet. The fork gained `SerialNumber`/`UUID`/`Manufacturer`/`Model` on branch `feat/system-identity-fields`
+(`1ba743c`, pushed, no PR). Live pass on OCP Virt 4.22.12 (`docs/kubevirt-collectors.md`): run 2 `unchanged=3`, wrong password = one 401.
+
+**Open:** whether `/servers/available` should offer a stopped VM (it never does: UNKNOWN health). `PowerState` has no field. No
+Architecture-page diagram for KubeVirt. The test facade and VMs live in namespace `server-scan-kubevirt-test` (`oc delete project` removes all).
+
 **2026-11-04 — an admin "Run job" page (ADR-0055), a BMC-IP site fallback (ADR-0056), nodes-status every 5 minutes, and a severity-edge fix.**
 Moved to `docs/notes/session-log.md`: the "Claude" page, personal tokens and MCP server unit (ADR-0052-0054).
 

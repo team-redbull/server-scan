@@ -64,6 +64,7 @@ class KubeVirtProvider(ServerInventoryProvider):
         vm_budget_seconds: float,
         run_budget_seconds: float,
         concurrency: int,
+        cluster_name: str = "",
         debug_http: bool = False,
         client_factory: Callable[[], Any] | None = None,
     ) -> None:
@@ -82,6 +83,7 @@ class KubeVirtProvider(ServerInventoryProvider):
             vm_budget_seconds (float): Wall clock allowed per VM.
             run_budget_seconds (float): Wall clock allowed for the run.
             concurrency (int): VMs read at once.
+            cluster_name (str): The cluster the facade serves, stored on each VM's host (ADR-0059).
             debug_http (bool): Emit one line per request.
             client_factory (Callable[[], Any] | None): Test seam returning a client.
 
@@ -100,6 +102,7 @@ class KubeVirtProvider(ServerInventoryProvider):
         self._vm_budget = vm_budget_seconds
         self._run_budget = run_budget_seconds
         self._concurrency = max(1, concurrency)
+        self._cluster_name = cluster_name.strip()
         self._debug_http = debug_http
         self._client_factory: Callable[[], Any] = client_factory or self._new_client
         self._auth_rejected = False
@@ -279,6 +282,7 @@ class KubeVirtProvider(ServerInventoryProvider):
             system,
             netloc=self._netloc,
             manager_id=self._manager.id,
+            cluster_name=self._cluster_name,
             processors=processors,
             memory=await self._optional(client, system, "Memory"),
             storage=storage,

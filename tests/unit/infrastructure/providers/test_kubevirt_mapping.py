@@ -10,6 +10,7 @@ from tests.kubevirt_fixture import Vm, kubevirt_tree
 from app.infrastructure.providers.kubevirt.mapping import (
     controllers_for,
     cpu_fields,
+    host_node_of,
     serial_of,
     system_to_provider_server,
 )
@@ -35,6 +36,7 @@ def _map(vm: Vm, **overrides: Any) -> Any:
         "interfaces": _members(tree, f"{p}/EthernetInterfaces"),
     }
     kwargs.update(overrides)
+    kwargs.setdefault("cluster_name", "")
     return system_to_provider_server(tree[p], netloc=_NETLOC, manager_id="mgr_kubevirt", **kwargs)
 
 
@@ -149,6 +151,7 @@ class TestStoppedVm:
             system,
             netloc=_NETLOC,
             manager_id="mgr_kubevirt",
+            cluster_name="",
             processors=None,
             memory=None,
             storage=None,
@@ -227,6 +230,21 @@ class TestCpu:
     def test_nothing_read_is_unread(self) -> None:
         assert cpu_fields({}, None) == (None, None, None, None)
 
+    @pytest.mark.parametrize("mode", ["host-model", "host-passthrough", "Host-Model"])
+    def test_a_cpu_mode_is_not_a_model(self, mode: str) -> None:
+        summary: dict[str, Any] = {
+            "ProcessorSummary": {
+                "Count": 1,
+                "CoreCount": 2,
+                "LogicalProcessorCount": 2,
+                "Model": mode,
+            }
+        }
+        processors = [{"ProcessorType": "CPU", "TotalCores": 4, "TotalThreads": 4, "Model": mode}]
+
+        assert cpu_fields(summary, None)[3] == ""
+        assert cpu_fields({}, processors)[3] == ""
+
     def test_an_unread_topology_leaves_every_cpu_field_unread(self) -> None:
         server = _map(Vm(name="v", processor_summary=False), processors=None)
 
@@ -304,6 +322,7 @@ def test_the_name_falls_back_to_the_id() -> None:
         system,
         netloc=_NETLOC,
         manager_id="m",
+        cluster_name="",
         processors=None,
         memory=None,
         storage=None,
@@ -311,3 +330,28 @@ def test_the_name_falls_back_to_the_id() -> None:
         interfaces=None,
     )
     assert server.name == "vms.v"
+
+
+class TestVmHost:
+    """Where a VM runs, from the fork's `Oem.KubeVirt.NodeName` (ADR-0059)."""
+
+    def test_a_running_vm_names_its_node_cleaned_like_a_nodes_status_hostname(self) -> None:
+        server = _map(Vm(name="v", node="Worker-3.Cluster.Example"), cluster_name="ocp4-tlv")
+
+        assert server.vm_host_cluster == "ocp4-tlv"
+        assert server.vm_host_node == "worker-3"
+
+    def test_a_stopped_vm_is_read_and_has_no_node(self) -> None:
+        assert _map(Vm(name="v", power="Off")).vm_host_node == ""
+
+    def test_a_running_vm_without_the_property_is_unread(self) -> None:
+        assert _map(Vm(name="v")).vm_host_node is None
+
+    def test_an_unconfigured_cluster_is_still_a_vm(self) -> None:
+        server = _map(Vm(name="v", node="w1"))
+
+        assert (server.vm_host_cluster, server.vm_host_node) == ("", "w1")
+
+    @pytest.mark.parametrize("oem", [None, "x", {"KubeVirt": "x"}, {"KubeVirt": {"NodeName": 3}}])
+    def test_a_malformed_oem_is_unread(self, oem: object) -> None:
+        assert host_node_of({"PowerState": "On", "Oem": oem}) is None
