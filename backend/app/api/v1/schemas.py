@@ -496,7 +496,8 @@ def bmc_vendor_for(vendor: Vendor, source_provider: str | None) -> str | None:
 
     Returns:
         str | None: `HP`, `DELL`, `CISCO` or `INTERSIGHT`; `None` for a
-            `STANDALONE` machine, whose driver the caller must decide.
+            `STANDALONE` machine, whose driver the caller must decide, and for a
+            `KUBEVIRT` VM, which bmhgen has no driver string for (ADR-0058).
     """
     if vendor == Vendor.CISCO:
         return "INTERSIGHT" if source_provider == ManagerType.INTERSIGHT.value else "CISCO"

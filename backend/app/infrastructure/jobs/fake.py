@@ -20,6 +20,7 @@ _RELEASE = "server-scan"
 _CRONJOBS: tuple[tuple[str, str, str | None], ...] = (
     (f"{_RELEASE}-collector-fake", "*/30 * * * *", None),
     (f"{_RELEASE}-collector-intersight", "15 6 * * *", None),
+    (f"{_RELEASE}-collector-kubevirt", "0 */3 * * *", None),
     (f"{_RELEASE}-collector-oneview", "30 6 * * *", None),
     (f"{_RELEASE}-collector-openmanage", "0 6 * * *", _OPENMANAGE_WARNING),
     (f"{_RELEASE}-collector-redfish-standalone", "45 6 * * *", None),
@@ -30,7 +31,9 @@ _CRONJOBS: tuple[tuple[str, str, str | None], ...] = (
 
 
 # Not deployed, as a collector with `enabled: false` in values.yaml is not.
-_DISABLED = frozenset({f"{_RELEASE}-collector-redfish-standalone"})
+_DISABLED = frozenset(
+    {f"{_RELEASE}-collector-redfish-standalone", f"{_RELEASE}-collector-kubevirt"}
+)
 
 
 @dataclass

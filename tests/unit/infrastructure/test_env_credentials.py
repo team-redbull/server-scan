@@ -105,6 +105,28 @@ class TestResolve:
         assert connection.endpoint == "intersight.com"
         assert connection.username == "key-id-123"
 
+    def test_kubevirt_resolves_a_full_url_and_a_basic_login(self) -> None:
+        settings = _settings(
+            kubevirt_url="https://kv.apps.example",
+            kubevirt_username="scan",
+            kubevirt_password="s3cret",
+        )
+        connection = EnvConnectionResolver(settings).resolve(ManagerType.KUBEVIRT)
+        assert connection.endpoint == "https://kv.apps.example"
+        assert (connection.username, connection.password) == ("scan", "s3cret")
+        assert ManagerType.KUBEVIRT in configured_manager_types(settings)
+
+    def test_kubevirt_unconfigured_names_every_missing_variable(self) -> None:
+        with pytest.raises(ManagerNotConfiguredError) as caught:
+            EnvConnectionResolver(_settings()).resolve(ManagerType.KUBEVIRT)
+        for var in (
+            "INVENTORY_KUBEVIRT_URL",
+            "INVENTORY_KUBEVIRT_USERNAME",
+            "INVENTORY_KUBEVIRT_PASSWORD",
+        ):
+            assert var in str(caught.value)
+        assert ManagerType.KUBEVIRT not in configured_manager_types(_settings())
+
     def test_every_known_manager_type_is_configurable(self) -> None:
         """Guards against a `ManagerType` being added without anywhere to
         put its connection details — which would surface only when

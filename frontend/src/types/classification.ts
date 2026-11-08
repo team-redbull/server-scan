@@ -9,7 +9,8 @@ export type ManagerType =
   | "UCS_CENTRAL"
   | "INTERSIGHT"
   | "ONEVIEW"
-  | "REDFISH_STANDALONE";
+  | "REDFISH_STANDALONE"
+  | "KUBEVIRT";
 
 /** Every `ManagerType`, as a person names it; vendor-free so a label can sit
  * beside its vendor. */
@@ -20,6 +21,7 @@ export const MANAGER_TYPE_LABELS: Record<ManagerType, string> = {
   OPENMANAGE: "OpenManage",
   ONEVIEW: "OneView",
   REDFISH_STANDALONE: "Redfish standalone",
+  KUBEVIRT: "KubeVirt",
 };
 
 export type RuleSource =

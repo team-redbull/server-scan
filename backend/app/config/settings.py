@@ -180,6 +180,17 @@ class Settings(BaseSettings):
 
     ucs_central_domain_concurrency: int = 4
 
+    # KubeVirt VMs through kubevirt-redfish (ADR-0058); connect timeout is the factory's.
+    kubevirt_url: str = ""
+    kubevirt_username: str = ""
+    kubevirt_password: SecretStr = SecretStr("")
+    kubevirt_verify_tls: bool = True
+    kubevirt_ca_bundle: str = ""
+    kubevirt_read_timeout_seconds: float = Field(default=35.0, gt=0)
+    kubevirt_vm_budget_seconds: float = Field(default=60.0, gt=0)
+    kubevirt_run_budget_seconds: float = Field(default=1800.0, gt=0)
+    kubevirt_concurrency: int = Field(default=4, ge=1)
+
     collector_name_pattern: str = ""
 
     # `None` inherits `collector_name_pattern`; an explicit "" opts out of it.
@@ -188,6 +199,7 @@ class Settings(BaseSettings):
     ome_name_pattern: str | None = None
     oneview_name_pattern: str | None = None
     redfish_name_pattern: str | None = None
+    kubevirt_name_pattern: str | None = None
 
     openshift_cluster_name: str = ""
 

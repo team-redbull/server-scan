@@ -37,7 +37,7 @@ Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, model, site_id, source_provider, installation_type, health,
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
 contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
-Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread.
+Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail`: hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
@@ -50,7 +50,7 @@ against the vendor manager. Exactly one of `name` (exact, case-insensitive) or `
 `source_provider`, `health` (one of HEALTHY/WARNING/MAJOR; default fills best first),
 `min_nic_macs` (0-16; pass 1+ for a BMH, 2 for bonding).
 Response: `{items, mode, requested, returned}`; item: `id, name, vendor, source_provider,
-bmc_vendor (HP/DELL/CISCO/INTERSIGHT), bmc{host, scheme, port, mac...}, nic_macs[],
+bmc_vendor (HP/DELL/CISCO/INTERSIGHT; null for a STANDALONE server and a KUBEVIRT VM), bmc{host, scheme, port, mac...}, nic_macs[],
 interfaces[{name, mac, location, os_name, link_state, speed_mbps}] (natural order of `name`, `eno2` before `eno10`; never rely on stored or `os_name` order), site_id,
 health_overall, live_recheck_performed`.
 Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern),
@@ -75,7 +75,7 @@ Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_
 ## Sites
 
 `GET /api/v1/sites` - `{items: [SiteStats], fleet: FleetSummary}`. Each site: `site_id, name`,
-`total`, `by_vendor`, `by_health`, `in_maintenance`, `by_installation_type`, `by_openshift_state`.
+`total`, `by_vendor` (one entry per vendor, `kubevirt` included, zero where none), `by_health`, `in_maintenance`, `by_installation_type`, `by_openshift_state`.
 Use it to learn the valid `site_id` codes.
 
 ## Policies and rules

@@ -61,8 +61,8 @@ async def test_list_shows_the_cronjobs(client: AsyncClient) -> None:
 
     assert body["enabled"] is True
     assert body["backend"] == "fake"
-    assert len(body["cronjobs"]) == 8
-    assert sorted(c["enabled"] for c in body["cronjobs"]).count(False) == 1
+    assert len(body["cronjobs"]) == 9
+    assert sorted(c["enabled"] for c in body["cronjobs"]).count(False) == 2
 
 
 async def test_run_creates_a_job_audits_it_and_a_second_run_is_409(client: AsyncClient) -> None:

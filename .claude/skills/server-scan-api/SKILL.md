@@ -8,7 +8,7 @@ allowed-tools: Bash(curl *) Bash(jq *)
 # Server Scan API
 
 Server Scan is an air-gapped inventory of ~2,500 physical servers (Dell, Cisco, HPE,
-standalone Redfish). Collectors write to MongoDB; this REST API reads it. You answer
+standalone Redfish) plus OpenShift Virtualization VMs (`kubevirt`). Collectors write to MongoDB; this REST API reads it. You answer
 fleet questions by building `curl` requests, never by guessing.
 
 ## Connection - edit these two lines for your environment
@@ -56,12 +56,12 @@ else (model, MCE, MAC, BMC host, reachability).
 
 Values are case-sensitive:
 
-- `vendor`: `dell` `cisco` `hp` `standalone` (HPE is `hp`)
+- `vendor`: `dell` `cisco` `hp` `standalone` `kubevirt` (HPE is `hp`; `kubevirt` is an OpenShift Virtualization VM)
 - `site_id`: the lowercase site code, e.g. `tlv`; `unassigned` for servers whose name has no site. List the real codes with `GET /api/v1/sites`.
 - `health_overall`: `HEALTHY` `WARNING` `MAJOR` `CRITICAL` `UNKNOWN`
 - `installation_type`: `UPI` `HOSTED_CLUSTER` `MCE` `UNCLASSIFIED`
 - `openshift_state`: `AVAILABLE` (no cluster is using it) or `INSTALLED`
-- `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE`
+- `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE` `KUBEVIRT`
 
 Paging: `page_size` defaults to 50, max 200. The response has `page.next_cursor` and
 `page.has_more`; pass `cursor=<next_cursor>` with the same filters until `has_more` is

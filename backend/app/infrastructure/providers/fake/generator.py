@@ -1,6 +1,6 @@
 """Deterministic fake inventory data.
 
-Produces `ProviderServer` DTOs in the shapes the five collectors that
+Produces `ProviderServer` DTOs in the shapes the six collectors that
 actually exist emit, so dev and CI fixtures exercise the same field
 shapes, vocabularies and absences production does:
 
@@ -13,6 +13,8 @@ shapes, vocabularies and absences production does:
   (docs/adr/0017-intersight-collector.md, "Decision 3").
 * `ONEVIEW` — HPE ProLiant servers an HPE OneView appliance owns.
 * `REDFISH_STANDALONE` — everything else, one BMC at a time.
+* `KUBEVIRT` — OpenShift Virtualization VMs, the last 4% of the fleet,
+  each drawn from its own RNG so the physical servers before it never move.
 
 A field a collector cannot read is `None` here too, and each collector's
 absences differ, which is the point: UCS Central reports a GPU's identity
@@ -59,6 +61,7 @@ COLLECTOR_TYPES: tuple[ManagerType, ...] = (
     ManagerType.OPENMANAGE,
     ManagerType.ONEVIEW,
     ManagerType.REDFISH_STANDALONE,
+    ManagerType.KUBEVIRT,
 )
 
 
@@ -139,6 +142,8 @@ def collector_for(vendor: str, model: str) -> ManagerType:
         return ManagerType.ONEVIEW
     if vendor == "dell":
         return ManagerType.OPENMANAGE
+    if vendor == "kubevirt":
+        return ManagerType.KUBEVIRT
     if vendor != "cisco":
         return ManagerType.REDFISH_STANDALONE
     if _is_blade(model):
@@ -165,6 +170,8 @@ def provider_type_for(server: ProviderServer) -> str:
         return ManagerType.UCS_CENTRAL.value
     if server.external_id.startswith("/rest/server-hardware/"):
         return ManagerType.ONEVIEW.value
+    if server.external_id.startswith("kubevirt://"):
+        return ManagerType.KUBEVIRT.value
     if server.vendor == "dell":
         return ManagerType.OPENMANAGE.value
     return ManagerType.REDFISH_STANDALONE.value
@@ -1162,6 +1169,124 @@ def _build_storage_controllers(
     return None, None
 
 
+# The last 4% of the fleet are KubeVirt VMs, drawn from their own RNG (see the doc).
+_KUBEVIRT_PER_MILLE = 40
+_KUBEVIRT_FACADE = "kubevirt-redfish.apps.example.internal"
+_KUBEVIRT_MACHINES = ("pc-q35-rhel9.8.0", "pc-q35-rhel9.6.0", "q35")
+_KUBEVIRT_CPU_MODELS = ("", "", "Icelake-Server-v2", "Cascadelake-Server-v5", "host-model")
+_KUBEVIRT_STOPPED_SHARE = 0.1
+
+
+def kubevirt_count(count: int) -> int:
+    """
+    How many of a `count`-server fleet are KubeVirt VMs.
+
+    Args:
+        count (int): The whole fleet's size.
+
+    Returns:
+        int: The size of the VM tail.
+    """
+    return count * _KUBEVIRT_PER_MILLE // 1000
+
+
+def _kubevirt_vm(seed: int, index: int, site_code: str) -> ProviderServer:
+    """
+    One KubeVirt VM as the `KUBEVIRT` collector reports it (ADR-0058).
+
+    Its own RNG, so the physical servers before it keep every draw.
+
+    Args:
+        seed (int): The fleet seed.
+        index (int): The VM's position in the fleet.
+        site_code (str): The site token its name carries.
+
+    Returns:
+        ProviderServer: Always reachable; no BMC MAC, PSU, GPU, template or RAID verdict.
+    """
+    rng = random.Random(f"kubevirt/{seed}/{index}")  # noqa: S311 - deterministic fake data
+    shape = rng.choice(("upi", "hosted_cluster"))
+    name = (
+        f"ocp4-{site_code}-vm-{rng.choice(_NAME_ROLES)}-{index % 100:02d}"
+        if shape == "upi"
+        else f"ocp4-hypershift-{site_code}-vm-{index % 100:02d}"
+    )
+    namespace = f"vms-{site_code}"
+    path = f"/redfish/v1/Systems/{namespace}.{name}"
+    running = rng.random() >= _KUBEVIRT_STOPPED_SHARE
+    vcpus = rng.choice((1, 2, 4, 8))
+    memory_bytes = rng.choice((2, 4, 8, 16, 32)) * 1024**3
+    macs = tuple(
+        "02:" + ":".join(f"{rng.randrange(256):02x}" for _ in range(5))
+        for _ in range(rng.choice((1, 1, 2)))
+    )
+    disks: list[dict[str, object]] = [
+        {
+            "id": f"{path}/Storage/1/Drives/rootdisk",
+            "model": None,
+            "serial": None,
+            "media_type": "UNKNOWN",
+            "capacity_bytes": rng.choice((None, 30 * 1024**3, 120 * 1024**3)),
+            "health": "HEALTHY",
+            "health_detail": "OK",
+        }
+    ]
+    if rng.random() < 0.5:
+        disks.append({**disks[0], "id": f"{path}/Storage/1/Drives/data", "capacity_bytes": 1024**4})
+    total = sum(d["capacity_bytes"] for d in disks if isinstance(d["capacity_bytes"], int))
+    return ProviderServer(
+        external_id=f"kubevirt://{_KUBEVIRT_FACADE}{path}",
+        vendor="kubevirt",
+        name=name,
+        model=rng.choice(_KUBEVIRT_MACHINES),
+        serial=_random_uuid(rng),
+        system_uuid=_random_uuid(rng),
+        nic_macs=macs,
+        nics=tuple(
+            ProviderNic(
+                name="default" if i == 0 else f"nic-{i}",
+                mac=mac,
+                speed_mbps=None,
+                link_state="UP" if running else "UNKNOWN",
+                location="default" if i == 0 else f"nic-{i}",
+            )
+            for i, mac in enumerate(macs)
+        ),
+        bmc_address_raw=f"redfish://{_KUBEVIRT_FACADE}{path}",
+        manager_id=manager_id_for(ManagerType.KUBEVIRT),
+        profile_template_name="",
+        profile_template_external_id="",
+        cpu_sockets=1,
+        cpu_cores=vcpus,
+        cpu_threads=vcpus,
+        cpu_model=rng.choice(_KUBEVIRT_CPU_MODELS) if running else "",
+        memory_total_bytes=memory_bytes,
+        memory_modules=(
+            {
+                "slot": "1",
+                "size_bytes": memory_bytes,
+                "type": "DRAM",
+                "speed_mhz": None,
+                "serial": None,
+                "health": "HEALTHY",
+            },
+        ),
+        storage_total_bytes=total,
+        storage_drives=tuple(disks),
+        storage_controllers=(
+            {
+                "id": "1",
+                "name": "VM Disks",
+                "kind": "OTHER",
+                "drive_count": len(disks),
+                "volumes": (),
+            },
+        ),
+        psus=(),
+        gpus=(),
+    )
+
+
 def generate_servers(
     *, seed: int, count: int, sites: SiteCatalog | None = None, epoch: int = 0
 ) -> Iterator[ProviderServer]:
@@ -1184,10 +1309,15 @@ def generate_servers(
     """
     rng = random.Random(seed)  # noqa: S311 - deterministic fake data, never security-sensitive
     site_codes = (sites if sites is not None else _DEFAULT_SITES).codes
+    physical = count - kubevirt_count(count)
 
     for index in range(count):
         site_index = index % len(site_codes)
         site_code = site_codes[site_index]
+        if index >= physical:
+            # VMs are never epoch-flapped: the facade's Status is always OK.
+            yield _kubevirt_vm(seed, index, site_code)
+            continue
         # Stepped by site cycle, not index, then jittered — see the doc above.
         vendor = _VENDORS[(index // len(site_codes)) % len(_VENDORS)]
         if rng.random() < 0.15:

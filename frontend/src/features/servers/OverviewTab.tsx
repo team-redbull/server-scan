@@ -231,13 +231,15 @@ const HEALTH_CATEGORIES: {
   { key: "name", label: "Name" },
 ];
 
-/** Cisco servers sit behind the fabric interconnects and are never probed, so
- * their BMC row could only ever say "Unknown". Dell, HP and standalone keep it:
- * there an Unknown means the check ran and got no answer (ADR-0037). */
+/** Cisco servers sit behind the fabric interconnects and are never probed, and
+ * a KubeVirt VM has no BMC of its own, so their BMC row could only ever say
+ * "Unknown". Dell, HP and standalone keep it: there an Unknown means the check
+ * ran and got no answer (ADR-0037). */
 const BMC_UNCHECKED_PROVIDERS = new Set([
   "UCS_CENTRAL",
   "UCS_MANAGER",
   "INTERSIGHT",
+  "KUBEVIRT",
 ]);
 
 /** Only the fabric-managed Cisco collectors check fabric interconnect paths,

@@ -646,3 +646,22 @@ async def test_an_unreachable_server_keeps_its_last_nics_and_bmc_mac_marked_unre
     assert {"network.interfaces", "network.bmc.mac", "identity.nic_macs"} <= set(
         server.unread_fields
     )
+
+
+async def test_a_cpu_model_read_as_empty_clears_it_and_none_keeps_it(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """`""` is a VM on the cluster-default CPU (ADR-0058): stored as None, not flagged;
+    `None` is a failed read: the stored model survives and is flagged."""
+    service = _service(mongo_holder)
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-CPU-MODEL")))
+
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-CPU-MODEL", cpu_model=None)))
+    server = await _stored(mongo_holder, "sn-cpu-model")
+    assert server.hardware.cpu.model == "Xeon Gold 6338"
+    assert "hardware.cpu.model" in server.unread_fields
+
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-CPU-MODEL", cpu_model="")))
+    server = await _stored(mongo_holder, "sn-cpu-model")
+    assert server.hardware.cpu.model is None
+    assert "hardware.cpu.model" not in server.unread_fields

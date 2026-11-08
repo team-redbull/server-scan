@@ -187,6 +187,26 @@ describe("OverviewTab health breakdown", () => {
     render(<OverviewTab server={makeServer()} />);
     expect(screen.queryByText("GPU")).not.toBeInTheDocument();
   });
+
+  it("shows no BMC, RAID or Connectivity row for a KubeVirt VM, which has none of them", () => {
+    const vm = makeServer({
+      identity: { ...makeServer().identity, vendor: "kubevirt" },
+      source_provider: "KUBEVIRT",
+    });
+    render(<OverviewTab server={vm} />);
+
+    expect(screen.queryByText("BMC")).not.toBeInTheDocument();
+    expect(screen.queryByText("RAID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connectivity")).not.toBeInTheDocument();
+    expect(screen.queryByText(/profile template|Deployment template/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the BMC and RAID rows for a Dell server, where the check ran", () => {
+    render(<OverviewTab server={makeServer({ source_provider: "OPENMANAGE" })} />);
+
+    expect(screen.getByText("BMC")).toBeInTheDocument();
+    expect(screen.getByText("RAID")).toBeInTheDocument();
+  });
 });
 
 describe("OverviewTab model", () => {

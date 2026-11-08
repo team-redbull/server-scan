@@ -18,13 +18,14 @@ class Vendor(StrEnum):
     The vendors this platform ingests from; no `UNKNOWN`, by design (docs/adr/0011).
 
     `STANDALONE` is a manufacturer this platform does not model, not
-    "collected without a manager" — see docs/adr/0016.
+    "collected without a manager" (docs/adr/0016); `KUBEVIRT` is a VM (0058).
     """
 
     DELL = "dell"
     CISCO = "cisco"
     HP = "hp"
     STANDALONE = "standalone"
+    KUBEVIRT = "kubevirt"
 
 
 class UnreachableReason(StrEnum):
@@ -52,6 +53,7 @@ class ManagerType(StrEnum):
     INTERSIGHT = "INTERSIGHT"
     ONEVIEW = "ONEVIEW"
     REDFISH_STANDALONE = "REDFISH_STANDALONE"
+    KUBEVIRT = "KUBEVIRT"
 
 
 class InstallationType(StrEnum):

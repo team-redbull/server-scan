@@ -1,8 +1,8 @@
 """The collector seam every vendor provider implements.
 
-`ServerInventoryProvider` and `ProviderServer` are the interface all seven
+`ServerInventoryProvider` and `ProviderServer` are the interface all eight
 providers (`fake`, `ucs_manager`, `ucs_central`, `intersight`,
-`openmanage`, `oneview`, `redfish`) implement/produce.
+`openmanage`, `oneview`, `redfish`, `kubevirt`) implement/produce.
 `app.application.services.ingest` is the one caller: it drives
 `collect()`, then normalizes each `ProviderServer` into a domain `Server`
 (correlate -> classify -> health-evaluate -> upsert).

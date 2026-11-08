@@ -1163,13 +1163,15 @@ class IngestService:
                     unread=unread,
                     name="hardware.cpu.threads",
                 ),
+                # `""` is "read, no model" (a VM on the cluster default CPU): stored as None.
                 model=_carry_forward(
                     ps.cpu_model,
                     existing_hardware.cpu.model if existing_hardware else None,
                     default=None,
                     unread=unread,
                     name="hardware.cpu.model",
-                ),
+                )
+                or None,
             ),
             memory=Memory(
                 total_bytes=_carry_forward(

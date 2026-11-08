@@ -29,9 +29,13 @@ as `source_provider=UCS_CENTRAL` with Central-rooted DNs, service-profile
 org paths and fabric attachments; Cisco rack units arrive as
 `INTERSIGHT` with `intersight/<moid>` ids and no org path; HPE ProLiants
 arrive as `ONEVIEW` with `/rest/server-hardware/<uuid>` ids; Dell servers
-arrive as `OPENMANAGE`; and genuinely standalone whiteboxes arrive as
-`REDFISH_STANDALONE` with `redfish://` addresses. All five collectors are
-seeded and all five are filterable from the UI's Source filter. Each collector's
+arrive as `OPENMANAGE`; genuinely standalone whiteboxes arrive as
+`REDFISH_STANDALONE` with `redfish://` addresses; and the last 4% of the fleet
+(40 of 1000) are OpenShift Virtualization VMs arriving as `KUBEVIRT` with
+`kubevirt://` ids (ADR-0058). Each VM is drawn from its own RNG, so a physical
+server is identical whatever `--count` is; VMs carry no PSU, GPU, template or
+RAID verdict, and about 10% are stopped (every link `UNKNOWN`). All six
+collectors are seeded and filterable from the UI's Source filter. Each collector's
 *absences* are reproduced too, because a fixture richer than the real
 thing hides the gaps worth seeing. Names span the estate's real shapes,
 including a deliberate minority carrying no site token, so "Unassigned"
@@ -40,9 +44,11 @@ is reachable.
 **What to look at once it's seeded** (`--count 1000 --seed 42`):
 
 * **The sites overview's six fleet cards** read 1000 across all sites,
-  585 UPI, 313 hosted-cluster and 102 MCE on the first row, then 204
-  available and 796 installed on the second. Measured, not estimated —
-  re-measure rather than trust these if the generator changes. Nothing
+  555 UPI, 332 hosted-cluster and 113 MCE on the first row (measured
+  2026-11-08; re-measure rather than trust these if the generator changes),
+  then roughly 170 available and 830 installed on the second. Those two, and
+  the contested count below, differ on every seeding: the fake OpenShift
+  membership is drawn from each server's id, which ingest mints at random. Nothing
   lands in `UNCLASSIFIED`, which is not a seeding gap: UPI's default rule
   became an unconditional `.*` on 2026-09-10, so the system rules cannot
   produce that state at all. Every card is meant to be non-empty and
@@ -50,26 +56,29 @@ is reachable.
   accident.
 * **Contested servers (ADR-0041)**: about 1% of installed servers carry `contested_with`,
   so the inventory's Duplicate Server filter and the gauge have data.
-* **The four site cards plus Unassigned**: 211 nyc, 224 tlv, 224 bat-yam,
-  220 five, and 121 with no site token in the name. That last one is why
+* **The four site cards plus Unassigned**: 226 nyc, 225 tlv, 230 bat-yam,
+  228 five, and 91 with no site token in the name. That last one is why
   the Unassigned card is worth having — and why it is hidden when it
   would read zero, since on a real estate it usually does.
 * **Both network link policies fire, and only Intersight is exempt.**
-  25 servers report every readable link down (CRITICAL) and 20 report one
-  up (MAJOR) — `docs/adr/0027-unknown-is-not-a-reading.md`. Before that
+  19 servers report every readable link down and 32 report only one up,
+  both CRITICAL — `docs/adr/0027-unknown-is-not-a-reading.md`; the one-up
+  policy never applies to a VM (ADR-0058). Before that
   ADR every UCS/Intersight server was all-`UNKNOWN` and read CRITICAL
   regardless, which is what made the real cases invisible; since
   2026-09-14 a UCS Central vNIC's state comes from `operability`, a real
-  signal, so 3 of the 25 CRITICAL and 3 of the 20 MAJOR are genuinely
-  UCS Central servers now (docs/cisco-collectors.md). Only the 160
-  Intersight servers still report `UNKNOWN` for every vNIC and are
-  scored on nothing — no equivalent field is known for it yet.
-* **34 servers have an unreachable BMC, and all of them read `CRITICAL`.**
-  About 4% of the OpenManage (10), standalone Redfish (12) and OneView (12)
+  signal, so 3 of the 19 all-down and 6 of the 32 one-up are genuinely
+  UCS Central servers now (docs/cisco-collectors.md). Only the 152
+  Intersight servers still report `UNKNOWN` for every vNIC — no equivalent
+  field is known for it yet — which makes 8 of them `UNKNOWN` overall where
+  nothing worse fired (2026-10-21 rule).
+* **32 servers have an unreachable BMC, and all of them read `CRITICAL`.**
+  About 4% of the OpenManage (10), standalone Redfish (12) and OneView (10)
   servers carry an `unreachable_reason`, which the `bmc` category's
-  `bmc.unreachable` policy turns into CRITICAL (ADR-0037). Nothing is
-  `UNKNOWN` overall in this fleet any more: before 2026-10-01 the ten
-  OpenManage ones were, since no hardware field was read and a category
+  `bmc.unreachable` policy turns into CRITICAL (ADR-0037). The 13 servers
+  `UNKNOWN` overall are those 8 Intersight servers and the 5 stopped VMs;
+  before 2026-10-01 the ten unreachable OpenManage ones were too, since no
+  hardware field was read and a category
   nothing was read for judges nothing
   (`docs/adr/0027-unknown-is-not-a-reading.md`); before 2026-09-21 they
   read HEALTHY.

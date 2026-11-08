@@ -75,11 +75,16 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   it** (`collector_for`): a Cisco B-series blade lives in a UCS domain and
   is `UCS_CENTRAL`, a Cisco rack unit is `INTERSIGHT` (mirroring the
   `ManagementMode` partition ADR-0017 enforces), HPE is `ONEVIEW`, Dell is
-  `OPENMANAGE`, and only `standalone` is left on its own BMC. Reading it
+  `OPENMANAGE`, `kubevirt` is `KUBEVIRT`, and only `standalone` is left on its own BMC. Reading it
   back (`provider_type_for`) goes by `external_id`, which is the one thing
-  a real collector stamps with its own identity — except Dell, where an
+  a real collector stamps with its own identity (`kubevirt://` for a VM) — except Dell, where an
   OME-collected server carries the same `redfish://` id a standalone BMC
   would (ADR-0020), so the vendor separates them.
+- **The last 4% of the fleet are KubeVirt VMs** (`kubevirt_count(count) = count * 40 // 1000`, ADR-0058),
+  each drawn from its own `random.Random(f"kubevirt/{seed}/{index}")`, so servers `0 .. count - k` are
+  byte-identical to a fleet seeded before the VMs existed. A VM is always reachable and has no PSU, GPU,
+  template (`""`) or RAID verdict; 10% are stopped, so every link is `UNKNOWN` and the VM is `UNKNOWN`
+  overall. VMs are never epoch-flapped: the facade's `Status` is always OK.
 - **Hostnames span the estate's real shapes**, drawn from a weighted
   family list: `ocp4-hypershift[-data]-<site>-NN`,
   `ocp-<vendor>-<model>-<site>-<cores>c-<gib>gb-[<hw>-]<serial>`,
@@ -138,7 +143,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   of those servers get none, a profile applied ad hoc. `REDFISH_STANDALONE`
   is deliberately absent: a bare BMC has no template concept, and
   `OverviewTab`'s `PROFILE_TEMPLATE_LABELS` omits its row for exactly that
-  reason. Only `UCS_CENTRAL` reports a `profile_dn` (`org-root/org-<site>/
+  reason (as it does `KUBEVIRT`'s, whose VMs report `""`). Only `UCS_CENTRAL` reports a `profile_dn` (`org-root/org-<site>/
   ls-<name>`), which `parse_site_code` falls back to for a siteless name;
   an Intersight `server.Profile` has no `Dn` at all, so a siteless name
   there really does resolve to no site — a real gap shown, not papered over.
@@ -165,8 +170,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   exception, `()` rather than `None`, because it has no unread state — it
   is the richer view of the interfaces `nic_macs` lists, and a server
   whose MACs went unread cannot coherently report per-port detail.
-- **Determinism**: every random choice goes through one
-  `random.Random(seed)` in a fixed order (`model` and `memory_gib` before
+- **Determinism**: every random choice for a physical server goes through one
+  `random.Random(seed)` in a fixed order (a VM has its own, above) (`model` and `memory_gib` before
   `name`, because one hostname shape embeds both), so `(seed, count)`
   yields byte-identical output on every machine — asserted in
   `tests/unit/infrastructure/providers/test_generator.py`. Adding or
@@ -395,7 +400,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   the same reason (facet counts, once a 60s aggregation, are computed in
   the browser since 2026-09-14). The site overview's `si:4:sites:stats` is 30s for the same
   reason: `site_breakdown` is a full collection scan with no index to
-  help a grouping without a match stage, and five collectors change its
+  help a grouping without a match stage, and six collectors change its
   numbers continuously, so there is no clean event to invalidate on.
   Thirty seconds keeps the landing page off the aggregation on every
   refresh while a maintenance toggle still shows on the next look. The
@@ -711,7 +716,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   | `name.site_conflict` | the BMC IP prefix and the server's name name different sites (ADR-0057) | CRITICAL |
   | `memory.degraded_dimm` | a DIMM reports WARNING or CRITICAL | WARNING |
   | `network.all_links_down` | readable links ≥ 1, none up | CRITICAL |
-  | `network.single_link_up` | exactly one link up, however many were readable | CRITICAL |
+  | `network.single_link_up` | **the six physical manager types (not `KUBEVIRT`: a one-NIC VM is normal, ADR-0058)**: exactly one link up, however many were readable | CRITICAL |
   | `gpu.failed` | a GPU reports CRITICAL or DOWN | CRITICAL |
   | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
   | `raid.os_mirror_missing` | **OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER**: the collector's RAID verdict is `ABSENT` (authoritative vendor tree read, no mirror); `UNKNOWN` (DGX, old BMCs) never fires (ADR-0048) | CRITICAL |
@@ -720,8 +725,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
     (2026-09-26, operator's call).** Hosts join the fabric over an 802.3ad
     `bond0` and the switch ports are configured for it, so a server that
     cannot present two bonded uplinks cannot run — `network.single_link_up`
-    therefore fires on *any* server with exactly one link up, including one
-    that only has a single port. Its condition previously required
+    therefore fires on *any* physical server with exactly one link up, including one
+    that only has a single port (a KubeVirt VM is out of its scope, ADR-0058). Its condition previously required
     `links_known_count >= 2`, which made a single-port machine the one shape
     that passed by having too few NICs to fail. `EQ 1` rather than `< 2`
     keeps it disjoint from `network.all_links_down`, which owns the zero
@@ -807,7 +812,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
     (`docs/adr/0027`'s dated update) — operator's call: NICs are deployed
     bonded, so one link up means the bond itself is down, the same as
     every link being down, not merely degraded redundancy. No vendor
-    exception: a Cisco server with one real uplink beside real (not
+    exception among the physical collectors (a KubeVirt VM is out of scope, ADR-0058): a Cisco server with one real uplink beside real (not
     `UNKNOWN`) failures reads CRITICAL too, same as Dell/HPE/standalone.
   - GPU ECC is WARNING at the *first* uncorrectable error, not a
     threshold: memory the card could not repair is a documented
@@ -1282,7 +1287,8 @@ integration that isn't `FakeProvider`. See
   CredentialResolver`, and its one implementation,
   `EnvConnectionResolver` — one endpoint plus login per `ManagerType`,
   read from settings (`INVENTORY_UCS_CENTRAL_IP`/`_USERNAME`/`_PASSWORD`,
-  and the same shape for OneView, OME and Intersight). That
+  and the same shape for OneView, OME and Intersight; KubeVirt's endpoint is a
+  full URL, `INVENTORY_KUBEVIRT_URL`). That
   is the whole of a collector's connection config: no `Manager` document
   to create first, no credentials volume to mount. Resolution is keyed on
   the manager *type*, not a per-manager reference, because this platform
@@ -1354,7 +1360,7 @@ integration that isn't `FakeProvider`. See
 - **How `tools/run_collector.py` is put together** (the module carries
   one-line pointers here rather than the reasoning). **Since 2026-09-13
   the construction half lives in `app.infrastructure.providers.factory`**
-  — `PROVIDER_FACTORIES`, the five `_<vendor>_provider` factories,
+  — `PROVIDER_FACTORIES`, the six `_<vendor>_provider` factories,
   `ENDPOINTLESS_TYPES`/`UNFILTERED_TYPES`/`NAME_PATTERN_FIELD`,
   `resolve_name_pattern`, `manager_for`, `build_provider` and
   `build_provider_for_manager_type` — because `GET /servers/available`
@@ -1634,6 +1640,32 @@ session token.
 Full design, evidence and open questions: `docs/adr/0016`. Runbook:
 `docs/test-redfish-standalone-collector.md`.
 
+### KubeVirt (`KUBEVIRT`)
+
+The sixth collector, and the only one that inventories VMs: OpenShift Virtualization VMs read through
+kubevirt-redfish, a Redfish facade over KubeVirt (a namespace is a Chassis, a VM a ComputerSystem), in the
+team's fork that serves per-System `Memory`, `Processors`, `Storage/Drives`, `EthernetInterfaces` and the VM's
+firmware serial/UUID. `app.infrastructure.providers.kubevirt` keeps the Redfish split (`client.py`,
+`mapping.py`, `provider.py`) and reuses the Redfish exception hierarchy and pure mapping helpers, but not
+`RedfishClient`: the facade is HTTP Basic only, with no Sessions and no `RedfishVersion`.
+
+- **One 401 per run, never retried.** The facade blocks an IP for 15 minutes after 10 failed logins in 5.
+  `health_check` reads only the unauthenticated service root, and one authenticated `GET /redfish/v1/Systems`
+  comes before any concurrency, so a wrong password costs one request; a 401 anywhere stops the run.
+- **Failure split.** The listing failing (unreachable, TLS, 401, any error status) is exit 1. One VM failing is
+  recorded and the run continues (exit 3); a 404 on a VM is "deleted since the listing" and skipped silently.
+- **No `reachable=False` stub.** The "BMC" is the shared facade, so every VM is reachable and the `bmc` category
+  is UNKNOWN (not checked). A stopped VM's links are `UNKNOWN`, not `DOWN`, so it is `UNKNOWN` overall and
+  `/servers/available` never offers it; a running VM's `NoLink` stays `DOWN`.
+- **Tunables:** `INVENTORY_KUBEVIRT_CONCURRENCY` (4, bounded by the facade's client-go 5 qps / burst 10),
+  `_READ_TIMEOUT_SECONDS` (35, just above the Route's 30 s), `_VM_BUDGET_SECONDS` (60),
+  `_RUN_BUDGET_SECONDS` (1800, inside the CronJob's 2400 s `activeDeadlineSeconds`), `_VERIFY_TLS`,
+  `_CA_BUNDLE`.
+- **`get_one`** re-reads one System by the path in its `external_id` (`kubevirt://<host>/redfish/v1/Systems/...`),
+  against the configured `INVENTORY_KUBEVIRT_URL`, never a host taken from the id.
+
+Decision and consequences: `docs/adr/0058`. Verified facts from the live pass: `docs/kubevirt-collectors.md`.
+
 ### Cisco Intersight (`INTERSIGHT`)
 
 The third collector, and the first whose cost does not scale with the
@@ -1775,10 +1807,10 @@ timeout and concurrency are estimates, not yet measured against the
 the health engine's `power.psu_count` and `power.failed_psu_count`
 metrics had nothing to read, so a server with a dead PSU reported HEALTHY
 on power exactly like one with two good ones. It is now populated by all
-five collectors — Intersight and UCS Manager/Central for rack units (a
+five physical collectors — Intersight and UCS Manager/Central for rack units (a
 blade's supplies belong to its shared chassis, not to the blade), the
 shared Redfish mapping's `psus_from_supplies` for Dell and every
-standalone BMC, and OneView for HPE.
+standalone BMC, and OneView for HPE. `KUBEVIRT` sends `()`: a VM has none.
 
 Two rules are shared across every one of those mappings:
 
@@ -1980,7 +2012,7 @@ self-contained, pan/zoom/search HTML diagrams generated with the
 `archify` Claude Code skill: one full-flow overview
 (`runtime-architecture`, now including the prune CronJob, Prometheus and AD
 login) and one sequence diagram per collector (UCS Central, Intersight,
-OpenManage, OneView, standalone Redfish) and the `nodes-status` jobs. Every
+OpenManage, OneView, standalone Redfish; none yet for KubeVirt, ADR-0058) and the `nodes-status` jobs. Every
 message and card fact is sourced from an ADR or the provider file it
 names — see each diagram's own cards for the pointer. Data refreshed
 2026-10-01 for ADR-0037 (stubs with reasons, the OneView iLO probe).

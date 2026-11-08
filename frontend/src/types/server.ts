@@ -7,7 +7,7 @@
  * `null.toFixed()` unmount the page once (commit 1a896af).
  */
 
-export type Vendor = "dell" | "cisco" | "hp" | "standalone";
+export type Vendor = "dell" | "cisco" | "hp" | "standalone" | "kubevirt";
 
 /** Not a union: the closed set is `INVENTORY_SITES`, read via
  * `GET /api/v1/sites` — a copy here drifted once when sites were renamed. */
