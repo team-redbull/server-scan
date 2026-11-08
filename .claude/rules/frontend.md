@@ -113,7 +113,7 @@ Loaded only when a `frontend/` file is open.
   a failed GPU read HEALTHY overall until 2026-09-13. Current set: memory,
   storage, `raid` (2026-10-13), network, connectivity, power, gpu, `bmc` (added 2026-10-01), `name` (2026-11-05, ADR-0057: capacity-vs-name and BMC-vs-name site; `name.has_data` is false with nothing to compare, and the row is hidden while Unknown);
   `cpu` was removed then. The Overview breakdown shows Connectivity only for the fabric collectors
-  (UCS_CENTRAL/UCS_MANAGER/INTERSIGHT) and RAID only for OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER, with the BMC label,
+  (UCS_CENTRAL/UCS_MANAGER/INTERSIGHT) and RAID only for OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER; a KUBEVIRT VM shows no BMC or Power row (ADR-0058); RAID carries the BMC label,
   method and (when Unknown) the reason beside the badge from `hardware.storage.raid`.
 - **Playwright: if you add a page with sibling `<select>` fields, do not
   use `getByLabel`.** A real Chromium quirk makes a `<label>`'s computed

@@ -242,6 +242,9 @@ const BMC_UNCHECKED_PROVIDERS = new Set([
   "KUBEVIRT",
 ]);
 
+/** A KubeVirt VM has no power supply, so its Power row could only ever say "Unknown" (ADR-0058). */
+const POWER_UNCHECKED_PROVIDERS = new Set(["KUBEVIRT"]);
+
 /** Only the fabric-managed Cisco collectors check fabric interconnect paths,
  * so every other server's Connectivity row could only ever say "Unknown". */
 const FABRIC_PROVIDERS = new Set(["UCS_CENTRAL", "UCS_MANAGER", "INTERSIGHT"]);
@@ -268,6 +271,7 @@ function HealthBreakdown({
   const categories = HEALTH_CATEGORIES.filter(({ key }) => {
     const provider = sourceProvider ?? "";
     if (key === "bmc") return !BMC_UNCHECKED_PROVIDERS.has(provider);
+    if (key === "power") return !POWER_UNCHECKED_PROVIDERS.has(provider);
     if (key === "connectivity") return FABRIC_PROVIDERS.has(provider);
     if (key === "raid") return RAID_PROVIDERS.has(provider);
     if (key === "gpu") return hasGpus;
