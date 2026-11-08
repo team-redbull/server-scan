@@ -253,12 +253,13 @@ async def test_a_sub_resource_failing_is_unread_never_empty(
 
 
 async def test_a_vm_over_its_budget_is_recorded(facade: KubeVirtFixture) -> None:
-    facade.delays[_KV02.path] = 0.5
-    provider = _provider(facade.url, vm_budget_seconds=0.1)
+    # A VM is ~9 requests; 1 s leaves a loaded CI runner room, 0.1 s did not.
+    facade.delays[_KV02.path] = 2.5
+    provider = _provider(facade.url, vm_budget_seconds=1.0)
     servers = await _collect(provider)
 
     assert set(servers) == {"ocp-tlv-kv-01", "ocp-tlv-kv-03"}
-    assert provider.collection_errors == ("vms.ocp-tlv-kv-02: exceeded its 0.1s budget",)
+    assert provider.collection_errors == ("vms.ocp-tlv-kv-02: exceeded its 1s budget",)
 
 
 async def test_the_run_budget_stops_the_run_and_says_how_many_were_left(
