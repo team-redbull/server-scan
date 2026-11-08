@@ -88,3 +88,9 @@ cirros VMs (`ocp-tlv-kv-01..03`, two running, one `Halted`); server-scan ran as 
   `host-model-cpu.node.kubevirt.io/EPYC`, and the guest's libvirt domain says `EPYC`, vendor `AMD`.
 - Run 1: `fetched=3 created=3 errors=0` in 0.3 s from inside the cluster; run 2: `unchanged=3`. Every
   sub-resource answered 200 for the halted VM.
+- **`Oem.KubeVirt.NodeName` (fork `139404d`)** equals the VMI's `status.nodeName`
+  (`ip-10-0-28-121.us-east-2.compute.internal`) and is absent for the halted VM. Stored as `ip-10-0-28-121`.
+  The first run after upgrading to ADR-0059 was `updated=3` (each VM gained `vm_host`, and `host-model`
+  became no model), the next `unchanged=3`. `GET /servers/{id}/vm-host` answered `NOT_IN_INVENTORY` for the
+  running VMs (this cluster's nodes are AWS instances, not inventoried servers) and `NOT_RUNNING` for the
+  halted one; a `MEMBERSHIP` match has not been seen live.
