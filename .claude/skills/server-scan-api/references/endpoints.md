@@ -66,8 +66,8 @@ Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern),
 `AVAILABLE_COUNT_TOO_LARGE`, ambiguous name, nothing found (404 `AVAILABLE_SERVER_NOT_FOUND`: `detail` says why,
 e.g. "already installed in cluster x" or "in maintenance", `details.reasons` has codes such as
 `INSTALLED`, `CLAIMED`, `MAINTENANCE`, `UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`), and 503 `SERVICE_UNAVAILABLE` when the
-vendor manager failed or timed out during the live recheck (`details.manager_type`, `details.reason`;
-retry later, it does not mean no server is available).
+vendor manager failed or timed out during the live recheck (`details.manager_type`, `details.reason`, the vendor's
+error cut to 500 characters; retry later, it does not mean no server is available).
 
 ## Events
 

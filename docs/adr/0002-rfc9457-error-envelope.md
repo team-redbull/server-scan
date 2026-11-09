@@ -66,3 +66,21 @@ field — never `type`/`code`/`details` — so there is no client this ADR's
 consistency goal is protecting here, and shaping the body as problem
 details would add nothing a probe reads while still needing bespoke
 handling to build (it isn't raised as an `AppError`).
+
+**Addendum, 2026-11-09 — every string in an error body is bounded.** The
+renderer cuts `detail`, and every string inside `details` however deeply
+nested, to `MAX_ERROR_TEXT_CHARS` (1,000) characters, ending a cut one with
+`… [N more characters cut from this response; see the server log for
+request_id <id>]` and logging `request.error_detail_truncated` with the full
+length. The 503 for a failed live recheck also bounds the vendor's exception
+text at its source (`recheck_failure_reason`, 500 characters; the full text
+is in the `available.recheck_failed` log line). Why: callers copy `detail`
+into their own errors. The workflows' add-server-to-mce run failed with
+Temporal's "Failure exceeds size limit." — Temporal replaces any activity
+failure over 2 MiB with that message, non-retryable — because its
+server-scan client copied an error body over 2 MiB whole. That body did not
+come from `main`'s 404 (counts per reason, bounded), but nothing stopped an
+`AppError` built from external text, such as a vendor exception, from
+growing that large. The client now cuts what it copies as well; this is the
+same rule at the source. A short `detail` is unchanged, so no caller that
+matches on it sees a difference.

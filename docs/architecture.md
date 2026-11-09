@@ -192,7 +192,11 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
    Problem Details body (`application/problem+json`), extended with a
    stable `code`, the `request_id`, and structured `details`. RFC 9457 was
    chosen over a bespoke envelope because it is the current IETF standard
-   for HTTP API errors, not because any prior project used it.
+   for HTTP API errors, not because any prior project used it. Every string
+   in the body (`detail`, anything inside `details`) is cut to 1,000
+   characters with a marker naming the `request_id` (ADR-0002, 2026-11-09):
+   callers copy `detail` into their own errors, and an unbounded one once
+   made a Temporal activity failure too large to record.
 
 ## Authentication and authorization (ADR-0034)
 
