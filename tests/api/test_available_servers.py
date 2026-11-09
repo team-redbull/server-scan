@@ -450,6 +450,41 @@ async def test_a_vendor_manager_failure_is_a_503_naming_the_manager_not_a_500(
     assert body["details"]["manager_type"] == "UCS_CENTRAL"
 
 
+async def test_a_vendor_failure_with_a_multi_mb_message_answers_a_small_503(
+    app_context: tuple[AsyncClient, MongoServerRepository], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller copies the 503 into its own error; over 2 MiB Temporal makes it unreadable."""
+    client, repo = app_context
+    await repo.upsert(
+        _make_server(
+            0,
+            name="ocp-ucs-huge-error",
+            vendor=Vendor.CISCO,
+            source_provider=ManagerType.UCS_CENTRAL.value,
+        )
+    )
+
+    class _Verbose(FakeProvider):
+        async def get_one(self, identity: object) -> None:
+            raise RuntimeError("<html>" + "x" * (3 * 1024 * 1024) + "</html>")
+
+    monkeypatch.setattr(
+        servers_module,
+        "build_provider_for_manager_type",
+        lambda manager_type, settings: _Verbose(
+            seed=1, count=1, provider_type=ManagerType.UCS_CENTRAL.value
+        ),
+    )
+
+    resp = await client.get("/api/v1/servers/available", params={"name": "ocp-ucs-huge-error"})
+
+    assert resp.status_code == 503
+    assert len(resp.content) < 4_000
+    body = resp.json()
+    assert "RuntimeError: <html>xxx" in body["detail"]
+    assert "more characters" in body["details"]["reason"]
+
+
 def _installed(server: Server, cluster: str = "ocp4-prod") -> Server:
     return server.model_copy(
         update={

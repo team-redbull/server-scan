@@ -27,9 +27,53 @@ logger = structlog.get_logger(__name__)
 
 _PROBLEM_JSON = "application/problem+json"
 
+# A caller copies `detail` into its own errors (a Temporal activity failure over 2 MiB
+# is replaced, unreadable): ADR-0002, 2026-11-09 addendum.
+MAX_ERROR_TEXT_CHARS = 1_000
+
 
 def _request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
+
+
+def _bounded_text(text: str, request_id: str | None) -> str:
+    """
+    Cut `text` to `MAX_ERROR_TEXT_CHARS`, saying how much was cut and for which request.
+
+    Args:
+        text (str): A `detail`, or a string inside `details`.
+        request_id (str | None): The request's id, which finds its log lines.
+
+    Returns:
+        str: `text` unchanged when short enough, else its start and a marker.
+    """
+    if len(text) <= MAX_ERROR_TEXT_CHARS:
+        return text
+    cut = len(text) - MAX_ERROR_TEXT_CHARS
+    return (
+        f"{text[:MAX_ERROR_TEXT_CHARS]}… [{cut:,} more characters cut from this response; "
+        f"see the server log for request_id {request_id}]"
+    )
+
+
+def _bounded_details(value: object, request_id: str | None) -> object:
+    """
+    Apply `_bounded_text` to every string inside `details`, however deeply nested.
+
+    Args:
+        value (object): `details`, or one value inside it.
+        request_id (str | None): The request's id, for the truncation marker.
+
+    Returns:
+        object: The same structure with every long string cut; other leaves unchanged.
+    """
+    if isinstance(value, str):
+        return _bounded_text(value, request_id)
+    if isinstance(value, dict):
+        return {key: _bounded_details(item, request_id) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_bounded_details(item, request_id) for item in value]
+    return value
 
 
 def _problem_response(
@@ -42,15 +86,25 @@ def _problem_response(
     details: dict[str, object] | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
+    request_id = _request_id(request)
+    if len(detail) > MAX_ERROR_TEXT_CHARS:
+        logger.warning(
+            "request.error_detail_truncated",
+            error_code=code,
+            status_code=status_code,
+            path=request.url.path,
+            request_id=request_id,
+            detail_length=len(detail),
+        )
     body = {
         "type": f"/problems/{code.lower().replace('_', '-')}",
         "title": title,
         "status": status_code,
-        "detail": detail,
+        "detail": _bounded_text(detail, request_id),
         "instance": request.url.path,
         "code": code,
-        "request_id": _request_id(request),
-        "details": details or {},
+        "request_id": request_id,
+        "details": _bounded_details(details or {}, request_id),
     }
     return JSONResponse(
         status_code=status_code, content=body, media_type=_PROBLEM_JSON, headers=headers

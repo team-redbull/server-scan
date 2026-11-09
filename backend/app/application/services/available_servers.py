@@ -52,6 +52,29 @@ _STORED_ONLY_CODES = frozenset({"INSTALLED", "CLAIMED", "MAINTENANCE", "RESERVED
 # ADR-0032, "candidate ranking".
 _MAX_REPLACEMENT_ROUNDS_PER_TIER = 3
 
+# A vendor's exception text reaches the 503 in `detail` and `details.reason` (ADR-0002, 2026-11-09).
+_MAX_RECHECK_REASON_CHARS = 500
+
+
+def recheck_failure_reason(exc: Exception) -> str:
+    """
+    Name a vendor failure for the 503, in at most `_MAX_RECHECK_REASON_CHARS` characters.
+
+    Args:
+        exc (Exception): What the provider's `get_one()` raised; its full text is logged.
+
+    Returns:
+        str: `<ExceptionType>: <message>`, cut with a marker when too long.
+    """
+    reason = f"{type(exc).__name__}: {exc}"
+    if len(reason) <= _MAX_RECHECK_REASON_CHARS:
+        return reason
+    cut = len(reason) - _MAX_RECHECK_REASON_CHARS
+    return (
+        f"{reason[:_MAX_RECHECK_REASON_CHARS]}… [{cut:,} more characters in the "
+        "available.recheck_failed log line]"
+    )
+
 
 class AvailableServersNotFoundError(Exception):
     """No server could be returned at all; `reason` is the human-readable detail."""
@@ -727,7 +750,7 @@ class AvailableServersService:
                     "available.recheck_failed", server=server.name, manager_type=manager_type.value
                 )
                 raise VendorRecheckError(
-                    manager_type, server.name, f"{type(exc).__name__}: {exc}"
+                    manager_type, server.name, recheck_failure_reason(exc)
                 ) from exc
             if fresh is None:
                 outcome = "not_found"

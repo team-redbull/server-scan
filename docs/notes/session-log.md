@@ -8,6 +8,18 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-08 — a KubeVirt VM records the node it runs on, resolved to its bare-metal server when read (ADR-0059).**
+Moved to `docs/notes/session-log.md`: the `KUBEVIRT` collector unit (ADR-0058).
+
+**Shipped:** the fork's `Oem.KubeVirt.NodeName` (change 11, `139404d` on fork `main`); `Server.vm_host` (`cluster_name`, `node_name`, names
+only), `INVENTORY_KUBEVIRT_CLUSTER_NAME` / Helm `collectors.kubevirt.clusterName`; uncached `GET /servers/{id}/vm-host` (membership, then name);
+the Overview "Host" row with the host's CPU; `host-model`/`host-passthrough` stored as no CPU model; fake VMs on same-site hosts. Live on
+cluster-2qsc5 (`docs/kubevirt-collectors.md`, second pass): the platform's Argo `kubevirt-redfish` app now runs the fork image (redbull-platform).
+
+**Open:** `MEMBERSHIP` resolution was never seen live (cluster-2qsc5's nodes are AWS instances, not inventoried). Test release `ssk` in
+`server-scan-kubevirt` and VMs in `server-scan-vms` on cluster-2qsc5 (`helm uninstall ssk -n server-scan-kubevirt`, `oc delete ns` both).
+`frontend/Containerfile` fails under buildah (`npm ci` EACCES on a root-owned `/app`); CI's BuildKit is unaffected. Branch not merged to `main`.
+
 **2026-11-08 — a sixth collector, `KUBEVIRT`: OpenShift Virtualization VMs through the kubevirt-redfish fork (ADR-0058).**
 Moved to `docs/notes/session-log.md`: the Jobs page / BMC-IP site fallback unit (ADR-0055, 0056).
 
