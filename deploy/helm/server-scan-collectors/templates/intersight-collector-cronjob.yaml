@@ -1,0 +1,63 @@
+{{- $c := .Values.collectors | default dict }}
+{{- $is := $c.intersight | default dict }}
+{{- if $is.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-collector-intersight
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-collector-intersight
+    {{- include "collectors.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $is.schedule | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $is.backoffLimit }}
+      activeDeadlineSeconds: {{ $is.activeDeadlineSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: collector
+              image: {{ include "collectors.image" . | quote }}
+              imagePullPolicy: {{ include "collectors.pullPolicy" . }}
+              command: ["python3", "-m", "tools.run_collector", "--manager-type", "INTERSIGHT"]
+              env:
+                {{- include "collectors.commonEnv" . | nindent 16 }}
+                - name: INVENTORY_COLLECTOR_NAME_PATTERN
+                  value: {{ $c.namePattern | quote }}
+                {{- if hasKey $is "namePattern" }}
+                - name: INVENTORY_INTERSIGHT_NAME_PATTERN
+                  value: {{ $is.namePattern | quote }}
+                {{- end }}
+                - name: INVENTORY_INTERSIGHT_MANAGEMENT_MODES
+                  value: {{ $is.managementModes | quote }}
+                - name: INVENTORY_INTERSIGHT_PAGE_SIZE
+                  value: {{ $is.pageSize | quote }}
+                - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+                  value: {{ $is.connectTimeoutSeconds | quote }}
+                - name: INVENTORY_INTERSIGHT_READ_TIMEOUT_SECONDS
+                  value: {{ $is.readTimeoutSeconds | quote }}
+                - name: INVENTORY_INTERSIGHT_RUN_BUDGET_SECONDS
+                  value: {{ $is.runBudgetSeconds | quote }}
+                {{- include "collectors.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "collectors.configMapName" . }}
+                - secretRef:
+                    name: {{ include "collectors.credentialsSecretName" . }}
+              resources:
+                {{- toYaml $is.resources | nindent 16 }}
+              securityContext:
+                {{- include "collectors.securityContext" . | nindent 16 }}
+{{- end }}

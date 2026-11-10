@@ -45,7 +45,7 @@ from dataclasses import replace
 
 from app.domain.enums import ManagerType, UnreachableReason
 from app.domain.models.common import AuditFields
-from app.domain.models.manager import Manager
+from app.domain.models.manager import Manager, manager_id_and_name
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderAttachment, ProviderNic, ProviderServer
 from app.domain.value_objects.site import SiteCatalog, site_catalog
@@ -80,19 +80,33 @@ def _site_id(code: str) -> str:
     return code
 
 
-def manager_id_for(manager_type: ManagerType) -> str:
+def manager_id_for(manager_type: ManagerType, *, kubevirt_cluster: str = "") -> str:
     """
     The `Manager` document id a collector of this type writes.
 
-    Identical to `tools.run_collector.manager_for`'s id on purpose.
+    Identical to `factory.manager_for`'s id on purpose: both call `manager_id_and_name`.
 
     Args:
         manager_type (ManagerType): The collector's manager type.
+        kubevirt_cluster (str): The VM's cluster; required for `KUBEVIRT` only.
 
     Returns:
         str: The deterministic manager id.
     """
-    return f"mgr_{manager_type.value.lower()}"
+    return manager_id_and_name(manager_type, kubevirt_cluster=kubevirt_cluster)[0]
+
+
+def kubevirt_cluster_for(site_code: str) -> str:
+    """
+    The KubeVirt cluster a fake VM at this site runs on, one per site.
+
+    Args:
+        site_code (str): A site code.
+
+    Returns:
+        str: The cluster name, which is also its `vm_host.cluster_name`.
+    """
+    return f"upi-{site_code}"
 
 
 def _is_blade(model: str) -> bool:
@@ -202,26 +216,37 @@ def list_sites(sites: SiteCatalog | None = None) -> list[Site]:
     ]
 
 
-def list_managers() -> list[Manager]:
+def list_managers(sites: SiteCatalog | None = None) -> list[Manager]:
     """
     The managers the seeded fleet is collected through.
 
-    One document per collector, mirroring `tools.run_collector.manager_for`.
+    One document per collector, mirroring `factory.manager_for`, and one
+    `KUBEVIRT` manager per site's cluster (`kubevirt_cluster_for`).
+
+    Args:
+        sites (SiteCatalog | None): The sites the fleet was generated with,
+            or None for the shipped default.
 
     Returns:
-        list[Manager]: One `Manager` per entry in `COLLECTOR_TYPES`.
+        list[Manager]: One `Manager` per collector and KubeVirt cluster.
     """
-    return [
-        Manager(
-            id=manager_id_for(manager_type),
-            name=manager_type.value.lower().replace("_", "-"),
-            type=manager_type,
-            endpoint=None,
-            enabled=True,
-            audit=AuditFields.new(),
-        )
-        for manager_type in COLLECTOR_TYPES
-    ]
+    codes = (sites if sites is not None else _DEFAULT_SITES).codes
+    managers: list[Manager] = []
+    for manager_type in COLLECTOR_TYPES:
+        kubevirt = manager_type is ManagerType.KUBEVIRT
+        for cluster in [kubevirt_cluster_for(code) for code in codes] if kubevirt else [""]:
+            manager_id, name = manager_id_and_name(manager_type, kubevirt_cluster=cluster)
+            managers.append(
+                Manager(
+                    id=manager_id,
+                    name=name,
+                    type=manager_type,
+                    endpoint=None,
+                    enabled=True,
+                    audit=AuditFields.new(),
+                )
+            )
+    return managers
 
 
 _VENDORS = ("dell", "cisco", "hp", "standalone")
@@ -1210,6 +1235,7 @@ def _kubevirt_vm(seed: int, index: int, site_code: str, hosts: Sequence[str]) ->
         ProviderServer: Always reachable; no BMC MAC, PSU, GPU, template or RAID verdict.
     """
     rng = random.Random(f"kubevirt/{seed}/{index}")  # noqa: S311 - deterministic fake data
+    cluster = kubevirt_cluster_for(site_code)
     shape = rng.choice(("upi", "hosted_cluster"))
     name = (
         f"ocp4-{site_code}-vm-{rng.choice(_NAME_ROLES)}-{index % 100:02d}"
@@ -1258,7 +1284,7 @@ def _kubevirt_vm(seed: int, index: int, site_code: str, hosts: Sequence[str]) ->
             for i, mac in enumerate(macs)
         ),
         bmc_address_raw=f"redfish://{_KUBEVIRT_FACADE}{path}",
-        manager_id=manager_id_for(ManagerType.KUBEVIRT),
+        manager_id=manager_id_for(ManagerType.KUBEVIRT, kubevirt_cluster=cluster),
         profile_template_name="",
         profile_template_external_id="",
         cpu_sockets=1,
@@ -1297,7 +1323,7 @@ def _kubevirt_vm(seed: int, index: int, site_code: str, hosts: Sequence[str]) ->
             node = f"ocp4-{site_code}-gone-{index % 100:02d}"
         else:
             node = clean_hostname(rng.choice(hosts)) or ""
-    return replace(vm, vm_host_cluster=f"upi-{site_code}", vm_host_node=node)
+    return replace(vm, vm_host_cluster=cluster, vm_host_node=node)
 
 
 def generate_servers(

@@ -118,6 +118,9 @@ spec:
           expr: max by (namespace, source_provider) (server_scan_collector_last_run_partial)
         - record: server_scan:collector_last_run_age_seconds
           expr: time() - max by (namespace, source_provider) (server_scan_collector_last_run_timestamp_seconds)
+        # Per manager, not per type: every KubeVirt cluster runs its own KUBEVIRT collector.
+        - record: server_scan:collector_last_run_age_seconds:by_manager
+          expr: time() - max by (namespace, source_provider, manager) (server_scan_collector_last_run_timestamp_seconds)
         - record: server_scan:collector_last_seen_timestamp_seconds:max
           expr: max by (namespace, source_provider) (server_scan_collector_last_seen_timestamp_seconds)
         - record: server_scan:cluster_servers_held:max
@@ -177,8 +180,9 @@ spec:
 
     # Login and external-dependency calls (ADR-0042). Unlike the fleet gauges these are per-request
     # counters and histograms, so they are SUMMED across replicas, not `max`ed. `outcome` values
-    # that are not failures: ok, invalid_credentials (a wrong password), verified, not_found, and
-    # cancelled (the caller went away) — everything else is a timeout or an error.
+    # that are not failures: ok, invalid_credentials (a wrong password), verified, not_found,
+    # skipped_foreign (another cluster's VM) and cancelled (the caller went away) — everything else
+    # is a timeout or an error.
     - name: server-scan.auth.rules
       interval: 30s
       rules:
@@ -195,7 +199,7 @@ spec:
         - record: server_scan:dependency_call_duration_seconds:p99
           expr: histogram_quantile(0.99, sum by (namespace, dependency, le) (rate(dependency_call_duration_seconds_bucket[5m])))
         - record: server_scan:dependency_failure_ratio:rate10m
-          expr: sum by (namespace, dependency) (rate(dependency_call_duration_seconds_count{outcome!~"ok|invalid_credentials|verified|not_found|cancelled"}[10m])) / sum by (namespace, dependency) (rate(dependency_call_duration_seconds_count{outcome!="cancelled"}[10m]))
+          expr: sum by (namespace, dependency) (rate(dependency_call_duration_seconds_count{outcome!~"ok|invalid_credentials|verified|not_found|skipped_foreign|cancelled"}[10m])) / sum by (namespace, dependency) (rate(dependency_call_duration_seconds_count{outcome!="cancelled"}[10m]))
 
     - name: server-scan.auth
       rules:
@@ -234,6 +238,14 @@ spec:
           annotations:
             summary: "Collector {{ "{{ $labels.source_provider }}" }} has not read any server for over {{ $silent }}s"
             description: "Its CronJob is failing, suspended, or never ran. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
+        - alert: ServerScanCollectorRunStale
+          expr: server_scan:collector_last_run_age_seconds:by_manager > {{ $silent }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Collector manager {{ "{{ $labels.manager }}" }} ({{ "{{ $labels.source_provider }}" }}) has not finished a run for over {{ $silent }}s"
+            description: "ServerScanCollectorSilent is per collector type, so one KubeVirt cluster's collector going quiet is hidden while another's still runs. Check that manager's CronJob (on its own cluster for KUBEVIRT). A manager that was retired keeps its last run in the managers collection, and this fires until that document is deleted."
         - alert: ServerScanServersStale
           expr: server_scan:servers_stale:max > {{ $stale }}
           for: 30m

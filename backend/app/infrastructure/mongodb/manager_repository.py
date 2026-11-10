@@ -63,6 +63,19 @@ class MongoManagerRepository:
             {"_id": manager_id}, {"$set": {"last_run": run.model_dump(mode="json")}}
         )
 
+    async def delete(self, manager_id: str) -> bool:
+        """
+        Remove one manager document, if it exists.
+
+        Args:
+            manager_id (str): The manager to remove.
+
+        Returns:
+            bool: True if a document was deleted.
+        """
+        result = await self._collection.delete_one({"_id": manager_id})
+        return result.deleted_count == 1
+
     async def get_by_id(self, manager_id: str) -> Manager | None:
         """
         Look up one manager by its id.

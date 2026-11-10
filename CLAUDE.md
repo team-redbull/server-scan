@@ -280,7 +280,7 @@ long form of each entry is in the 2026-09-13 archive.
   what a BMH/NMState generator consumes: `bmc_vendor` in bmhgen's
   `HP`/`DELL`/`CISCO`/`INTERSIGHT`, bare BMC host, ordered MACs, per-interface
   `os_name`) — do not grow it back. **The API pod mounts the
-  collector-credentials Secret** (`backend-deployment.yaml`) except
+  collectors release's credentials Secret** (`recheck.credentialsSecret`, optional, ADR-0060) except
   `REDFISH_STANDALONE`'s per-host TOML files (CronJob-only, so BMC passwords
   stay out of the Route-exposed pod). No reservation/lock: concurrent callers
   can draw the same server (accepted in the ADR).
@@ -358,10 +358,15 @@ long form of each entry is in the 2026-09-13 archive.
   back to the profile's org DN. Known collision: a code that is a substring of
   `infra` makes every `-infra-` server ambiguous.
 - **"Run job" creates a real Job from a CronJob's `jobTemplate` through the Kubernetes API** (ADR-0055, plain `httpx` + ServiceAccount
-  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 7 collectors
-  and 2 prunes, never `nodes-status`), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
+  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 2 prunes and the
+  hub `server-scan-collectors` release's collectors, never `nodes-status` or a KubeVirt cluster's), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
   triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
   `jobTrigger.enabled` (on by default, absent = on) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
+- **Collectors are their own chart, `deploy/helm/server-scan-collectors`** (ADR-0060): same `server-scan-api` image,
+  but CI pins only `server-scan`; a collectors release's tag is bumped by hand, always *after* server-scan (an older API
+  cannot load what a newer collector writes). A new collector template goes there, not in server-scan; prunes stay in
+  server-scan. **One KubeVirt collector per KubeVirt cluster**, manager `mgr_kubevirt_<slug>` (cluster name required); every
+  other type is one manager per type. Collectors set `INVENTORY_AUTH_ENABLED=false` and use no Redis.
 - **A server's site is the BMC IP prefix first, then the name, then the profile DN** (ADR-0057 reverses ADR-0056; the iDRAC
   is the source of truth). `INVENTORY_SITE_BMC_PREFIXES`, `SiteCatalog.parse_bmc`: whole octets, longest wins, IPv4 only; any
   caller building a catalog for ingest passes both specs. `Server.site_from_bmc`/`site_from_name` keep both answers, and a
@@ -480,14 +485,16 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-09 — every string in an error body is cut to 1,000 characters (ADR-0002, 2026-11-09 addendum).**
-Moved to `docs/notes/session-log.md`: the VM-host unit (ADR-0059).
+**2026-11-10 — collectors split into their own chart, `deploy/helm/server-scan-collectors`; one KubeVirt collector per cluster (ADR-0060).**
+Moved to `docs/notes/session-log.md`: the bounded-error-detail unit (ADR-0002 addendum).
 
-**Shipped:** `app.exception_handlers._problem_response` cuts `detail` and every string inside `details` to `MAX_ERROR_TEXT_CHARS`
-(1,000) with a `… [N more characters cut …; see the server log for request_id …]` marker and a `request.error_detail_truncated` log line;
-`recheck_failure_reason` bounds a vendor's exception text to 500 in the `/servers/available` 503 (full text in `available.recheck_failed`).
-Why: the workflows' add-server-to-mce failed with Temporal's "Failure exceeds size limit." after its client copied an error body over
-2 MiB whole; the workflows repo caps what it copies too (its own PR).
+**Shipped (branch `feat/collectors-chart`):** every collector CronJob, the credentials Secret and the Redfish inventory moved out of
+`server-scan` (now 0.5.0: API, UI, prunes, a `recheck` block for the API's credentials and timeouts). Same image; CI pins only
+server-scan, collectors are bumped by hand after it. `KUBEVIRT` managers are `mgr_kubevirt_<slug>` (cluster name required; the first
+run deletes the old `mgr_kubevirt`); run gauges have a `manager` label and `ServerScanCollectorRunStale`; the hub API never
+rechecks a VM (`skipped_foreign` guard). CI renders both charts and now really renders the OME CronJob (`collectors.ome`).
 
-**Open:** which response was over 2 MiB is still unknown — the failed run's ServerFailure `cause` (first 512 KiB) names its status;
-`main`'s 404 cannot be that large. Branch `fix/bounded-error-detail`, PR open, not merged.
+**Open:** **merge only after redbull-platform has a hub `server-scan-collectors` Application** (collectors.* values moved there,
+`config.existingConfigMap: server-scan-api-config`, `db.cursorSecretName: server-scan-db` as the platform's
+`existingCursorSecret`), or the hub runs no collectors until it does. Then one Application per KubeVirt cluster. Not yet run
+live on cluster-2qsc5. `deploy/grafana` panels still split collectors by `source_provider` only.

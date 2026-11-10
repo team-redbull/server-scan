@@ -7,7 +7,7 @@ paths:
   - "backend/app/infrastructure/providers/factory.py"
   - "tools/verify_*.py"
   - "docs/*-collectors.md"
-  - "deploy/helm/server-scan/templates/*collector*"
+  - "deploy/helm/server-scan-collectors/templates/*"
 ---
 
 # Collectors — read before touching a provider
@@ -29,7 +29,9 @@ vendor raises `ManagerNotConfiguredError` naming the variables), talks to
 the vendor API, normalizes into `ProviderServer`, and feeds `IngestService`
 — classify, health-evaluate, audit, upsert, one write per server. A
 `Manager` document is written per run as a *projection* of that config
-(`manager_for`), never its source. A collector never talks to the API.
+(`manager_for`), never its source: `mgr_<type>`, except `mgr_kubevirt_<cluster slug>` (ADR-0060,
+one KubeVirt collector per cluster). A collector never talks to the API. The CronJobs are the
+`deploy/helm/server-scan-collectors` chart, not `server-scan`.
 
 **`UCS_MANAGER` is the one carve-out: a login with no endpoint** and no
 CronJob — `UCS_CENTRAL` discovers every domain's address at runtime and logs
@@ -198,6 +200,8 @@ the global and filter on the override, silently.
   (the BMC is the shared facade). A stopped VM's links are `UNKNOWN`, never `DOWN`. Serial is
   the VM's firmware serial, else the System `Id`; KubeVirt writes a random `firmware.serial`
   into every VM, so recreating one from a manifest without its firmware block mints a new document.
+  **`INVENTORY_KUBEVIRT_CLUSTER_NAME` is required** (it is the manager id, ADR-0060); `get_one` on
+  another facade's VM raises `NotThisManagersServerError` (`skipped_foreign`), never a 404.
 
 ## The research bar for any vendor work
 

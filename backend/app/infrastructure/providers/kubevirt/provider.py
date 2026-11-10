@@ -16,7 +16,12 @@ import structlog
 
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
-from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    NotThisManagersServerError,
+    ProviderServer,
+    ServerIdentity,
+    ServerInventoryProvider,
+)
 from app.infrastructure.providers.kubevirt.client import (
     SERVICE_ROOT,
     SYSTEMS,
@@ -156,11 +161,20 @@ class KubeVirtProvider(ServerInventoryProvider):
 
         Returns:
             ProviderServer | None: The VM's current state, or None when the id is
-                foreign, the VM is gone, or the facade could not be read.
+                malformed, the VM is gone, or the facade could not be read.
+
+        Raises:
+            NotThisManagersServerError: The id names another cluster's facade.
         """
         path = _system_path(identity.external_id)
         if path is None:
             return None
+        netloc = _netloc_of(identity.external_id or "")
+        if netloc.lower() != self._netloc.lower():
+            logger.info("kubevirt.recheck_foreign", netloc=netloc, facade=self._netloc)
+            raise NotThisManagersServerError(
+                f"{identity.external_id} is served by {netloc}, not this facade ({self._netloc})"
+            )
         try:
             async with asyncio.timeout(self._vm_budget), self._client_factory() as client:
                 return await self._collect_system(client, path)
@@ -351,6 +365,20 @@ class KubeVirtProvider(ServerInventoryProvider):
                     )
                     return None
         return list(drives.values())
+
+
+def _netloc_of(external_id: str) -> str:
+    """
+    The facade `host[:port]` inside a `kubevirt://` external id.
+
+    Args:
+        external_id (str): An id `_system_path` accepted.
+
+    Returns:
+        str: The netloc, possibly `""`.
+    """
+    netloc, _, _ = external_id.removeprefix(EXTERNAL_ID_SCHEME).partition("/")
+    return netloc
 
 
 def _system_path(external_id: str | None) -> str | None:

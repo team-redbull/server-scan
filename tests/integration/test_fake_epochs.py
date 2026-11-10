@@ -38,7 +38,7 @@ async def _seed(mongo: MongoClientHolder, epoch: int) -> None:
         audit=AuditService(repo=MongoAuditEventRepository(mongo)),
     )
     for provider in fake_providers(seed=42, count=400, sites=SITES, epoch=epoch):
-        await service.ingest(provider, sites=list_sites(SITES), managers=list_managers())
+        await service.ingest(provider, sites=list_sites(SITES), managers=list_managers(SITES))
 
 
 async def _transitions(mongo: MongoClientHolder) -> set[tuple[str, str]]:

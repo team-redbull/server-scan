@@ -1,4 +1,4 @@
-{{- /* Every triggerable CronJob and whether values.yaml turns it on, for the Jobs page. A disabled job renders no CronJob, so the API cannot learn it from the cluster. Mounted (not env) so a values change shows without a pod restart. Each key is read tolerantly: the platform repo's values.yaml may lack newer ones. */ -}}
+{{- /* This chart's triggerable CronJobs and whether values.yaml turns them on, for the Jobs page: a disabled job renders no CronJob, so the API cannot learn it from the cluster. The collectors release's labelled CronJobs are listed from the cluster without an entry here. Mounted (not env) so a values change shows without a pod restart. Each key is read tolerantly: the platform repo's values.yaml may lack newer ones. */ -}}
 {{- $jobTrigger := .Values.jobTrigger | default dict }}
 {{- $jobTriggerOn := ternary $jobTrigger.enabled true (hasKey $jobTrigger "enabled") }}
 {{- if $jobTriggerOn }}
@@ -7,13 +7,6 @@
 {{- $ar := $c.auditRetention | default dict }}
 {{- $rel := .Release.Name }}
 {{- $jobs := list
-  (dict "name" (printf "%s-collector-ucs-central" $rel) "enabled" (($c.ucsCentral | default dict).enabled | default false))
-  (dict "name" (printf "%s-collector-intersight" $rel) "enabled" (($c.intersight | default dict).enabled | default false))
-  (dict "name" (printf "%s-collector-oneview" $rel) "enabled" (($c.oneview | default dict).enabled | default false))
-  (dict "name" (printf "%s-collector-openmanage" $rel) "enabled" (($c.ome | default dict).enabled | default false))
-  (dict "name" (printf "%s-collector-redfish-standalone" $rel) "enabled" (($c.redfishStandalone | default dict).enabled | default false))
-  (dict "name" (printf "%s-collector-kubevirt" $rel) "enabled" (($c.kubevirt | default dict).enabled | default false))
-  (dict "name" (printf "%s-collector-fake" $rel) "enabled" (($c.fake | default dict).enabled | default false))
   (dict "name" (printf "%s-prune-servers" $rel) "enabled" ($pr.enabled | default false))
   (dict "name" (printf "%s-prune-events" $rel) "enabled" (ternary $ar.enabled true (hasKey $ar "enabled")))
 }}

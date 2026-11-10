@@ -158,7 +158,7 @@ them all. The ones that matter first:
 | Variable | Meaning |
 |---|---|
 | `INVENTORY_SITES` | Site codes and names, e.g. `tlv:Tel Aviv,nyc:New York`. A server's site is parsed from its hostname ([ADR-0018](docs/adr/0018-sites-from-configuration.md)). |
-| `INVENTORY_<MANAGER>_IP` / `_USERNAME` / `_PASSWORD` | One set per manager: `UCS_CENTRAL`, `OME`, `ONEVIEW`. Intersight signs requests instead: `INVENTORY_INTERSIGHT_IP`, `_API_KEY_ID`, `_API_KEY_PEM`. KubeVirt takes a URL: `INVENTORY_KUBEVIRT_URL` (plus an optional `INVENTORY_KUBEVIRT_CLUSTER_NAME`). |
+| `INVENTORY_<MANAGER>_IP` / `_USERNAME` / `_PASSWORD` | One set per manager: `UCS_CENTRAL`, `OME`, `ONEVIEW`. Intersight signs requests instead: `INVENTORY_INTERSIGHT_IP`, `_API_KEY_ID`, `_API_KEY_PEM`. KubeVirt takes a URL: `INVENTORY_KUBEVIRT_URL` (plus the required `INVENTORY_KUBEVIRT_CLUSTER_NAME`, one collector per cluster, [ADR-0060](docs/adr/0060-collectors-chart.md)). |
 
 Run a collector by hand with `uv run python -m tools.run_collector --manager-type
 <TYPE> --dry-run`. Per-vendor setup and field-test steps are in
@@ -171,8 +171,9 @@ and `server-scan-frontend`, versioned from
 [Conventional Commits](https://www.conventionalcommits.org/); the release notes are the
 commit subjects ([ADR-0010](docs/adr/0010-image-publishing-and-versioning.md)).
 
-Two Helm charts under [`deploy/helm`](deploy/helm): `server-scan` (API, UI, collector
-CronJobs) and `nodes-status` (one release per OpenShift cluster). Values and rollout:
+Three Helm charts under [`deploy/helm`](deploy/helm): `server-scan` (API, UI, prunes),
+`server-scan-collectors` (every collector CronJob: one release beside the API, one per KubeVirt
+cluster, ADR-0060) and `nodes-status` (one release per OpenShift cluster). Values and rollout:
 [`deploy/README.md`](deploy/README.md). Mirroring images and dependencies into an
 air gap: [`docs/air-gap.md`](docs/air-gap.md).
 

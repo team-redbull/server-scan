@@ -8,6 +8,20 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-09 — every string in an error body is cut to 1,000 characters (ADR-0002, 2026-11-09 addendum).**
+Moved to `docs/notes/session-log.md`: the VM-host unit (ADR-0059).
+
+**Shipped:** `app.exception_handlers._problem_response` cuts `detail` and every string inside `details` to `MAX_ERROR_TEXT_CHARS`
+(1,000) with a `… [N more characters cut …; see the server log for request_id …]` marker and a `request.error_detail_truncated` log line;
+`recheck_failure_reason` bounds a vendor's exception text to 500 in the `/servers/available` 503 (full text in `available.recheck_failed`).
+Why: the workflows' add-server-to-mce failed with Temporal's "Failure exceeds size limit." after its client copied an error body over
+2 MiB whole; the workflows repo caps what it copies too (its own PR).
+
+**Open:** which response was over 2 MiB is still unknown — the failed run's ServerFailure `cause` (first 512 KiB) names its status;
+`main`'s 404 cannot be that large. Merged as PR #17.
+
+---
+
 **2026-11-08 — a KubeVirt VM records the node it runs on, resolved to its bare-metal server when read (ADR-0059).**
 Moved to `docs/notes/session-log.md`: the `KUBEVIRT` collector unit (ADR-0058).
 

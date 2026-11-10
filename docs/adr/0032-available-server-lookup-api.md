@@ -701,3 +701,14 @@ that it "comes out HEALTHY overall" holds only for a server with **no**
 interface listed, which is why `?min_nic_macs=` stays. `interfaces[]` (and
 `ServerDetail.network.interfaces`) are returned in natural order of `name`;
 Cisco `os_name` values are still positional over the *stored* order.
+
+## Update (2026-11-10): the recheck's credentials and timeouts come from server-scan's `recheck` block (ADR-0060)
+
+The collectors moved to their own chart, so the credentials Secret the API pod mounts belongs to another release:
+`recheck.credentialsSecret` (default `server-scan-collectors-collector-credentials`), mounted with `optional: true`.
+Until that release exists every manager is unconfigured and the API trusts Mongo, as for any unconfigured vendor.
+`recheck.timeouts` (a `ManagerType: seconds` map, default `UCS_CENTRAL: 240`, `INTERSIGHT: 10`) and
+`recheck.intersightReadTimeoutSeconds` replace the 2026-10-11 update's reads of `collectors.*`: server-scan cannot
+see the collectors chart's values, so keep them equal by hand. A KubeVirt VM is never rechecked: the API pod has no
+KubeVirt cluster name, so `KUBEVIRT` is unconfigured there. A KubeVirt `get_one` asked about another facade's VM
+raises `NotThisManagersServerError`, answered from Mongo with outcome `skipped_foreign` (not a failure).

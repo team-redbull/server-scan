@@ -31,7 +31,11 @@ from app.domain.models.maintenance import Maintenance
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.server import Identity, Server
 from app.domain.ports.credentials import ManagerNotConfiguredError
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import (
+    NotThisManagersServerError,
+    ProviderServer,
+    ServerInventoryProvider,
+)
 from app.domain.services.normalize import normalize_text
 from app.domain.services.search_tokens import build_search_tokens
 from app.domain.value_objects.capacity_aliases import capacity_alias_catalog
@@ -320,6 +324,43 @@ class TestRecheckLogging:
         events = {line["event"]: line for line in logs}
         assert events["available.recheck_failed"]["manager_type"] == "REDFISH_STANDALONE"
         assert events["available.recheck"]["outcome"] == "failed"
+
+
+class _ForeignProvider(FakeProvider):
+    async def get_one(self, identity: object) -> ProviderServer | None:
+        raise NotThisManagersServerError("another cluster's facade")
+
+
+class TestAnotherManagersServer:
+    """Another KubeVirt cluster's VM is trusted from Mongo, never dropped (`skipped_foreign`)."""
+
+    async def test_is_returned_unrechecked_and_logged(
+        self, mongo_holder: MongoClientHolder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(available_servers_module, "logger", UncachedLogger())
+        await _seed(mongo_holder, _server(0, name="ocp-foreign-vm", external_id="ext-foreign"))
+        provider = _ForeignProvider(seed=1, count=1, provider_type=ManagerType.KUBEVIRT.value)
+        service = _service(mongo_holder, provider_factory=lambda _mt: provider)
+
+        with capture_logs() as logs:
+            result = await service.lookup_by_name("ocp-foreign-vm", extra_filters={})
+
+        assert result.server.name == "ocp-foreign-vm"
+        assert result.live_recheck_performed is False
+        events = {line["event"]: line for line in logs}
+        assert events["available.recheck"]["outcome"] == "skipped_foreign"
+
+    async def test_pattern_mode_keeps_it_as_a_candidate(
+        self, mongo_holder: MongoClientHolder
+    ) -> None:
+        await _seed(mongo_holder, _server(0, name="ocp-fvm-1", external_id="ext-f1"))
+        provider = _ForeignProvider(seed=1, count=1, provider_type=ManagerType.KUBEVIRT.value)
+        service = _service(mongo_holder, provider_factory=lambda _mt: provider)
+
+        outcome = await service.lookup_by_pattern("ocp-fvm-", count=1, extra_filters={})
+
+        assert [item.server.name for item in outcome.items] == ["ocp-fvm-1"]
+        assert outcome.items[0].live_recheck_performed is False
 
 
 class TestVendorFailure:

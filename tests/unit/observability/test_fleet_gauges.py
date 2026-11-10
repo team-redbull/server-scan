@@ -217,20 +217,41 @@ def test_apply_snapshot_sets_every_gauge() -> None:
     assert _value("server_scan_servers_partial", source_provider="OPENMANAGE") == 2
     assert _value("server_scan_policy_active", policy_key="power.failed_psu") == 3
     assert (
-        _value("server_scan_collector_last_run_servers_fetched", source_provider="OPENMANAGE")
+        _value(
+            "server_scan_collector_last_run_servers_fetched",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
         == 800
     )
     assert (
-        _value("server_scan_collector_last_run_duration_seconds", source_provider="OPENMANAGE")
+        _value(
+            "server_scan_collector_last_run_duration_seconds",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
         == 120
     )
     assert (
-        _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
+        _value(
+            "server_scan_collector_last_run_servers_unchanged",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
         == 760
     )
-    assert _value("server_scan_collector_last_run_partial", source_provider="OPENMANAGE") == 0
+    assert (
+        _value(
+            "server_scan_collector_last_run_partial",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
+        == 0
+    )
     assert _value(
-        "server_scan_collector_last_run_timestamp_seconds", source_provider="OPENMANAGE"
+        "server_scan_collector_last_run_timestamp_seconds",
+        source_provider="OPENMANAGE",
+        manager="mgr_ome",
     ) == pytest.approx(RUN.finished_at.timestamp())
     assert (
         _value("server_scan_membership_last_run_unmatched", kind="nodes", reported_by="hc-tlv-01")
@@ -265,7 +286,14 @@ def test_apply_snapshot_drops_label_sets_that_vanished() -> None:
     assert _value("server_scan_servers", source_provider="OPENMANAGE") is None
     assert _value("server_scan_cluster_servers_held", cluster="hc-tlv-01") is None
     assert _value("server_scan_policy_active", policy_key="power.failed_psu") is None
-    assert _value("server_scan_collector_last_run_partial", source_provider="OPENMANAGE") is None
+    assert (
+        _value(
+            "server_scan_collector_last_run_partial",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
+        is None
+    )
     assert (
         _value("server_scan_membership_last_run_unmatched", kind="nodes", reported_by="hc-tlv-01")
         is None
@@ -286,7 +314,11 @@ def test_a_never_seen_collector_has_no_timestamp_sample() -> None:
     )
     # A manager that has never recorded a run likewise has no run samples.
     assert (
-        _value("server_scan_collector_last_run_timestamp_seconds", source_provider="OPENMANAGE")
+        _value(
+            "server_scan_collector_last_run_timestamp_seconds",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
         is None
     )
 
@@ -404,15 +436,44 @@ async def test_a_failed_audit_query_is_a_counted_refresh_failure() -> None:
 def test_a_vanished_manager_drops_its_unchanged_sample() -> None:
     apply_snapshot(_snapshot(), [_manager(RUN)], [])
     assert (
-        _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
+        _value(
+            "server_scan_collector_last_run_servers_unchanged",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
         == 760
     )
 
     apply_snapshot(_snapshot(), [], [])
     assert (
-        _value("server_scan_collector_last_run_servers_unchanged", source_provider="OPENMANAGE")
+        _value(
+            "server_scan_collector_last_run_servers_unchanged",
+            source_provider="OPENMANAGE",
+            manager="mgr_ome",
+        )
         is None
     )
+
+
+def test_two_managers_of_one_type_each_keep_their_own_run() -> None:
+    """Every KubeVirt cluster runs its own collector; one must not overwrite the other."""
+    hub = _manager(RUN).model_copy(
+        update={"id": "mgr_kubevirt_hub", "name": "kubevirt-hub", "type": ManagerType.KUBEVIRT}
+    )
+    edge_run = RUN.model_copy(update={"servers_fetched": 12, "partial": True})
+    edge = hub.model_copy(
+        update={"id": "mgr_kubevirt_edge", "name": "kubevirt-edge", "last_run": edge_run}
+    )
+    apply_snapshot(_snapshot(), [hub, edge], [])
+
+    fetched = "server_scan_collector_last_run_servers_fetched"
+    assert _value(fetched, source_provider="KUBEVIRT", manager="mgr_kubevirt_hub") == 800
+    assert _value(fetched, source_provider="KUBEVIRT", manager="mgr_kubevirt_edge") == 12
+    partial = "server_scan_collector_last_run_partial"
+    assert _value(partial, source_provider="KUBEVIRT", manager="mgr_kubevirt_edge") == 1
+
+    apply_snapshot(_snapshot(), [hub], [])
+    assert _value(fetched, source_provider="KUBEVIRT", manager="mgr_kubevirt_edge") is None
 
 
 def _counts(*rows: tuple[str, str, int]) -> list[ActorEventCount]:

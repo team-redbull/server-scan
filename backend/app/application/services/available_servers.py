@@ -23,7 +23,11 @@ from app.application.services.ingest import IngestService
 from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState
 from app.domain.models.server import Server
 from app.domain.ports.credentials import ManagerNotConfiguredError
-from app.domain.ports.provider import ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    NotThisManagersServerError,
+    ServerIdentity,
+    ServerInventoryProvider,
+)
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.normalize import normalize_text
 from app.domain.value_objects.capacity_aliases import CapacityAliasCatalog
@@ -715,8 +719,9 @@ class AvailableServersService:
 
         Returns:
             tuple[Server | None, bool]: The current server (fresh if
-                rechecked, `server` itself if the recheck was skipped, or
-                `None` if the manager can no longer find it at all), and
+                rechecked, `server` itself if the recheck was skipped or the
+                configured manager of its type is not the one that collects it,
+                or `None` if the manager can no longer find it at all), and
                 whether a live recheck actually ran.
         """
         if server.source_provider is None:
@@ -745,6 +750,9 @@ class AvailableServersService:
         try:
             try:
                 fresh = await provider.get_one(identity)
+            except NotThisManagersServerError:
+                outcome = "skipped_foreign"
+                return server, False
             except Exception as exc:
                 logger.exception(
                     "available.recheck_failed", server=server.name, manager_type=manager_type.value

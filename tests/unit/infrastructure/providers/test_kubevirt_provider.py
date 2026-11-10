@@ -12,7 +12,7 @@ from tests.kubevirt_fixture import ROOT, SYSTEMS, KubeVirtFixture, Vm, kubevirt_
 from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
-from app.domain.ports.provider import ProviderServer, ServerIdentity
+from app.domain.ports.provider import NotThisManagersServerError, ProviderServer, ServerIdentity
 from app.infrastructure.providers.kubevirt.client import KubeVirtClient
 from app.infrastructure.providers.kubevirt.provider import KubeVirtProvider
 from app.infrastructure.providers.redfish.client import (
@@ -49,8 +49,8 @@ def facade() -> Iterator[KubeVirtFixture]:
 
 def _manager() -> Manager:
     return Manager(
-        _id="mgr_kubevirt",
-        name="kubevirt",
+        _id="mgr_kubevirt_upi-tlv",
+        name="kubevirt-upi-tlv",
         type=ManagerType.KUBEVIRT,
         endpoint="https://kv.apps.example",
         enabled=True,
@@ -74,6 +74,10 @@ def _provider(url: str, **overrides: Any) -> KubeVirtProvider:
     }
     kwargs.update(overrides)
     return KubeVirtProvider(**kwargs)
+
+
+def _id(facade: KubeVirtFixture, path: str) -> str:
+    return f"kubevirt://{facade.url.removeprefix('http://')}{path}"
 
 
 async def _collect(provider: KubeVirtProvider) -> dict[str, ProviderServer]:
@@ -300,7 +304,7 @@ class TestGetOne:
 
     async def test_reads_only_that_vm(self, facade: KubeVirtFixture) -> None:
         provider = _provider(facade.url)
-        external_id = f"kubevirt://kv.apps.example{_KV03.path}"
+        external_id = _id(facade, _KV03.path)
         fresh = await provider.get_one(ServerIdentity(external_id=external_id, name="ignored"))
 
         assert fresh is not None
@@ -308,16 +312,17 @@ class TestGetOne:
         assert SYSTEMS not in facade.paths()
         assert all(p.startswith(_KV03.path) for p in facade.paths())
 
-    async def test_a_renamed_route_still_reaches_the_configured_facade(
-        self, facade: KubeVirtFixture
+    @pytest.mark.parametrize("netloc", ["kv.apps.other-cluster.example", "127.0.0.1:1"])
+    async def test_another_facades_vm_is_refused_with_no_request(
+        self, facade: KubeVirtFixture, netloc: str
     ) -> None:
+        """Another cluster's VM is not "gone": the caller must keep its stored copy."""
         provider = _provider(facade.url)
-        fresh = await provider.get_one(
-            ServerIdentity(external_id=f"kubevirt://old-route.example{_KV01.path}")
-        )
 
-        assert fresh is not None
-        assert fresh.external_id.startswith("kubevirt://127.0.0.1:")
+        with capture_logs() as logs, pytest.raises(NotThisManagersServerError):
+            await provider.get_one(ServerIdentity(external_id=f"kubevirt://{netloc}{_KV01.path}"))
+        assert facade.requests == []
+        assert any(e["event"] == "kubevirt.recheck_foreign" for e in logs)
 
     @pytest.mark.parametrize(
         "external_id",
@@ -343,13 +348,13 @@ class TestGetOne:
 
     async def test_a_deleted_vm_is_none(self, facade: KubeVirtFixture) -> None:
         provider = _provider(facade.url)
-        external_id = "kubevirt://kv/redfish/v1/Systems/vms.gone"
+        external_id = _id(facade, "/redfish/v1/Systems/vms.gone")
 
         assert await provider.get_one(ServerIdentity(external_id=external_id)) is None
 
     async def test_a_rejected_login_is_none_after_one_401(self, facade: KubeVirtFixture) -> None:
         provider = _provider(facade.url, password="wrong")
-        external_id = f"kubevirt://kv{_KV01.path}"
+        external_id = _id(facade, _KV01.path)
 
         with capture_logs() as logs:
             assert await provider.get_one(ServerIdentity(external_id=external_id)) is None
@@ -362,6 +367,4 @@ class TestGetOne:
         facade.delays[_KV01.path] = 0.5
         provider = _provider(facade.url, vm_budget_seconds=0.1)
 
-        assert (
-            await provider.get_one(ServerIdentity(external_id=f"kubevirt://kv{_KV01.path}")) is None
-        )
+        assert await provider.get_one(ServerIdentity(external_id=_id(facade, _KV01.path))) is None

@@ -162,23 +162,55 @@ jobs:
       - name: helm template
         run: |
           set -euo pipefail
-          helm template ci-lint deploy/helm/server-scan > /dev/null
+          # Collectors are their own chart now: the platform's defaults render
+          # only the API side and the prunes, never a collector CronJob. Captured,
+          # not piped: under pipefail an early-exiting `grep -q` can fail the pipe.
+          rendered="$(helm template ci-lint deploy/helm/server-scan)"
+          if grep -q 'name: ci-lint-collector-' <<<"$rendered"; then
+            echo "::error::the server-scan chart rendered a collector"; exit 1
+          fi
           helm template ci-lint deploy/helm/server-scan \
             --set frontend.enabled=true \
             --set route.host=scan.apps.example.com \
             --set metrics.serviceMonitor.enabled=true \
             --set metrics.prometheusRule.enabled=true \
             --set metrics.userWorkloadMonitoring.enabled=true > /dev/null
-          helm template ci-lint deploy/helm/server-scan \
+          # Every collector at once (the hub release with a fake estate on top).
+          helm template ci-lint deploy/helm/server-scan-collectors \
             --set collectors.redfishStandalone.enabled=true \
             --set collectors.redfishStandalone.credentialsFile=files/redfish/credentials.toml \
             --set collectors.ucsCentral.enabled=true \
             --set collectors.intersight.enabled=true \
-            --set collectors.openmanage.enabled=true \
+            --set collectors.ome.enabled=true \
             --set collectors.oneview.enabled=true \
             --set collectors.kubevirt.enabled=true \
+            --set collectors.kubevirt.clusterName=ci-cluster \
             --set collectors.kubevirt.caBundleConfigMap=kv-ca \
             --set collectors.fake.enabled=true > /dev/null
+          # The hub shape: consumes server-scan's ConfigMap and db Secrets.
+          helm template ci-lint deploy/helm/server-scan-collectors \
+            --set config.existingConfigMap=server-scan-api-config \
+            --set collectors.ucsCentral.enabled=true \
+            --set collectors.ome.enabled=true \
+            --set collectors.kubevirt.enabled=true \
+            --set collectors.kubevirt.clusterName=ci-hub > /dev/null
+          # One release per KubeVirt cluster: its own ConfigMap and db Secrets.
+          helm template ci-lint deploy/helm/server-scan-collectors \
+            --set triggerable=false \
+            --set collectors.kubevirt.enabled=true \
+            --set collectors.kubevirt.clusterName=ci-cluster \
+            --set collectors.kubevirt.url=https://kubevirt-redfish.apps.example.com \
+            --set db.mongoUri=mongodb://mongo.example.com:27017 \
+            --set-string db.cursorSecret=ci-cursor-secret-not-real > /dev/null
+          # Defaults render nothing (every collector is off), and kubevirt
+          # without the cluster it serves must fail rather than deploy.
+          out="$(helm template ci-lint deploy/helm/server-scan-collectors)"
+          [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ] \
+            || { echo "::error::server-scan-collectors defaults rendered objects"; exit 1; }
+          if helm template ci-lint deploy/helm/server-scan-collectors \
+            --set collectors.kubevirt.enabled=true > /dev/null 2>&1; then
+            echo "::error::kubevirt rendered without collectors.kubevirt.clusterName"; exit 1
+          fi
           helm template ci-lint deploy/helm/nodes-status \
             --set nodes.clusterName=ci-cluster > /dev/null
           helm template ci-lint deploy/helm/nodes-status \
@@ -701,7 +733,13 @@ jobs:
           set -euo pipefail
           chart=gitops/gitops/charts/server-scan
           rsync -a --delete src/deploy/helm/server-scan/templates/ "$chart/templates/"
-          rsync -a --delete src/deploy/helm/server-scan/files/ "$chart/files/"
+          # The collectors' files moved to deploy/helm/server-scan-collectors; a
+          # chart with no files/ directory left must not fail the sync.
+          if [ -d src/deploy/helm/server-scan/files ]; then
+            rsync -a --delete src/deploy/helm/server-scan/files/ "$chart/files/"
+          else
+            rm -rf "$chart/files"
+          fi
           # sed, not yq: `yq -i` re-emits the whole file, dropping every
           # blank line and reflowing maps — a 70-line noise diff per release
           # on a hand-maintained override file. The two `    tag:` lines are

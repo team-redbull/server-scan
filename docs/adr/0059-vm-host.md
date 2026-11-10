@@ -72,3 +72,9 @@ server, and the hostname is `name_normalized`, or `openshift.reported_name` when
   rollback needs no cleanup beyond ADR-0058's.
 - **Facade dependency:** a facade build without change 11 leaves every running VM's node unread. The VM is
   still collected, and its stored node is carried forward.
+
+## Update (2026-11-10): the cluster name is required (ADR-0060)
+
+Point 2's "optional" no longer holds: `INVENTORY_KUBEVIRT_CLUSTER_NAME` is also the KubeVirt manager's identity
+(`mgr_kubevirt_<slug>`), so a blank one makes `KUBEVIRT` "not configured" (exit 2), and the chart `required`s it.
+It must still be the string that cluster's `nodes-status` release uses.

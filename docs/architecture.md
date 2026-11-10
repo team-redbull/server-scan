@@ -869,6 +869,10 @@ leaves the gauges at their last values and increments
 `server_scan_fleet_snapshot_failures_total`. The Helm chart ships a
 `ServiceMonitor` and a `PrometheusRule` for them, both opt-in.
 
+Each collector run's own record (`Manager.last_run`) is exported as `collector_last_run_*{source_provider,manager}`.
+`manager` is the manager id, so the KubeVirt collectors of different clusters (`mgr_kubevirt_<cluster>`, ADR-0060)
+are separate series, and `ServerScanCollectorRunStale` fires for one that stopped while another still runs.
+
 `openshift.last_reported_at` is only ever set on a *matched* hostname and only
 when the membership changes (an unchanged one is not rewritten), so a job that
 runs correctly but matches nobody or finds nothing new never advances it —
@@ -1315,7 +1319,7 @@ integration that isn't `FakeProvider`. See
   the API can resolve `Server.manager_id`. `--dry-run` prints what the
   provider reports and writes nothing; `--debug-xml` dumps every XML
   request/response.
-- The Helm chart's `collectors.*` values render into a single `Secret`,
+- The `server-scan-collectors` chart's `collectors.*` values (ADR-0060) render into a single `Secret`,
   injected with `envFrom` so passwords are not readable in the pod spec;
   `collectors.existingSecret` defers to a Secret owned by Vault or
   External Secrets instead. The collector shares the API's own container
@@ -1668,7 +1672,12 @@ firmware serial/UUID. `app.infrastructure.providers.kubevirt` keeps the Redfish 
   `_RUN_BUDGET_SECONDS` (1800, inside the CronJob's 2400 s `activeDeadlineSeconds`), `_VERIFY_TLS`,
   `_CA_BUNDLE`.
 - **`get_one`** re-reads one System by the path in its `external_id` (`kubevirt://<host>/redfish/v1/Systems/...`),
-  against the configured `INVENTORY_KUBEVIRT_URL`, never a host taken from the id.
+  against the configured `INVENTORY_KUBEVIRT_URL`, never a host taken from the id. An id naming another facade
+  raises `NotThisManagersServerError` with no request, and `/servers/available` answers from Mongo
+  (`skipped_foreign`). The hub API is not configured for `KUBEVIRT` at all, so in production no VM is rechecked.
+- **One collector per KubeVirt cluster** (ADR-0060): a `server-scan-collectors` release in each cluster, the hub's
+  included. Its manager is `mgr_kubevirt_<slug>` (`kubevirt_cluster_slug(INVENTORY_KUBEVIRT_CLUSTER_NAME)`, which is
+  required); the first run on that image deletes the old shared `mgr_kubevirt`.
 - **Where a VM runs** (ADR-0059): the fork's `Oem.KubeVirt.NodeName`, cleaned with `clean_hostname`, and
   `INVENTORY_KUBEVIRT_CLUSTER_NAME` are stored as `Server.vm_host` (names only; `node_name` is `None` when
   stopped, carried forward when a running VM names none). `GET /servers/{id}/vm-host` resolves the node to its
@@ -1962,7 +1971,8 @@ two adapters in `app/infrastructure/jobs/`: `KubernetesJobRunner` (plain `httpx`
 `manifest.py` builds the Job from `spec.jobTemplate` as `kubectl create job --from` does) and `FakeJobRunner`
 (dev and tests). `INVENTORY_JOBS_BACKEND` (`kubernetes`/`fake`/`off`, `app/config/jobs.py`) picks one in the
 lifespan; `off` makes `GET /jobs` answer `enabled: false` and the others 404. A CronJob is triggerable only with
-the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace; a running Job gives 409.
+the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace (the prunes, and the collectors
+of a `server-scan-collectors` release in that namespace, ADR-0060); a running Job gives 409.
 `JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
 `useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane
 that refreshes every 3 s while the Job is active.

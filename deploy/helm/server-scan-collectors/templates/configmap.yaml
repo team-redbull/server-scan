@@ -1,0 +1,17 @@
+{{- /* The INVENTORY_* a collector run reads besides its own env (deploy/README.md's "Configuration notes": `required` on the enum). Skipped when existingConfigMap names one this chart does not own. */ -}}
+{{- $cfg := .Values.config | default dict }}
+{{- if and (include "collectors.anyEnabled" .) (not $cfg.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-config
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/part-of: server-scan
+data:
+  INVENTORY_SITES: {{ $cfg.sites | default "" | quote }}
+  INVENTORY_SITE_BMC_PREFIXES: {{ $cfg.siteBmcPrefixes | default "" | quote }}
+  INVENTORY_GPU_MODELS: {{ $cfg.gpuModels | default "" | quote }}
+  INVENTORY_LOG_LEVEL: {{ required "config.logLevel must be set" $cfg.logLevel | quote }}
+{{- end }}

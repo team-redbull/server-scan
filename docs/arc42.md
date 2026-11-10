@@ -360,28 +360,31 @@ can be legitimately shadowed.
 ## 7. Deployment View
 
 ```
-OpenShift namespace                        (chart: deploy/helm/server-scan)
+OpenShift namespace       (charts: deploy/helm/server-scan + the hub release of
+                            deploy/helm/server-scan-collectors, ADR-0060)
 ├── Deployment  backend API (N replicas)  ── Service ─┐
 │      envFrom: <release>-api-config (ConfigMap)   ← INVENTORY_SITES lives here
-│      envFrom: <release>-collector-credentials    ← ADR-0032's live recheck
+│      envFrom: recheck.credentialsSecret (optional) ← ADR-0032's live recheck,
+│               the collectors release's Secret
 │      envFrom: <release>-auth-credentials         ← ADR-0034, blank unless auth.enabled
 │      env:     Mongo/Redis URIs from a Secret      │
 ├── Deployment  frontend (nginx + SPA)  ── Service ──┴── Route  ← the ONLY one
 │      nginx proxies /api/ and /health/ to the API Service, so the
 │      API has no Route of its own (frontend off: the API takes it)
-├── CronJob  collector-ucs-central          (3-hourly, opt-in)
-├── CronJob  collector-intersight           (3-hourly, opt-in)
-├── CronJob  collector-oneview              (3-hourly, opt-in)
-├── CronJob  collector-openmanage           (3-hourly, opt-in)
+├── CronJob  collector-ucs-central          (3-hourly, opt-in)  ┐ server-scan-
+├── CronJob  collector-intersight           (3-hourly, opt-in)  │ collectors,
+├── CronJob  collector-oneview              (3-hourly, opt-in)  │ hub release
+├── CronJob  collector-openmanage           (3-hourly, opt-in)  │
 ├── CronJob  collector-redfish-standalone   (3-hourly, opt-in, ships suspended)
-├── CronJob  collector-kubevirt             (3-hourly, opt-in, ADR-0058)
-│      all six: envFrom the SAME api-config ConfigMap + the collector Secret
+├── CronJob  collector-kubevirt             (the hub cluster's own VMs, ADR-0058)
+│      all: envFrom the SAME api-config ConfigMap (config.existingConfigMap)
+│      + the collector Secret; no auth, no Redis; image tag pinned by hand
 ├── CronJob  prune-servers                  (03/09/15/21h, opt-in, report-only
 │      until collectors.prune.apply; deletes unlisted servers, ADR-0037)
 ├── CronJob  prune-events                   (weekly, report-only until
 │      collectors.auditRetention.reportOnly=false; deletes audit events past
 │      retentionDays, ADR-0045)
-├── Secret   <release>-collector-credentials  (rendered from values, or bring your own)
+├── Secret   <collectors-release>-collector-credentials  (rendered from values, or bring your own)
 ├── MongoDB  ─┐  platform-provided, not deployed by this chart
 └── Redis    ─┘
 
@@ -394,7 +397,18 @@ EVERY OpenShift cluster, its own namespace, its own Helm release
 ├── ServiceAccount + ClusterRole (list on nodes and/or agents, read-only)
 └── needs: network to the platform's MongoDB, plus copies of the
           mongo-uri and cursor-secret Secrets
+
+EVERY KubeVirt cluster, its own namespace, its own Helm release
+  (deploy/helm/server-scan-collectors with only collectors.kubevirt, ADR-0060)
+├── CronJob  <release>-collector-kubevirt  (reads this cluster's
+│      kubevirt-redfish facade; manager id mgr_kubevirt_<cluster>)
+├── ConfigMap <release>-config            (its own copy of sites/BMC prefixes)
+└── needs: network to the platform's MongoDB, the same two Secrets
 ```
+
+**A KubeVirt cluster runs its own collector** for the same reason: no single
+interface lists every cluster's VMs, so each cluster's facade is read from
+inside that cluster, and the result written straight to MongoDB.
 
 **The `nodes-status` jobs do not live in the inventory namespace.** That is
 the most important deployment fact about them: they run wherever the
@@ -406,9 +420,14 @@ collector does, and never call this platform's API.
   `ubi9/nodejs-22` and served by `ubi9/nginx-124`. Both published to GHCR
   by CI, versioned from Conventional Commits (ADR-0010).
 - **The ConfigMap is deliberately shared** between the API and every
-  collector. They must agree on `INVENTORY_SITES`, because a collector
+  hub collector (`config.existingConfigMap`, ADR-0060). They must agree on `INVENTORY_SITES`, because a collector
   derives each server's site at ingest — a collector with a stale list
-  would write servers the API cannot name.
+  would write servers the API cannot name. A KubeVirt cluster's release
+  cannot reach that ConfigMap and carries a copy in its own values: keep it
+  in step by hand.
+- **Two charts, one image, two release cadences** (ADR-0060): CI pins
+  server-scan on every release; every collectors release's tag moves by
+  hand, always after server-scan.
 - **Credentials are one endpoint and one login per manager type, from the
   environment** (ADR-0012). No `Manager` document to create. The Redfish
   collector is the documented exception: its fleet comes from a mounted
@@ -447,14 +466,16 @@ collector does, and never call this platform's API.
   remains a habit for chart changes.
 - **The API pod holds vendor manager credentials for the first time since
   ADR-0012** (ADR-0032): `backend-deployment.yaml` now also mounts
-  `<release>-collector-credentials`, the same Secret every collector
-  CronJob already reads, so `GET /servers/available` can live-recheck a
+  the Secret every collector CronJob already reads (since ADR-0060 another
+  release's: `recheck.credentialsSecret`, default
+  `server-scan-collectors-collector-credentials`, `optional: true`), so `GET /servers/available` can live-recheck a
   candidate before returning it. Not gated behind a values toggle — an
   unconfigured value degrades to trusting Mongo (`ManagerNotConfiguredError`),
   the same way a collector treats one today. The standalone Redfish
   collector's per-host TOML files are deliberately **not** mounted here,
   to avoid putting every BMC password within reach of the pod the Route
-  exposes; that collector's candidates always trust Mongo.
+  exposes; that collector's candidates always trust Mongo, and so do KubeVirt
+  VMs (the hub API has no KubeVirt cluster name, ADR-0060).
 - **AD login is off by default and adds one more Secret, unconditionally
   mounted** (ADR-0034): `<release>-auth-credentials` (the AD API client
   id, the session-signing secret, and the two API tokens), rendered by
@@ -576,6 +597,7 @@ of it.
 | 0057 | The BMC IP names a server's site first (then name, then profile DN); a BMC/name disagreement is CRITICAL in the new `name` health category, which also takes the capacity-vs-name check |
 | 0058 | A sixth collector, `KUBEVIRT`, reads OpenShift Virtualization VMs through kubevirt-redfish (HTTP Basic, one login per run, never retried); no unreachable stub, a stopped VM's links are UNKNOWN, `network.single_link_up` scoped to the physical collectors |
 | 0059 | A VM stores the cluster and node it runs on (`Server.vm_host`, names only); `GET /servers/{id}/vm-host` resolves the node to its bare-metal server when read (membership first, then name), never cached; `host-model` is a CPU mode, stored as no model |
+| 0060 | Collectors move to their own chart, `server-scan-collectors` (same image, tag pinned by hand after server-scan); a KubeVirt collector runs in every KubeVirt cluster with a per-cluster manager id (`mgr_kubevirt_<cluster>`, cluster name required); the hub API never rechecks a VM; run gauges gain a `manager` label and `ServerScanCollectorRunStale` |
 
 ---
 
@@ -634,7 +656,9 @@ go stale — treat its date as load-bearing.
 | No session revocation | ADR-0034's login cookie is a stateless HMAC signature, not a server-side session — a removed admin/viewer keeps working until the cookie's TTL (default 8h) expires. Accepted trade-off of not using Redis for sessions (Redis here is deliberately non-persistent). |
 | Redis persistence | Deliberately none: cache-aside, degrades to Mongo. **MongoDB HA/backup is not a risk of this platform** — production Mongo is an operated service in the air-gapped estate, not the chart's bundled Bitnami pod (operator, 2026-09-13); the bundled one is for demos and dev. |
 | No concurrency cap on `GET /servers/available`'s live rechecks | Each request can open up to `count` vendor-manager sessions (UCS Manager, OneView, iDRAC all have hard concurrent-session caps). A retry-looping caller would exhaust those and fail the scheduled collector's login — a vendor-side outage, not an API slowdown. `RateLimitedError` (429) exists and nothing raises it; a per-`ManagerType` semaphore is the fix, before bmhgen goes to production. |
-| KubeVirt lockout through a shared egress IP | kubevirt-redfish blocks an IP for 15 minutes after 10 failed logins in 5. The collector spends one 401 per run and never retries one, but the API pod's `/servers/available` rechecks may leave through the same egress IP, so a misconfigured API pod can lock the collector out (ADR-0058). |
+| KubeVirt lockout through a shared egress IP | kubevirt-redfish blocks an IP for 15 minutes after 10 failed logins in 5. The collector spends one 401 per run and never retries one, but the API pod's `/servers/available` rechecks may leave through the same egress IP, so a misconfigured API pod can lock the collector out (ADR-0058). Since ADR-0060 the hub API never rechecks a VM and each collector runs inside its own cluster, so only a wrong password in that cluster's own release can trip it. |
+| Site config drifting between clusters | A KubeVirt cluster's collectors release carries its own `config.sites`/`siteBmcPrefixes`; nothing checks it against the hub's ConfigMap, so a stale copy writes VMs into the wrong or no site (ADR-0060). |
+| A retired KubeVirt cluster | Its `mgr_kubevirt_<cluster>` document keeps `ServerScanCollectorRunStale` firing and skips every `KUBEVIRT` prune until it is deleted (ADR-0060). |
 | Rolling back past ADR-0058 | An image older than the `KUBEVIRT` collector cannot load a `vendor: kubevirt` document (`Vendor` is a validated enum). Delete them (`source_provider: KUBEVIRT`) before rolling back. |
 | Manual dependency maintenance | Dependabot was deliberately removed (ADR-0013), making pin currency and CVE checks a standing quarterly chore. |
 | **OneView's GPU field mapping is still unverified** | Validated against a live appliance 2026-09-07 (821 servers) — core count and profile paging both confirmed correct, and a real storage-mapping bug was found and fixed the same day — but that estate has no GPU-bearing HPE server, so the GPU product-name-matching rules (ADR-0022, "GPU matching") remain built against realistic spellings, not observed ones. Demoted from High: every other headline unknown that ADR listed is now settled. |

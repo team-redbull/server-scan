@@ -58,8 +58,9 @@ The facade logs a failed login only at DEBUG, so the client's own request log is
 
 ## `/servers/available`
 
-A running VM is offered with a live recheck (`get_one` by `external_id`, about 4 s through the Route) and
-`bmc_vendor: null`. A stopped VM is refused for `HEALTH` and `NETWORK` (ADR-0058, Consequences).
+A running VM is offered with `bmc_vendor: null`. On 2026-11-08 it was offered with a live recheck (`get_one` by
+`external_id`, about 4 s through the Route); since ADR-0060 the hub API is not configured for `KUBEVIRT`, so a VM is
+served from Mongo with no recheck (each cluster runs its own collector, and the hub cannot reach every facade). A stopped VM is refused for `HEALTH` and `NETWORK` (ADR-0058, Consequences).
 
 ## Deploying the facade for a test
 

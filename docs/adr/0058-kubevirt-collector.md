@@ -82,3 +82,11 @@ Three facts about the facade shaped the design:
   like an undeclared model (point 7), so a VM no longer flips between `host-model` and `null` on start/stop.
 - Point 2's "recommend `enhanced`": the redbull-platform facade runs `legacy` by its own decision (2026-11-05).
   Harmless with the fork's `SerialNumber`, which the collector correlates on before the System `Id`.
+
+## Update (2026-11-10): one collector per KubeVirt cluster (ADR-0060)
+
+Point 9 is superseded: the `KUBEVIRT` CronJob lives in the `server-scan-collectors` chart, and one release runs in
+every KubeVirt cluster (the hub's own included), each reading its own facade. Each writes its own manager,
+`mgr_kubevirt_<cluster>`; `clusterName` is required. The CA bundle is mounted in the CronJob only: the hub API pod no
+longer rechecks VMs, so the shared-egress lockout in Consequences applies only to a wrong password in a cluster's
+own release.

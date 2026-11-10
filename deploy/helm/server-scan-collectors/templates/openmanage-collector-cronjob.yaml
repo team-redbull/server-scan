@@ -1,0 +1,92 @@
+{{- $c := .Values.collectors | default dict }}
+{{- $ome := $c.ome | default dict }}
+{{- $rfs := $c.redfishStandalone | default dict }}
+{{- if $ome.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-collector-openmanage
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-collector-openmanage
+    {{- include "collectors.labels" . | nindent 4 }}
+  annotations:
+    server-scan.io/trigger-warning: "This run can restart an iDRAC (ADR-0050) when a Dell has every disk or NIC UNKNOWN."
+spec:
+  schedule: {{ $ome.schedule | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $ome.backoffLimit }}
+      activeDeadlineSeconds: {{ $ome.activeDeadlineSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: collector
+              image: {{ include "collectors.image" . | quote }}
+              imagePullPolicy: {{ include "collectors.pullPolicy" . }}
+              command: ["python3", "-m", "tools.run_collector", "--manager-type", "OPENMANAGE"]
+              env:
+                {{- include "collectors.commonEnv" . | nindent 16 }}
+                {{- if hasKey $ome "timeoutSeconds" }}
+                - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+                  value: {{ $ome.timeoutSeconds | quote }}
+                {{- end }}
+                - name: INVENTORY_COLLECTOR_NAME_PATTERN
+                  value: {{ $c.namePattern | quote }}
+                {{- if hasKey $ome "namePattern" }}
+                - name: INVENTORY_OME_NAME_PATTERN
+                  value: {{ $ome.namePattern | quote }}
+                {{- end }}
+                - name: INVENTORY_REDFISH_FLEET_CONCURRENCY
+                  value: {{ $ome.bmcConcurrency | quote }}
+                {{- if hasKey $ome "bmcHostBudgetSeconds" }}
+                - name: INVENTORY_REDFISH_HOST_BUDGET_SECONDS
+                  value: {{ $ome.bmcHostBudgetSeconds | quote }}
+                {{- end }}
+                {{- if hasKey $ome "bmcRunBudgetSeconds" }}
+                - name: INVENTORY_REDFISH_RUN_BUDGET_SECONDS
+                  value: {{ $ome.bmcRunBudgetSeconds | quote }}
+                {{- end }}
+                - name: INVENTORY_OME_BMC_VERIFY_TLS
+                  value: {{ $ome.bmcVerifyTls | quote }}
+                - name: INVENTORY_OME_BMC_PORT
+                  value: {{ $ome.bmcPort | quote }}
+                {{- /* Older platform values.yaml lack `idracReset`: read every key with hasKey (`default` treats false and 0 as empty). Absent means report-only, 12 h, 10 per run (ADR-0050). */}}
+                {{- $ir := $ome.idracReset | default dict }}
+                - name: INVENTORY_IDRAC_RESET_REPORT_ONLY
+                  value: {{ ternary $ir.reportOnly true (hasKey $ir "reportOnly") | quote }}
+                - name: INVENTORY_IDRAC_RESET_COOLDOWN_HOURS
+                  value: {{ ternary $ir.cooldownHours 12 (hasKey $ir "cooldownHours") | quote }}
+                - name: INVENTORY_IDRAC_RESET_MAX_PER_RUN
+                  value: {{ ternary $ir.maxPerRun 10 (hasKey $ir "maxPerRun") | quote }}
+                # Shared with redfishStandalone, like caBundle above — the
+                # same iDRAC-facing Redfish pass, not a second set of knobs.
+                - name: INVENTORY_REDFISH_PCIE_GPU_DETECTION
+                  value: {{ $rfs.pcieGpuDetection | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MAX_DEVICES
+                  value: {{ $rfs.pcieGpuMaxDevices | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MAX_GPUS
+                  value: {{ $rfs.pcieGpuMaxGpus | quote }}
+                - name: INVENTORY_REDFISH_PCIE_GPU_MODELS
+                  value: {{ $rfs.pcieGpuModels | quote }}
+                {{- include "collectors.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "collectors.configMapName" . }}
+                - secretRef:
+                    name: {{ include "collectors.credentialsSecretName" . }}
+              resources:
+                {{- toYaml $ome.resources | nindent 16 }}
+              securityContext:
+                {{- include "collectors.securityContext" . | nindent 16 }}
+{{- end }}

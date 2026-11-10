@@ -31,6 +31,7 @@ from pydantic import SecretStr
 
 from app.config.settings import Settings
 from app.domain.enums import ManagerType
+from app.domain.models.manager import kubevirt_cluster_slug
 from app.domain.ports.credentials import (
     ManagerConnection,
     ManagerNotConfiguredError,
@@ -54,6 +55,11 @@ _ENDPOINT_FIELD: dict[ManagerType, str] = {
     ManagerType.OPENMANAGE: "ome_ip",
     ManagerType.INTERSIGHT: "intersight_ip",
     ManagerType.KUBEVIRT: "kubevirt_url",
+}
+
+# Required beyond endpoint and login: each KubeVirt cluster is its own manager (its id).
+_EXTRA_REQUIRED_FIELDS: dict[ManagerType, tuple[str, ...]] = {
+    ManagerType.KUBEVIRT: ("kubevirt_cluster_name",),
 }
 
 
@@ -119,7 +125,8 @@ class EnvConnectionResolver:
 
         Raises:
             ManagerNotConfiguredError: If the type has no connection
-                shape at all, or any required variable is unset.
+                shape at all, or any required variable is unset (a KubeVirt
+                cluster name with no `[a-z0-9]` in it counts as unset).
         """
         if manager_type is ManagerType.UCS_MANAGER:
             raise ManagerNotConfiguredError(
@@ -145,8 +152,11 @@ class EnvConnectionResolver:
             )
 
         username_field, password_field = login_fields
-        fields = (endpoint_field, username_field, password_field)
+        extra_fields = _EXTRA_REQUIRED_FIELDS.get(manager_type, ())
+        fields = (endpoint_field, username_field, password_field, *extra_fields)
         values = {name: _read(self._settings, name) for name in fields}
+        if "kubevirt_cluster_name" in values:
+            values["kubevirt_cluster_name"] = kubevirt_cluster_slug(values["kubevirt_cluster_name"])
 
         missing = [_env_var(name) for name, value in values.items() if not value]
         if missing:

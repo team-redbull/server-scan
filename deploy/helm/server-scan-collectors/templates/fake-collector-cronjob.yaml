@@ -1,0 +1,54 @@
+{{- $c := .Values.collectors | default dict }}
+{{- $fake := $c.fake | default dict }}
+{{- if $fake.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-collector-fake
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-collector-fake
+    {{- include "collectors.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $fake.schedule | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $fake.backoffLimit }}
+      activeDeadlineSeconds: {{ $fake.activeDeadlineSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: collector
+              image: {{ include "collectors.image" . | quote }}
+              imagePullPolicy: {{ include "collectors.pullPolicy" . }}
+              command:
+                - python3
+                - -m
+                - tools.seed_inventory
+                - --count
+                - {{ $fake.count | quote }}
+                - --seed
+                - {{ $fake.seed | quote }}
+                - --epoch
+                - {{ $fake.epoch | default "0" | quote }}
+              env:
+                {{- include "collectors.commonEnv" . | nindent 16 }}
+                {{- include "collectors.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "collectors.configMapName" . }}
+              resources:
+                {{- toYaml $fake.resources | nindent 16 }}
+              securityContext:
+                {{- include "collectors.securityContext" . | nindent 16 }}
+{{- end }}

@@ -39,14 +39,19 @@ def _doc(index: int, *, listed_at: datetime | None, provider: str = _PROVIDER) -
 
 
 async def _manager(
-    mongo: MongoClientHolder, *, partial: bool = False, finished_ago: timedelta = timedelta(0)
+    mongo: MongoClientHolder,
+    *,
+    partial: bool = False,
+    finished_ago: timedelta = timedelta(0),
+    manager_id: str = "mgr_ov",
+    manager_type: ManagerType = ManagerType.ONEVIEW,
 ) -> None:
     repo = MongoManagerRepository(mongo)
     audit = AuditFields.new()
-    await repo.upsert(Manager(_id="mgr_ov", name="ov", type=ManagerType.ONEVIEW, audit=audit))
+    await repo.upsert(Manager(_id=manager_id, name=manager_id, type=manager_type, audit=audit))
     finished = utcnow() - finished_ago
     await repo.record_run(
-        "mgr_ov",
+        manager_id,
         ManagerRun(
             started_at=finished,
             finished_at=finished,
@@ -149,3 +154,31 @@ async def test_the_max_fraction_refuses_a_mass_deletion(mongo_holder: MongoClien
 
     assert _PROVIDER in result.skipped
     assert await mongo_holder.db[SERVERS_COLLECTION].count_documents({}) == 2
+
+
+async def test_one_stale_kubevirt_cluster_blocks_pruning_every_kubevirt_server(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """Each cluster has its own KUBEVIRT manager; the quiet one may be the one listing them."""
+    kubevirt = ManagerType.KUBEVIRT
+    await _manager(mongo_holder, manager_id="mgr_kubevirt_hub", manager_type=kubevirt)
+    await _manager(
+        mongo_holder,
+        manager_id="mgr_kubevirt_edge",
+        manager_type=kubevirt,
+        finished_ago=timedelta(hours=7),
+    )
+    await _seed(
+        mongo_holder,
+        _doc(1, listed_at=_old(), provider=kubevirt.value),
+        _doc(2, listed_at=utcnow(), provider=kubevirt.value),
+        _doc(3, listed_at=utcnow(), provider=kubevirt.value),
+    )
+
+    result = await _run(mongo_holder, apply=True)
+
+    assert "mgr_kubevirt_edge" in result.skipped[kubevirt.value]
+    assert await mongo_holder.db[SERVERS_COLLECTION].count_documents({}) == 3
+
+    await _manager(mongo_holder, manager_id="mgr_kubevirt_edge", manager_type=kubevirt)
+    assert (await _run(mongo_holder, apply=True)).deleted == ["srv_1"]

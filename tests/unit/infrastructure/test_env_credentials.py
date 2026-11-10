@@ -110,6 +110,7 @@ class TestResolve:
             kubevirt_url="https://kv.apps.example",
             kubevirt_username="scan",
             kubevirt_password="s3cret",
+            kubevirt_cluster_name="ocp4-tlv",
         )
         connection = EnvConnectionResolver(settings).resolve(ManagerType.KUBEVIRT)
         assert connection.endpoint == "https://kv.apps.example"
@@ -123,9 +124,28 @@ class TestResolve:
             "INVENTORY_KUBEVIRT_URL",
             "INVENTORY_KUBEVIRT_USERNAME",
             "INVENTORY_KUBEVIRT_PASSWORD",
+            "INVENTORY_KUBEVIRT_CLUSTER_NAME",
         ):
             assert var in str(caught.value)
         assert ManagerType.KUBEVIRT not in configured_manager_types(_settings())
+
+    @pytest.mark.parametrize("cluster_name", ["", "   ", "!!!", "--"])
+    def test_kubevirt_without_a_usable_cluster_name_is_not_configured(
+        self, cluster_name: str
+    ) -> None:
+        """Each cluster's collector is its own manager, keyed by this name."""
+        settings = _settings(
+            kubevirt_url="https://kv.apps.example",
+            kubevirt_username="scan",
+            kubevirt_password="s3cret",
+            kubevirt_cluster_name=cluster_name,
+        )
+        with pytest.raises(ManagerNotConfiguredError) as caught:
+            EnvConnectionResolver(settings).resolve(ManagerType.KUBEVIRT)
+        assert str(caught.value) == (
+            "KUBEVIRT is not configured — set INVENTORY_KUBEVIRT_CLUSTER_NAME."
+        )
+        assert ManagerType.KUBEVIRT not in configured_manager_types(settings)
 
     def test_every_known_manager_type_is_configurable(self) -> None:
         """Guards against a `ManagerType` being added without anywhere to

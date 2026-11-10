@@ -26,7 +26,7 @@ from app.application.services.classification_service import ClassificationServic
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService
 from app.config import get_settings
-from app.domain.enums import ManagerType, OpenShiftState
+from app.domain.enums import OpenShiftState
 from app.domain.models.manager import ManagerRun
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
@@ -43,7 +43,7 @@ from app.infrastructure.mongodb.indexes import ensure_indexes
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
-from app.infrastructure.providers.fake.generator import list_managers, list_sites, manager_id_for
+from app.infrastructure.providers.fake.generator import list_managers, list_sites
 from app.infrastructure.providers.fake.openshift import openshift_for
 from app.infrastructure.providers.fake.provider import fake_providers
 from app.utils.timeutil import utcnow
@@ -140,32 +140,33 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
         # One pass per collector, so `Server.source_provider` varies across the fleet.
         fetched = created = updated = errors = 0
         manager_repo = MongoManagerRepository(mongo)
+        managers = list_managers(sites)
         for provider in fake_providers(seed=seed, count=count, sites=sites, epoch=epoch):
             started_at = utcnow()
             started = time.monotonic()
             summary = await ingest_service.ingest(
-                provider, sites=list_sites(sites), managers=list_managers()
+                provider, sites=list_sites(sites), managers=managers
             )
             fetched += summary.fetched
             created += summary.created
             updated += summary.updated + summary.unchanged
             errors += summary.errors
             # So the seeded cluster shows the `collector_last_run_*` gauges (ADR-0029).
-            await manager_repo.record_run(
-                manager_id_for(ManagerType(provider.provider_type)),
-                ManagerRun(
-                    started_at=started_at,
-                    finished_at=utcnow(),
-                    duration_seconds=time.monotonic() - started,
-                    servers_fetched=summary.fetched,
-                    servers_created=summary.created,
-                    servers_updated=summary.updated + summary.unchanged,
-                    servers_unchanged=summary.unchanged,
-                    ingest_errors=summary.errors,
-                    collection_errors=len(provider.collection_errors),
-                    partial=bool(summary.errors),
-                ),
+            run = ManagerRun(
+                started_at=started_at,
+                finished_at=utcnow(),
+                duration_seconds=time.monotonic() - started,
+                servers_fetched=summary.fetched,
+                servers_created=summary.created,
+                servers_updated=summary.updated + summary.unchanged,
+                servers_unchanged=summary.unchanged,
+                ingest_errors=summary.errors,
+                collection_errors=len(provider.collection_errors),
+                partial=bool(summary.errors),
             )
+            for manager in managers:
+                if manager.type.value == provider.provider_type:
+                    await manager_repo.record_run(manager.id, run)
 
         reported = await _seed_openshift(
             MongoServerRepository(mongo, cursor_secret=settings.cursor_secret)

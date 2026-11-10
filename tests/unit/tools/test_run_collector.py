@@ -25,6 +25,7 @@ from tools.run_collector import (
     _parse_args,
     _run,
     _run_one_manager,
+    manager_for,
     resolve_name_pattern,
 )
 
@@ -1573,6 +1574,7 @@ class TestKubeVirt:
             "kubevirt_url": url,
             "kubevirt_username": "scan",
             "kubevirt_password": "secret",
+            "kubevirt_cluster_name": "ocp4-tlv",
             "collector_name_pattern": "^ocp",
         }
         values.update(overrides)
@@ -1604,6 +1606,37 @@ class TestKubeVirt:
         assert provider._read_timeout == 12.0
         assert (provider._vm_budget, provider._run_budget, provider._concurrency) == (7.0, 99.0, 2)
 
+    @pytest.mark.parametrize(
+        ("cluster", "manager_id", "name"),
+        [
+            ("ocp4-tlv", "mgr_kubevirt_ocp4-tlv", "kubevirt-ocp4-tlv"),
+            ("  OCP4_TLV.prod  ", "mgr_kubevirt_ocp4-tlv-prod", "kubevirt-ocp4-tlv-prod"),
+            ("-hub cluster!-", "mgr_kubevirt_hub-cluster", "kubevirt-hub-cluster"),
+        ],
+    )
+    def test_each_cluster_is_its_own_manager(
+        self, cluster: str, manager_id: str, name: str
+    ) -> None:
+        connection = ManagerConnection(endpoint="https://kv", username="u", password="p")
+        manager = manager_for(ManagerType.KUBEVIRT, connection, kubevirt_cluster=cluster)
+
+        assert (manager.id, manager.name, manager.type) == (manager_id, name, ManagerType.KUBEVIRT)
+
+    def test_a_kubevirt_manager_without_a_cluster_is_refused(self) -> None:
+        connection = ManagerConnection(endpoint="https://kv", username="u", password="p")
+        with pytest.raises(ValueError, match="cluster name"):
+            manager_for(ManagerType.KUBEVIRT, connection, kubevirt_cluster="__")
+
+    @pytest.mark.parametrize(
+        "manager_type", [t for t in ManagerType if t is not ManagerType.KUBEVIRT]
+    )
+    def test_every_other_type_ignores_the_cluster(self, manager_type: ManagerType) -> None:
+        connection = ManagerConnection(endpoint="e", username="u", password="p")
+        manager = manager_for(manager_type, connection, kubevirt_cluster="ocp4-tlv")
+        base = manager_type.value.lower()
+
+        assert (manager.id, manager.name) == (f"mgr_{base}", base.replace("_", "-"))
+
     def test_the_global_name_pattern_applies_to_vms(self) -> None:
         assert (
             resolve_name_pattern(ManagerType.KUBEVIRT, _settings(collector_name_pattern="^ocp"))
@@ -1620,6 +1653,15 @@ class TestKubeVirt:
             (
                 {"kubevirt_url": "https://kv", "kubevirt_password": "p"},
                 "INVENTORY_KUBEVIRT_USERNAME",
+            ),
+            (
+                {
+                    "kubevirt_url": "https://kv",
+                    "kubevirt_username": "u",
+                    "kubevirt_password": "p",
+                    "kubevirt_cluster_name": "  ",
+                },
+                "INVENTORY_KUBEVIRT_CLUSTER_NAME",
             ),
         ],
     )
