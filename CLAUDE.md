@@ -488,13 +488,15 @@ handoff.
 **2026-11-10 — collectors split into their own chart, `deploy/helm/server-scan-collectors`; one KubeVirt collector per cluster (ADR-0060).**
 Moved to `docs/notes/session-log.md`: the bounded-error-detail unit (ADR-0002 addendum).
 
-**Shipped (branch `feat/collectors-chart`):** every collector CronJob, the credentials Secret and the Redfish inventory moved out of
-`server-scan` (now 0.5.0: API, UI, prunes, a `recheck` block for the API's credentials and timeouts). Same image; CI pins only
-server-scan, collectors are bumped by hand after it. `KUBEVIRT` managers are `mgr_kubevirt_<slug>` (cluster name required; the first
-run deletes the old `mgr_kubevirt`); run gauges have a `manager` label and `ServerScanCollectorRunStale`; the hub API never
-rechecks a VM (`skipped_foreign` guard). CI renders both charts and now really renders the OME CronJob (`collectors.ome`).
+**Shipped and deployed:** server-scan 5.0.0 (PR #18) moved every collector CronJob, the credentials Secret and the Redfish inventory
+into the new chart (server-scan keeps API, UI, prunes and a `recheck` block). Same image; CI pins only server-scan, collectors are
+bumped by hand after it. `KUBEVIRT` managers are `mgr_kubevirt_<slug>` (cluster name required); run gauges have a `manager` label
+and `ServerScanCollectorRunStale`; the hub API never rechecks a VM (`skipped_foreign` guard). Live on cluster-2qsc5: Argo app
+`server-scan-collectors` (redbull-platform#13, image 5.0.0, `fake` only) in namespace `server-scan`, run from the Jobs page.
+Tested end to end on cluster-64spr first (both shapes, real VMs). The fake seeder now also deletes the legacy `mgr_kubevirt`
+(a fake-only hub has no KubeVirt run to do it).
 
-**Open:** **merge only after redbull-platform has a hub `server-scan-collectors` Application** (collectors.* values moved there,
-`config.existingConfigMap: server-scan-api-config`, `db.cursorSecretName: server-scan-db` as the platform's
-`existingCursorSecret`), or the hub runs no collectors until it does. Then one Application per KubeVirt cluster. Not yet run
-live on cluster-2qsc5. `deploy/grafana` panels still split collectors by `source_provider` only.
+**Open:** bump redbull-platform's `gitops/charts/server-scan-collectors` `image.tag`/`appVersion` to the release carrying the seeder
+fix (until then the hub keeps a stale `mgr_kubevirt`). No KubeVirt-cluster Application exists yet, and the hub's own KubeVirt
+collection is off (its facade login would need `collectors.existingSecret`, not a plaintext value). `deploy/grafana` panels still
+split collectors by `source_provider` only.

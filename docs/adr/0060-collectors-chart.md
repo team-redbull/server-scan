@@ -57,7 +57,8 @@ aggregates them. So a `KUBEVIRT` collector has to run in every KubeVirt cluster,
    - Every other type keeps one manager per type.
    - **No migration:** a VM moves to its new id on its next collection (`manager_id`, plus a new `external_ids`
      key; the old key is inert). The first KubeVirt run on the new image deletes the old `mgr_kubevirt` document,
-     which would otherwise block pruning and keep the stale-run alert firing for ever.
+     which would otherwise block pruning and keep the stale-run alert firing for ever; so does the fake seeder,
+     which writes per-cluster KubeVirt managers (a fake-only hub has no KubeVirt run, 2026-11-10 on cluster-2qsc5).
 5. **The run gauges carry a `manager` label**, and `ServerScanCollectorRunStale` alerts per manager, on
    `server_scan:collector_last_run_age_seconds:by_manager` against `silentForSeconds`. The `source_provider`
    recording rules are unchanged; without the new rule a dead cluster hides behind a live one.

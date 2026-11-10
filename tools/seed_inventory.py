@@ -27,7 +27,7 @@ from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService
 from app.config import get_settings
 from app.domain.enums import OpenShiftState
-from app.domain.models.manager import ManagerRun
+from app.domain.models.manager import LEGACY_KUBEVIRT_MANAGER_ID, ManagerRun
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.gpu_catalog import gpu_catalog
@@ -141,6 +141,9 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
         fetched = created = updated = errors = 0
         manager_repo = MongoManagerRepository(mongo)
         managers = list_managers(sites)
+        # KubeVirt managers are per cluster now; the shared one blocks pruning (ADR-0060).
+        if await manager_repo.delete(LEGACY_KUBEVIRT_MANAGER_ID):
+            logger.info("seed.legacy_manager_deleted", manager_id=LEGACY_KUBEVIRT_MANAGER_ID)
         for provider in fake_providers(seed=seed, count=count, sites=sites, epoch=epoch):
             started_at = utcnow()
             started = time.monotonic()
