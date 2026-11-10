@@ -1,0 +1,11 @@
+apiVersion: v2
+name: server-scan-collectors
+description: The vendor and KubeVirt collector CronJobs that write the server-scan inventory
+type: application
+version: 0.1.0
+# The API image these jobs run from: the platform's own image, invoked with
+# a different entrypoint. Unlike the server-scan chart, CI does not pin this
+# release's tag: bump `image.tag` by hand per release, and always AFTER the
+# server-scan release has been upgraded, since both write the same MongoDB
+# documents and a collector must never be newer than the API reading them.
+appVersion: "1.0.0"

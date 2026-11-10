@@ -235,7 +235,7 @@ def apply_snapshot(
         run = manager.last_run
         if run is None:
             continue
-        labels = {"source_provider": manager.type.value}
+        labels = {"source_provider": manager.type.value, "manager": manager.id}
         metrics.collector_last_run_timestamp.labels(**labels).set(run.finished_at.timestamp())
         metrics.collector_last_run_duration.labels(**labels).set(run.duration_seconds)
         metrics.collector_last_run_fetched.labels(**labels).set(run.servers_fetched)

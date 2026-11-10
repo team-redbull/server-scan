@@ -1,0 +1,57 @@
+{{- $c := .Values.collectors | default dict }}
+{{- $ucs := $c.ucsCentral | default dict }}
+{{- if $ucs.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-collector-ucs-central
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-collector-ucs-central
+    {{- include "collectors.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $ucs.schedule | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $ucs.backoffLimit }}
+      activeDeadlineSeconds: {{ $ucs.activeDeadlineSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: collector
+              image: {{ include "collectors.image" . | quote }}
+              imagePullPolicy: {{ include "collectors.pullPolicy" . }}
+              command: ["python3", "-m", "tools.run_collector", "--manager-type", "UCS_CENTRAL"]
+              env:
+                {{- include "collectors.commonEnv" . | nindent 16 }}
+                - name: INVENTORY_COLLECTOR_NAME_PATTERN
+                  value: {{ $c.namePattern | quote }}
+                {{- if hasKey $ucs "namePattern" }}
+                - name: INVENTORY_UCS_CENTRAL_NAME_PATTERN
+                  value: {{ $ucs.namePattern | quote }}
+                {{- end }}
+                - name: INVENTORY_UCS_CENTRAL_DOMAIN_CONCURRENCY
+                  value: {{ $ucs.domainConcurrency | quote }}
+                - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+                  value: {{ $ucs.timeoutSeconds | quote }}
+                {{- include "collectors.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "collectors.configMapName" . }}
+                - secretRef:
+                    name: {{ include "collectors.credentialsSecretName" . }}
+              resources:
+                {{- toYaml $ucs.resources | nindent 16 }}
+              securityContext:
+                {{- include "collectors.securityContext" . | nindent 16 }}
+{{- end }}

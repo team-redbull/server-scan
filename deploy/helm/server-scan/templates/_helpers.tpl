@@ -23,7 +23,7 @@
 {{- end -}}
 {{- end -}}
 
-{{- /* The API and every collector CronJob. Collectors need the cursor secret too, or Settings refuses to start. */ -}}
+{{- /* The API and both prune CronJobs. The prunes need the cursor secret too, or Settings refuses to start. */ -}}
 {{- define "serverScan.dbEnv" -}}
 - name: INVENTORY_MONGO_URI
   valueFrom:
@@ -54,17 +54,14 @@
 {{- end -}}
 
 {{- /*
-`GET /servers/available`'s per-manager recheck timeouts, `TYPE:seconds,...`: each collector's own
-configured per-call timeout, so the API waits as long as that collector's CronJob does (ADR-0032).
-A key a values file lacks is skipped, which leaves the shared 15 s default for that manager.
+`GET /servers/available`'s per-manager recheck timeouts, `TYPE:seconds,...`, from `recheck.timeouts`
+(ADR-0032). A type the map lacks keeps the shared 15 s default. A values file with no `recheck`
+block at all (the platform repo's, until it adds one) gets values.yaml's defaults, not nothing.
 */ -}}
 {{- define "serverScan.recheckTimeouts" -}}
-{{- $c := .Values.collectors | default dict -}}
+{{- $t := dict "UCS_CENTRAL" 240 "INTERSIGHT" 10 -}}
+{{- if kindIs "map" .Values.recheck }}{{- $t = .Values.recheck.timeouts | default dict }}{{- end -}}
 {{- $parts := list -}}
-{{- with $c.ucsCentral }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "UCS_CENTRAL:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
-{{- with $c.intersight }}{{- if hasKey . "connectTimeoutSeconds" }}{{- $parts = append $parts (printf "INTERSIGHT:%v" .connectTimeoutSeconds) }}{{- end }}{{- end -}}
-{{- with $c.oneview }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "ONEVIEW:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
-{{- with $c.ome }}{{- if hasKey . "timeoutSeconds" }}{{- $parts = append $parts (printf "OPENMANAGE:%v" .timeoutSeconds) }}{{- end }}{{- end -}}
-{{- with $c.kubevirt }}{{- if hasKey . "connectTimeoutSeconds" }}{{- $parts = append $parts (printf "KUBEVIRT:%v" .connectTimeoutSeconds) }}{{- end }}{{- end -}}
+{{- range $type, $seconds := $t }}{{- $parts = append $parts (printf "%s:%v" $type $seconds) }}{{- end -}}
 {{- join "," $parts -}}
 {{- end -}}

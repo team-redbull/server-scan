@@ -28,6 +28,7 @@ spec:
       automountServiceAccountToken: false
       {{- end }}
       {{- $auth := .Values.auth | default dict }}
+      {{- $recheck := .Values.recheck | default dict }}
       containers:
         - name: api
           image: {{ include "serverScan.apiImage" . | quote }}
@@ -74,36 +75,21 @@ spec:
             - name: INVENTORY_AVAILABLE_RECHECK_TIMEOUTS
               value: {{ . | quote }}
             {{- end }}
-            {{- with (.Values.collectors | default dict).intersight }}
-            {{- if hasKey . "readTimeoutSeconds" }}
+            {{- /* No `recheck` block at all (an older values file) keeps values.yaml's 60. */}}
+            {{- $readSet := hasKey $recheck "intersightReadTimeoutSeconds" }}
+            {{- if or $readSet (not (kindIs "map" .Values.recheck)) }}
             - name: INVENTORY_INTERSIGHT_READ_TIMEOUT_SECONDS
-              value: {{ .readTimeoutSeconds | quote }}
-            {{- end }}
-            {{- end }}
-            {{- /* A KubeVirt VM's recheck needs the collector's own TLS settings (ADR-0058). */}}
-            {{- with (.Values.collectors | default dict).kubevirt }}
-            {{- if hasKey . "verifyTls" }}
-            - name: INVENTORY_KUBEVIRT_VERIFY_TLS
-              value: {{ .verifyTls | quote }}
-            {{- end }}
-            {{- if .caBundleConfigMap }}
-            - name: INVENTORY_KUBEVIRT_CA_BUNDLE
-              value: /etc/kubevirt-ca/ca-bundle.crt
-            {{- end }}
-            {{- with .clusterName }}
-            - name: INVENTORY_KUBEVIRT_CLUSTER_NAME
-              value: {{ . | quote }}
-            {{- end }}
+              value: {{ ternary $recheck.intersightReadTimeoutSeconds 60 $readSet | quote }}
             {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-api-config
-            # `GET /servers/available`'s live recheck needs the same manager
-            # logins the collector CronJobs already hold (ADR-0032). An
-            # unconfigured value degrades to trusting Mongo — see
-            # `EnvConnectionResolver` — so this is safe to mount unconditionally.
+            # `GET /servers/available`'s live recheck needs the logins the
+            # server-scan-collectors release holds (ADR-0032). Optional: until that
+            # release exists every manager is unconfigured and the API trusts Mongo.
             - secretRef:
-                name: {{ .Values.collectors.existingSecret | default (printf "%s-collector-credentials" .Release.Name) }}
+                name: {{ $recheck.credentialsSecret | default "server-scan-collectors-collector-credentials" }}
+                optional: true
             # AD login (docs/adr/0034). Blank when auth.enabled is false
             # (this chart's own default), which the backend reads as no
             # different from the variable being unset, so mounting it
@@ -117,11 +103,6 @@ spec:
             {{- if $jobTriggerOn }}
             - name: jobs-catalog
               mountPath: /etc/server-scan/jobs
-              readOnly: true
-            {{- end }}
-            {{- if ((.Values.collectors | default dict).kubevirt | default dict).caBundleConfigMap }}
-            - name: kubevirt-ca
-              mountPath: /etc/kubevirt-ca
               readOnly: true
             {{- end }}
           livenessProbe:
@@ -155,9 +136,4 @@ spec:
         - name: jobs-catalog
           configMap:
             name: {{ .Release.Name }}-jobs-catalog
-        {{- end }}
-        {{- with ((.Values.collectors | default dict).kubevirt | default dict).caBundleConfigMap }}
-        - name: kubevirt-ca
-          configMap:
-            name: {{ . }}
         {{- end }}

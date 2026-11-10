@@ -473,3 +473,10 @@ who can open the Grafana datasource sees who did how many audited actions, altho
 admin/auditor only (ADR-0043). The operator accepted that because only they use that Grafana; reconsider if access
 widens.
 
+
+## Update (2026-11-10): a run gauge per manager (ADR-0060)
+
+The `collector_last_run_*` gauges carry a `manager` label (the manager id) beside `source_provider`, because a
+KubeVirt collector now runs in every KubeVirt cluster and each writes its own manager. The `source_provider`
+recording rules are unchanged; `server_scan:collector_last_run_age_seconds:by_manager` and the
+`ServerScanCollectorRunStale` alert (against `silentForSeconds`) catch one dead cluster that a live one would hide.

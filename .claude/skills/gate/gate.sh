@@ -28,7 +28,11 @@ deploy_render() {
   chart="$work/gitops/gitops/charts/server-scan"
   if [ "$status" = 0 ]; then
     rsync -a --delete deploy/helm/server-scan/templates/ "$chart/templates/" &&
-      rsync -a --delete deploy/helm/server-scan/files/ "$chart/files/" &&
+      if [ -d deploy/helm/server-scan/files ]; then
+        rsync -a --delete deploy/helm/server-scan/files/ "$chart/files/"
+      else
+        rm -rf "$chart/files"
+      fi &&
       (cd "$chart" && helm lint . && helm template server-scan . -n server-scan > /dev/null) ||
       status=1
   fi
@@ -58,21 +62,38 @@ if [ "$want_helm" = 1 ]; then
   for chart in deploy/helm/*/Chart.yaml; do
     step "helm lint $(dirname "$chart")" helm lint "$(dirname "$chart")"
   done
-  step "helm template server-scan (defaults)" \
-    sh -c 'helm template ci-lint deploy/helm/server-scan > /dev/null'
+  step "helm template server-scan (defaults, no collector)" \
+    sh -c '! helm template ci-lint deploy/helm/server-scan | grep -q "name: ci-lint-collector-"'
   step "helm template server-scan (frontend + metrics)" \
     sh -c 'helm template ci-lint deploy/helm/server-scan \
       --set frontend.enabled=true --set route.host=scan.apps.example.com \
       --set metrics.serviceMonitor.enabled=true --set metrics.prometheusRule.enabled=true \
       --set metrics.userWorkloadMonitoring.enabled=true > /dev/null'
-  step "helm template server-scan (every collector)" \
-    sh -c 'helm template ci-lint deploy/helm/server-scan \
+  step "helm template server-scan-collectors (every collector)" \
+    sh -c 'helm template ci-lint deploy/helm/server-scan-collectors \
       --set collectors.redfishStandalone.enabled=true \
       --set collectors.redfishStandalone.credentialsFile=files/redfish/credentials.toml \
       --set collectors.ucsCentral.enabled=true --set collectors.intersight.enabled=true \
-      --set collectors.openmanage.enabled=true --set collectors.oneview.enabled=true \
-      --set collectors.kubevirt.enabled=true --set collectors.kubevirt.caBundleConfigMap=kv-ca \
+      --set collectors.ome.enabled=true --set collectors.oneview.enabled=true \
+      --set collectors.kubevirt.enabled=true --set collectors.kubevirt.clusterName=ci-cluster \
+      --set collectors.kubevirt.caBundleConfigMap=kv-ca \
       --set collectors.fake.enabled=true > /dev/null'
+  step "helm template server-scan-collectors (hub)" \
+    sh -c 'helm template ci-lint deploy/helm/server-scan-collectors \
+      --set config.existingConfigMap=server-scan-api-config \
+      --set collectors.ucsCentral.enabled=true --set collectors.ome.enabled=true \
+      --set collectors.kubevirt.enabled=true --set collectors.kubevirt.clusterName=ci-hub > /dev/null'
+  step "helm template server-scan-collectors (kubevirt cluster)" \
+    sh -c 'helm template ci-lint deploy/helm/server-scan-collectors --set triggerable=false \
+      --set collectors.kubevirt.enabled=true --set collectors.kubevirt.clusterName=ci-cluster \
+      --set collectors.kubevirt.url=https://kubevirt-redfish.apps.example.com \
+      --set db.mongoUri=mongodb://mongo.example.com:27017 \
+      --set-string db.cursorSecret=ci-cursor-secret-not-real > /dev/null'
+  step "helm template server-scan-collectors (defaults render nothing)" \
+    sh -c 'out=$(helm template ci-lint deploy/helm/server-scan-collectors) && [ -z "$(printf %s "$out" | tr -d "[:space:]")" ]'
+  step "helm template server-scan-collectors (kubevirt needs clusterName)" \
+    sh -c '! helm template ci-lint deploy/helm/server-scan-collectors \
+      --set collectors.kubevirt.enabled=true > /dev/null 2>&1'
   step "deploy render (templates + redbull-platform values)" deploy_render
   step "helm template nodes-status" \
     sh -c 'helm template ci-lint deploy/helm/nodes-status --set nodes.clusterName=ci-cluster > /dev/null && \

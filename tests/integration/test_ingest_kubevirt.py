@@ -72,8 +72,8 @@ def facade() -> Iterator[KubeVirtFixture]:
 def _provider(url: str, *, cluster_name: str = "") -> KubeVirtProvider:
     return KubeVirtProvider(
         manager=Manager(
-            _id="mgr_kubevirt",
-            name="kubevirt",
+            _id="mgr_kubevirt_ocp4-tlv",
+            name="kubevirt-ocp4-tlv",
             type=ManagerType.KUBEVIRT,
             endpoint=url,
             enabled=True,
@@ -153,7 +153,7 @@ async def test_what_is_stored_for_a_vm(clean: MongoClientHolder, facade: KubeVir
     assert kv01.identity.vendor == "kubevirt"
     assert kv01.identity.serial == "KV01-SERIAL-0001"
     assert kv01.site_id == "tlv"
-    assert kv01.manager_id == "mgr_kubevirt"
+    assert kv01.manager_id == "mgr_kubevirt_ocp4-tlv"
     assert kv01.reachable is True
     assert kv01.hardware.cpu.model == "Icelake-Server-v2"
     assert kv01.hardware.memory.total_bytes == 4 * 1024**3
@@ -236,7 +236,7 @@ async def test_a_recheck_writes_the_same_document(
     stored = (await _servers(clean))["ocp4-tlv-kv-01"]
 
     fresh = await _provider(facade.url).get_one(
-        ServerIdentity(external_id=stored.identity.external_ids["mgr_kubevirt"])
+        ServerIdentity(external_id=stored.identity.external_ids["mgr_kubevirt_ocp4-tlv"])
     )
     assert isinstance(fresh, ProviderServer)
     updated = await service.ingest_one(fresh, provider_type="KUBEVIRT")

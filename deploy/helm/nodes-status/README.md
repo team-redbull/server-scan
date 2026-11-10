@@ -102,7 +102,7 @@ containing `compute`).
 
 `jobTtlSeconds` (default `1800`, 30 minutes) sets both CronJobs'
 `jobTemplate.spec.ttlSecondsAfterFinished` — same TTL-controller mechanism
-as the server-scan chart's `collectors.jobTtlSeconds`, just shorter here
+as the server-scan and server-scan-collectors charts' `collectors.jobTtlSeconds`, just shorter here
 because these jobs run every 15 minutes rather than every few hours: long
 enough to check a run's logs before the next one lands, short enough that
 finished Jobs never pile up. Set to `0` to disable and rely on

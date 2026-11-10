@@ -33,6 +33,14 @@ from dataclasses import dataclass, field
 from app.domain.enums import UnreachableReason
 
 
+class NotThisManagersServerError(Exception):
+    """
+    `get_one` was handed a server another manager of the same type collects.
+
+    Not "gone": the caller keeps trusting its stored copy (a KubeVirt VM on another cluster).
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderAttachment:
     """Provider-neutral DTO for one fabric/uplink connection a server reports."""
@@ -236,5 +244,9 @@ class ServerInventoryProvider(ABC):
         Returns:
             ProviderServer | None: The current state, or `None` if the
                 server can no longer be found.
+
+        Raises:
+            NotThisManagersServerError: The identity belongs to another manager of
+                this type, so this one cannot say whether it still exists.
         """
         ...

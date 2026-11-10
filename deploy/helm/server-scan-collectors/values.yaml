@@ -1,0 +1,681 @@
+# Every collector CronJob of the server-scan platform, as its own release so
+# that upgrading a collector never upgrades the API (and the reverse). Two
+# shapes, both from this one chart:
+#
+# - The hub release, in the server-scan release's own namespace: the vendor
+#   collectors (plus `fake` on a dev platform, plus the hub cluster's own
+#   `kubevirt`). It consumes the server-scan release's objects instead of
+#   rendering copies: `config.existingConfigMap: server-scan-api-config`, and
+#   `db.mongoUri`/`db.cursorSecret` left blank so `db.secretName`/
+#   `db.cursorSecretName` name server-scan's own Secrets. Keep
+#   `triggerable: true` so the API's "Run job" page finds these CronJobs.
+# - One release per KubeVirt cluster: only `collectors.kubevirt` enabled, its
+#   own ConfigMap from `config` below, its own db Secrets from `db.mongoUri`/
+#   `db.cursorSecret`, and `triggerable: false` (no API runs in that namespace).
+#
+# An empty values file renders nothing: every collector is off by default.
+
+image:
+  repository: ghcr.io/team-redbull/server-scan-api
+  # Blank means the chart's appVersion. Never `latest` (the server-scan
+  # chart's backend.image says why). Pinned by hand per release, and always
+  # upgraded AFTER the server-scan release: both write the same documents.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Labels every CronJob `server-scan.io/triggerable: "true"`, which is what
+# the API's "Run job" page lists (docs/adr/0055) — but only in the API pod's
+# own namespace. True for the hub release; false for a release in a cluster
+# with no server-scan API.
+triggerable: true
+
+# Where the inventory lives. Collectors write to MongoDB directly, never
+# through the API, so every release needs network to it and these Secrets.
+#
+# Set mongoUri / cursorSecret and this chart renders both Secrets itself
+# (db-secret.yaml). Leave them blank and it only consumes Secrets named
+# secretName / cursorSecretName that already exist in the namespace — the hub
+# shape, where the server-scan release owns them (its `db.secretName`, and
+# `<release>-cursor-secret` from its `backend.cursorSecret`), so the two
+# releases never render the same Secret. Mirror server-scan's overrides: its
+# `backend.existingCursorSecret` if set, and `server-scan-bundled-db` as
+# secretName if it runs the bundled MongoDB (`mongodb.enabled`).
+db:
+  secretName: server-scan-db
+  mongoUriKey: mongo-uri
+  cursorSecretName: server-scan-cursor-secret
+  cursorSecretKey: cursor-secret
+  # Plaintext in this values file: only where the values file's own storage
+  # is already trusted for secrets (a private, air-gapped repo). A secrets
+  # operator owning the Secrets above is the better answer once one exists.
+  mongoUri: ""
+  cursorSecret: ""
+  # Read explicitly by name, never from the URI's path. Must equal the
+  # server-scan chart's db.dbName: both write into the same database.
+  dbName: server-scan
+
+# What a collector run reads besides the database: how a server's site is
+# derived at ingest, the GPU VRAM overrides, and the log level. The API-only
+# keys of server-scan's ConfigMap (page sizes, CORS, auth, NIC OS names,
+# capacity aliases) are not here: no collector reads them.
+config:
+  # Name a ConfigMap that already holds these INVENTORY_* keys (the hub
+  # shape: `server-scan-api-config`, so sites cannot drift between the API
+  # and its collectors) and this chart renders none of its own. Blank renders
+  # `<release>-config` from the values below.
+  existingConfigMap: ""
+  # Same format and default as the server-scan chart's config.sites
+  # (docs/adr/0018): `code:Display Name` pairs, a code may be `|`-separated
+  # aliases. Empty uses the shipped default. A KubeVirt cluster's release
+  # must carry the hub's value, or its VMs are filed under other sites.
+  # From the command line: --set-string 'config.sites=nyc:New York City\,tlv:Tel Aviv'
+  sites: ""
+  # `prefix=site` BMC IP octets (docs/adr/0057), same as server-scan's.
+  siteBmcPrefixes: ""
+  # `PID:Friendly Name:VRAM_GB` overrides of the built-in GPU catalog
+  # (docs/adr/0021). Empty means the built-in table alone.
+  gpuModels: ""
+  logLevel: INFO
+
+# Real vendor collectors, run as CronJobs against the same image as the
+# API (tools/run_collector.py --manager-type <type>).
+#
+# One endpoint + login per vendor, and that is the whole of a collector's
+# connection config — no Manager documents to create, no secret volume to
+# mount. These are rendered into one Secret, `<release>-collector-credentials`,
+# and injected as INVENTORY_* environment variables (see
+# templates/collector-credentials-secret.yaml). The hub's server-scan API
+# mounts that same Secret for `GET /servers/available`'s live recheck
+# (ADR-0032; server-scan's `recheck.credentialsSecret`), so a hub release
+# renamed from `server-scan-collectors` must be named there too.
+#
+# DO NOT COMMIT REAL PASSWORDS HERE. Pass them at install time
+# (`--set collectors.ucsManager.password=...`), from a values file kept
+# out of git (`-f secrets.yaml`), or — for production — set
+# `existingSecret` below and let a secrets operator own the Secret.
+collectors:
+  # Name of a Secret managed outside this chart, holding the same
+  # INVENTORY_* keys. Set it and the chart stops rendering its own Secret
+  # from the values below entirely.
+  existingSecret: ""
+
+  # Which servers any collector may ingest, as a regex matched against the
+  # server's name (Python `re.search`, so "starts with" is `^ocp`). A
+  # vendor manager holds the whole datacenter; this is what keeps servers
+  # that aren't this platform's out of the inventory entirely. "" collects
+  # everything.
+  #
+  # A non-matching server is never fetched, so it has no document, no
+  # health state and no audit trail — this is not the UPI-vs-hosted
+  # distinction, which classification rules make over what *is* collected.
+  # Verify with `--dry-run` before letting a CronJob run with it.
+  namePattern: "^ocp"
+
+  # Each collector below may override it with its own `namePattern`, for an
+  # estate whose vendors don't share one naming scheme. Leaving the key out
+  # inherits this default; setting it to "" collects everything for that
+  # collector alone — which is the only way to opt one out of a non-empty
+  # default here, so an override is left commented out rather than set to "".
+
+  # IANA name, applied to every CronJob's `spec.timeZone` (Kubernetes 1.27+,
+  # GA). Left blank, a CronJob runs on the cluster's own configured
+  # timezone — kube-controller-manager's, almost always UTC regardless of
+  # where the cluster physically sits. Setting this keeps a schedule like
+  # "0 2 * * *" meaning 2am local, DST included, rather than 2am UTC.
+  timeZone: "Asia/Jerusalem"
+
+  # Applied to every CronJob's `jobTemplate.spec.ttlSecondsAfterFinished`
+  # (the TTL controller, GA since Kubernetes 1.23): the finished Job object
+  # (and its Pod) is deleted this many seconds after it completes, success
+  # or failure, independent of `successfulJobsHistoryLimit`/
+  # `failedJobsHistoryLimit` below — whichever cleanup condition is met
+  # first wins. 8 hours: long enough that a run's logs/status are still
+  # there to check shortly after it finished, short enough that even the
+  # every collector here (every 3 hours) never has more than three
+  # finished Jobs visible at once. For an hourly collector the count-based
+  # limits below prune first in practice, so this mostly matters for the
+  # slower ones. Set to 0 to disable and rely on the count limits alone.
+  jobTtlSeconds: 28800
+
+  # Fake data, for a cluster with no vendor hardware to reach at all — a
+  # demo, a UI environment, or a soak test of the ingest path. Runs
+  # tools/seed_inventory.py, which drives the same pipeline a real collector
+  # does, so what lands in MongoDB exercises production code.
+  #
+  # NEVER enable this alongside a real collector: one estate, two sources.
+  fake:
+    enabled: false
+
+    # These two decide the fleet field for field, so repeat runs at the same
+    # pair upsert the same servers — which is what makes it schedulable.
+    # Changing either against a populated database reports errors rather than
+    # replacing the fleet (servers correlate on (vendor, serial), so a new
+    # seed is a second fleet); wipe the database first.
+    # 2500 is close to the operator's real estate. The generator is a
+    # deterministic sequence, so raising this against a populated database
+    # ADDS servers — the first 1000 of a 2500 run are byte-identical to a
+    # 1000 run. Changing the SEED is what makes a second fleet.
+    count: 2500
+    seed: 42
+
+    # Health epoch. "0" (default) leaves the data identical between runs.
+    # An integer N renders that epoch; "auto" is floor(unix_time / 21600) % 8,
+    # so every run in a new six-hour epoch flips a few percent of servers' health and the
+    # audit trail shows HEALTH_CHANGED events — the way to a moving demo.
+    epoch: "0"
+
+    # Every 3 hours (2026-10-04; was 6). With epoch "0" nothing about the data changes between
+    # runs — the point is a fresh `last_seen_at` and a live audit trail.
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+    activeDeadlineSeconds: 1800
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+
+
+  # Cisco UCS Manager — a login, and deliberately no endpoint.
+  #
+  # There is no UCS Manager CronJob. The ucsCentral collector below is
+  # the only Cisco collector, and it logs into every registered domain's
+  # UCS Manager with this one account; the addresses come from Central
+  # (`ComputeSystem.address`), so an `ip` here would be a value nothing
+  # reads. This account must therefore authenticate against every domain.
+  ucsManager:
+    username: ""
+    password: ""
+
+  # Cisco UCS Central — the only Cisco collector.
+  #
+  # It asks Central for the registered domains and their addresses
+  # (`computeSystem`) and for the service-profile names and each one's
+  # domain (`lsServer`) — two queries regardless of fleet size — then
+  # reads each domain's inventory live from that domain's own UCS
+  # Manager, over the data path validated against a live UCS Platform
+  # Emulator in docs/adr/0009. Nothing depends on Central's replica
+  # holding the deep per-server objects, or on how recently it synced.
+  #
+  # Domains whose known profile names contain no `namePattern` match are
+  # skipped; a domain Central lists no profiles for is always collected
+  # rather than skipped, so an incomplete replica cannot silently prune
+  # the fleet. See docs/adr/0014.
+  ucsCentral:
+    # opt-in: also needs ucsManager.username/password above, since every
+    # domain is read through a UCS Manager login.
+    enabled: false
+    # namePattern: "^ocp"
+    ip: ""
+    username: ""
+    password: ""
+
+    # How many domains to collect concurrently. Each domain costs a login
+    # plus 13 queries no matter how many servers it holds
+    # (docs/adr/0014-ucs-central-multi-domain-collector.md), and domains
+    # are independent, so this bounds wall-clock time without bounding
+    # what gets collected.
+    domainConcurrency: 4
+    # Overrides the shared INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+    # default (15s, backend/app/config/settings.py) for this CronJob only.
+    timeoutSeconds: 240
+    # Every 3 hours, matching every other collector here — a shared,
+    # uniform cadence across the whole fleet (operator, 2026-10-04; was 6h).
+    # Nothing here needs sub-3h freshness on its own; this
+    # opens a session against every collected domain, so it is also the
+    # more expensive job on both sides of the wire.
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+    # Generous: one run covers every domain, several at a time.
+    activeDeadlineSeconds: 1800
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        # One run holds several domains' collected servers in memory at
+        # once, not one domain's.
+        memory: 1Gi
+
+  # Standalone Redfish BMCs — the collector for machines no aggregator
+  # owns. Any conformant Redfish BMC: a Cisco CIMC that Intersight cannot
+  # manage, an iDRAC, a current iLO. HPE iLO 4 is out of scope on
+  # conformance grounds, not vendor grounds.
+  #
+  # There is no `ip`. The fleet is the inventory file below, and that file
+  # is normally the only collection filter — the shared `namePattern`
+  # deliberately does not reach here, because a BMC does not know the
+  # server's `ocp4-...` name, and only this collector's own override
+  # below applies. Treat the inventory as a production-critical, review-gated,
+  # GitOps-owned artifact: write access to it is equivalent to write
+  # access to the credential Secret, since it decides where credentials
+  # are sent.
+  #
+  # Cost is per *server* here, not per manager: ~25 HTTP round trips
+  # against each BMC, so 400 hosts is ~10,000 requests against embedded
+  # hardware that degrades when polled. Do not copy ucsCentral's numbers.
+  redfishStandalone:
+    enabled: false
+    # The global namePattern never reaches this collector; setting this is
+    # the only way to name-filter it, on top of the inventory file.
+    # namePattern: "^ocp"
+
+    # Deployed but not scheduled. Un-suspend only after the manual steps
+    # in docs/test-redfish-standalone-collector.md have run green against
+    # the real inventory — that is the last step of a rollout, not the
+    # first.
+    suspend: true
+
+    # Every 3 hours (operator, 2026-10-04; was 6h). Every sweep is
+    # thousands of requests against the estate's management plane, and
+    # <=3h freshness is ample to drive a 12h staleness check. Rule if you
+    # change it: keep the interval at least 4x the measured p95 sweep
+    # (`redfish.run_summary`), or `Forbid` starts silently dropping runs.
+    schedule: "0 */3 * * *"
+
+    # 1, not 0: a ConfigMap mount can lag at pod start and read as
+    # "inventory absent", and with no retry that loses a whole collection
+    # cycle. The retry-sprays-credentials risk that argues for 0 is
+    # already covered by the credential breaker and the failure budget.
+    #
+    # NOTE: exit 3 (PARTIAL) is the NORMAL outcome for a fleet of
+    # independent BMCs, so this Job will be red routinely and by design.
+    # Alert on staleness, never on Job status.
+    backoffLimit: 1
+
+    # Outer backstop only. runBudgetSeconds below trips first and exits
+    # with a summary naming what it never reached, where this kills the
+    # pod with no reason logged at all. Keep it ~300s above the run budget.
+    activeDeadlineSeconds: 3900
+
+    # --- Pacing. Arithmetic in docs/test-redfish-standalone-collector.md;
+    # 400 hosts x ~20s each / 16 at a time = ~8 min typical WITHOUT
+    # pcieGpuDetection below — a host that needs its slow path can cost
+    # up to hostBudgetSeconds on its own. Watch runBudgetSeconds/
+    # activeDeadlineSeconds above once pcieGpuDetection is live against a
+    # real fleet size; raise both if many hosts hit the slow path at once.
+    fleetConcurrency: 16
+    connectTimeoutSeconds: 10
+    # 30, not the 15 the other collectors use: a documented iLO fleet
+    # failed every 10-15 minutes at 3s and was fixed at 20s.
+    readTimeoutSeconds: 30
+    # 600, not 180: raised for pcieGpuDetection below — a BMC whose
+    # PCIeDevices collection doesn't honor $expand measured ~6.5 minutes
+    # for one host (docs/adr/0016, 2026-09-15).
+    hostBudgetSeconds: 600
+    runBudgetSeconds: 3600
+
+    # A BMC that reports GPUs only as PCIeDevice entries, never as
+    # Processors (confirmed live 2026-09-15, docs/adr/0016) — on by
+    # default since this operator's own fleet needs it. pcieGpuMaxDevices
+    # is 250, not the code default of 50: live fleets measured 133-214
+    # PCIeDevices on a single host, and a GPU past the cutoff is silently
+    # never found — raise this further if a larger host turns up.
+    pcieGpuDetection: true
+    pcieGpuMaxDevices: 250
+    pcieGpuMaxGpus: 16
+    # Extends (never replaces) the built-in PCI vendor+device ID -> model
+    # table, the same way config.gpuModels above extends GpuCatalog's own.
+    # "vendorId:deviceId:Model Name", comma-separated. Same comma-splitting
+    # gotcha as config.sites applies to `--set` on the command line.
+    pcieGpuModels: ""
+
+    tls:
+      # ConfigMap with a `ca-bundle.crt` key. Empty means the image's
+      # system trust store, which correctly rejects a factory self-signed
+      # BMC certificate — the fix is an internal CA imported to every BMC
+      # (all vendors in scope support CSR/import), or Dell's custom
+      # signing certificate. Disabling verification is per-host, in the
+      # inventory file, and requires a written reason.
+      caBundleConfigMap: ""
+      minVersion: "TLSv1_2"
+
+    # ConfigMap holding the fleet list under an `inventory.toml` key.
+    # Defaults to `<release>-redfish-inventory`.
+    #
+    # Two ways to supply it, same choice `collectors.<vendor>.password`
+    # below already offers for credentials:
+    #
+    # 1. Leave `inventoryToml` below blank (the default) and provision the
+    #    ConfigMap yourself — this chart then does NOT create it. Set
+    #    `inventoryConfigMap` if your ConfigMap isn't named
+    #    `<release>-redfish-inventory`.
+    # 2. Set `inventoryToml` and this chart renders and owns the ConfigMap
+    #    (`templates/redfish-inventory-configmap.yaml`) — the natural
+    #    shape for Argo CD, whose Application `spec.source.helm.values` is
+    #    inline YAML anyway. The fleet list then lives in whatever repo
+    #    that Application manifest does, so give it the same access
+    #    control as any other GitOps-committed config — it names every
+    #    BMC and decides which credential each one gets
+    #    (docs/examples/redfish-inventory.example.toml explains why that
+    #    makes it review-gated, same as the credentials Secret). It holds
+    #    no password itself, which is why this is a ConfigMap and the
+    #    credentials file below is a Secret.
+    #
+    # Setting `inventoryConfigMap` means this chart creates nothing and
+    # only mounts what you named — it wins over both sources below.
+    inventoryConfigMap: ""
+    inventoryToml: ""
+
+    # 3. The default, and the one most estates want: a real .toml file in
+    #    the chart, read with `.Files.Get`. Edit
+    #    `files/redfish/inventory.toml` in your checkout and the fleet
+    #    changes — no `--set`, no inline YAML block, and a GitOps diff
+    #    shows the file line by line. `inventoryToml` above overrides it
+    #    when both are set. Point this at another path under the chart to
+    #    shard per site; blank disables the file source entirely.
+    inventoryFile: files/redfish/inventory.toml
+
+    # Secret holding per-host logins under a `credentials.toml` key.
+    # Leave empty for a fleet sharing one account, which uses
+    # INVENTORY_REDFISH_USERNAME/_PASSWORD from the collector Secret
+    # instead. At a few hundred entries this belongs to a secrets operator
+    # (Vault, External Secrets), not to `--set`. This is the production
+    # path and it wins over `credentialsFile` below.
+    credentialsSecret: ""
+
+    # The file-in-the-chart counterpart, deliberately EMPTY by default
+    # and deliberately not symmetric with `inventoryFile` above: setting
+    # it to `files/redfish/credentials.toml` renders that file into a
+    # Secret, which means **every BMC password in it is committed to
+    # git**, in the history, unremovable by a later edit. The shipped
+    # file carries placeholders and says the same thing in its header.
+    # Fine for a lab or a demo; use `credentialsSecret` for anything
+    # real.
+    credentialsFile: ""
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 128Mi
+      limits:
+        # The provider streams — it yields each host as it completes and
+        # never holds the fleet. Tight enough that a regression which
+        # buffers everything fails loudly at 400 hosts rather than
+        # silently working until 10,000.
+        memory: 512Mi
+
+    # The fleet-wide fallback login, rendered into the shared collector
+    # Secret. Any host with no per-host credential uses this.
+    username: ""
+    password: ""
+
+  # Cisco Redfish note: a standalone CIMC is collected by
+  # `redfishStandalone` above, NOT by restoring a UCS Manager entry point.
+  # `--manager-type UCS_MANAGER` remains deleted (ADR-0014) — reaching a
+  # CIMC over Redfish is a different protocol to a different endpoint that
+  # knows nothing about domains or service profiles.
+
+  # HPE — OneView, and only OneView.
+  #
+  # One collection standard for every HP server whatever its iLO
+  # generation: no BMC login, no Redfish pass, no per-generation branch.
+  # That is a deliberate decision for a mixed iLO 4/5/6 estate; what it
+  # costs on Gen10/Gen11 is in
+  # docs/adr/0022-oneview-only-hpe-collector.md.
+  #
+  # One appliance, one endpoint, like every other vendor. HPE caps an
+  # appliance at 2500 servers (1024 off ESXi) — documented in
+  # docs/hpe-collectors.md, not coded around.
+  #
+  # NEVER VALIDATED AGAINST LIVE HPE HARDWARE. There is no OneView
+  # equivalent of Cisco's UCS Platform Emulator, so every field mapping
+  # comes from HPE's API Reference alone. Run
+  # `python3 -m tools.verify_oneview` against the real appliance before
+  # enabling this.
+  oneview:
+    enabled: false
+    # namePattern: "^ocp"
+    ip: ""
+    username: ""
+    password: ""
+
+    # Power supplies are tried the cheap way first — many servers'
+    # bulk-sweep response already carries them (confirmed live 2026-09-07:
+    # 688 of 821) — and only the rest cost a request per server. On by
+    # default, because turning it off makes HPE the one vendor the health
+    # engine's power.psu_count / power.failed_psu_count cannot see for the
+    # servers not already covered by the sweep.
+    collectPsus: true
+    psuConcurrency: 8
+
+    # Same shape as collectPsus, for /processors instead of
+    # /powerSupplies — the only source cpu_threads has, since
+    # server-hardware's own fields carry processorCount/processorCoreCount
+    # but no thread count.
+    collectCpuThreads: true
+    cpuThreadsConcurrency: 8
+
+    # Optional per-call timeout (seconds) for OneView requests, used by this CronJob. Unset
+    # keeps the shared 15 s default (INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS). Not
+    # activeDeadlineSeconds: that bounds the whole job, not one call. The API's live
+    # recheck has its own copy: server-scan's `recheck.timeouts.ONEVIEW`.
+    # timeoutSeconds: 30
+
+    # `X-Api-Version`. 0 discovers it per appliance and clamps it to the
+    # newest version this collector was written against (8000 / OneView
+    # 10.20). Set a number only to pin or roll back.
+    apiVersion: 0
+
+    # Explicit `count` on every collection GET. 256 is the documented
+    # ceiling on /rest/server-profiles, where `count=-1` means *64*.
+    pageSize: 256
+
+    # Appliances ship a self-signed certificate in an air-gapped estate.
+    verifyTls: false
+
+    # Every 3 hours, matching every other collector here — a shared,
+    # uniform cadence across the whole fleet (operator, 2026-10-04; was
+    # 6h, and 4h before 2026-09-10). Three bulk calls per
+    # appliance, so the wire cost would support more often than this if
+    # a future need for tighter freshness ever outweighs the uniformity.
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+    activeDeadlineSeconds: 3600
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        # The `expand=all` sweep inlines each server's drive and PCI
+        # inventory, and a page of 25 of those is the largest single
+        # response this collector handles.
+        memory: 1Gi
+
+  # KubeVirt — OpenShift Virtualization VMs through a kubevirt-redfish facade
+  # (docs/adr/0058). One URL, one HTTP Basic user; every VM that user can see.
+  kubevirt:
+    enabled: false
+    # namePattern: "^ocp"      # the global collectors.namePattern applies to VM names too
+    # The facade's Route, e.g. https://kubevirt-redfish.apps.<cluster-domain>.
+    url: ""
+    # The cluster the facade serves, exactly as that cluster's nodes-status release names it, so
+    # a VM's node resolves to its bare-metal server through the membership (ADR-0059).
+    clusterName: ""
+    username: ""
+    password: ""
+    # The ingress certificate is cluster-signed: put its CA in a ConfigMap
+    # under the key ca-bundle.crt and name it here. The hub API never rechecks a VM live.
+    verifyTls: true
+    caBundleConfigMap: ""
+    # The facade blocks an IP after 10 failed logins in 5 minutes; a rejected
+    # login is never retried and fails the run (exit 1).
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+    activeDeadlineSeconds: 2400
+    # VMs read at once. Each PVC-backed disk costs the facade one live API GET
+    # behind client-go's 5 qps / burst 10, so raise this only together with
+    # the facade's own kubevirt.qps/burst.
+    concurrency: 4
+    # connectTimeoutSeconds: 15
+    # Just above the Route's 30 s timeout, so a stall surfaces as its 504.
+    readTimeoutSeconds: 35
+    vmBudgetSeconds: 60
+    runBudgetSeconds: 1800
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
+  # Dell — OME discovers, Redfish collects.
+  #
+  # Two bulk REST calls against the one OpenManage Enterprise appliance
+  # enumerate every server profile and managed device, which gives each
+  # server its name, deployment template, service tag and iDRAC address.
+  # The hardware behind those addresses is then read from each server's
+  # own BMC over Redfish, because only the BMC reports measured values and
+  # only OME knows the name that site parsing and classification need.
+  #
+  # This needs TWO logins — the appliance's and a shared read-only iDRAC
+  # account — and egress from the collector pod to the whole BMC network.
+  # See docs/adr/0020-dell-identity-from-ome-hardware-from-redfish.md.
+  ome:
+    enabled: false
+    # namePattern: "^ocp"
+    ip: ""
+    username: ""
+    password: ""
+
+    # The iDRAC account, used against every Dell BMC in the estate.
+    bmcUsername: ""
+    bmcPassword: ""
+    bmcPort: 443
+
+    # iDRACs ship a factory self-signed certificate. The scalable fix is
+    # an internal CA in `redfishStandalone.caBundle` and this set to true,
+    # not leaving verification off forever.
+    bmcVerifyTls: false
+
+    # BMCs contacted at once. Cost here is per *server* (~25 requests
+    # each), not per appliance.
+    bmcConcurrency: 16
+
+    # Restart the iDRAC (never the host) of a Dell server whose every disk or
+    # every NIC reads UNKNOWN, right after it is collected; the next run reads
+    # the recovered status (ADR-0050). Needs bmcUsername to hold the Configure
+    # Manager privilege. A server with an unfinished iDRAC job is skipped.
+    idracReset:
+      # true: read the job queue and log "would reset", send nothing. Set false to restart.
+      reportOnly: true
+      # A server reset (or attempted) less than this many hours ago is left alone.
+      cooldownHours: 12
+      # Most iDRACs one run restarts. 0 switches the feature off.
+      maxPerRun: 10
+
+    # Wall clock for one BMC, and for the whole iDRAC pass. Unset keeps the
+    # backend defaults (180 s / 3600 s). Keep the run budget below
+    # activeDeadlineSeconds so it trips first and reports what it collected.
+    # bmcHostBudgetSeconds: 180
+    # bmcRunBudgetSeconds: 3600
+
+    # Optional per-call timeout (seconds) for OME requests, used by this CronJob. Unset keeps
+    # the shared 15 s default; server-scan's `recheck.timeouts.OPENMANAGE` is the API's copy.
+    # timeoutSeconds: 30
+
+    # Every 3 hours, matching redfishStandalone and every other collector
+    # here — a shared, uniform cadence across the whole fleet (operator,
+    # 2026-10-04; was 6h). Every sweep is thousands of
+    # requests against embedded hardware that degrades when polled, so
+    # this one specifically should not go tighter even if others do.
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+    # Generous: one run sweeps the whole Dell estate a batch of BMCs at a
+    # time. Keep it above redfish's runBudgetSeconds so the in-process
+    # budget trips first and can report what it collected.
+    activeDeadlineSeconds: 5400
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+
+  # Cisco Intersight — the only collector that reaches the platform's
+  # 10,000-server target without qualification. Every sub-resource is
+  # listed once for the whole estate and joined in memory, so one run
+  # costs on the order of a hundred requests regardless of fleet size.
+  # See docs/adr/0017-intersight-collector.md.
+  #
+  # AIR-GAP: `intersight.com` is on the public internet. An air-gapped
+  # site must point `ip` at an on-prem Private Virtual Appliance instead;
+  # the Connected Virtual Appliance still calls home and does not help.
+  #
+  # THERE IS NO LOGIN HERE. Intersight signs every request with an API
+  # key, so the credential is `apiKeyId` + `apiKeyPem`, not a username
+  # and a password. Mint the key under Settings > API Keys with a
+  # Read-Only role. Everything the collector needs is in this file — no
+  # pre-existing Secret, and no key file to mount.
+  intersight:
+    enabled: false
+    # namePattern: "^ocp"
+
+    # "intersight.com" for the SaaS tenant, or the appliance FQDN.
+    # A bare hostname: no scheme, no port, no path.
+    ip: ""
+
+    # The API Key ID exactly as Intersight displays it beside the key.
+    # A `/`-joined string, not a username.
+    apiKeyId: ""
+
+    # That key's PEM private half, unencrypted, as a YAML literal block
+    # (`apiKeyPem: |`, then the whole PEM including its BEGIN and END
+    # lines, indented). Both API key generations work — v2 keys are RSA,
+    # v3 keys are EC — and the collector picks the signing algorithm from
+    # the PEM header itself, so there is nothing else to configure.
+    #
+    # Prefer NOT pasting the key here at all: pass it at install time
+    # with `--set-file collectors.intersight.apiKeyPem=/path/to/key.pem`,
+    # or from a `-f secrets.yaml` that is not in git. A committed PEM
+    # fails `tests/unit/test_no_committed_secrets.py`, deliberately.
+    apiKeyPem: ""
+
+    # Which servers to collect, by how Intersight manages them. `UCSM` is
+    # deliberately absent: those servers are exactly the ones the
+    # ucsCentral collector above already owns, and collecting both makes
+    # one document's fields flip on whichever CronJob ran last. Add UCSM
+    # ONLY for an estate whose UCS domains are not registered with UCS
+    # Central at all.
+    managementModes: "Intersight,IntersightStandalone"
+
+    # No CA bundle setting here: the collector never verifies the
+    # endpoint's TLS certificate, unconditionally, by explicit user
+    # decision. See app.infrastructure.providers.intersight.client.
+    # IntersightClient.
+
+    # `$top`. 1000 is the API's documented maximum. Lower it only if a
+    # tenant turns out to throttle — Cisco publishes no rate limit, so
+    # the collector backs off on 429 rather than assuming a number.
+    pageSize: 1000
+
+    connectTimeoutSeconds: 10
+    # A fleet-wide page is a large response, bounded separately from
+    # reaching the endpoint at all.
+    readTimeoutSeconds: 60
+
+    # Every 3 hours, matching every other collector here — a shared,
+    # uniform cadence across the whole fleet (operator, 2026-10-04; was
+    # 6h, and hourly before 2026-09-10). One run covers the whole
+    # tenant in a flat number of requests, so the wire cost would support
+    # more often than this — unlike the per-BMC Redfish sweep, which
+    # genuinely must not be scheduled tighter.
+    schedule: "0 */3 * * *"
+    backoffLimit: 1
+
+    # In-process budget, so a throttled run ends with a summary naming
+    # what it never reached. Keep activeDeadlineSeconds ~300s above it:
+    # that one kills the pod with no reason logged at all.
+    runBudgetSeconds: 1800
+    activeDeadlineSeconds: 2100
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        # The join tables are held for the length of the run and scale
+        # with the fleet — the one collector whose memory does. `$select`
+        # keeps them to mapped fields only; 1Gi covers ~10,000 servers.
+        memory: 1Gi

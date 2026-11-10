@@ -72,3 +72,12 @@ run. A missing or unreadable catalog means every CronJob found counts as enabled
 
 The chart gains a ServiceAccount, Role and RoleBinding (only when enabled) and a label on eight CronJobs. The
 page is `/jobs` in the UI. A manual Job is subject to the CronJob's history limits like a scheduled one.
+
+## Update (2026-11-10): the collectors are another release (ADR-0060)
+
+The collector CronJobs moved to the `server-scan-collectors` chart. Its hub release runs in the API's namespace and
+labels its CronJobs `server-scan.io/triggerable` (`triggerable: true`), so the Jobs page still lists and runs them,
+under that release's names (`server-scan-collectors-collector-<type>`). The catalog this chart renders names only the
+two prunes, because it cannot read the collectors release's values: a collector switched off there is absent from
+the page rather than shown as "not deployed". A KubeVirt cluster's own release sets `triggerable: false`; the API
+could not reach it anyway, for the reason `nodes-status` is excluded above.

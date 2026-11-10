@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.enums import ManagerType
+from app.domain.models.manager import LEGACY_KUBEVIRT_MANAGER_ID
 from app.infrastructure.mongodb import MongoClientHolder
 from app.infrastructure.mongodb.indexes import MANAGERS_COLLECTION, ensure_indexes
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
@@ -63,3 +64,17 @@ async def test_the_retired_parent_index_is_dropped_on_startup(
     await ensure_indexes(mongo_holder.db)
 
     assert "parent_manager_id" not in await collection.index_information()
+
+
+async def test_the_pre_adr_0060_kubevirt_manager_can_be_deleted(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A KUBEVIRT run removes the one shared manager id; a repeat delete is a no-op."""
+    await mongo_holder.db[MANAGERS_COLLECTION].insert_one(
+        {"_id": LEGACY_KUBEVIRT_MANAGER_ID, "name": "kubevirt", "type": "KUBEVIRT", "enabled": True}
+    )
+    repo = MongoManagerRepository(mongo_holder)
+
+    assert await repo.delete(LEGACY_KUBEVIRT_MANAGER_ID) is True
+    assert await repo.get_by_id(LEGACY_KUBEVIRT_MANAGER_ID) is None
+    assert await repo.delete(LEGACY_KUBEVIRT_MANAGER_ID) is False

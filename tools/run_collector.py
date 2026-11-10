@@ -38,7 +38,7 @@ from app.application.services.ingest import IngestService, IngestSummary
 from app.config import get_settings
 from app.config.settings import Settings
 from app.domain.enums import ManagerType
-from app.domain.models.manager import Manager, ManagerRun
+from app.domain.models.manager import LEGACY_KUBEVIRT_MANAGER_ID, Manager, ManagerRun
 from app.domain.ports.bmc_reset import BmcResetPolicy
 from app.domain.ports.credentials import (
     CredentialResolver,
@@ -778,7 +778,9 @@ async def _run(
             logger.exception("collector.not_configured", manager_type=manager_type.value)
             print(f"{exc}")
             return 2
-        manager = manager_for(manager_type, connection)
+        manager = manager_for(
+            manager_type, connection, kubevirt_cluster=settings.kubevirt_cluster_name
+        )
         name_pattern = resolve_name_pattern(manager_type, settings)
 
         if dry_run:
@@ -802,6 +804,12 @@ async def _run(
         try:
             manager_repo = MongoManagerRepository(mongo)
             await ensure_indexes(mongo.db)
+            if manager_type is ManagerType.KUBEVIRT and await manager_repo.delete(
+                LEGACY_KUBEVIRT_MANAGER_ID
+            ):
+                logger.info(
+                    "collector.legacy_manager_deleted", manager_id=LEGACY_KUBEVIRT_MANAGER_ID
+                )
 
             rule_repo = MongoClassificationRuleRepository(mongo)
             policy_repo = MongoHealthPolicyRepository(mongo)

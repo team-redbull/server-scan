@@ -1,0 +1,71 @@
+{{- $c := .Values.collectors | default dict }}
+{{- $ov := $c.oneview | default dict }}
+{{- if $ov.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-collector-oneview
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-collector-oneview
+    {{- include "collectors.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $ov.schedule | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ $ov.backoffLimit }}
+      activeDeadlineSeconds: {{ $ov.activeDeadlineSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: collector
+              image: {{ include "collectors.image" . | quote }}
+              imagePullPolicy: {{ include "collectors.pullPolicy" . }}
+              command: ["python3", "-m", "tools.run_collector", "--manager-type", "ONEVIEW"]
+              env:
+                {{- include "collectors.commonEnv" . | nindent 16 }}
+                {{- if hasKey $ov "timeoutSeconds" }}
+                - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
+                  value: {{ $ov.timeoutSeconds | quote }}
+                {{- end }}
+                - name: INVENTORY_COLLECTOR_NAME_PATTERN
+                  value: {{ $c.namePattern | quote }}
+                {{- if hasKey $ov "namePattern" }}
+                - name: INVENTORY_ONEVIEW_NAME_PATTERN
+                  value: {{ $ov.namePattern | quote }}
+                {{- end }}
+                - name: INVENTORY_ONEVIEW_COLLECT_PSUS
+                  value: {{ $ov.collectPsus | quote }}
+                - name: INVENTORY_ONEVIEW_PSU_CONCURRENCY
+                  value: {{ $ov.psuConcurrency | quote }}
+                - name: INVENTORY_ONEVIEW_COLLECT_CPU_THREADS
+                  value: {{ $ov.collectCpuThreads | quote }}
+                - name: INVENTORY_ONEVIEW_CPU_THREADS_CONCURRENCY
+                  value: {{ $ov.cpuThreadsConcurrency | quote }}
+                - name: INVENTORY_ONEVIEW_API_VERSION
+                  value: {{ $ov.apiVersion | quote }}
+                - name: INVENTORY_ONEVIEW_PAGE_SIZE
+                  value: {{ $ov.pageSize | quote }}
+                - name: INVENTORY_ONEVIEW_VERIFY_TLS
+                  value: {{ $ov.verifyTls | quote }}
+                {{- include "collectors.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "collectors.configMapName" . }}
+                - secretRef:
+                    name: {{ include "collectors.credentialsSecretName" . }}
+              resources:
+                {{- toYaml $ov.resources | nindent 16 }}
+              securityContext:
+                {{- include "collectors.securityContext" . | nindent 16 }}
+{{- end }}

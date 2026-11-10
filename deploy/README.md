@@ -1,8 +1,9 @@
 # Deployment
 
-Two Helm charts. `helm/server-scan` is the platform — API, frontend,
-an optional MCP server, an optional "Run job" RBAC and the per-vendor collector CronJobs — and is what the rest of this
-document is about. `helm/nodes-status` is the pair of jobs that
+Three Helm charts. `helm/server-scan` is the platform — API, frontend,
+an optional MCP server, an optional "Run job" RBAC and the two prune CronJobs. `helm/server-scan-collectors`
+holds every collector CronJob (ADR-0060): one release beside the platform for the vendor collectors, and one in
+every KubeVirt cluster for its VMs. This document covers both. `helm/nodes-status` is the pair of jobs that
 run *inside* every OpenShift cluster to report what it is using, one
 release per cluster; it has its own README, and the section below says
 why it is separate.
@@ -25,12 +26,14 @@ pre-rendered copy either. The production deployment is exactly that:
 `gitops/charts/server-scan`, and CI's `deploy` job keeps it current —
 templates and files synced verbatim, image tags and `appVersion` pinned to
 each release — so a green push to `main` reaches the cluster on its own
-(ADR-0031). Only that repo's `values.yaml` is hand-maintained.
+(ADR-0031). Only that repo's `values.yaml` is hand-maintained. The collectors
+chart is **not** synced by CI: its copy under `gitops/charts/server-scan-collectors`
+is upgraded by hand, after server-scan (["Upgrading the collectors"](#upgrading-the-collectors-adr-0060)).
 
 ## Scope
 
-The chart deploys the API, the collectors and — since 0.2.0 — optionally
-the frontend, MongoDB and Redis. Which of those it stands up is four
+The chart deploys the API and — since 0.2.0 — optionally
+the frontend, MongoDB and Redis; the collectors are `helm/server-scan-collectors` (ADR-0060). Which of those it stands up is four
 independent switches, so a deployment picks its own shape:
 
 | Value | Default | What it adds |
@@ -39,7 +42,6 @@ independent switches, so a deployment picks its own shape:
 | `frontend.enabled` | `false` | The React SPA (Deployment/Service/Route) |
 | `mongodb.enabled` | `false` | A bundled MongoDB (Bitnami subchart) |
 | `redis.enabled` | `false` | A bundled Redis (Bitnami subchart) |
-| `collectors.<vendor>.enabled` | `false` | That vendor's CronJob |
 
 **Both databases stay off by default**, because the original reasoning
 still holds for a real production estate:
@@ -70,7 +72,11 @@ helm install si deploy/helm/server-scan \
   --set 'mongodb.auth.passwords[0]=...' \
   --set redis.enabled=true --set redis.auth.password=... \
   --set frontend.enabled=true --set route.host=scan.apps.example.com \
-  --set collectors.fake.enabled=true --set backend.cursorSecret=...
+  --set backend.cursorSecret=... \
+  --set recheck.credentialsSecret=si-collectors-collector-credentials
+helm install si-collectors deploy/helm/server-scan-collectors \
+  --set collectors.fake.enabled=true --set config.existingConfigMap=si-api-config \
+  --set db.secretName=si-bundled-db --set db.cursorSecretName=si-cursor-secret
 
 # Redis only, against an operated MongoDB.
 helm install si deploy/helm/server-scan \
@@ -206,8 +212,10 @@ not carry it.
 ServiceAccount, mounts its token into the API pod (`automountServiceAccountToken` is otherwise `false`) and
 binds a Role **in the release namespace only**: `cronjobs` get/list, `jobs` get/list/create, `pods`
 get/list, `pods/log` get. It sets `INVENTORY_JOBS_BACKEND=kubernetes` and `INVENTORY_JOBS_NAMESPACE` (downward
-API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the seven collectors (`fake` and
-`kubevirt` included) and the two prune jobs of this chart, never the `nodes-status` jobs. `server-scan.io/trigger-warning` on a CronJob is the
+API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the two prune jobs of this chart and
+the collectors of a `server-scan-collectors` release **in the same namespace** (`triggerable: true`, its default),
+never the `nodes-status` jobs or a KubeVirt cluster's collectors (ADR-0060). The catalog names only the prunes: this
+chart cannot read the collectors release's values, so a collector switched off there is simply absent from the page. `server-scan.io/trigger-warning` on a CronJob is the
 text of the UI's confirm dialog (set on `openmanage` and both prunes). The API pod can then create Jobs in its
 namespace; read the trade-off in ADR-0055 before enabling it.
 
@@ -302,7 +310,7 @@ metrics:
   serviceMonitor:
     enabled: true          # scrapes <release>-api's Service, path /metrics
   prometheusRule:
-    enabled: true          # ServerScanCollectorSilent, ServerScanServersStale,
+    enabled: true          # ServerScanCollectorSilent, ServerScanCollectorRunStale, ServerScanServersStale,
                            # ServerScanClusterSilent, ServerScanCollectorRunPartial,
                            # ServerScanFleetSnapshotFailing, ServerScanMembershipRunSilent,
                            # ServerScanMembershipUnmatched, ServerScanLoginDependencyFailing,
@@ -512,7 +520,10 @@ spuriously).
 
 **Reading the alerts.** `ServerScanCollectorSilent` means a CronJob is not
 producing fresh servers at all — check `oc get jobs` and the newest pod's
-logs. `ServerScanServersStale` means it *is* running but some servers are
+logs. `ServerScanCollectorRunStale` is the same question per `manager` (the run record each collector writes,
+ADR-0060): with a KubeVirt collector in every cluster, one dead cluster hides behind a live one in
+`ServerScanCollectorSilent`, which is per `source_provider`. Its `manager` label names the cluster
+(`mgr_kubevirt_<slug>`); a retired cluster keeps it firing until its manager document is deleted. `ServerScanServersStale` means it *is* running but some servers are
 not being read; `server_scan_servers_unreachable` on the same label says
 how many of those are a BMC that did not answer (the rest are rejected
 logins or hosts the manager dropped). `ServerScanClusterSilent` is the one
@@ -546,7 +557,48 @@ Kubernetes objects yet (no `GrafanaDashboard` CR, for instance); it is a
 plain export to import by hand or via your own GitOps path for
 Grafana-managed dashboards.
 
+## The collectors chart (ADR-0060)
+
+`helm/server-scan-collectors` holds every collector CronJob, the collector credentials Secret and the Redfish
+inventory. It runs the same `server-scan-api` image as the API, with another entrypoint. Every collector is off by
+default; an empty values file renders nothing. The chart is deployed in two shapes:
+
+- **Beside the platform (the hub release)**, in the server-scan release's namespace, named `server-scan-collectors`
+  so that server-scan's default `recheck.credentialsSecret` finds its Secret. It runs the vendor collectors (and
+  `fake` on a dev platform) plus the hub cluster's own `kubevirt`. It consumes the platform's objects rather than
+  rendering copies: `config.existingConfigMap: server-scan-api-config` (sites can never drift from the API's),
+  and `db.mongoUri`/`db.cursorSecret` left blank, so `db.secretName`/`db.cursorSecretName` name server-scan's own
+  Secrets (mirror `backend.existingCursorSecret` if the platform sets one).
+- **In every KubeVirt cluster**: only `collectors.kubevirt`, with `clusterName` (required), the facade's `url` and
+  login, `db.mongoUri`/`db.cursorSecret` (rendered into Secrets, as `nodes-status` does), its own `config.sites`/
+  `siteBmcPrefixes` matching the hub's, and `triggerable: false`. Each cluster needs network to the hub's MongoDB
+  and a `readWrite` user (every collector start runs `ensure_indexes`).
+
+Every collector sets `INVENTORY_AUTH_ENABLED=false` itself and mounts no auth Secret or Redis: neither is used by a
+collector, and the hub's shared ConfigMap may turn auth on for the API.
+
+### Upgrading the collectors (ADR-0060)
+
+CI's `deploy` job pins only `gitops/charts/server-scan`. A collectors release moves when you move it:
+
+1. Let server-scan reach the new version first. Both write the same documents, and an older API cannot load a value
+   a newer collector writes.
+2. Copy `deploy/helm/server-scan-collectors/{templates,files}` from that release's tag into redbull-platform's
+   `gitops/charts/server-scan-collectors`, and set its `Chart.yaml` `appVersion` to the version (or set
+   `image.tag` per cluster to roll clusters one at a time).
+
+**Cutover from the single chart.** Upgrading server-scan to 0.5.0 deletes its collector CronJobs, so create the hub
+`server-scan-collectors` Argo Application first: move every `collectors.<provider>` block (and `existingSecret`,
+`namePattern`) from server-scan's values into it, keeping `timeZone`, `jobTtlSeconds`, `prune` and
+`auditRetention` in server-scan. The old `mgr_kubevirt` manager document is deleted by the first new KubeVirt run.
+To retire a KubeVirt cluster, remove its release and then `db.managers.deleteOne({_id: "mgr_kubevirt_<slug>"})`:
+until then `ServerScanCollectorRunStale` fires for it and `KUBEVIRT` pruning is skipped.
+
 ## Collectors (CronJobs)
+
+Every `collectors.*` key below is a `server-scan-collectors` value unless it says otherwise; `timeZone` and
+`jobTtlSeconds` exist in both charts (server-scan's apply to its prunes), and `prune`/`auditRetention` are
+server-scan's.
 
 Real vendor collectors run as Kubernetes `CronJob`s, one per manager
 *type*, invoking `tools/run_collector.py --manager-type <TYPE>` in the
@@ -624,22 +676,25 @@ Those values render into a single `Secret`
 `INVENTORY_*` environment variables via `envFrom`.
 
 **Since `docs/adr/0032-available-server-lookup-api.md`, the API
-Deployment mounts this same Secret too** (`backend-deployment.yaml`), not
-only the collector CronJobs — `GET /api/v1/servers/available`'s live
-recheck needs the same manager credentials a collector does. This is not
-a separate toggle: an unconfigured value degrades to the API trusting
+Deployment mounts this same Secret too** — `GET /api/v1/servers/available`'s live
+recheck needs the same manager credentials a collector does. Since ADR-0060 it is another release's Secret:
+server-scan's `recheck.credentialsSecret` (default `server-scan-collectors-collector-credentials`), mounted with
+`optional: true`. This is not
+a separate toggle: an unconfigured value (or no Secret at all) degrades to the API trusting
 Mongo for that candidate, the same way a collector already treats it, so
 mounting it is safe even where a deployment has not configured every
-vendor. The standalone Redfish collector's per-host TOML files
+vendor. A KubeVirt VM is never rechecked by the hub API (no cluster name there, ADR-0060). The standalone Redfish collector's per-host TOML files
 (`inventoryFile`/`credentialsFile`, below) are the one exception —
 deliberately **not** mounted onto the API pod, since that would put every
 BMC password within reach of the pod the Route exposes.
 
 **`GET /api/v1/servers/available`'s live recheck waits as long as each collector's own CronJob does**
-(ADR-0032, 2026-10-11 update). `backend-deployment.yaml` renders `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS` from
-`collectors.ucsCentral.timeoutSeconds`, `collectors.intersight.connectTimeoutSeconds` (plus
-`readTimeoutSeconds`), and the optional `collectors.oneview.timeoutSeconds` / `collectors.ome.timeoutSeconds` /
-`collectors.kubevirt.connectTimeoutSeconds` (also applied to those CronJobs). A key a values file lacks is skipped and that manager keeps the 15 s default.
+(ADR-0032, 2026-10-11 update). server-scan's `recheck.timeouts` (a `ManagerType: seconds` map, default
+`UCS_CENTRAL: 240`, `INTERSIGHT: 10`) renders `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS`, and
+`recheck.intersightReadTimeoutSeconds` (60) Intersight's read timeout; keep them equal to the collectors chart's
+`collectors.ucsCentral.timeoutSeconds`, `collectors.intersight.connectTimeoutSeconds`/`readTimeoutSeconds` (and
+`oneview`/`ome` `timeoutSeconds` if you set those). A type left out keeps the 15 s default; a values file with no
+`recheck` block gets the defaults.
 `activeDeadlineSeconds` is a whole-job limit and is not used. A vendor failure is a 503 naming the manager.
 A caller going through the Route would otherwise give up first (Route 30 s, frontend nginx 60 s), so
 `route.timeoutSeconds` (default 300, keep it above the slowest collector timeout) sets the Route's
@@ -731,13 +786,14 @@ go into the collector-credentials Secret as `INVENTORY_KUBEVIRT_URL`/`_USERNAME`
 blocks an IP for 15 minutes after 10 failed logins in 5, so a rejected login is never retried and fails the
 run. `verifyTls` defaults to true; the Route's certificate is signed by the cluster's ingress CA, so put that
 CA in a ConfigMap under the key `ca-bundle.crt` and name it in `caBundleConfigMap`: it is mounted at
-`/etc/kubevirt-ca` in **both** the CronJob and the API pod (for `/servers/available` rechecks). `schedule`
+`/etc/kubevirt-ca` in the CronJob. `schedule`
 (`"0 */3 * * *"`), `activeDeadlineSeconds` (2400), `concurrency` (4, raise it only with the facade's own
 `kubevirt.qps`/`burst`), `readTimeoutSeconds` (35, above the Route's 30 s), `vmBudgetSeconds` (60) and `runBudgetSeconds` (1800);
-optional `connectTimeoutSeconds` (also the API's recheck timeout, `KUBEVIRT:<n>`) and `namePattern`
-(otherwise `collectors.namePattern` applies to VM names). `clusterName` (`INVENTORY_KUBEVIRT_CLUSTER_NAME`, in the
-CronJob and the API pod) is the cluster the facade serves, spelled as that cluster's `nodes-status` release names it,
-so a VM's node resolves to its bare-metal server through the membership (ADR-0059); unset, it resolves by name only. Every key is read with a default, so the platform
+optional `connectTimeoutSeconds` and `namePattern`
+(otherwise `collectors.namePattern` applies to VM names). `clusterName` (`INVENTORY_KUBEVIRT_CLUSTER_NAME`) is
+**required** (ADR-0060): the cluster the facade serves, spelled as that cluster's `nodes-status` release names it, so
+a VM's node resolves to its bare-metal server through the membership (ADR-0059), and the cluster's own manager id
+(`mgr_kubevirt_<slug>`). One release per KubeVirt cluster, each with its own facade. Every key is read with a default, so the platform
 repo's `values.yaml` may omit the block.
 
 `collectors.fake` is the seventh CronJob and the one that reaches no vendor
@@ -848,14 +904,16 @@ The backend API and the frontend both have full manifests
 (Deployment/Service/Route, plus the API's ConfigMap). The frontend gap
 this section used to record is closed as of chart 0.2.0.
 
-CI does now build and publish both images to GHCR on every push to main
-(`docs/adr/0010-image-publishing-and-versioning.md`), but nothing
-*deploys* them: there is no CD/GitOps wiring and no automatic manifest
-update, tracked as pending work in `CLAUDE.md`.
+CI builds and publishes both images to GHCR on every push to main
+(`docs/adr/0010-image-publishing-and-versioning.md`) and pins the
+redbull-platform copy of `server-scan` to each release, which Argo then
+syncs (ADR-0031). (This section said until 2026-11-10 that nothing deployed
+them; that stopped being true with ADR-0031.)
 
-`deploy/helm/nodes-status` is the exception in one respect: it is
-written to be pointed at by an ArgoCD `Application` per cluster, so its
-per-cluster values are the only thing that differs between releases.
+`deploy/helm/server-scan-collectors` and `deploy/helm/nodes-status` are
+not pinned by CI: each is pointed at by an ArgoCD `Application` per
+cluster, so its per-cluster values (and, for the collectors, a hand-bumped
+image tag, ADR-0060) are the only thing that differs between releases.
 
 ## Configuration notes
 

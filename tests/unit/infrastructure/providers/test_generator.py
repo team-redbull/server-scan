@@ -402,9 +402,23 @@ def test_manager_ids_match_what_a_real_collector_writes() -> None:
     """`tools.run_collector.manager_for` builds the same id, so a seeded
     fleet and a collected one share one manager document rather than two.
     """
-    assert {m.id for m in list_managers()} == {
-        manager_for(t, ManagerConnection(endpoint="e", username="u", password="p")).id
-        for t in PROVIDER_FACTORIES
+    connection = ManagerConnection(endpoint="e", username="u", password="p")
+    expected = {
+        manager_for(t, connection).id for t in PROVIDER_FACTORIES if t is not ManagerType.KUBEVIRT
+    } | {
+        manager_for(ManagerType.KUBEVIRT, connection, kubevirt_cluster=f"upi-{code}").id
+        for code in site_catalog("").codes
+    }
+    assert {m.id for m in list_managers()} == expected
+
+
+def test_one_kubevirt_manager_per_cluster_of_the_given_sites() -> None:
+    sites = site_catalog("tlv:Tel Aviv,haifa:Haifa")
+    kubevirt = [m for m in list_managers(sites) if m.type is ManagerType.KUBEVIRT]
+
+    assert {(m.id, m.name) for m in kubevirt} == {
+        ("mgr_kubevirt_upi-tlv", "kubevirt-upi-tlv"),
+        ("mgr_kubevirt_upi-haifa", "kubevirt-upi-haifa"),
     }
 
 
@@ -417,7 +431,8 @@ def test_every_server_is_owned_by_the_collector_that_could_find_it() -> None:
     for s in generate_servers(seed=42, count=300):
         expected = collector_for(s.vendor, s.model or "")
         assert provider_type_for(s) == expected.value
-        assert s.manager_id == manager_id_for(expected)
+        cluster = s.vm_host_cluster or ""
+        assert s.manager_id == manager_id_for(expected, kubevirt_cluster=cluster)
         if s.vendor == "cisco":
             seen.add(expected.value)
 
@@ -762,7 +777,8 @@ class TestKubeVirtTail:
         assert len({s.serial for s in vms}) == len(vms)
         for vm in vms:
             assert vm.reachable and vm.unreachable_reason is None
-            assert vm.manager_id == "mgr_kubevirt"
+            assert vm.vm_host_cluster is not None
+            assert vm.manager_id == f"mgr_kubevirt_{vm.vm_host_cluster}"
             assert vm.psus == () and vm.gpus == () and vm.attachments == ()
             assert vm.profile_template_name == vm.profile_template_external_id == ""
             assert vm.bmc_mac is None and vm.raid_check is None

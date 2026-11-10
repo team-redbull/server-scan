@@ -37,7 +37,9 @@ def _map(vm: Vm, **overrides: Any) -> Any:
     }
     kwargs.update(overrides)
     kwargs.setdefault("cluster_name", "")
-    return system_to_provider_server(tree[p], netloc=_NETLOC, manager_id="mgr_kubevirt", **kwargs)
+    return system_to_provider_server(
+        tree[p], netloc=_NETLOC, manager_id="mgr_kubevirt_upi-tlv", **kwargs
+    )
 
 
 def test_a_running_vm_maps_every_field() -> None:
@@ -61,7 +63,7 @@ def test_a_running_vm_maps_every_field() -> None:
     assert server.serial == "KV01-SERIAL-0001"
     assert server.system_uuid == "5d2f7a1c-3b6e-4c8a-9f10-0a1b2c3d4e01"
     assert server.model == "q35"
-    assert server.manager_id == "mgr_kubevirt"
+    assert server.manager_id == "mgr_kubevirt_upi-tlv"
     assert server.reachable is True
     assert server.unreachable_reason is None
     assert (server.cpu_sockets, server.cpu_cores, server.cpu_threads) == (1, 4, 4)
@@ -150,7 +152,7 @@ class TestStoppedVm:
         stopped = system_to_provider_server(
             system,
             netloc=_NETLOC,
-            manager_id="mgr_kubevirt",
+            manager_id="mgr_kubevirt_upi-tlv",
             cluster_name="",
             processors=None,
             memory=None,

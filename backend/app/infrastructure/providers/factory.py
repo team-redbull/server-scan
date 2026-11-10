@@ -21,7 +21,7 @@ from app.config import get_settings
 from app.config.settings import Settings
 from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
-from app.domain.models.manager import Manager
+from app.domain.models.manager import Manager, manager_id_and_name
 from app.domain.ports.credentials import (
     CredentialResolver,
     ManagerConnection,
@@ -492,7 +492,7 @@ def build_provider_for_manager_type(
         connection = credential_resolver.resolve(manager_type)
     if manager_type is ManagerType.UCS_CENTRAL:
         resolve_login(settings, ManagerType.UCS_MANAGER)
-    manager = manager_for(manager_type, connection)
+    manager = manager_for(manager_type, connection, kubevirt_cluster=settings.kubevirt_cluster_name)
     return build_provider(
         manager,
         credential_resolver=credential_resolver,
@@ -547,7 +547,9 @@ def recheck_timeout_seconds(manager_type: ManagerType, settings: Settings) -> fl
     )
 
 
-def manager_for(manager_type: ManagerType, connection: ManagerConnection) -> Manager:
+def manager_for(
+    manager_type: ManagerType, connection: ManagerConnection, *, kubevirt_cluster: str = ""
+) -> Manager:
     """
     Build the `Manager` document for this deployment's manager of `manager_type`.
 
@@ -557,13 +559,19 @@ def manager_for(manager_type: ManagerType, connection: ManagerConnection) -> Man
     Args:
         manager_type (ManagerType): Which vendor manager type this is for.
         connection (ManagerConnection): The resolved endpoint to record.
+        kubevirt_cluster (str): `INVENTORY_KUBEVIRT_CLUSTER_NAME`; part of a
+            `KUBEVIRT` manager's id, ignored for every other type.
 
     Returns:
         Manager: The projection to write and pass to `IngestService`.
+
+    Raises:
+        ValueError: `KUBEVIRT` without a usable cluster name (the resolver refuses it first).
     """
+    manager_id, name = manager_id_and_name(manager_type, kubevirt_cluster=kubevirt_cluster)
     return Manager(
-        id=f"mgr_{manager_type.value.lower()}",
-        name=manager_type.value.lower().replace("_", "-"),
+        id=manager_id,
+        name=name,
         type=manager_type,
         endpoint=connection.endpoint,
         enabled=True,

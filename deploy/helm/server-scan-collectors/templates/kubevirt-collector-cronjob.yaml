@@ -1,18 +1,18 @@
 {{- /* KubeVirt VMs through kubevirt-redfish (docs/adr/0058). Every key is read through `$kv`: the platform repo's values.yaml may not have this block. */ -}}
-{{- $kv := (.Values.collectors | default dict).kubevirt | default dict }}
+{{- $c := .Values.collectors | default dict }}
+{{- $kv := $c.kubevirt | default dict }}
 {{- if $kv.enabled }}
+{{- $_ := required "collectors.kubevirt.clusterName is required when collectors.kubevirt.enabled: it names the cluster whose nodes a VM's host resolves against (ADR-0059)." $kv.clusterName }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: {{ .Release.Name }}-collector-kubevirt
   labels:
-    server-scan.io/triggerable: "true"
     app.kubernetes.io/name: {{ .Release.Name }}-collector-kubevirt
-    app.kubernetes.io/component: collector
-    app.kubernetes.io/part-of: server-scan
+    {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $kv.schedule | default "0 */3 * * *" | quote }}
-  {{- with .Values.collectors.timeZone }}
+  {{- with $c.timeZone }}
   timeZone: {{ . | quote }}
   {{- end }}
   concurrencyPolicy: Forbid
@@ -20,8 +20,8 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      {{- if .Values.collectors.jobTtlSeconds }}
-      ttlSecondsAfterFinished: {{ .Values.collectors.jobTtlSeconds }}
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
       {{- end }}
       backoffLimit: {{ $kv.backoffLimit | default 1 }}
       activeDeadlineSeconds: {{ $kv.activeDeadlineSeconds | default 2400 }}
@@ -31,18 +31,17 @@ spec:
           automountServiceAccountToken: false
           containers:
             - name: collector
-              image: {{ include "serverScan.apiImage" . | quote }}
-              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              image: {{ include "collectors.image" . | quote }}
+              imagePullPolicy: {{ include "collectors.pullPolicy" . }}
               command: ["python3", "-m", "tools.run_collector", "--manager-type", "KUBEVIRT"]
               env:
-                - name: INVENTORY_ENVIRONMENT
-                  value: production
+                {{- include "collectors.commonEnv" . | nindent 16 }}
                 {{- if hasKey $kv "connectTimeoutSeconds" }}
                 - name: INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS
                   value: {{ $kv.connectTimeoutSeconds | quote }}
                 {{- end }}
                 - name: INVENTORY_COLLECTOR_NAME_PATTERN
-                  value: {{ .Values.collectors.namePattern | quote }}
+                  value: {{ $c.namePattern | quote }}
                 {{- if hasKey $kv "namePattern" }}
                 - name: INVENTORY_KUBEVIRT_NAME_PATTERN
                   value: {{ $kv.namePattern | quote }}
@@ -54,7 +53,7 @@ spec:
                   value: /etc/kubevirt-ca/ca-bundle.crt
                 {{- end }}
                 - name: INVENTORY_KUBEVIRT_CLUSTER_NAME
-                  value: {{ $kv.clusterName | default "" | quote }}
+                  value: {{ $kv.clusterName | quote }}
                 - name: INVENTORY_KUBEVIRT_CONCURRENCY
                   value: {{ $kv.concurrency | default 4 | quote }}
                 - name: INVENTORY_KUBEVIRT_READ_TIMEOUT_SECONDS
@@ -63,14 +62,12 @@ spec:
                   value: {{ $kv.vmBudgetSeconds | default 60 | quote }}
                 - name: INVENTORY_KUBEVIRT_RUN_BUDGET_SECONDS
                   value: {{ $kv.runBudgetSeconds | default 1800 | quote }}
-                {{- include "serverScan.dbEnv" . | nindent 16 }}
+                {{- include "collectors.dbEnv" . | nindent 16 }}
               envFrom:
                 - configMapRef:
-                    name: {{ .Release.Name }}-api-config
+                    name: {{ include "collectors.configMapName" . }}
                 - secretRef:
-                    name: {{ .Values.collectors.existingSecret | default (printf "%s-collector-credentials" .Release.Name) }}
-                - secretRef:
-                    name: {{ (.Values.auth | default dict).existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
+                    name: {{ include "collectors.credentialsSecretName" . }}
               {{- if $kv.caBundleConfigMap }}
               volumeMounts:
                 - name: ca-bundle
@@ -80,13 +77,7 @@ spec:
               resources:
                 {{- toYaml ($kv.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "256Mi"))) | nindent 16 }}
               securityContext:
-                allowPrivilegeEscalation: false
-                capabilities:
-                  drop: ["ALL"]
-                readOnlyRootFilesystem: true
-                runAsNonRoot: true
-                seccompProfile:
-                  type: RuntimeDefault
+                {{- include "collectors.securityContext" . | nindent 16 }}
           {{- if $kv.caBundleConfigMap }}
           volumes:
             - name: ca-bundle

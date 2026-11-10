@@ -274,7 +274,8 @@ collectors:
 ```
 
 ```bash
-helm upgrade --install inventory ./deploy/helm/server-scan \
+helm upgrade --install server-scan-collectors ./deploy/helm/server-scan-collectors \
+  --set config.existingConfigMap=server-scan-api-config \
   --set-file collectors.intersight.apiKeyPem=/path/to/intersight-key.pem
 ```
 

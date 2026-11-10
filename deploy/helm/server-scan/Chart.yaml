@@ -2,7 +2,7 @@ apiVersion: v2
 name: server-scan
 description: Air-gapped bare-metal server inventory platform
 type: application
-version: 0.4.0
+version: 0.5.0
 # The image tag both Deployments and every CronJob default to (see
 # templates/_helpers.tpl). Bump it with the release you intend to deploy —
 # that is the whole upgrade, and it is a value a GitOps diff can show.
