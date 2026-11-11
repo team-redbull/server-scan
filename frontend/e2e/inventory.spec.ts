@@ -11,7 +11,7 @@ test.describe("Inventory", () => {
     const unfilteredCount = await rows.count();
 
     // Search is client-side over the whole fleet (ADR-0033): no request to
-    // wait for; the URL changes per keystroke, the rows after the debounce.
+    // wait for; the URL and the rows both follow the box after the debounce.
     await page.getByPlaceholder("Name, serial, BMC…").fill("ocp-dell");
     await expect(page).toHaveURL(/search=ocp-dell/);
     await expect(rows.first().locator("td").first()).toContainText(/ocp-dell/i);
@@ -19,6 +19,27 @@ test.describe("Inventory", () => {
     // narrowing to one name fragment can never show more rows than no filter.
     const filteredCount = await rows.count();
     expect(filteredCount).toBeLessThanOrEqual(unfilteredCount);
+  });
+
+  test("search keeps the caret in place when a character is deleted mid-text", async ({
+    page,
+  }) => {
+    await page.goto("/servers");
+    const box = page.getByPlaceholder("Name, serial, BMC…");
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+
+    await box.click();
+    await page.keyboard.type("1.2.3.4");
+    await expect(page).toHaveURL(/search=1\.2\.3\.4/);
+
+    await box.evaluate((el: HTMLInputElement) => el.setSelectionRange(3, 3));
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+
+    await expect(box).toHaveValue("1.3.4");
+    expect(
+      await box.evaluate((el: HTMLInputElement) => el.selectionStart),
+    ).toBe(1);
   });
 
   test("navigates to a server's detail page and renders every tab", async ({

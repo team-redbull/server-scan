@@ -453,6 +453,26 @@ describe("InventoryPage", () => {
     vi.useRealTimers();
   });
 
+  it("empties the search box when the URL's search is cleared from outside", async () => {
+    mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
+    const { router } = renderInventoryPage();
+    await waitFor(() => {
+      expect(screen.getByText("ucs-cisco-worker-002")).toBeInTheDocument();
+    });
+    const box =
+      screen.getByPlaceholderText<HTMLInputElement>("Name, serial, BMC…");
+    fireEvent.change(box, { target: { value: "isco" } });
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("search=isco");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /clear/i }));
+
+    await waitFor(() => {
+      expect(box.value).toBe("");
+    });
+  });
+
   it("pages through the sorted set and resets to page 1 when a filter changes", async () => {
     const fleet = Array.from({ length: 51 }, (_, i) =>
       makeServer({ id: `srv_${i}`, name: `srv-${String(i).padStart(3, "0")}` }),

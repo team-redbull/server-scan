@@ -84,7 +84,12 @@ Loaded only when a `frontend/` file is open.
   A click also fires `lib/toast.ts`'s `showToast` ("Copied <name>", bottom right); `Toaster` is
   mounted once in `AppLayout` and is `aria-hidden` because the button's own live region announces it.
 - **The inventory search has three forms** (`parseSearch`, ADR-0046): plain substring, `"exact"`,
-  `/regex/`; a bad regex sets an error under the box and keeps every row. **The six filters (Vendor, Source,
+  `/regex/`; a bad regex sets an error under the box and keeps every row. **The box owns its text in
+  local state and the URL follows it after the 300 ms debounce** (2026-11-11): a box whose `value` was the
+  URL's `?search=` went through an async router round trip per key, so deleting mid-text threw the caret to
+  the end and fast typing lost characters (`1.2.3.4` became `?search=4`). The URL only flows back into the box
+  when something else changed it (chip, Clear filters, a pasted link). jsdom cannot reproduce the caret jump
+  (a unit test passed on the broken code), so the guard is the `inventory.spec.ts` e2e. **The six filters (Vendor, Source,
   Site, Classification, Installation, Health) are `MultiSelect` dropdowns** taking several values (repeated URL
   params, OR within, AND across; ADR-0033 2026-10-12): a tick is applied to the live URL via `toggleMulti`, never
   to the rendered list, and an E2E clicks `#filter-<name>` then a checkbox in the group named `"<Label> options"`

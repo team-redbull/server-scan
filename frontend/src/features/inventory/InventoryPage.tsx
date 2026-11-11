@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { ApiError } from "@/api/client";
@@ -82,8 +82,28 @@ export function InventoryPage() {
 
   const sites = siteOptions(useSitesQuery().data?.items);
 
-  const searchInput = searchParams.get("search") ?? "";
+  const urlSearch = searchParams.get("search") ?? "";
+  const [searchInput, setSearchInput] = useState(urlSearch);
   const debouncedSearch = useDebouncedValue(searchInput, 300);
+  const lastWrittenSearch = useRef(urlSearch);
+
+  /* The box owns its text; the URL follows it after the debounce. A box
+   * controlled by the URL goes through an async router round trip per key,
+   * which reset the caret to the end and dropped fast keystrokes. */
+  useEffect(() => {
+    if (urlSearch !== lastWrittenSearch.current) {
+      lastWrittenSearch.current = urlSearch;
+      setSearchInput(urlSearch);
+    }
+  }, [urlSearch]);
+
+  useEffect(() => {
+    const live = new URLSearchParams(window.location.search).get("search");
+    if ((live ?? "") === debouncedSearch) return;
+    lastWrittenSearch.current = debouncedSearch;
+    updateFilters({ search: debouncedSearch });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when the debounced text changes
+  }, [debouncedSearch]);
 
   // Repeated params (`?vendor=dell&vendor=hp`); a single `?vendor=dell` link is one value.
   const vendors = useMemo(() => searchParams.getAll("vendor"), [searchParams]);
@@ -324,6 +344,8 @@ export function InventoryPage() {
   if (donorOnly) activeFilters.push({ key: "donor", label: "Donor" });
 
   function clearFilters() {
+    lastWrittenSearch.current = "";
+    setSearchInput("");
     updateFilters({
       search: null,
       vendor: null,
@@ -385,7 +407,7 @@ export function InventoryPage() {
                     type="text"
                     value={searchInput}
                     onChange={(e) => {
-                      updateFilters({ search: e.target.value });
+                      setSearchInput(e.target.value);
                     }}
                     placeholder="Name, serial, BMC…"
                     title={
