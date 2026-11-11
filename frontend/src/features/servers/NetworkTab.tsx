@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CopyButton } from "@/components/CopyButton";
 import { LinkStateBadge } from "@/components/LinkStateBadge";
 import { Reported } from "@/components/Reported";
 import type { NetworkInfo, NetworkInterface } from "@/types/server";
@@ -33,6 +34,7 @@ export function NetworkTab({
 
   const unread = new Set(unreadFields);
   const { bmc, interfaces } = network;
+  const bmcAddress = bmc?.host ?? bmc?.address_raw ?? null;
 
   return (
     <div className="space-y-8">
@@ -44,7 +46,23 @@ export function NetworkTab({
           <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             {/* The host alone; the full URI is still stored for the Metal3
              * `BareMetalHost` round-trip. */}
-            <Stat label="Address" value={bmc.host ?? bmc.address_raw ?? "—"} />
+            <Stat
+              label="Address"
+              value={
+                bmcAddress ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    {bmcAddress}
+                    <CopyButton
+                      text={bmcAddress}
+                      label="Copy BMC address"
+                      compact
+                    />
+                  </span>
+                ) : (
+                  "—"
+                )
+              }
+            />
             {bmc.mac && (
               <Stat
                 label="MAC"

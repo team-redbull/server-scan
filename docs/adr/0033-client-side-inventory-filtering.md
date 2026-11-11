@@ -90,7 +90,8 @@ endpoint and does everything else locally.
   (`enabled`, `reason`), `openshift_state`, `cluster_name`, `mce_name`,
   `last_seen_at`, `stale`, `reachable`, and for search/CSV-export parity
   `serial`, `bmc_host`, `macs`, `profile_template_name` (2026-09-23, the
-  inventory's CSV export). It is built from a **Mongo projection**
+  inventory's export, a CSV then; an `.xlsx` since 2026-11-11, with each
+  column as wide as its longest value, capped at 50 characters). It is built from a **Mongo projection**
   (`MongoServerRepository.list_rows`) through `ServerRow.from_doc`,
   never `Server.model_validate` — the 618 ms row above is the whole
   reason this endpoint exists as a separate shape rather than

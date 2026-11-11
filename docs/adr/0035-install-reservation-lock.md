@@ -144,9 +144,10 @@ other rows no height. It carries the cluster; holder, InfraEnv and expiry
 live on the hover, where width is free. Alongside it: a `reserved` filter
 so "what is installing now" is one click rather than a scan, the target
 MCE added to row search so searching a cluster finds machines *heading*
-there and not only those already in it, an `Installing to` CSV column
-kept separate from `MCE` (where a server already lives), and the same
-badge spelled out in full on the detail page.
+there and not only those already in it, an `Installing to` export column
+kept separate from `MCE` (where a server already lives; **removed from the
+export 2026-11-11**, the operator's call: the badge and the `reserved`
+filter remain), and the same badge spelled out in full on the detail page.
 
 ### 7. The draw excludes live reservations with `$nor`, not `$or`
 

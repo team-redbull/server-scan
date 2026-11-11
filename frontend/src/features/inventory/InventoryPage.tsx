@@ -5,7 +5,7 @@ import { ApiError } from "@/api/client";
 import { SORTABLE_FIELDS } from "@/features/inventory/sorting";
 import type { SortableField } from "@/features/inventory/sorting";
 import { ClusterSidebar } from "@/features/inventory/ClusterSidebar";
-import { downloadCsv, rowsToCsv } from "@/features/inventory/csvExport";
+import { downloadXlsx, rowsToXlsx } from "@/features/inventory/xlsxExport";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
 import { MultiSelect } from "@/features/inventory/MultiSelect";
 import { siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
@@ -262,10 +262,10 @@ export function InventoryPage() {
 
   /** Exports every row matching the current filters — not just the current
    * page — in the same order shown, so the file reflects what's on screen. */
-  function handleExportCsv() {
-    downloadCsv(
-      `inventory-${new Date().toISOString().slice(0, 10)}.csv`,
-      rowsToCsv(matched),
+  function handleExportXlsx() {
+    downloadXlsx(
+      `inventory-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      rowsToXlsx(matched),
     );
   }
 
@@ -661,11 +661,11 @@ export function InventoryPage() {
 
                 <button
                   type="button"
-                  onClick={handleExportCsv}
+                  onClick={handleExportXlsx}
                   disabled={matched.length === 0}
                   className="ml-auto rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:border-[var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Export CSV
+                  Export Excel
                 </button>
               </div>
             </form>
