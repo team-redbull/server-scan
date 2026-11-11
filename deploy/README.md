@@ -590,7 +590,7 @@ CI's `deploy` job pins only `gitops/charts/server-scan`. A collectors release mo
 **Cutover from the single chart.** Upgrading server-scan to 0.5.0 deletes its collector CronJobs, so create the hub
 `server-scan-collectors` Argo Application first: move every `collectors.<provider>` block (and `existingSecret`,
 `namePattern`) from server-scan's values into it, keeping `timeZone`, `jobTtlSeconds`, `prune` and
-`auditRetention` in server-scan. The old `mgr_kubevirt` manager document is deleted by the first new KubeVirt run.
+`auditRetention` in server-scan. The old `mgr_kubevirt` manager document is deleted by the first new KubeVirt (or `fake`) run.
 To retire a KubeVirt cluster, remove its release and then `db.managers.deleteOne({_id: "mgr_kubevirt_<slug>"})`:
 until then `ServerScanCollectorRunStale` fires for it and `KUBEVIRT` pruning is skipped.
 

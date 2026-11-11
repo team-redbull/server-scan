@@ -1677,7 +1677,7 @@ firmware serial/UUID. `app.infrastructure.providers.kubevirt` keeps the Redfish 
   (`skipped_foreign`). The hub API is not configured for `KUBEVIRT` at all, so in production no VM is rechecked.
 - **One collector per KubeVirt cluster** (ADR-0060): a `server-scan-collectors` release in each cluster, the hub's
   included. Its manager is `mgr_kubevirt_<slug>` (`kubevirt_cluster_slug(INVENTORY_KUBEVIRT_CLUSTER_NAME)`, which is
-  required); the first run on that image deletes the old shared `mgr_kubevirt`.
+  required); the first run on that image, or the fake seeder, deletes the old shared `mgr_kubevirt`.
 - **Where a VM runs** (ADR-0059): the fork's `Oem.KubeVirt.NodeName`, cleaned with `clean_hostname`, and
   `INVENTORY_KUBEVIRT_CLUSTER_NAME` are stored as `Server.vm_host` (names only; `node_name` is `None` when
   stopped, carried forward when a running VM names none). `GET /servers/{id}/vm-host` resolves the node to its
