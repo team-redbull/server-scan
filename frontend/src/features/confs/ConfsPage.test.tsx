@@ -127,6 +127,28 @@ describe("ConfsPage", () => {
     expect(screen.getByText(/L3 48 MB/)).toBeInTheDocument();
   });
 
+  it("hides the GPU line and VRAM of a conf whose GPU fields are stored as 0", async () => {
+    const noGpu = conf({ gpus: [], gpu_count: 0, gpu_vram_gb: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ items: [noGpu], unreadable: [] }),
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByText("CONF200");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details of CONF200" }));
+
+    expect(screen.queryByText(/GPUs \(0\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/VRAM/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/GB each/)).not.toBeInTheDocument();
+  });
+
   it("shows a RAM total of 0 as a failed scan, not 0 GiB", async () => {
     const failed = conf({ ram: { total_gib: 0, dimms: 0, per_dimm_gb: 0, type: [] } });
     vi.stubGlobal(

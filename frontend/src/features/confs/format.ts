@@ -20,6 +20,11 @@ export function gpuEntries(conf: Conf): { count: number; model: string }[] {
   return grouped;
 }
 
+/** Whether the conf records a VRAM size; a GPU-less conf stores `null` or `0`. */
+export function hasVram(conf: Conf): boolean {
+  return conf.gpu_vram_gb !== null && conf.gpu_vram_gb > 0;
+}
+
 /** A capacity in TB as the shortest exact text: `1.92 TB`, `8 TB`. */
 export function formatTb(tb: number): string {
   return `${String(Number(tb.toFixed(2)))} TB`;

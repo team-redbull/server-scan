@@ -30,7 +30,7 @@ export interface Conf {
   /** One entry per scanned unit (`count` is 1), not grouped. */
   gpus: { count: number; model: string }[];
   gpu_count: number;
-  /** VRAM per GPU; `null` on a GPU-less conf. */
+  /** VRAM per GPU; `null` or `0` on a GPU-less conf (the UI shows neither). */
   gpu_vram_gb: number | null;
   adapters: { count: number; model: string }[];
   adapter_count: number;

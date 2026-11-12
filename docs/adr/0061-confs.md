@@ -22,8 +22,8 @@ Scan designed:
 - `disks[]` are `{count, model, capacity_tb, type, protocol}`; `"unknown"` is a real value of `model`,
   `type` (`SSD`/`HDD`/`NVMe`) and `protocol` (`PCIe`/`SATA`) when the scan did not record it.
 - `gpus[]` are `{count, model}` with **one entry per scanned unit** (`count` 1), not grouped, and `[]` when
-  there is none; `gpu_count` is the total and `gpu_vram_gb` the VRAM per GPU (`null` or absent on a GPU-less
-  conf). `adapters[]` are `{count, model}`; `adapter_count` is the writer's total, and its sample has 2
+  there is none; `gpu_count` is the total and `gpu_vram_gb` the VRAM per GPU (`null`, absent or `0` on a GPU-less
+  conf; the writer's real documents store `0` beside a `gpu_count` of 0, operator 2026-11-12). `adapters[]` are `{count, model}`; `adapter_count` is the writer's total, and its sample has 2
   beside a single `count: 1` entry, so it is shown as stored, never checked against the list.
 
 **Revised 2026-11-12** (a second photographed schema): `name` became `conf_name`, `gpu_vram_gb` is new,
@@ -56,7 +56,8 @@ spellings are read (Pydantic `AliasChoices`) and the API always returns `l1`/`l2
    and sorted naturally by `conf_id` (`CONF9` before `CONF10`, `CONF200.2` after `CONF200`). Without a cache,
    an external write shows on the next request, with nothing to invalidate.
 6. **The UI** (`/confs`, "Confs" after "Servers") filters and sorts client-side, groups the per-unit GPU list
-   by model (or shows `gpu_count`× unknown when the list is empty), shows `gpu_vram_gb` per GPU, and renders
+   by model (or shows `gpu_count`× unknown when the list is empty), shows `gpu_vram_gb` per GPU, omits the GPU line and VRAM entirely when there is no GPU (a `0` is never
+   shown as "GPUs (0)" or "0 GB VRAM"), and renders
    `"unknown"`, an unread RAM type and a `total_gib` of 0 ("not read (scan failed)") as muted values, not
    blanks or zeros. The Part number column carries an "Unmapped" badge for a conf with no
    `part_number`.

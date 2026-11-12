@@ -11,6 +11,7 @@ import {
   formatKb,
   formatTb,
   gpuEntries,
+  hasVram,
   totalStorageTb,
   visibleConfs,
 } from "@/features/confs/format";
@@ -77,6 +78,7 @@ function DetailSection({ title, children }: { title: string; children: ReactNode
 /** Everything the table row abbreviates, laid out under it. */
 function ConfDetail({ conf }: { conf: Conf }) {
   const { cpu, ram } = conf;
+  const gpus = gpuEntries(conf);
   return (
     <div className="grid gap-6 bg-[var(--surface-sunken)] px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
       <DetailSection title="Identity">
@@ -125,11 +127,13 @@ function ConfDetail({ conf }: { conf: Conf }) {
             <Value text={disk.type} /> · <Value text={disk.protocol} />
           </div>
         ))}
-        <div className="pt-1">
-          GPUs ({conf.gpu_count}): {conf.gpu_count === 0 ? <None /> : null}
-        </div>
-        {conf.gpu_count > 0 && <CountedList entries={gpuEntries(conf)} />}
-        {conf.gpu_vram_gb !== null && <div>{conf.gpu_vram_gb} GB VRAM per GPU</div>}
+        {gpus.length > 0 && (
+          <>
+            <div className="pt-1">GPUs ({conf.gpu_count}):</div>
+            <CountedList entries={gpus} />
+            {hasVram(conf) && <div>{conf.gpu_vram_gb} GB VRAM per GPU</div>}
+          </>
+        )}
         <div className="pt-1">Adapters ({conf.adapter_count}):</div>
         <CountedList entries={conf.adapters} />
       </DetailSection>
@@ -211,7 +215,7 @@ function ConfRow({
         </td>
         <td className="px-3 py-2">
           <CountedList entries={gpuEntries(conf)} />
-          {conf.gpu_vram_gb !== null && <Secondary>{conf.gpu_vram_gb} GB each</Secondary>}
+          {hasVram(conf) && <Secondary>{conf.gpu_vram_gb} GB each</Secondary>}
         </td>
         <td className="px-3 py-2">
           <CountedList entries={conf.adapters} />

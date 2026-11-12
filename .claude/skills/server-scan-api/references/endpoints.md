@@ -99,7 +99,7 @@ cores_per_cpu, total_cores_ht, clock_mhz, max_clock_mhz, cache_kb {l1, l2, l3}}`
 per_dimm_gb, type: [string]}` (`total_gib` 0 = the memory scan failed; `type` `[]` when the DIMM read failed),
 `disks [{count, model, capacity_tb, type, protocol}]` (`"unknown"` is a real value), `gpus [{count, model}]`
 (one entry per unit, so group by model; may be `[]` while `gpu_count` is not 0), `gpu_count`, `gpu_vram_gb`
-(VRAM per GPU, `null` on a GPU-less conf), `adapters [{count, model}]`, `adapter_count` (the writer's total,
+(VRAM per GPU, `null` or `0` on a GPU-less conf), `adapters [{count, model}]`, `adapter_count` (the writer's total,
 not always the sum of `adapters[].count`). A conf is not linked to servers: no server field
 names its conf, and the API returns neither a server count nor the conf's name.
 

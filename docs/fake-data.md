@@ -123,7 +123,8 @@ is reachable.
   is a fixed list built from the fleet's own models and CPUs: catalog ids
   (`CONF200`), revisions (`CONF200.2`) and two unmapped scan ids
   (`CONF-21`, `CONF-34`, no part number), GPU confs listed one
-  entry per unit with `gpu_vram_gb` (H200 141, H100 80, L40S 48, L4 24), an
+  entry per unit with `gpu_vram_gb` (H200 141, H100 80, L40S 48, L4 24; GPU-less
+  confs store `gpu_count` and `gpu_vram_gb` as 0, like the writer), an
   unread RAM type (`CONF-21`), a failed memory scan (`CONF-34`, RAM all
   zeros) and `"unknown"` drives. The list is
   the same for every `--seed` and `--count`, and carries no server count.

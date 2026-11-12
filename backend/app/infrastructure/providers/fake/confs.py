@@ -141,7 +141,7 @@ def _conf(row: _Row) -> Conf:
         Conf: The conf as the writer stores it.
     """
     cpu = _CPUS[row.cpu]
-    gpu_units, gpu_model, gpu_vram_gb = row.gpu or (0, "", None)
+    gpu_units, gpu_model, gpu_vram_gb = row.gpu or (0, "", 0)
     return Conf(
         conf_id=row.conf_id,
         part_number=row.part_number,
