@@ -4,12 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Conf } from "@/api/confs";
 import { ConfsPage } from "@/features/confs/ConfsPage";
-import { formatKb, formatTb, groupByModel, visibleConfs } from "@/features/confs/format";
+import {
+  formatKb,
+  formatTb,
+  gpuEntries,
+  groupByModel,
+  visibleConfs,
+} from "@/features/confs/format";
 
 function conf(overrides: Partial<Conf>): Conf {
   return {
     conf_id: "CONF200",
-    name: "Compute Std R650",
     part_number: "210-AZKL",
     model: "PowerEdge R650",
     cpu: {
@@ -26,6 +31,7 @@ function conf(overrides: Partial<Conf>): Conf {
     disks: [{ count: 2, model: "MTFDDAV480TDS", capacity_tb: 0.48, type: "SSD", protocol: "SATA" }],
     gpus: [],
     gpu_count: 0,
+    gpu_vram_gb: null,
     adapters: [{ count: 1, model: "MLNX 100GbE 2P ConnectX6 Adpt" }],
     adapter_count: 1,
     ...overrides,
@@ -34,14 +40,13 @@ function conf(overrides: Partial<Conf>): Conf {
 
 const GPU_CONF = conf({
   conf_id: "CONF202",
-  name: "GPU H200 R750",
   gpus: Array.from({ length: 8 }, () => ({ count: 1, model: "NVIDIA H200" })),
   gpu_count: 8,
+  gpu_vram_gb: 141,
 });
 
 const UNMAPPED_CONF = conf({
   conf_id: "CONF-21",
-  name: null,
   part_number: null,
   ram: { total_gib: 512, dimms: 16, per_dimm_gb: 32, type: [] },
   disks: [{ count: 2, model: "unknown", capacity_tb: 0.96, type: "unknown", protocol: "unknown" }],
@@ -91,9 +96,10 @@ describe("ConfsPage", () => {
     const row = (await screen.findByText("CONF202")).closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText(/8×/)).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("141 GB each")).toBeInTheDocument();
   });
 
-  it("marks a conf with no catalog name as unmapped and names the unreadable ones", async () => {
+  it("marks a conf with no part number as unmapped and names the unreadable ones", async () => {
     renderPage();
 
     expect(await screen.findByText("Unmapped")).toBeInTheDocument();
@@ -120,6 +126,24 @@ describe("ConfsPage", () => {
     expect(screen.getByText("not read (DIMM read failed)")).toBeInTheDocument();
     expect(screen.getByText(/L3 48 MB/)).toBeInTheDocument();
   });
+
+  it("shows a RAM total of 0 as a failed scan, not 0 GiB", async () => {
+    const failed = conf({ ram: { total_gib: 0, dimms: 0, per_dimm_gb: 0, type: [] } });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ items: [failed], unreadable: [] }),
+        }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("not read (scan failed)")).toBeInTheDocument();
+    expect(screen.queryByText("0 GiB")).not.toBeInTheDocument();
+  });
 });
 
 describe("conf formatting", () => {
@@ -134,6 +158,11 @@ describe("conf formatting", () => {
       { model: "B", count: 2 },
       { model: "A", count: 1 },
     ]);
+  });
+
+  it("falls back to the GPU count when the writer lists no GPU entries", () => {
+    expect(gpuEntries(conf({ gpus: [], gpu_count: 8 }))).toEqual([{ count: 8, model: "unknown" }]);
+    expect(gpuEntries(conf({}))).toEqual([]);
   });
 
   it("formats capacities and cache sizes without trailing zeros", () => {

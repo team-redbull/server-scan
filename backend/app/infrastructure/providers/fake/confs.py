@@ -65,7 +65,6 @@ class _Row:
     """One fake conf, in the order the catalog lists it."""
 
     conf_id: str
-    name: str | None
     part_number: str | None
     model: str
     cpu: str
@@ -74,59 +73,60 @@ class _Row:
     per_dimm_gb: int
     ram_type: tuple[str, ...]
     disks: tuple[_DiskRow, ...]
-    gpu: tuple[int, str] | None
+    gpu: tuple[int, str, float] | None
     adapters: tuple[tuple[int, str], ...]
 
 
 _DDR4 = ("DDR4",)
 _DDR5 = ("DDR5",)
 
-# `CONF-<n>` is a scan id with no catalog entry, so it has no name or part number.
+# `CONF-<n>` is a scan id with no catalog entry, so it has no part number;
+# `CONF-34`'s memory scan failed, so its RAM is all zeros.
 _ROWS: tuple[_Row, ...] = (
-    _Row("CONF200", "Compute Std R650", "210-AZKL", "PowerEdge R650", "Intel Xeon Gold 6338",
+    _Row("CONF200", "210-AZKL", "PowerEdge R650", "Intel Xeon Gold 6338",
          2, 16, 32, _DDR4, (_BOOT_M2, _NVME_1_92), None, ((1, _E810), (1, _LOM))),
-    _Row("CONF200.2", "Compute Std R650 rev2", "210-AZKL-2", "PowerEdge R650",
+    _Row("CONF200.2", "210-AZKL-2", "PowerEdge R650",
          "Intel Xeon Gold 6338", 2, 16, 64, _DDR4, (_BOOT_M2, _NVME_1_92), None,
          ((1, _E810), (1, _LOM))),
-    _Row("CONF201", "Compute Large R750", "210-AZYV", "PowerEdge R750", "Intel Xeon Platinum 8358",
+    _Row("CONF201", "210-AZYV", "PowerEdge R750", "Intel Xeon Platinum 8358",
          2, 32, 64, _DDR4, (_BOOT_M2, _NVME_3_2), None, ((2, _CX6), (1, _LOM))),
-    _Row("CONF202", "GPU H200 R750", "210-AZYV-G", "PowerEdge R750", "Intel Xeon Platinum 8358",
-         2, 32, 64, _DDR4, (_BOOT_M2, _NVME_7_68), (8, "NVIDIA H200"), ((4, _CX6),)),
-    _Row("CONF203", "Edge R6515", "210-ASVF", "PowerEdge R6515", "AMD EPYC 7513",
+    _Row("CONF202", "210-AZYV-G", "PowerEdge R750", "Intel Xeon Platinum 8358",
+         2, 32, 64, _DDR4, (_BOOT_M2, _NVME_7_68), (8, "NVIDIA H200", 141), ((4, _CX6),)),
+    _Row("CONF203", "210-ASVF", "PowerEdge R6515", "AMD EPYC 7513",
          1, 8, 32, _DDR4, (_BOOT_M2,), None, ((1, _BCM_57414),)),
-    _Row("CONF210", "UCS Compute C220", "UCSC-C220-M6S", "UCS C220 M6", "Intel Xeon Gold 6348",
+    _Row("CONF210", "UCSC-C220-M6S", "UCS C220 M6", "Intel Xeon Gold 6348",
          2, 16, 32, _DDR4, (_BOOT_SATA, _SATA_1_92), None, ((1, _VIC),)),
-    _Row("CONF211", "UCS Storage C240", "UCSC-C240-M6SX", "UCS C240 M6", "Intel Xeon Gold 6348",
+    _Row("CONF211", "UCSC-C240-M6SX", "UCS C240 M6", "Intel Xeon Gold 6348",
          2, 24, 32, _DDR4, (_BOOT_SATA, _HDD_8), None, ((1, _VIC), (1, _CX6))),
-    _Row("CONF211.2", "UCS GPU C240 L4", "UCSC-C240-M6SX-G", "UCS C240 M6",
-         "Intel Xeon Gold 6348", 2, 24, 32, _DDR4, (_BOOT_SATA, _NVME_1_92), (2, "NVIDIA L4"),
+    _Row("CONF211.2", "UCSC-C240-M6SX-G", "UCS C240 M6",
+         "Intel Xeon Gold 6348", 2, 24, 32, _DDR4, (_BOOT_SATA, _NVME_1_92), (2, "NVIDIA L4", 24),
          ((1, _VIC),)),
-    _Row("CONF212", "UCS Blade B200", "UCSB-B200-M6", "UCS B200 M6", "Intel Xeon Silver 4314",
+    _Row("CONF212", "UCSB-B200-M6", "UCS B200 M6", "Intel Xeon Silver 4314",
          2, 16, 32, _DDR4, (_BOOT_M2,), None, ((1, _VIC),)),
-    _Row("CONF220", "ProLiant Compute DL360", "P40636-B21", "ProLiant DL360 Gen11",
+    _Row("CONF220", "P40636-B21", "ProLiant DL360 Gen11",
          "AMD EPYC 9354", 2, 24, 32, _DDR5, (_BOOT_M2, _NVME_3_2), None, ((1, _E810),)),
-    _Row("CONF221", "ProLiant Large DL380", "P52534-B21", "ProLiant DL380 Gen11", "AMD EPYC 9354",
+    _Row("CONF221", "P52534-B21", "ProLiant DL380 Gen11", "AMD EPYC 9354",
          2, 24, 64, _DDR5, (_BOOT_M2, _NVME_7_68), None, ((2, _CX6),)),
-    _Row("CONF221.2", "ProLiant GPU DL380 H100", "P52534-B21-G", "ProLiant DL380 Gen11",
-         "AMD EPYC 9354", 2, 24, 64, _DDR5, (_BOOT_M2, _NVME_7_68), (4, "NVIDIA H100"),
+    _Row("CONF221.2", "P52534-B21-G", "ProLiant DL380 Gen11",
+         "AMD EPYC 9354", 2, 24, 64, _DDR5, (_BOOT_M2, _NVME_7_68), (4, "NVIDIA H100", 80),
          ((2, _CX6),)),
-    _Row("CONF222", "ProLiant Edge DL325", "P54199-B21", "ProLiant DL325 Gen11", "AMD EPYC 9354",
+    _Row("CONF222", "P54199-B21", "ProLiant DL325 Gen11", "AMD EPYC 9354",
          1, 12, 32, _DDR5, (_BOOT_M2,), None, ((1, _BCM_57414),)),
-    _Row("CONF223", "ProLiant Legacy DL380", "868703-B21", "ProLiant DL380 Gen10", "AMD EPYC 7513",
+    _Row("CONF223", "868703-B21", "ProLiant DL380 Gen10", "AMD EPYC 7513",
          2, 16, 32, _DDR4, (_BOOT_SATA, _SATA_1_92), None, ((1, _BCM_57414),)),
-    _Row("CONF224", "ProLiant Legacy DL360", "867959-B21", "ProLiant DL360 Gen10", "AMD EPYC 7513",
+    _Row("CONF224", "867959-B21", "ProLiant DL360 Gen10", "AMD EPYC 7513",
          2, 12, 32, _DDR4, (_BOOT_SATA,), None, ((1, _BCM_57414),)),
-    _Row("CONF230", "Whitebox SR650", "7D76CTO1WW", "ThinkSystem SR650 V3",
+    _Row("CONF230", "7D76CTO1WW", "ThinkSystem SR650 V3",
          "Intel Xeon Gold 6438Y+", 2, 16, 64, _DDR5, (_BOOT_M2, _NVME_3_2), None, ((1, _E810),)),
-    _Row("CONF231", "Whitebox GPU SYS-221H", "SYS-221H-TNR", "SYS-221H-TNR",
-         "Intel Xeon Gold 6438Y+", 2, 16, 64, _DDR5, (_BOOT_M2, _NVME_7_68), (4, "NVIDIA L40S"),
+    _Row("CONF231", "SYS-221H-TNR", "SYS-221H-TNR",
+         "Intel Xeon Gold 6438Y+", 2, 16, 64, _DDR5, (_BOOT_M2, _NVME_7_68), (4, "NVIDIA L40S", 48),
          ((2, _CX6),)),
-    _Row("CONF232", "Whitebox AMD AS-2125", "AS-2125HS-TNR", "AS-2125HS-TNR", "AMD EPYC 9454",
+    _Row("CONF232", "AS-2125HS-TNR", "AS-2125HS-TNR", "AMD EPYC 9454",
          2, 24, 96, _DDR5, (_BOOT_M2, _NVME_7_68), None, ((2, _CX6),)),
-    _Row("CONF-21", None, None, "PowerEdge R650", "Intel Xeon Gold 6338",
+    _Row("CONF-21", None, "PowerEdge R650", "Intel Xeon Gold 6338",
          2, 16, 32, (), (_BOOT_M2, _UNKNOWN_DISK), None, ((1, _E810),)),
-    _Row("CONF-34", None, None, "ProLiant DL380 Gen9", "AMD EPYC 7513",
-         2, 8, 32, _DDR4, (_UNKNOWN_DISK,), None, ((1, _LOM),)),
+    _Row("CONF-34", None, "ProLiant DL380 Gen9", "AMD EPYC 7513",
+         2, 0, 0, (), (_UNKNOWN_DISK,), None, ((1, _LOM),)),
 )  # fmt: skip
 
 
@@ -141,10 +141,9 @@ def _conf(row: _Row) -> Conf:
         Conf: The conf as the writer stores it.
     """
     cpu = _CPUS[row.cpu]
-    gpu_units, gpu_model = row.gpu or (0, "")
+    gpu_units, gpu_model, gpu_vram_gb = row.gpu or (0, "", None)
     return Conf(
         conf_id=row.conf_id,
-        name=row.name,
         part_number=row.part_number,
         model=row.model,
         cpu=ConfCpu(
@@ -170,6 +169,7 @@ def _conf(row: _Row) -> Conf:
         # One entry per scanned unit, as the writer stores them.
         gpus=[ConfGpu(count=1, model=gpu_model) for _ in range(gpu_units)],
         gpu_count=gpu_units,
+        gpu_vram_gb=gpu_vram_gb,
         adapters=[ConfAdapter(count=count, model=model) for count, model in row.adapters],
         adapter_count=sum(count for count, _ in row.adapters),
     )

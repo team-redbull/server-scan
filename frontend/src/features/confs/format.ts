@@ -12,6 +12,14 @@ export function groupByModel(entries: { count: number; model: string }[]) {
   return [...totals].map(([model, count]) => ({ model, count }));
 }
 
+/** The GPUs grouped by model; when the writer lists none but counts some, one
+ * entry of `gpu_count` with the model `"unknown"`. */
+export function gpuEntries(conf: Conf): { count: number; model: string }[] {
+  const grouped = groupByModel(conf.gpus);
+  if (grouped.length === 0 && conf.gpu_count > 0) return [{ count: conf.gpu_count, model: UNKNOWN }];
+  return grouped;
+}
+
 /** A capacity in TB as the shortest exact text: `1.92 TB`, `8 TB`. */
 export function formatTb(tb: number): string {
   return `${String(Number(tb.toFixed(2)))} TB`;
@@ -33,11 +41,10 @@ export function totalStorageTb(conf: Conf): number {
   return conf.disks.reduce((sum, disk) => sum + disk.count * disk.capacity_tb, 0);
 }
 
-/** The text a conf is searched by: ids, names and every component model. */
+/** The text a conf is searched by: ids and every component model. */
 export function searchText(conf: Conf): string {
   return [
     conf.conf_id,
-    conf.name ?? "",
     conf.part_number ?? "",
     conf.model,
     conf.cpu.model,

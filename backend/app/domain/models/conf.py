@@ -6,15 +6,15 @@ field for field (docs/adr/0061-confs.md), so do not tidy it here.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class ConfCpuCache(BaseModel):
-    """Per-level CPU cache sizes, in KB."""
+    """Per-level CPU cache sizes, in KB; stored as `l1`/`l2`/`l3` or `11`/`12`/`13` (ADR-0061)."""
 
-    l1: int
-    l2: int
-    l3: int
+    l1: int = Field(validation_alias=AliasChoices("l1", "11"))
+    l2: int = Field(validation_alias=AliasChoices("l2", "12"))
+    l3: int = Field(validation_alias=AliasChoices("l3", "13"))
 
 
 class ConfCpu(BaseModel):
@@ -31,7 +31,7 @@ class ConfCpu(BaseModel):
 
 
 class ConfRam(BaseModel):
-    """The memory a conf carries; `type` is `[]` when the DIMM read failed."""
+    """The memory a conf carries; `total_gib` 0 is a failed scan, `type` `[]` a failed DIMM read."""
 
     total_gib: int
     dimms: int
@@ -67,7 +67,6 @@ class Conf(BaseModel):
     """One server configuration (spec)."""
 
     conf_id: str
-    name: str | None = None
     part_number: str | None = None
     model: str
     cpu: ConfCpu
@@ -75,5 +74,6 @@ class Conf(BaseModel):
     disks: list[ConfDisk] = Field(default_factory=list)
     gpus: list[ConfGpu] = Field(default_factory=list)
     gpu_count: int = 0
+    gpu_vram_gb: float | None = None
     adapters: list[ConfAdapter] = Field(default_factory=list)
     adapter_count: int = 0

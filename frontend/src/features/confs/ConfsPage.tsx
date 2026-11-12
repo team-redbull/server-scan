@@ -10,7 +10,7 @@ import {
   formatGhz,
   formatKb,
   formatTb,
-  groupByModel,
+  gpuEntries,
   totalStorageTb,
   visibleConfs,
 } from "@/features/confs/format";
@@ -18,7 +18,7 @@ import {
 const FIELD_CLASS =
   "w-full min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
 
-const COLUMNS = ["Conf", "Name", "Model", "CPU", "RAM", "Storage", "GPU", "Adapters"];
+const COLUMNS = ["Conf", "Part number", "Model", "CPU", "RAM", "Storage", "GPU", "Adapters"];
 
 function errorText(error: unknown): string {
   if (error instanceof ApiError) return error.problem.detail;
@@ -40,6 +40,10 @@ function Secondary({ children }: { children: ReactNode }) {
 
 function None() {
   return <span className="text-[var(--text-muted)]">—</span>;
+}
+
+function RamUnread() {
+  return <span className="italic text-[var(--text-muted)]">not read (scan failed)</span>;
 }
 
 function ramTypeText(conf: Conf): string {
@@ -77,7 +81,6 @@ function ConfDetail({ conf }: { conf: Conf }) {
     <div className="grid gap-6 bg-[var(--surface-sunken)] px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
       <DetailSection title="Identity">
         <div>Conf ID: <span className="font-mono">{conf.conf_id}</span></div>
-        <div>Name: {conf.name ?? <None />}</div>
         <div>Part number: {conf.part_number ? <span className="font-mono">{conf.part_number}</span> : <None />}</div>
         <div>Model: {conf.model}</div>
       </DetailSection>
@@ -97,16 +100,22 @@ function ConfDetail({ conf }: { conf: Conf }) {
         </div>
       </DetailSection>
       <DetailSection title="Memory">
-        <div>{ram.total_gib} GiB</div>
-        <div>
-          {ram.dimms} × {ram.per_dimm_gb} GB DIMMs
-        </div>
-        <div>
-          Type:{" "}
-          {ram.type.length > 0 ? ram.type.join(", ") : (
-            <span className="italic text-[var(--text-muted)]">not read (DIMM read failed)</span>
-          )}
-        </div>
+        {ram.total_gib === 0 ? (
+          <RamUnread />
+        ) : (
+          <>
+            <div>{ram.total_gib} GiB</div>
+            <div>
+              {ram.dimms} × {ram.per_dimm_gb} GB DIMMs
+            </div>
+            <div>
+              Type:{" "}
+              {ram.type.length > 0 ? ram.type.join(", ") : (
+                <span className="italic text-[var(--text-muted)]">not read (DIMM read failed)</span>
+              )}
+            </div>
+          </>
+        )}
       </DetailSection>
       <DetailSection title="Storage, GPU and adapters">
         {conf.disks.length === 0 && <div>No disks</div>}
@@ -119,7 +128,8 @@ function ConfDetail({ conf }: { conf: Conf }) {
         <div className="pt-1">
           GPUs ({conf.gpu_count}): {conf.gpu_count === 0 ? <None /> : null}
         </div>
-        {conf.gpu_count > 0 && <CountedList entries={groupByModel(conf.gpus)} />}
+        {conf.gpu_count > 0 && <CountedList entries={gpuEntries(conf)} />}
+        {conf.gpu_vram_gb !== null && <div>{conf.gpu_vram_gb} GB VRAM per GPU</div>}
         <div className="pt-1">Adapters ({conf.adapter_count}):</div>
         <CountedList entries={conf.adapters} />
       </DetailSection>
@@ -159,11 +169,10 @@ function ConfRow({
           <span className="font-mono font-medium">{conf.conf_id}</span>
         </td>
         <td className="px-3 py-2">
-          {conf.name ?? <Badge tone="warning">Unmapped</Badge>}
-          {conf.part_number && (
-            <Secondary>
-              <span className="font-mono">{conf.part_number}</span>
-            </Secondary>
+          {conf.part_number ? (
+            <span className="font-mono">{conf.part_number}</span>
+          ) : (
+            <Badge tone="warning">Unmapped</Badge>
           )}
         </td>
         <td className="whitespace-nowrap px-3 py-2">{conf.model}</td>
@@ -177,10 +186,16 @@ function ConfRow({
           </Secondary>
         </td>
         <td className="whitespace-nowrap px-3 py-2">
-          <div>{ram.total_gib} GiB</div>
-          <Secondary>
-            {ram.dimms} × {ram.per_dimm_gb} GB {ramTypeText(conf)}
-          </Secondary>
+          {ram.total_gib === 0 ? (
+            <RamUnread />
+          ) : (
+            <>
+              <div>{ram.total_gib} GiB</div>
+              <Secondary>
+                {ram.dimms} × {ram.per_dimm_gb} GB {ramTypeText(conf)}
+              </Secondary>
+            </>
+          )}
         </td>
         <td className="whitespace-nowrap px-3 py-2">
           {conf.disks.length === 0 ? (
@@ -195,7 +210,8 @@ function ConfRow({
           )}
         </td>
         <td className="px-3 py-2">
-          <CountedList entries={groupByModel(conf.gpus)} />
+          <CountedList entries={gpuEntries(conf)} />
+          {conf.gpu_vram_gb !== null && <Secondary>{conf.gpu_vram_gb} GB each</Secondary>}
         </td>
         <td className="px-3 py-2">
           <CountedList entries={conf.adapters} />
@@ -257,7 +273,7 @@ export function ConfsPage() {
                 id="confs-search"
                 type="search"
                 value={search}
-                placeholder="Conf ID, name, model, CPU, GPU, disk or adapter"
+                placeholder="Conf ID, part number, model, CPU, GPU, disk or adapter"
                 onChange={(event) => {
                   setSearch(event.target.value);
                 }}

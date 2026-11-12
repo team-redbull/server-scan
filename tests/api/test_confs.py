@@ -22,7 +22,6 @@ from app.main import create_app
 
 _CONF: dict[str, Any] = {
     "conf_id": "CONF200",
-    "name": "Compute Std R650",
     "part_number": "210-AZKL",
     "model": "PowerEdge R650",
     "server_count": 12,
@@ -48,6 +47,7 @@ _CONF: dict[str, Any] = {
     ],
     "gpus": [{"count": 1, "model": "NVIDIA H200"}, {"count": 1, "model": "NVIDIA H200"}],
     "gpu_count": 2,
+    "gpu_vram_gb": 141,
     "adapters": [{"count": 1, "model": "MLNX 100GbE 2P ConnectX6 Adpt"}],
     "adapter_count": 1,
 }
@@ -129,18 +129,34 @@ async def test_a_document_off_the_schema_is_skipped_and_named(
 async def test_nullable_fields_and_unread_ram_type_round_trip(
     confs_context: tuple[AsyncClient, MongoClientHolder],
 ) -> None:
-    """An unmapped conf has no name or part number; `[]` means the DIMM read failed."""
+    """An unmapped conf has no part number; RAM zeros mean the scan failed."""
     client, mongo = confs_context
-    ram = {"total_gib": 256, "dimms": 8, "per_dimm_gb": 32, "type": []}
-    await mongo.db[CONFS_COLLECTION].insert_one(
-        _conf("CONF-21", name=None, part_number=None, ram=ram)
-    )
+    ram = {"total_gib": 0, "dimms": 0, "per_dimm_gb": 0, "type": []}
+    doc = _conf("CONF-21", part_number=None, ram=ram, gpus=[], gpu_count=0)
+    del doc["gpu_vram_gb"]
+    await mongo.db[CONFS_COLLECTION].insert_one(doc)
 
     item = (await client.get("/api/v1/confs/CONF-21")).json()
 
-    assert item["name"] is None
     assert item["part_number"] is None
-    assert item["ram"]["type"] == []
+    assert item["ram"] == ram
+    assert item["gpu_vram_gb"] is None
+
+
+async def test_reads_numeric_cache_keys_and_ignores_a_stored_name(
+    confs_context: tuple[AsyncClient, MongoClientHolder],
+) -> None:
+    """Cache keys may be stored `11`/`12`/`13`; a stored `conf_name` or `name` is not read."""
+    client, mongo = confs_context
+    doc = _conf("CONF200", conf_name="XE9680 - SXM H200 1T", name="Compute Std R650")
+    doc["cpu"]["cache_kb"] = {"11": 2880, "12": 73728, "13": 69120}
+    await mongo.db[CONFS_COLLECTION].insert_one(doc)
+
+    item = (await client.get("/api/v1/confs/CONF200")).json()
+
+    assert item["cpu"]["cache_kb"] == {"l1": 2880, "l2": 73728, "l3": 69120}
+    assert "conf_name" not in item
+    assert "name" not in item
 
 
 async def test_get_one_by_conf_id(
@@ -154,6 +170,7 @@ async def test_get_one_by_conf_id(
 
     assert resp.status_code == 200
     assert resp.json()["gpu_count"] == 2
+    assert resp.json()["gpu_vram_gb"] == 141
 
 
 async def test_an_unknown_conf_is_404(
