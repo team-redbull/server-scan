@@ -106,3 +106,8 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   document or run record written before this field existed decodes
   unchanged — the same "narrowing/extending a persisted shape needs a
   default, not a migration" rule this file already states above.
+- **`confs` belongs to another writer** (ADR-0061): Server Scan only reads it (the fake seeder's
+  `upsert_many`, a whole-document replace, is the one write). Every `find` projects `{"_id": 0}` and looks up by the `conf_id`
+  *field*; its index stays non-unique and goes through `_create_foreign_indexes` (never the
+  drop-and-recreate path, never fatal: a writer's own unique index must survive); vocabulary fields stay plain strings. A shape change from the
+  writer surfaces as `unreadable` ids, not a 500 on the list.

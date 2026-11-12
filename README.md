@@ -94,6 +94,7 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
 |---|---|
 | **Sites** (`/`) | Per-site cards: totals, health, installation types, available vs installed. |
 | **Servers** (`/servers`) | The whole fleet, filtered, sorted and searched in the browser; maintenance switch; sidebar filters by MCE and cluster. Click a row for the detail page: hardware, NICs, BMC link, health reasons, history. |
+| **Confs** (`/confs`) | Server configurations (specs), read from the `confs` collection; search, expand a row for the full spec. Read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | **Events** (`/events`) | The audit trail, filterable by type, server, user and time range. |
 | **Rules & Policies** (`/rules`) | The read-only classification rules and health policies. |
 | **Architecture** (`/architecture`) | Interactive diagrams of the full flow and each collector. |
@@ -117,6 +118,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/servers/{id}/vm-host` | The bare-metal server a KubeVirt VM runs on, resolved at read time ([ADR-0059](docs/adr/0059-vm-host.md)). |
 | `GET /api/v1/servers/available` | Live-verified assignable servers for BareMetalHost creation. |
 | `GET /api/v1/sites` | Per-site and fleet-wide counts. |
+| `GET /api/v1/confs`, `/confs/{conf_id}` | Server configurations from the `confs` collection, read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | `GET /api/v1/events`, `/servers/{id}/events` | Audit trail. |
 | `GET /api/v1/health-policies`, `/classification-rules` | The rules the platform applies. |
 | `PUT/DELETE /api/v1/servers/{id}/maintenance`, `POST/DELETE .../reservation` | Writes (admin only). |

@@ -29,6 +29,7 @@ from starlette.responses import HTMLResponse, Response
 from app.api.health import router as health_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.classification_rules import router as classification_rules_router
+from app.api.v1.confs import router as confs_router
 from app.api.v1.events import router as events_router
 from app.api.v1.health_policies import router as health_policies_router
 from app.api.v1.jobs import router as jobs_router
@@ -215,6 +216,7 @@ def create_app() -> FastAPI:
     # `/auth/*` and `/metrics` stay open.
     _authenticated = [Depends(get_current_actor)]
     app.include_router(servers_router, dependencies=_authenticated)
+    app.include_router(confs_router, dependencies=_authenticated)
     app.include_router(classification_rules_router, dependencies=_authenticated)
     app.include_router(health_policies_router, dependencies=_authenticated)
     # The audit trail is admin/auditor only (docs/adr/0043); a viewer is 403.

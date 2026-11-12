@@ -416,7 +416,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058; a VM's host (`Server.vm_host`, `GET /servers/{id}/vm-host`) and CPU modes stored as no model 0059.
+  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058; a VM's host (`Server.vm_host`, `GET /servers/{id}/vm-host`) and CPU modes stored as no model 0059; collectors chart 0060; confs (read-only `confs` collection) 0061.
 
 ## Verifying your work
 
@@ -485,18 +485,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-10 — collectors split into their own chart, `deploy/helm/server-scan-collectors`; one KubeVirt collector per cluster (ADR-0060).**
-Moved to `docs/notes/session-log.md`: the bounded-error-detail unit (ADR-0002 addendum).
+**2026-11-11 — a Confs tab: server configurations read from a `confs` collection (ADR-0061).**
+Moved to `docs/notes/session-log.md`: the collectors-chart unit (ADR-0060).
 
-**Shipped and deployed:** server-scan 5.0.0 (PR #18) moved every collector CronJob, the credentials Secret and the Redfish inventory
-into the new chart (server-scan keeps API, UI, prunes and a `recheck` block). Same image; CI pins only server-scan, collectors are
-bumped by hand after it. `KUBEVIRT` managers are `mgr_kubevirt_<slug>` (cluster name required); run gauges have a `manager` label
-and `ServerScanCollectorRunStale`; the hub API never rechecks a VM (`skipped_foreign` guard). Live on cluster-2qsc5: Argo app
-`server-scan-collectors` (redbull-platform#13, image 5.0.0, `fake` only) in namespace `server-scan`, run from the Jobs page.
-Tested end to end on cluster-64spr first (both shapes, real VMs). The fake seeder now also deletes the legacy `mgr_kubevirt`
-(a fake-only hub has no KubeVirt run to do it).
+**Shipped (branch `feat/confs-tab`):** `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached, natural `conf_id`
+order); `Conf` reproduces the operator's schema field for field, `_id` never read, `conf_id` indexed non-unique, a malformed document
+skipped and named in `unreadable`; `/confs` page ("Confs" after "Servers") with search and expandable rows; 20 fake confs replaced by `conf_id`
+by `tools.seed_inventory` (`providers/fake/confs.py`). **`server_count` is not read for now** (operator, 2026-11-12): no
+field, no column; a stored one is ignored.
 
-**Open:** bump redbull-platform's `gitops/charts/server-scan-collectors` `image.tag`/`appVersion` to the release carrying the seeder
-fix (until then the hub keeps a stale `mgr_kubevirt`). No KubeVirt-cluster Application exists yet, and the hub's own KubeVirt
-collection is off (its facade login would need `collectors.existingSecret`, not a plaintext value). `deploy/grafana` panels still
-split collectors by `source_provider` only.
+**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); the photographed
+cache keys `11/12/13` were read as `l1/l2/l3`; a conf is not linked to a server (no stored field names it).

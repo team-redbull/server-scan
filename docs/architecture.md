@@ -1963,6 +1963,20 @@ Real authentication landed 2026-09-22 — see "Authentication and
 authorization" above and ADR-0034, rather than the placeholder this
 paragraph used to be.
 
+## Confs: server configurations (ADR-0061)
+
+`GET /api/v1/confs` and `GET /api/v1/confs/{conf_id}` read the `confs` collection,
+which another system writes; Server Scan never writes it outside the fake seeder.
+`app.domain.models.conf.Conf` reproduces the writer's shape field for field, except `server_count`, which is not read for now.
+`MongoConfRepository` projects `_id` away and looks a conf up by its `conf_id`
+field (indexed, not unique, and the index is best-effort: an existing writer
+index or a missing `createIndex` grant is logged, never dropped or fatal). The list is read whole, validated per document and
+sorted naturally (`conf_sort_key`); a document that fails validation is logged and
+named in the response's `unreadable`, never allowed to fail the list. Nothing is
+cached, so an external write shows on the next request. The SPA's `/confs` page
+(`features/confs/`) filters in the browser and groups the writer's
+one-entry-per-unit GPU list by model.
+
 ## Running a CronJob from the UI (ADR-0055)
 
 `GET /api/v1/jobs`, `POST /api/v1/jobs/{cronjob}/run` and `GET /api/v1/jobs/{cronjob}/runs/{job}/pods/{pod}/logs`

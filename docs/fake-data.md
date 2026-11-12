@@ -119,6 +119,15 @@ is reachable.
   job is to stop a later run overwriting good data — see
   `docs/adr/0016-redfish-standalone-collector.md`.)
 
+* **Twenty confs on the Confs tab (ADR-0061).** `providers/fake/confs.py`
+  is a fixed list built from the fleet's own models and CPUs: catalog ids
+  (`CONF200`), revisions (`CONF200.2`) and two unmapped scan ids
+  (`CONF-21`, `CONF-34`, no name or part number), GPU confs listed one
+  entry per unit, an unread RAM type and `"unknown"` drives. The list is
+  the same for every `--seed` and `--count`, and carries no server count.
+  The seeder replaces each by `conf_id`, so a re-seed never duplicates one.
+  A conf is not linked to any seeded server.
+
 **Re-seeding needs an empty database.** Servers correlate on
 `(vendor, serial)`, so seeding a different `--count`/`--seed` (or a fleet
 generated before a change to the generator) over an existing one reports

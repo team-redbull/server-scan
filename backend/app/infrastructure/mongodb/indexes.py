@@ -70,6 +70,7 @@ CLASSIFICATION_RULES_COLLECTION = "classification_rules"
 HEALTH_POLICIES_COLLECTION = "health_policies"
 AUDIT_EVENTS_COLLECTION = "audit_events"
 API_TOKENS_COLLECTION = "api_tokens"
+CONFS_COLLECTION = "confs"
 
 SERVER_INDEXES: list[IndexModel] = [
     IndexModel(
@@ -206,6 +207,11 @@ API_TOKEN_INDEXES: list[IndexModel] = [
     IndexModel([("token_hash", ASCENDING)], unique=True, name="uniq_token_hash"),
 ]
 
+# Another system writes `confs`: not unique, MongoDB's default name, best-effort (ADR-0061).
+CONF_INDEXES: list[IndexModel] = [
+    IndexModel([("conf_id", ASCENDING)], name="conf_id_1"),
+]
+
 AUDIT_EVENT_INDEXES: list[IndexModel] = [
     IndexModel([("created_at", DESCENDING), ("_id", DESCENDING)], name="created_at_id"),
     IndexModel(
@@ -312,6 +318,31 @@ async def _drop_retired(
         )
 
 
+async def _create_foreign_indexes(
+    db: AsyncDatabase[dict[str, Any]], collection: str, indexes: list[IndexModel]
+) -> None:
+    """
+    Create indexes on a collection another system owns, never dropping or failing.
+
+    The writer may already hold its own index on the same keys, or deny this
+    user `createIndex`; either is logged and startup continues (ADR-0061).
+
+    Args:
+        db (AsyncDatabase[dict[str, Any]]): The database to act on.
+        collection (str): The other system's collection.
+        indexes (list[IndexModel]): The indexes reads would like.
+    """
+    try:
+        await db[collection].create_indexes(indexes)
+    except OperationFailure as exc:
+        logger.warning(
+            "mongo.foreign_index_skipped",
+            collection=collection,
+            code=exc.code,
+            hint="Kept the collection's existing indexes; reads still work, unindexed.",
+        )
+
+
 async def ensure_indexes(db: AsyncDatabase[dict[str, Any]]) -> None:
     """
     Create every declared index if missing, and drop retired ones.
@@ -330,3 +361,4 @@ async def ensure_indexes(db: AsyncDatabase[dict[str, Any]]) -> None:
     await _create_indexes(db, CLASSIFICATION_RULES_COLLECTION, CLASSIFICATION_RULE_INDEXES)
     await _create_indexes(db, AUDIT_EVENTS_COLLECTION, AUDIT_EVENT_INDEXES)
     await _create_indexes(db, API_TOKENS_COLLECTION, API_TOKEN_INDEXES)
+    await _create_foreign_indexes(db, CONFS_COLLECTION, CONF_INDEXES)

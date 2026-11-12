@@ -5,6 +5,7 @@ import { useAuth, useCanReadAudit, useIsAdmin, useLogoutMutation } from "@/featu
 const LINKS = [
   { to: "/", label: "Sites", audit: false, admin: false },
   { to: "/servers", label: "Servers", audit: false, admin: false },
+  { to: "/confs", label: "Confs", audit: false, admin: false },
   { to: "/events", label: "Events", audit: true, admin: false },
   { to: "/jobs", label: "Jobs", audit: false, admin: true },
   { to: "/rules", label: "Rules & Policies", audit: false, admin: false },

@@ -1,6 +1,6 @@
 ---
 name: server-scan-api
-description: Queries the Server Scan REST API to answer questions about the bare-metal server fleet - list or count servers by vendor, site, health, role, OpenShift cluster or availability, look up one server, read audit events, site overviews and health policies. Use whenever the user asks for servers ("all Dell servers in bat yam", "which servers are available", "what changed on server-12", "how many critical servers per site") or mentions Server Scan, the inventory API, or the fleet.
+description: Queries the Server Scan REST API to answer questions about the bare-metal server fleet - list or count servers by vendor, site, health, role, OpenShift cluster or availability, look up one server, read audit events, site overviews, health policies and server configurations (confs, the hardware specs). Use whenever the user asks for servers ("all Dell servers in bat yam", "which servers are available", "what changed on server-12", "how many critical servers per site") or mentions Server Scan, the inventory API, or the fleet.
 when_to_use: Also for questions about a server's BMC address, MACs, maintenance state, cluster membership or why its health changed.
 allowed-tools: Bash(curl *) Bash(jq *)
 ---
@@ -46,6 +46,7 @@ token, everything works except events, which answer `403`.
 | The physical server (and CPU) a KubeVirt VM runs on | `GET /api/v1/servers/{id}/vm-host` |
 | What happened to a server or the fleet | `GET /api/v1/events`, `GET /api/v1/servers/{id}/events` |
 | Servers to provision a BareMetalHost on | `GET /api/v1/servers/available` - see the warning below |
+| Server configurations (specs) | `GET /api/v1/confs`, `GET /api/v1/confs/{conf_id}` |
 | Why a health verdict exists | `GET /api/v1/health-policies`, `GET /api/v1/classification-rules` |
 
 `/api/v1/servers` filters are plain query parameters, combined with AND. The accepted

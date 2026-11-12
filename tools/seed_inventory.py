@@ -38,11 +38,13 @@ from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRep
 from app.infrastructure.mongodb.classification_rule_repository import (
     MongoClassificationRuleRepository,
 )
+from app.infrastructure.mongodb.conf_repository import MongoConfRepository
 from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolicyRepository
 from app.infrastructure.mongodb.indexes import ensure_indexes
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
+from app.infrastructure.providers.fake.confs import generate_confs
 from app.infrastructure.providers.fake.generator import list_managers, list_sites
 from app.infrastructure.providers.fake.openshift import openshift_for
 from app.infrastructure.providers.fake.provider import fake_providers
@@ -171,6 +173,8 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
                 if manager.type.value == provider.provider_type:
                     await manager_repo.record_run(manager.id, run)
 
+        confs = await MongoConfRepository(mongo).upsert_many(generate_confs())
+
         reported = await _seed_openshift(
             MongoServerRepository(mongo, cursor_secret=settings.cursor_secret)
         )
@@ -182,6 +186,7 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
             updated=updated,
             errors=errors,
             openshift_reported=reported,
+            confs_written=confs,
         )
         print(f"fetched={fetched} created={created} updated={updated} errors={errors}")
     finally:

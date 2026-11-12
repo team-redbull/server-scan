@@ -227,7 +227,8 @@ Three rules of this seam matter more than the rest:
 React 19 + react-router 8, TanStack Query for server state, TanStack
 Table, Tailwind 4, Vite. Pages: sites overview (landing), inventory,
 server detail (overview/hardware/network/connectivity tabs),
-classification rules, health policies, and an audit history panel.
+confs (server configurations, read-only, ADR-0061), classification rules,
+health policies, and an audit history panel.
 
 **Dark only.** There is no light palette and no `prefers-color-scheme`
 query anywhere in the built stylesheet — the console is watched on wall
@@ -598,6 +599,7 @@ of it.
 | 0058 | A sixth collector, `KUBEVIRT`, reads OpenShift Virtualization VMs through kubevirt-redfish (HTTP Basic, one login per run, never retried); no unreachable stub, a stopped VM's links are UNKNOWN, `network.single_link_up` scoped to the physical collectors |
 | 0059 | A VM stores the cluster and node it runs on (`Server.vm_host`, names only); `GET /servers/{id}/vm-host` resolves the node to its bare-metal server when read (membership first, then name), never cached; `host-model` is a CPU mode, stored as no model |
 | 0060 | Collectors move to their own chart, `server-scan-collectors` (same image, tag pinned by hand after server-scan); a KubeVirt collector runs in every KubeVirt cluster with a per-cluster manager id (`mgr_kubevirt_<cluster>`, cluster name required); the hub API never rechecks a VM; run gauges gain a `manager` label and `ServerScanCollectorRunStale` |
+| 0061 | Confs (server configurations) are read from a `confs` collection another system writes: `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached), the stored shape reproduced field for field, `conf_id` not unique and `_id` never read, a malformed document skipped and named in `unreadable`; a "Confs" tab after Servers; the fake seeder upserts 20 confs |
 
 ---
 
@@ -696,6 +698,7 @@ go stale — treat its date as load-bearing.
 | **Manager type** | How a server is reached (`UCS_CENTRAL`, `INTERSIGHT`, `REDFISH_STANDALONE`, `KUBEVIRT`, …). Distinct from **vendor**, which is who built it. |
 | **`source_provider`** | Which collector found a given server. Filterable in the UI. |
 | **Site** | A location, identified by a short code embedded in server hostnames (`ocp4-prod-**tlv**-infra-01`). Configured via `INVENTORY_SITES`. |
+| **Conf** | A server configuration (spec): model, CPU, memory, drives, GPUs and adapters. Read from the `confs` collection, which another system writes (ADR-0061). |
 | **Classification** | Deciding what a server *is* (`HOSTED_CLUSTER`, `MCE`, `UPI`, `UNCLASSIFIED`) from declarative rules. |
 | **`policy_key` family** | A set of health policies competing for one winner, so a scoped policy can *replace* a global default rather than firing alongside it. |
 | **Specificity** | Scope precision as powers of two (`site:4 + manager:2 + vendor:1`), so a more specific scope strictly outranks a less specific one. |
