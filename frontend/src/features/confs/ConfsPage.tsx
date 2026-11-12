@@ -7,6 +7,7 @@ import { Badge } from "@/components/Badge";
 import { useConfsQuery } from "@/features/confs/hooks";
 import {
   UNKNOWN,
+  adapterText,
   formatGhz,
   formatKb,
   formatTb,
@@ -59,6 +60,17 @@ function CountedList({ entries }: { entries: { count: number; model: string }[] 
         <li key={entry.model}>
           {entry.count}× <Value text={entry.model} />
         </li>
+      ))}
+    </ul>
+  );
+}
+
+function AdapterList({ adapters }: { adapters: Conf["adapters"] }) {
+  if (adapters.length === 0) return <None />;
+  return (
+    <ul className="space-y-0.5">
+      {adapters.map((adapter, index) => (
+        <li key={String(index)}>{adapterText(adapter)}</li>
       ))}
     </ul>
   );
@@ -122,9 +134,8 @@ function ConfDetail({ conf }: { conf: Conf }) {
       <DetailSection title="Storage, GPU and adapters">
         {conf.disks.length === 0 && <div>No disks</div>}
         {conf.disks.map((disk, index) => (
-          <div key={`${disk.model}-${String(index)}`}>
-            {disk.count}× <Value text={disk.model} /> · {formatTb(disk.capacity_tb)} ·{" "}
-            <Value text={disk.type} /> · <Value text={disk.protocol} />
+          <div key={String(index)}>
+            {disk.count}× {formatTb(disk.capacity_tb)} <Value text={disk.type} />
           </div>
         ))}
         {gpus.length > 0 && (
@@ -135,7 +146,7 @@ function ConfDetail({ conf }: { conf: Conf }) {
           </>
         )}
         <div className="pt-1">Adapters ({conf.adapter_count}):</div>
-        <CountedList entries={conf.adapters} />
+        <AdapterList adapters={conf.adapters} />
       </DetailSection>
     </div>
   );
@@ -217,8 +228,8 @@ function ConfRow({
           <CountedList entries={gpuEntries(conf)} />
           {hasVram(conf) && <Secondary>{conf.gpu_vram_gb} GB each</Secondary>}
         </td>
-        <td className="px-3 py-2">
-          <CountedList entries={conf.adapters} />
+        <td className="whitespace-nowrap px-3 py-2">
+          <AdapterList adapters={conf.adapters} />
         </td>
       </tr>
       {expanded && (
@@ -277,7 +288,7 @@ export function ConfsPage() {
                 id="confs-search"
                 type="search"
                 value={search}
-                placeholder="Conf ID, part number, model, CPU, GPU, disk or adapter"
+                placeholder="Conf ID, part number, model, CPU, GPU or disk type"
                 onChange={(event) => {
                   setSearch(event.target.value);
                 }}

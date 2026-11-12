@@ -40,13 +40,11 @@ class ConfRam(BaseModel):
 
 
 class ConfDisk(BaseModel):
-    """One group of identical drives; `"unknown"` is a real value, not a gap."""
+    """One group of drives of one type and size; the writer records no drive model."""
 
     count: int
-    model: str
-    capacity_tb: float
     type: str
-    protocol: str
+    capacity_tb: float
 
 
 class ConfGpu(BaseModel):
@@ -57,10 +55,11 @@ class ConfGpu(BaseModel):
 
 
 class ConfAdapter(BaseModel):
-    """One group of identical network adapters."""
+    """One group of network adapters with the same port count and speed (Gb/s, ADR-0061)."""
 
     count: int
-    model: str
+    ports: int
+    speed: float
 
 
 class Conf(BaseModel):

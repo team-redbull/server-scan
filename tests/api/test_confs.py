@@ -37,19 +37,14 @@ _CONF: dict[str, Any] = {
     },
     "ram": {"total_gib": 512, "dimms": 16, "per_dimm_gb": 32, "type": ["DDR5"]},
     "disks": [
-        {
-            "count": 2,
-            "model": "unknown",
-            "capacity_tb": 1.92,
-            "type": "SSD",
-            "protocol": "PCIe",
-        }
+        {"count": 2, "type": "NVME", "capacity_tb": 0.48},
+        {"count": 2, "type": "NVME", "capacity_tb": 1.92},
     ],
-    "gpus": [{"count": 1, "model": "NVIDIA H200"}, {"count": 1, "model": "NVIDIA H200"}],
+    "gpus": [{"count": 2, "model": "NVIDIA H200 SXM"}],
     "gpu_count": 2,
     "gpu_vram_gb": 141,
-    "adapters": [{"count": 1, "model": "MLNX 100GbE 2P ConnectX6 Adpt"}],
-    "adapter_count": 1,
+    "adapters": [{"count": 2, "ports": 2, "speed": 100}],
+    "adapter_count": 2,
 }
 
 
@@ -157,6 +152,37 @@ async def test_reads_numeric_cache_keys_and_ignores_a_stored_name(
     assert item["cpu"]["cache_kb"] == {"l1": 2880, "l2": 73728, "l3": 69120}
     assert "conf_name" not in item
     assert "name" not in item
+
+
+async def test_disks_gpus_and_adapters_round_trip_in_the_writers_shape(
+    confs_context: tuple[AsyncClient, MongoClientHolder],
+) -> None:
+    """Disks carry no model or protocol, adapters no model; an older stored one is ignored."""
+    client, mongo = confs_context
+    doc = _conf("CONF208")
+    doc["disks"][0] |= {"model": "Dell DC NVMe PM9A3", "protocol": "PCIe"}
+    doc["adapters"][0]["model"] = "Embedded LOM"
+    await mongo.db[CONFS_COLLECTION].insert_one(doc)
+
+    item = (await client.get("/api/v1/confs/CONF208")).json()
+
+    assert item["disks"] == _CONF["disks"]
+    assert item["gpus"] == _CONF["gpus"]
+    assert item["adapters"] == _CONF["adapters"]
+
+
+async def test_an_adapter_without_ports_or_speed_is_unreadable(
+    confs_context: tuple[AsyncClient, MongoClientHolder],
+) -> None:
+    """The earlier `{count, model}` adapter shape is not the writer's any more."""
+    client, mongo = confs_context
+    old = _conf("CONF201", adapters=[{"count": 1, "model": "Embedded LOM"}])
+    await mongo.db[CONFS_COLLECTION].insert_many([_conf("CONF200"), old])
+
+    body = (await client.get("/api/v1/confs")).json()
+
+    assert [item["conf_id"] for item in body["items"]] == ["CONF200"]
+    assert body["unreadable"] == ["CONF201"]
 
 
 async def test_get_one_by_conf_id(

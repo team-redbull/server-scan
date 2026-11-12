@@ -42,22 +42,23 @@ _CPUS: dict[str, _CpuSpec] = {
     "AMD EPYC 9454": _CpuSpec("AMD", 48, 2750, 3800, 3072, 49152, 262144),
 }
 
-# (count, model, capacity_tb, type, protocol)
-_DiskRow = tuple[int, str, float, str, str]
-_BOOT_M2: _DiskRow = (2, "MTFDDAV480TDS", 0.48, "SSD", "SATA")
-_BOOT_SATA: _DiskRow = (2, "SAMSUNG MZ7L3480HCHQ", 0.48, "SSD", "SATA")
-_NVME_3_2: _DiskRow = (4, "Dell Ent NVMe CM6 MU 3.2TB", 3.2, "SSD", "PCIe")
-_NVME_1_92: _DiskRow = (2, "SAMSUNG MZQL21T9HCJR", 1.92, "SSD", "PCIe")
-_NVME_7_68: _DiskRow = (8, "KIOXIA KCD8XRUG7T68", 7.68, "SSD", "PCIe")
-_SATA_1_92: _DiskRow = (4, "SAMSUNG MZ7L31T9HBLT-00A07", 1.92, "SSD", "SATA")
-_HDD_8: _DiskRow = (10, "ST8000NM017B", 8.0, "HDD", "SATA")
-_UNKNOWN_DISK: _DiskRow = (2, "unknown", 0.96, "unknown", "unknown")
+# (count, type, capacity_tb)
+_DiskRow = tuple[int, str, float]
+_BOOT_M2: _DiskRow = (2, "SSD", 0.48)
+_BOOT_NVME: _DiskRow = (2, "NVME", 0.48)
+_NVME_3_2: _DiskRow = (4, "NVME", 3.2)
+_NVME_1_92: _DiskRow = (2, "NVME", 1.92)
+_NVME_7_68: _DiskRow = (8, "NVME", 7.68)
+_SATA_1_92: _DiskRow = (4, "SSD", 1.92)
+_HDD_8: _DiskRow = (10, "HDD", 8.0)
+_UNKNOWN_DISK: _DiskRow = (2, "unknown", 0.96)
 
-_CX6 = "MLNX 100GbE 2P ConnectX6 Adpt"
-_E810 = "Intel E810-XXVDA2 25GbE 2P Adapter"
-_BCM_57414 = "Broadcom 57414 Dual Port 10/25GbE SFP28 Adapter"
-_VIC = "Cisco UCS VIC 1467 4P 10/25GbE"
-_LOM = "BCM 5720 1GbE 2P LOM"
+# (ports, speed in Gb/s)
+_CX6 = (2, 100.0)
+_E810 = (2, 25.0)
+_BCM_57414 = (2, 25.0)
+_VIC = (4, 25.0)
+_LOM = (2, 1.0)
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,7 @@ class _Row:
     ram_type: tuple[str, ...]
     disks: tuple[_DiskRow, ...]
     gpu: tuple[int, str, float] | None
-    adapters: tuple[tuple[int, str], ...]
+    adapters: tuple[tuple[int, tuple[int, float]], ...]
 
 
 _DDR4 = ("DDR4",)
@@ -91,15 +92,15 @@ _ROWS: tuple[_Row, ...] = (
     _Row("CONF201", "210-AZYV", "PowerEdge R750", "Intel Xeon Platinum 8358",
          2, 32, 64, _DDR4, (_BOOT_M2, _NVME_3_2), None, ((2, _CX6), (1, _LOM))),
     _Row("CONF202", "210-AZYV-G", "PowerEdge R750", "Intel Xeon Platinum 8358",
-         2, 32, 64, _DDR4, (_BOOT_M2, _NVME_7_68), (8, "NVIDIA H200", 141), ((4, _CX6),)),
+         2, 32, 64, _DDR4, (_BOOT_M2, _NVME_7_68), (8, "NVIDIA H200 SXM", 141), ((4, _CX6),)),
     _Row("CONF203", "210-ASVF", "PowerEdge R6515", "AMD EPYC 7513",
          1, 8, 32, _DDR4, (_BOOT_M2,), None, ((1, _BCM_57414),)),
     _Row("CONF210", "UCSC-C220-M6S", "UCS C220 M6", "Intel Xeon Gold 6348",
-         2, 16, 32, _DDR4, (_BOOT_SATA, _SATA_1_92), None, ((1, _VIC),)),
+         2, 16, 32, _DDR4, (_BOOT_NVME, _SATA_1_92), None, ((1, _VIC),)),
     _Row("CONF211", "UCSC-C240-M6SX", "UCS C240 M6", "Intel Xeon Gold 6348",
-         2, 24, 32, _DDR4, (_BOOT_SATA, _HDD_8), None, ((1, _VIC), (1, _CX6))),
+         2, 24, 32, _DDR4, (_BOOT_NVME, _HDD_8), None, ((1, _VIC), (1, _CX6))),
     _Row("CONF211.2", "UCSC-C240-M6SX-G", "UCS C240 M6",
-         "Intel Xeon Gold 6348", 2, 24, 32, _DDR4, (_BOOT_SATA, _NVME_1_92), (2, "NVIDIA L4", 24),
+         "Intel Xeon Gold 6348", 2, 24, 32, _DDR4, (_BOOT_NVME, _NVME_1_92), (2, "NVIDIA L4", 24),
          ((1, _VIC),)),
     _Row("CONF212", "UCSB-B200-M6", "UCS B200 M6", "Intel Xeon Silver 4314",
          2, 16, 32, _DDR4, (_BOOT_M2,), None, ((1, _VIC),)),
@@ -113,9 +114,9 @@ _ROWS: tuple[_Row, ...] = (
     _Row("CONF222", "P54199-B21", "ProLiant DL325 Gen11", "AMD EPYC 9354",
          1, 12, 32, _DDR5, (_BOOT_M2,), None, ((1, _BCM_57414),)),
     _Row("CONF223", "868703-B21", "ProLiant DL380 Gen10", "AMD EPYC 7513",
-         2, 16, 32, _DDR4, (_BOOT_SATA, _SATA_1_92), None, ((1, _BCM_57414),)),
+         2, 16, 32, _DDR4, (_BOOT_NVME, _SATA_1_92), None, ((1, _BCM_57414),)),
     _Row("CONF224", "867959-B21", "ProLiant DL360 Gen10", "AMD EPYC 7513",
-         2, 12, 32, _DDR4, (_BOOT_SATA,), None, ((1, _BCM_57414),)),
+         2, 12, 32, _DDR4, (_BOOT_NVME,), None, ((1, _BCM_57414),)),
     _Row("CONF230", "7D76CTO1WW", "ThinkSystem SR650 V3",
          "Intel Xeon Gold 6438Y+", 2, 16, 64, _DDR5, (_BOOT_M2, _NVME_3_2), None, ((1, _E810),)),
     _Row("CONF231", "SYS-221H-TNR", "SYS-221H-TNR",
@@ -162,15 +163,14 @@ def _conf(row: _Row) -> Conf:
             per_dimm_gb=row.per_dimm_gb,
             type=list(row.ram_type),
         ),
-        disks=[
-            ConfDisk(count=count, model=model, capacity_tb=tb, type=kind, protocol=protocol)
-            for count, model, tb, kind, protocol in row.disks
-        ],
-        # One entry per scanned unit, as the writer stores them.
-        gpus=[ConfGpu(count=1, model=gpu_model) for _ in range(gpu_units)],
+        disks=[ConfDisk(count=count, type=kind, capacity_tb=tb) for count, kind, tb in row.disks],
+        gpus=[ConfGpu(count=gpu_units, model=gpu_model)] if gpu_units else [],
         gpu_count=gpu_units,
         gpu_vram_gb=gpu_vram_gb,
-        adapters=[ConfAdapter(count=count, model=model) for count, model in row.adapters],
+        adapters=[
+            ConfAdapter(count=count, ports=ports, speed=speed)
+            for count, (ports, speed) in row.adapters
+        ],
         adapter_count=sum(count for count, _ in row.adapters),
     )
 

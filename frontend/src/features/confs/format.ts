@@ -2,8 +2,8 @@ import type { Conf } from "@/api/confs";
 
 export const UNKNOWN = "unknown";
 
-/** `{count, model}` entries summed per model, first-seen order kept; the
- * writer lists GPUs one per unit, so eight H200s arrive as eight entries. */
+/** `{count, model}` entries summed per model, first-seen order kept, so a
+ * model listed twice still shows once. */
 export function groupByModel(entries: { count: number; model: string }[]) {
   const totals = new Map<string, number>();
   for (const entry of entries) {
@@ -46,7 +46,7 @@ export function totalStorageTb(conf: Conf): number {
   return conf.disks.reduce((sum, disk) => sum + disk.count * disk.capacity_tb, 0);
 }
 
-/** The text a conf is searched by: ids and every component model. */
+/** The text a conf is searched by: ids, component models and disk types. */
 export function searchText(conf: Conf): string {
   return [
     conf.conf_id,
@@ -55,9 +55,8 @@ export function searchText(conf: Conf): string {
     conf.cpu.model,
     conf.cpu.vendor ?? "",
     ...conf.ram.type,
-    ...conf.disks.map((disk) => disk.model),
+    ...conf.disks.map((disk) => disk.type),
     ...conf.gpus.map((gpu) => gpu.model),
-    ...conf.adapters.map((adapter) => adapter.model),
   ]
     .join("\n")
     .toLowerCase();
@@ -70,4 +69,9 @@ export function visibleConfs(items: Conf[], search: string): Conf[] {
     const text = searchText(conf);
     return terms.every((term) => text.includes(term));
   });
+}
+
+/** One adapter group as text: `2× 2-port 100 Gb/s`. */
+export function adapterText(adapter: Conf["adapters"][number]): string {
+  return `${String(adapter.count)}× ${String(adapter.ports)}-port ${String(adapter.speed)} Gb/s`;
 }

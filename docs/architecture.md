@@ -1974,9 +1974,10 @@ index or a missing `createIndex` grant is logged, never dropped or fatal). The l
 sorted naturally (`conf_sort_key`); a document that fails validation is logged and
 named in the response's `unreadable`, never allowed to fail the list. Nothing is
 cached, so an external write shows on the next request. The SPA's `/confs` page
-(`features/confs/`) filters in the browser, groups the writer's
-one-entry-per-unit GPU list by model (falling back to `gpu_count` when the list
-is empty), and shows `ram.total_gib` 0 as a failed scan, not 0 GiB.
+(`features/confs/`) filters in the browser, sums the GPU list per model (falling
+back to `gpu_count` when the list is empty), shows a disk group as count, size
+and type and an adapter group as count, ports and speed (the writer records no
+disk or adapter model), and shows `ram.total_gib` 0 as a failed scan, not 0 GiB.
 
 ## Running a CronJob from the UI (ADR-0055)
 

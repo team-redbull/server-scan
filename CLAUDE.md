@@ -494,8 +494,9 @@ skipped and named in `unreadable`; `/confs` page ("Confs" after "Servers") with 
 by `tools.seed_inventory` (`providers/fake/confs.py`). **`server_count` is not read** (operator, 2026-11-12): no
 field, no column; a stored one is ignored. **Revised the same day to the writer's second schema:** the name (`conf_name`, was `name`)
 is not read either (operator), so the table's column is Part number, "Unmapped" when `null`; new `gpu_vram_gb` (VRAM per GPU);
-`ram.total_gib` 0 shown as a failed scan; cache keys read as `l1/l2/l3` *or* `11/12/13` (`AliasChoices`).
+`ram.total_gib` 0 shown as a failed scan; cache keys read as `l1/l2/l3` *or* `11/12/13` (`AliasChoices`). **Third schema, same
+day:** disks are `{count, type, capacity_tb}` (no model/protocol), adapters `{count, ports, speed}` (no model), GPUs grouped by
+model, no `detected` wrapper (one document per conf, confirmed).
 
-**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); whether the
-sample's `{"detected": [...]}` wrapper is a file envelope (assumed: one Mongo document per conf) or how documents are stored; whether
-`gpus: []` beside a non-zero `gpu_count` really occurs; a conf is not linked to a server (no stored field names it).
+**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); that adapter
+`speed` is Gb/s (the UI says so); whether `gpus: []` beside a non-zero `gpu_count` still occurs; a conf is not linked to a server.

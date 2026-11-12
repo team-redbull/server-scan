@@ -25,14 +25,15 @@ export interface Conf {
     /** `[]` when the DIMM read failed. */
     type: string[];
   };
-  /** `"unknown"` in model/type/protocol is a real value, not missing data. */
-  disks: { count: number; model: string; capacity_tb: number; type: string; protocol: string }[];
-  /** One entry per scanned unit (`count` is 1), not grouped. */
+  /** No drive model is recorded; `type` (`NVME`, `SSD`, …) may be `"unknown"`. */
+  disks: { count: number; type: string; capacity_tb: number }[];
+  /** Grouped by model; may be `[]` while `gpu_count` is not 0. */
   gpus: { count: number; model: string }[];
   gpu_count: number;
   /** VRAM per GPU; `null` or `0` on a GPU-less conf (the UI shows neither). */
   gpu_vram_gb: number | null;
-  adapters: { count: number; model: string }[];
+  /** No adapter model is recorded; `speed` is per port, in Gb/s. */
+  adapters: { count: number; ports: number; speed: number }[];
   adapter_count: number;
 }
 

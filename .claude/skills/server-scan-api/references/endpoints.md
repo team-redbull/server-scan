@@ -97,10 +97,11 @@ A `Conf`: `conf_id` (`CONF200`, a revision `CONF200.2`, or a scan id `CONF-21` f
 `part_number` (`null` when unmapped), `model`, `cpu {model, vendor, sockets,
 cores_per_cpu, total_cores_ht, clock_mhz, max_clock_mhz, cache_kb {l1, l2, l3}}`, `ram {total_gib, dimms,
 per_dimm_gb, type: [string]}` (`total_gib` 0 = the memory scan failed; `type` `[]` when the DIMM read failed),
-`disks [{count, model, capacity_tb, type, protocol}]` (`"unknown"` is a real value), `gpus [{count, model}]`
-(one entry per unit, so group by model; may be `[]` while `gpu_count` is not 0), `gpu_count`, `gpu_vram_gb`
-(VRAM per GPU, `null` or `0` on a GPU-less conf), `adapters [{count, model}]`, `adapter_count` (the writer's total,
-not always the sum of `adapters[].count`). A conf is not linked to servers: no server field
+`disks [{count, type, capacity_tb}]` (no drive model; `type` such as `NVME`, `SSD`, or `"unknown"`),
+`gpus [{count, model}]` (grouped by model; sum per model anyway, older documents listed one per unit; may be `[]`
+while `gpu_count` is not 0), `gpu_count`, `gpu_vram_gb` (VRAM per GPU, `null` or `0` on a GPU-less conf),
+`adapters [{count, ports, speed}]` (no adapter model; `speed` per port, read as Gb/s), `adapter_count` (the
+writer's total, not always the sum of `adapters[].count`). A conf is not linked to servers: no server field
 names its conf, and the API returns neither a server count nor the conf's name.
 
 ## Policies and rules

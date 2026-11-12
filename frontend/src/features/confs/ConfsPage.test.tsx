@@ -28,11 +28,11 @@ function conf(overrides: Partial<Conf>): Conf {
       cache_kb: { l1: 2560, l2: 40960, l3: 49152 },
     },
     ram: { total_gib: 512, dimms: 16, per_dimm_gb: 32, type: ["DDR4"] },
-    disks: [{ count: 2, model: "MTFDDAV480TDS", capacity_tb: 0.48, type: "SSD", protocol: "SATA" }],
+    disks: [{ count: 2, type: "SSD", capacity_tb: 0.48 }],
     gpus: [],
     gpu_count: 0,
     gpu_vram_gb: null,
-    adapters: [{ count: 1, model: "MLNX 100GbE 2P ConnectX6 Adpt" }],
+    adapters: [{ count: 1, ports: 2, speed: 100 }],
     adapter_count: 1,
     ...overrides,
   };
@@ -40,7 +40,7 @@ function conf(overrides: Partial<Conf>): Conf {
 
 const GPU_CONF = conf({
   conf_id: "CONF202",
-  gpus: Array.from({ length: 8 }, () => ({ count: 1, model: "NVIDIA H200" })),
+  gpus: [{ count: 8, model: "NVIDIA H200 SXM" }],
   gpu_count: 8,
   gpu_vram_gb: 141,
 });
@@ -49,7 +49,7 @@ const UNMAPPED_CONF = conf({
   conf_id: "CONF-21",
   part_number: null,
   ram: { total_gib: 512, dimms: 16, per_dimm_gb: 32, type: [] },
-  disks: [{ count: 2, model: "unknown", capacity_tb: 0.96, type: "unknown", protocol: "unknown" }],
+  disks: [{ count: 2, type: "unknown", capacity_tb: 0.96 }],
 });
 
 const RESPONSE = { items: [conf({}), GPU_CONF, UNMAPPED_CONF], unreadable: ["CONF-99"] };
@@ -90,7 +90,7 @@ describe("ConfsPage", () => {
     expect(screen.queryByRole("columnheader", { name: "Servers" })).not.toBeInTheDocument();
   });
 
-  it("groups GPUs listed one per unit", async () => {
+  it("shows the grouped GPUs and VRAM per GPU", async () => {
     renderPage();
 
     const row = (await screen.findByText("CONF202")).closest("tr");
@@ -125,6 +125,8 @@ describe("ConfsPage", () => {
 
     expect(screen.getByText("not read (DIMM read failed)")).toBeInTheDocument();
     expect(screen.getByText(/L3 48 MB/)).toBeInTheDocument();
+    expect(screen.getByText(/2× 0.96 TB/)).toBeInTheDocument();
+    expect(screen.getAllByText("1× 2-port 100 Gb/s").length).toBeGreaterThan(0);
   });
 
   it("hides the GPU line and VRAM of a conf whose GPU fields are stored as 0", async () => {
