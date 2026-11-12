@@ -42,6 +42,10 @@ export const queryKeys = {
   personalToken: {
     all: ["personalToken"] as const,
   },
+  confs: {
+    all: ["confs"] as const,
+    list: () => [...queryKeys.confs.all, "list"] as const,
+  },
   sites: {
     all: ["sites"] as const,
     list: () => [...queryKeys.sites.all, "list"] as const,

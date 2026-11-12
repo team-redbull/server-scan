@@ -5,6 +5,7 @@ import { AdminGate } from "@/components/AdminGate";
 import { AuditGate } from "@/components/AuditGate";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
+import { ConfsPage } from "@/features/confs/ConfsPage";
 import { EventsPage } from "@/features/events/EventsPage";
 import { InventoryPage } from "@/features/inventory/InventoryPage";
 import { JobsPage } from "@/features/jobs/JobsPage";
@@ -30,6 +31,11 @@ export const router = createBrowserRouter([
       {
         path: "/servers/:id",
         element: <ServerDetailPage />,
+      },
+      {
+        // Read-only: another system writes the `confs` collection (docs/adr/0061-confs.md).
+        path: "/confs",
+        element: <ConfsPage />,
       },
       {
         path: "/events",

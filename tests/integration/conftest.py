@@ -33,6 +33,7 @@ _TEST_COLLECTIONS = (
     "classification_rules",
     "health_policies",
     "audit_events",
+    "confs",
 )
 
 
