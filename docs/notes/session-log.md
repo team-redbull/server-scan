@@ -8,6 +8,22 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-11 — a Confs tab: server configurations read from a `confs` collection (ADR-0061).**
+Moved to `docs/notes/session-log.md`: the collectors-chart unit (ADR-0060).
+
+**Shipped (branch `feat/confs-tab`):** `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached, natural `conf_id`
+order); `Conf` reproduces the operator's schema field for field, `_id` never read, `conf_id` indexed non-unique, a malformed document
+skipped and named in `unreadable`; `/confs` page ("Confs" after "Servers") with search and expandable rows; 20 fake confs replaced by `conf_id`
+by `tools.seed_inventory` (`providers/fake/confs.py`). **`server_count` is not read** (operator, 2026-11-12): no
+field, no column; a stored one is ignored. **Revised the same day to the writer's second schema:** the name (`conf_name`, was `name`)
+is not read either (operator), so the table's column is Part number, "Unmapped" when `null`; new `gpu_vram_gb` (VRAM per GPU);
+`ram.total_gib` 0 shown as a failed scan; cache keys read as `l1/l2/l3` *or* `11/12/13` (`AliasChoices`). **Third schema, same
+day:** disks are `{count, type, capacity_tb}` (no model/protocol), adapters `{count, ports, speed}` (no model), GPUs grouped by
+model, no `detected` wrapper (one document per conf, confirmed).
+
+**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); that adapter
+`speed` is Gb/s (the UI says so); whether `gpus: []` beside a non-zero `gpu_count` still occurs; a conf is not linked to a server.
+
 **2026-11-10 — collectors split into their own chart, `deploy/helm/server-scan-collectors`; one KubeVirt collector per cluster (ADR-0060).**
 Moved to `docs/notes/session-log.md`: the bounded-error-detail unit (ADR-0002 addendum).
 
