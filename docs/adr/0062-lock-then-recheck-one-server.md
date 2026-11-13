@@ -77,7 +77,8 @@ limit minus what the collector needs.
 
 Recorded here because it is why decision 2 takes `workflow_id`: draw with `recheck=false`, run the caller's
 own checks, take the lock (`POST /servers/{id}/reservation`), then `POST /servers/{id}/recheck`. On a negative
-verdict or a vendor failure the caller releases its lock and moves to its next candidate. A check is spent
+verdict or a vendor failure the caller releases its lock and draws its next server, one at a time, up to its
+number of tries: a draw is a Mongo query now, so drawing spares ahead of time saves nothing. A check is spent
 only on a server the caller holds: two runs never check one machine, and nothing can take it between the
 check and the lock.
 
