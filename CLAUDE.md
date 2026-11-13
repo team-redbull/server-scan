@@ -236,8 +236,9 @@ Since 2026-09-13 the platform serves **`GET /api/v1/servers/available`**
    `get_one()` plus the existing 429 `RateLimitedError` and a
    `rate_limited_total` counter, because a retry-looping `/servers/available`
    caller would exhaust a vendor manager's session cap and fail the 06:00
-   collector login — **parked by the operator** while bmhgen's replacement (a
-   Temporal flow or similar) is decided. **Done:** the Grafana dashboard over the gauges and
+   collector login — **proposed in ADR-0062** (2026-11-13, not built): the
+   recheck leaves the draw, the caller locks one server and then asks
+   `POST /servers/{id}/recheck`, and the cap answers 429 when full. **Done:** the Grafana dashboard over the gauges and
    alert rules exists (the operator's, and it keeps being updated); 2026-09-13,
    the UI half of staleness (`?stale=true`, `Stale 20h` chip, `Last seen`; ADR-0029).
    **Not a gap:** MongoDB backup (production Mongo is an operated service, not
@@ -416,7 +417,7 @@ long form of each entry is in the 2026-09-13 archive.
   0026; list-cache invalidation 0028; fleet gauges 0029; self-deploying
   releases 0031; AD login and roles 0034; login throttle 0039; bounded login path 0042; auditor
   role and audit-trail access 0043; ingest write discipline 0044; audit retention 0045; RAID detection 0048;
-  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058; a VM's host (`Server.vm_host`, `GET /servers/{id}/vm-host`) and CPU modes stored as no model 0059; collectors chart 0060; confs (read-only `confs` collection) 0061.
+  CI parallel tests and image prebuild 0049; admin CronJob trigger 0055; site from BMC IP 0056, BMC-first site and the `name` health category 0057; iDRAC reset on all-UNKNOWN disks/NICs 0050; rename event and byte units 0051; KubeVirt VM collector 0058; a VM's host (`Server.vm_host`, `GET /servers/{id}/vm-host`) and CPU modes stored as no model 0059; collectors chart 0060; confs (read-only `confs` collection) 0061; the live recheck moved out of the draw (proposed) 0062.
 
 ## Verifying your work
 
@@ -485,18 +486,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-11 — a Confs tab: server configurations read from a `confs` collection (ADR-0061).**
-Moved to `docs/notes/session-log.md`: the collectors-chart unit (ADR-0060).
+**2026-11-13 — design only: the live recheck leaves `/servers/available` (ADR-0062, proposed, nothing built).**
+Moved to `docs/notes/session-log.md`: the Confs unit (ADR-0061).
 
-**Shipped (branch `feat/confs-tab`):** `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached, natural `conf_id`
-order); `Conf` reproduces the operator's schema field for field, `_id` never read, `conf_id` indexed non-unique, a malformed document
-skipped and named in `unreadable`; `/confs` page ("Confs" after "Servers") with search and expandable rows; 20 fake confs replaced by `conf_id`
-by `tools.seed_inventory` (`providers/fake/confs.py`). **`server_count` is not read** (operator, 2026-11-12): no
-field, no column; a stored one is ignored. **Revised the same day to the writer's second schema:** the name (`conf_name`, was `name`)
-is not read either (operator), so the table's column is Part number, "Unmapped" when `null`; new `gpu_vram_gb` (VRAM per GPU);
-`ram.total_gib` 0 shown as a failed scan; cache keys read as `l1/l2/l3` *or* `11/12/13` (`AliasChoices`). **Third schema, same
-day:** disks are `{count, type, capacity_tb}` (no model/protocol), adapters `{count, ports, speed}` (no model), GPUs grouped by
-model, no `detected` wrapper (one document per conf, confirmed).
+**Why:** 20 add-server-to-mce runs (team-redbull/workflows) hung at `acquiring-server`. Each draw rechecked 12-20 candidates
+sequentially (one UCS recheck may take 240 s) inside the caller's 60 s HTTP timeout, retried forever; the caller sized its draw
+for a sorted list, and `$sample` is random. **Proposed:** `?recheck=false` (Mongo only), `POST /servers/{id}/recheck` (one
+server, a verdict, the caller's own lock exempt), a per-`ManagerType` cap with 429. The caller's half is the workflows repo's
+`docs/design/add-server-to-mce-lock-then-recheck.md`.
 
-**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); that adapter
-`speed` is Gb/s (the UI says so); whether `gpus: []` beside a non-zero `gpu_count` still occurs; a conf is not linked to a server.
+**Open, for the operator:** whether named installs (`?name=`) use the same lock-then-check order; the cap's default (4 per type
+per pod) against each manager's real session limit. Server Scan must ship this before the workflow can use it.
