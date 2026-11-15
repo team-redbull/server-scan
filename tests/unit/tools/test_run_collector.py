@@ -22,6 +22,7 @@ from tools.run_collector import (
     _filtered,
     _format_duration,
     _format_speed,
+    _is_benign_collection_error,
     _parse_args,
     _run,
     _run_one_manager,
@@ -36,6 +37,7 @@ from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection, ManagerNotConfiguredError
 from app.domain.ports.provider import (
+    SERVER_FAILED_MARKER,
     ProviderAttachment,
     ProviderNic,
     ProviderServer,
@@ -286,6 +288,8 @@ class TestRunOneManager:
 
             provider_type = "UCS_CENTRAL"
             collection_errors = ("domain 'b' (10.0.0.2) failed: bad credentials",)
+            servers_seen = 0
+            server_failures = 0
 
             async def health_check(self) -> None:
                 return None
@@ -1288,12 +1292,23 @@ class FakeMongo:
         self.closed += 1
 
 
-def _outcome(*, fetched: int = 3, errors: int = 0, collection_errors: tuple[str, ...] = ()) -> Any:
+def _outcome(
+    *,
+    fetched: int = 3,
+    errors: int = 0,
+    collection_errors: tuple[str, ...] = (),
+    server_failures: int = 0,
+) -> Any:
     summary = IngestSummary()
     summary.fetched = fetched
     summary.created = fetched
     summary.errors = errors
-    return run_collector._RunOutcome(summary=summary, collection_errors=collection_errors)
+    return run_collector._RunOutcome(
+        summary=summary,
+        collection_errors=collection_errors,
+        servers_seen=fetched,
+        server_failures=server_failures,
+    )
 
 
 class TestRunExitCodes:
@@ -1404,6 +1419,40 @@ class TestRunExitCodes:
 
         assert code == 3
         assert "2 server(s) failed to ingest" in capsys.readouterr().out
+
+    async def test_a_few_failed_servers_exit_three_and_the_rest_are_kept(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
+        """One bad server out of a hundred is PARTIAL, never a failed run (ADR-0062)."""
+        code = await self._run_with(
+            monkeypatch,
+            _outcome(
+                fetched=100,
+                server_failures=1,
+                collection_errors=("srv-9 (id 9, serial S9) could not be collected at mapping: X",),
+            ),
+        )
+
+        assert code == 3
+        assert "PARTIAL" in capsys.readouterr().out
+
+    async def test_a_systemic_failure_exits_one_and_lists_the_causes(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
+        """When a fifth of the fleet fails the collector is broken: exit 1, say so."""
+        code = await self._run_with(
+            monkeypatch,
+            _outcome(
+                fetched=20,
+                server_failures=6,
+                collection_errors=("srv-1 (id 1, serial S1) could not be collected at mapping: X",),
+            ),
+        )
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "6 of 20 servers could not be collected" in out
+        assert "srv-1" in out
 
     async def test_a_total_failure_still_exits_one(
         self, monkeypatch: pytest.MonkeyPatch, capsys: Any
@@ -1714,3 +1763,243 @@ class TestKubeVirt:
         monkeypatch.setattr(run_collector, "get_settings", lambda: self._settings_for(url))
 
         assert await _run(manager_type=ManagerType.KUBEVIRT, dry_run=True) == 1
+
+
+class _CountingProvider(ServerInventoryProvider):
+    """A real provider whose counters are the real properties, set by hand."""
+
+    provider_type = "UCS_CENTRAL"
+
+    def __init__(self, *, seen: int = 0, failures: int = 0) -> None:
+        super().__init__()
+        self._servers_seen = seen
+        self._server_failures = failures
+
+    async def health_check(self) -> None:
+        return None
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        return None
+
+    async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
+        return
+        yield
+
+
+class TestFailureCountersAreDelegated:
+    """ADR-0062 decision 6: wrappers pass `servers_seen`/`server_failures` through."""
+
+    def test_the_name_filter_passes_the_pre_filter_counts(self) -> None:
+        wrapped = _filtered(_CountingProvider(seen=7, failures=3), "^ocp")
+
+        assert wrapped.servers_seen == 7
+        assert wrapped.server_failures == 3
+
+    def test_the_bmc_probe_wrapper_passes_the_counts_and_adds_nothing(self) -> None:
+        wrapped = BmcProbedProvider(_CountingProvider(seen=7, failures=3))
+
+        assert wrapped.servers_seen == 7
+        assert wrapped.server_failures == 3
+
+    def test_both_wrappers_stacked_still_report_the_inner_counts(self) -> None:
+        wrapped = _filtered(BmcProbedProvider(_CountingProvider(seen=7, failures=3)), "^ocp")
+
+        assert (wrapped.servers_seen, wrapped.server_failures) == (7, 3)
+
+    async def test_run_one_manager_copies_both_counters_into_the_outcome(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            run_collector, "_build_provider", _factory(_CountingProvider(seen=7, failures=3))
+        )
+
+        result = await _run_one_manager(
+            _manager(),
+            ingest_service=FakeIngestService(),  # ty: ignore[invalid-argument-type]
+            credential_resolver=FakeCredentialResolver(),
+            timeout_seconds=5.0,
+        )
+
+        assert result is not None
+        assert (result.servers_seen, result.server_failures) == (7, 3)
+
+
+class TestBenignClassification:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            f"srv (id 1, serial S1){SERVER_FAILED_MARKER}mapping: RuntimeError: h: unreachable — x",
+            f"srv (id 1, serial S1){SERVER_FAILED_MARKER}mapping: X: login failed for credential",
+        ],
+    )
+    def test_a_server_failure_is_never_benign_even_with_a_benign_marker_in_its_text(
+        self, message: str
+    ) -> None:
+        assert _is_benign_collection_error(message) is False
+
+    @pytest.mark.parametrize(
+        "message", ["10.0.0.9: unreachable — refused", "10.0.0.5: login failed for credential 'c'"]
+    )
+    def test_the_plain_host_messages_stay_benign(self, message: str) -> None:
+        assert _is_benign_collection_error(message) is True
+
+    def test_the_helpers_own_message_is_not_benign_even_for_an_unreachable_text(self) -> None:
+        provider = _CountingProvider()
+        exc = RuntimeError("bmc: unreachable — x; login failed for credential 'c'")
+
+        provider._contain_server_failure(
+            exc, event="t", stage="mapping", vendor="hp", external_id="e", name="n", serial="s"
+        )
+
+        (message,) = provider.collection_errors
+        assert SERVER_FAILED_MARKER in message
+        assert _is_benign_collection_error(message) is False
+
+
+class _MappingProvider(ServerInventoryProvider):
+    """Real containment path: every server whose index is in `bad` fails to map."""
+
+    provider_type = "UCS_CENTRAL"
+
+    def __init__(self, *, total: int, bad: set[int], benign: tuple[str, ...] = ()) -> None:
+        super().__init__()
+        self._total = total
+        self._bad = bad
+        self._benign = benign
+
+    async def health_check(self) -> None:
+        return None
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        return None
+
+    async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
+        for message in self._benign:
+            self._record_error(message)
+        for i in range(self._total):
+            name = f"ocp-srv-{i:02d}"
+            if i in self._bad:
+                try:
+                    raise KeyError("processorCount")
+                except KeyError as exc:
+                    stub = self._contain_server_failure(
+                        exc,
+                        event="test.server_failed",
+                        stage="mapping hardware",
+                        vendor="hp",
+                        external_id=f"id-{i}",
+                        name=name,
+                        serial=f"S{i}",
+                    )
+                if stub is not None:
+                    yield stub
+            else:
+                yield ProviderServer(external_id=f"id-{i}", vendor="hp", name=name, serial=f"S{i}")
+
+
+class _DrivingIngest:
+    """Stands in for `IngestService`: drives `collect()` and counts what it yields."""
+
+    def __init__(self, **_kwargs: Any) -> None:
+        pass
+
+    async def ingest(self, provider: Any, *, managers: Any = ()) -> IngestSummary:
+        summary = IngestSummary()
+        async for _ in provider.collect():
+            summary.fetched += 1
+        return summary
+
+
+class TestRunWithRealContainment:
+    """`_run` end to end over a provider that fails servers through `_contain_server_failure`."""
+
+    @pytest.fixture(autouse=True)
+    def _wiring(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(run_collector, "MongoClientHolder", FakeMongo)
+        monkeypatch.setattr(run_collector, "IngestService", _DrivingIngest)
+
+        async def _no_indexes(_db: Any) -> None:
+            return None
+
+        monkeypatch.setattr(run_collector, "ensure_indexes", _no_indexes)
+        monkeypatch.setattr(run_collector, "get_settings", _central_settings_for_run)
+        self.recorded: list[dict[str, Any]] = []
+
+        async def _capture(*_args: Any, **kwargs: Any) -> None:
+            self.recorded.append(kwargs)
+
+        monkeypatch.setattr(run_collector, "_record_run", _capture)
+
+    def _use(self, monkeypatch: pytest.MonkeyPatch, provider: ServerInventoryProvider) -> None:
+        monkeypatch.setattr(run_collector, "_build_provider", _factory(provider))
+
+    async def test_every_server_failing_exits_one_and_lists_at_most_ten_causes(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
+        self._use(
+            monkeypatch,
+            _MappingProvider(
+                total=10,
+                bad=set(range(10)),
+                benign=("10.0.0.9: unreachable — refused",),
+            ),
+        )
+
+        code = await _run(manager_type=ManagerType.UCS_CENTRAL)
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "10 of 10 servers could not be collected" in out
+        assert out.count(f"{SERVER_FAILED_MARKER}mapping hardware") == 10
+        assert "10.0.0.9" not in out  # a benign error is not a cause under the systemic output
+        assert self.recorded[-1]["partial"] is True
+
+    async def test_more_than_ten_failures_list_only_the_first_ten(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
+        self._use(monkeypatch, _MappingProvider(total=15, bad=set(range(15))))
+
+        code = await _run(manager_type=ManagerType.UCS_CENTRAL)
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert out.count(SERVER_FAILED_MARKER) == 10
+        assert "ocp-srv-09" in out
+        assert "ocp-srv-10" not in out
+
+    async def test_one_failure_of_ten_exits_three(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
+        self._use(monkeypatch, _MappingProvider(total=10, bad={4}))
+
+        code = await _run(manager_type=ManagerType.UCS_CENTRAL)
+
+        out = capsys.readouterr().out
+        assert code == 3
+        assert "PARTIAL" in out
+        assert "ocp-srv-04" in out
+        assert self.recorded[-1]["partial"] is True
+
+    async def test_dropped_failures_do_not_make_a_large_fleet_systemic(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Serial-less failures yield no stub but still count in the denominator."""
+
+        class _Dropping(_MappingProvider):
+            async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
+                for i in range(5):
+                    self._contain_server_failure(
+                        KeyError("x"),
+                        event="t",
+                        stage="mapping",
+                        vendor="hp",
+                        external_id=f"d{i}",
+                        name=f"d{i}",
+                        serial=None,
+                    )
+                async for server in super()._list_servers():
+                    yield server
+
+        self._use(monkeypatch, _Dropping(total=20, bad=set()))
+
+        assert await _run(manager_type=ManagerType.UCS_CENTRAL) == 3

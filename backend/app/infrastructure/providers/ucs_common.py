@@ -199,10 +199,31 @@ def partition_profiles(ls_servers: Iterable[Any]) -> tuple[dict[str, Any], dict[
     profile_by_dn: dict[str, Any] = {}
     template_dn_by_name: dict[str, str] = {}
     for mo in ls_servers:
+        dn = str(getattr(mo, "dn", "") or "")
+        if not dn:
+            continue
         if str(getattr(mo, "type", "") or "") in TEMPLATE_TYPES:
             name = getattr(mo, "name", None)
             if name:
-                template_dn_by_name.setdefault(name, mo.dn)
+                template_dn_by_name.setdefault(name, dn)
         else:
-            profile_by_dn[mo.dn] = mo
+            profile_by_dn[dn] = mo
     return profile_by_dn, template_dn_by_name
+
+
+def split_by_usable_dn(mos: Iterable[Any]) -> tuple[list[Any], list[Any]]:
+    """
+    Separate managed objects that carry a DN from those that do not.
+
+    Args:
+        mos (Iterable[Any]): Managed objects from one `query_classid`.
+
+    Returns:
+        tuple[list[Any], list[Any]]: `(with_dn, without_dn)`; a DN-less object cannot be
+            joined to anything, so the caller skips and reports it.
+    """
+    usable: list[Any] = []
+    unusable: list[Any] = []
+    for mo in mos:
+        (usable if str(getattr(mo, "dn", "") or "") else unusable).append(mo)
+    return usable, unusable

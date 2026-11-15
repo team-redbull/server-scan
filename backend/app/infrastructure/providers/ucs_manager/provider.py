@@ -9,6 +9,8 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import structlog
+
 from app.domain.enums import ManagerType
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
@@ -28,8 +30,52 @@ from app.infrastructure.providers.ucs_common import (
 from app.infrastructure.providers.ucs_common import (
     partition_profiles as _partition_profiles,
 )
+from app.infrastructure.providers.ucs_common import (
+    split_by_usable_dn as _split_by_usable_dn,
+)
 from app.infrastructure.providers.ucs_manager.client import UcsManagerClient
 from app.infrastructure.providers.ucs_manager.mapping import compute_unit_to_provider_server
+
+logger = structlog.get_logger(__name__)
+
+
+def _raw_identity(server_mo: Any, profile_by_dn: dict[str, Any]) -> dict[str, str | None]:
+    """
+    Read a server's identity the way the mapper does, never raising.
+
+    Args:
+        server_mo (Any): The `computeBlade` or `computeRackUnit` MO.
+        profile_by_dn (dict[str, Any]): Service profile DN -> `lsServer`.
+
+    Returns:
+        dict[str, str | None]: `external_id`, `name`, `serial`, `model`, `system_uuid`.
+    """
+
+    def text(obj: Any, attr: str) -> str | None:
+        """
+        Read one attribute as a non-empty string.
+
+        Args:
+            obj (Any): The managed object, or `None`.
+            attr (str): The attribute name.
+
+        Returns:
+            str | None: The text, or `None` when absent or empty.
+        """
+        try:
+            return str(getattr(obj, attr, "") or "") or None
+        except Exception:
+            return None
+
+    dn = text(server_mo, "dn")
+    profile = profile_by_dn.get(text(server_mo, "assigned_to_dn") or "")
+    return {
+        "external_id": dn,
+        "name": text(profile, "name") or text(server_mo, "name") or dn,
+        "serial": text(server_mo, "serial"),
+        "model": text(server_mo, "model"),
+        "system_uuid": text(server_mo, "uuid"),
+    }
 
 
 def _wire_class_id(mo: Any) -> str:
@@ -181,6 +227,33 @@ class UcsManagerProvider(ServerInventoryProvider):
         finally:
             await client.logout()
 
+    def _drop_dnless(self, mos: list[Any], kind: str) -> list[Any]:
+        """
+        Drop managed objects without a DN, logging and recording each.
+
+        Args:
+            mos (list[Any]): Managed objects from one query.
+            kind (str): What they are, for the message (`lsServer`, `compute unit`).
+
+        Returns:
+            list[Any]: Only the objects that carry a DN.
+        """
+        usable, unusable = _split_by_usable_dn(mos)
+        for mo in unusable:
+            attrs = sorted(k for k in getattr(mo, "__dict__", {}) if not k.startswith("_"))
+            logger.warning(
+                "ucs_manager.mo_skipped",
+                endpoint=self._endpoint,
+                mo_class=type(mo).__name__,
+                kind=kind,
+                attributes=attrs,
+                reason="no DN to join its children by",
+            )
+            self._record_error(
+                f"{self._endpoint}: a {kind} object ({type(mo).__name__}) with no DN was skipped"
+            )
+        return usable
+
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """
         Yield every physically-present server in the domain.
@@ -226,9 +299,12 @@ class UcsManagerProvider(ServerInventoryProvider):
                 str(getattr(top_system[0], "name", "") or "") or None if top_system else None
             )
 
+            ls_servers = self._drop_dnless(ls_servers, "lsServer")
             profile_by_dn, template_dn_by_name = _partition_profiles(ls_servers)
 
-            servers = [mo for mo in (*blades, *rack_units) if _is_equipped(mo)]
+            servers = self._drop_dnless(
+                [mo for mo in (*blades, *rack_units) if _is_equipped(mo)], "compute unit"
+            )
             server_dns = [mo.dn for mo in servers]
             mgmt_ifs_by_server = _group_by_owning_server_dn(mgmt_ifs, server_dns=server_dns)
             mgmt_ip_by_parent_dn = _management_ip_by_parent_dn((*mgmt_ip_pooled, *mgmt_ip_static))
@@ -251,25 +327,44 @@ class UcsManagerProvider(ServerInventoryProvider):
             card_units_by_server = _group_by_owning_server_dn(card_units_all, server_dns=server_dns)
 
             for server_mo in servers:
-                mgmt_if = _bmc_interface(mgmt_ifs_by_server[server_mo.dn], server_dn=server_mo.dn)
-                yield compute_unit_to_provider_server(
-                    server_mo,
-                    manager_id=self._manager.id,
-                    profile_by_dn=profile_by_dn,
-                    template_dn_by_name=template_dn_by_name,
-                    mgmt_if=mgmt_if,
-                    mgmt_ip_by_parent_dn=mgmt_ip_by_parent_dn,
-                    ext_eth_ifs=ext_eth_ifs_by_server[server_mo.dn],
-                    host_eth_ifs=host_eth_ifs_by_server[server_mo.dn],
-                    cpu_units=cpu_units_by_server[server_mo.dn],
-                    disk_units=disk_units_by_server[server_mo.dn],
-                    storage_controllers=controllers_by_server[server_mo.dn],
-                    virtual_drives=virtual_drives_by_server[server_mo.dn],
-                    psu_units=psu_units_by_server[server_mo.dn],
-                    psu_stats=psu_stats_by_server[server_mo.dn],
-                    card_units=card_units_by_server[server_mo.dn],
-                    switches_by_id=switches_by_id,
-                    cluster_name=cluster_name,
-                )
+                dn = server_mo.dn
+                identity = _raw_identity(server_mo, profile_by_dn)
+                try:
+                    mgmt_if = _bmc_interface(mgmt_ifs_by_server[dn], server_dn=dn)
+                    mapped = compute_unit_to_provider_server(
+                        server_mo,
+                        manager_id=self._manager.id,
+                        profile_by_dn=profile_by_dn,
+                        template_dn_by_name=template_dn_by_name,
+                        mgmt_if=mgmt_if,
+                        mgmt_ip_by_parent_dn=mgmt_ip_by_parent_dn,
+                        ext_eth_ifs=ext_eth_ifs_by_server[dn],
+                        host_eth_ifs=host_eth_ifs_by_server[dn],
+                        cpu_units=cpu_units_by_server[dn],
+                        disk_units=disk_units_by_server[dn],
+                        storage_controllers=controllers_by_server[dn],
+                        virtual_drives=virtual_drives_by_server[dn],
+                        psu_units=psu_units_by_server[dn],
+                        psu_stats=psu_stats_by_server[dn],
+                        card_units=card_units_by_server[dn],
+                        switches_by_id=switches_by_id,
+                        cluster_name=cluster_name,
+                    )
+                except Exception as exc:
+                    stub = self._contain_server_failure(
+                        exc,
+                        event="ucs_manager.server_failed",
+                        stage="mapping blade/rack unit",
+                        vendor="cisco",
+                        manager_id=self._manager.id,
+                        endpoint=self._endpoint,
+                        dn=dn,
+                        profile=getattr(server_mo, "assigned_to_dn", None),
+                        **identity,
+                    )
+                    if stub is not None:
+                        yield stub
+                    continue
+                yield mapped
         finally:
             await client.logout()

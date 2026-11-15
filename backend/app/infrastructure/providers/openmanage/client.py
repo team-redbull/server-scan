@@ -126,8 +126,13 @@ class OmeClient:
                 f"OME at {self._endpoint} accepted the login but returned no X-Auth-Token."
             )
         self._http.headers["X-Auth-Token"] = token
-        body = response.json()
-        self._session_id = str(body.get("Id")) if body.get("Id") is not None else None
+        try:
+            body = response.json()
+            self._session_id = str(body.get("Id")) if body.get("Id") is not None else None
+        except (ValueError, AttributeError) as exc:
+            raise OmeConnectionError(
+                f"OME at {self._endpoint} returned a non-JSON body for /SessionService/Sessions."
+            ) from exc
         logger.info("ome.connected", endpoint=self._endpoint)
 
     async def logout(self) -> None:
@@ -197,7 +202,12 @@ class OmeClient:
             raise OmeConnectionError(
                 f"OME GET {path} could not reach {self._endpoint}: {exc}."
             ) from exc
-        body = response.json()
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise OmeConnectionError(
+                f"OME at {self._endpoint} returned a non-JSON body for {path}."
+            ) from exc
         return body if isinstance(body, dict) else {}
 
 

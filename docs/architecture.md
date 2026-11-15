@@ -163,7 +163,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   with an `unreachable_reason` (ADR-0037); an OpenManage or standalone
   one also has every hardware field `None` (the shape
   `OpenManageProvider._unreachable_server` produces), and a standalone one
-  has no serial. A OneView one keeps its data: only the probe failed. A ProLiant Gen9
+  has no serial; the fake attaches an `unreachable_detail` text to these stubs (not to the OneView ones) but never seeds `COLLECTION_ERROR` (ADR-0062). A OneView one keeps its data: only the probe failed. A ProLiant Gen9
   carries an iLO 4, against which every OneView subresource call fails,
   so its drives, GPUs, PSUs and `nic_macs` are `None` — unread — while its
   identity is intact. Never `()` or `0`: an empty drive list reads as "no
@@ -906,6 +906,15 @@ default (`enabled`, `apply`); it can also be run by hand.
 
 ## Ingestion wires both engines together (slice 2 + 3 integration)
 
+**A server that fails never aborts the run** (ADR-0062). `ingest()` guards `_ingest_one` per server, and every
+provider guards the *mapping* of one server before it yields: the failure is logged (`<vendor>.server_failed`),
+recorded in `collection_errors` and counted, and the server is written as a `reachable=False` stub with
+`unreachable_reason=COLLECTION_ERROR` and `unreachable_detail` (the cause in words). The stub carries the server's
+serial so ingest updates the same document, keeps every stored value, refreshes `listed_at` (pruning is unaffected)
+and does not advance `last_seen_at`; the next good read clears the cause. The run exits 3, or 1 when at least 5 and
+over 20 % of the fleet failed (`is_systemic_failure`, `app.domain.ports.provider`). A failed bulk step, the vendor
+listing call and a rejected login still fail the run: they have no per-server unit.
+
 `app.application.services.ingest.IngestService` classifies and
 health-evaluates a server in the *same* upsert that ingests it (a revision-checked write for an existing server, ADR-0044) — not a
 second write — when `classification_service`/`health_service` are
@@ -1445,7 +1454,9 @@ integration that isn't `FakeProvider`. See
     double that per manager and burn a second session against UCS
     Manager's per-user session cap for nothing.
   - **Exit codes** are the CronJob's only signal: `0` complete, `1` the
-    manager failed outright (logged, `FAILED (see logs)`), `2` not
+    manager failed outright (logged, `FAILED (see logs)`) or
+    `is_systemic_failure(server_failures, servers_seen)` (at least 5 and over
+    20 % of the servers seen, ADR-0062; decided before the PARTIAL rule), `2` not
     configured (`ManagerNotConfiguredError`, printed with the variable
     names to set), `3` PARTIAL — some servers written, but not the whole
     fleet. Configuration is pre-flighted before any connection so a
@@ -1495,7 +1506,8 @@ format. The field-level rules a new collector has to honour:
   field: `nic_macs`, the CPU/memory/storage scalars, `storage_drives`,
   `gpus`, `psus`, `memory_modules`.
 - **`reachable=False`** means the provider could not reach this server's
-  BMC this run, with an `unreachable_reason` (`Server.reachable`,
+  BMC this run, or listed it but could not process its record
+  (`COLLECTION_ERROR`, with `unreachable_detail`, ADR-0062), with an `unreachable_reason` (`Server.reachable`,
   `unreachable_since`, `unreachable_reason`). The provider need not know
   the identity: a `REDFISH_STANDALONE` stub has `serial=None` and is
   matched by BMC host at ingest. Every optional field is `None` on such a
@@ -1557,8 +1569,11 @@ format. The field-level rules a new collector has to honour:
   not collected — `tools.run_collector` turns a non-empty list into exit
   code 3 (PARTIAL); the message should name the endpoint/domain/host and
   the numbers, since that is what an operator reads to tell a lost
-  connection from a paging ceiling. Subclasses with their own `__init__`
-  must call `super().__init__()`.
+  connection from a paging ceiling. A subclass also guards one server's
+  mapping and calls `_contain_server_failure(...)` (logs, records, counts,
+  returns the stub, or `None` without a serial; ADR-0062); wrappers delegate
+  `servers_seen`/`server_failures` like `collection_errors`. Subclasses with
+  their own `__init__` must call `super().__init__()`.
 - **`get_one(ServerIdentity) -> ProviderServer | None`** (ADR-0032) is the
   sixth abstract method, added for `GET /servers/available`'s live
   recheck. `ServerIdentity` carries whichever field a provider correlates
@@ -1567,7 +1582,9 @@ format. The field-level rules a new collector has to honour:
   single-host recollect — never `_list_servers()` re-run and filtered.
   `app.infrastructure.providers.factory.build_provider_for_manager_type`
   is the one place that turns a `ManagerType` into a constructed provider
-  for this path, shared with the CLI's own resolution.
+  for this path, shared with the CLI's own resolution. OneView `get_one`
+  raises on anything but a 404 and KubeVirt `get_one` raises a non-Redfish
+  bug (the caller reports a recheck failure); a silent `None` return is logged.
 
 `ConnectivityFacts` (`fabric_paths_total/up/down`, `fabrics_present`)
 are derived from the attachments once at ingest and stored, so health
@@ -1661,11 +1678,13 @@ firmware serial/UUID. `app.infrastructure.providers.kubevirt` keeps the Redfish 
 
 - **One 401 per run, never retried.** The facade blocks an IP for 15 minutes after 10 failed logins in 5.
   `health_check` reads only the unauthenticated service root, and one authenticated `GET /redfish/v1/Systems`
-  comes before any concurrency, so a wrong password costs one request; a 401 anywhere stops the run.
+  comes before any concurrency, so a wrong password costs one request; a 401 anywhere stops the run. The listing
+  follows `Members@odata.nextLink` (capped at 100 pages; a repeated page is a recorded error).
 - **Failure split.** The listing failing (unreachable, TLS, 401, any error status) is exit 1. One VM failing is
   recorded and the run continues (exit 3); a 404 on a VM is "deleted since the listing" and skipped silently.
-- **No `reachable=False` stub.** The "BMC" is the shared facade, so every VM is reachable and the `bmc` category
-  is UNKNOWN (not checked). A stopped VM's links are `UNKNOWN`, not `DOWN`, so it is `UNKNOWN` overall and
+- **No `reachable=False` stub for a facade fault.** The "BMC" is the shared facade, so a VM is reachable and the
+  `bmc` category is UNKNOWN (not checked). The one exception is a VM whose System was read and then failed to map:
+  a `COLLECTION_ERROR` stub keyed by the same serial (ADR-0062). A stopped VM's links are `UNKNOWN`, not `DOWN`, so it is `UNKNOWN` overall and
   `/servers/available` never offers it; a running VM's `NoLink` stays `DOWN`.
 - **Tunables:** `INVENTORY_KUBEVIRT_CONCURRENCY` (4, bounded by the facade's client-go 5 qps / burst 10),
   `_READ_TIMEOUT_SECONDS` (35, just above the Route's 30 s), `_VM_BUDGET_SECONDS` (60),
@@ -1817,7 +1836,11 @@ timeout, concurrency 64, stamped in batches of 64) to each yielded server's
 `bmc_address_raw` host, setting `reachable`/`unreachable_reason`. Any HTTP
 answer, or a TLS failure, counts as reachable; only refused, timeout and
 no-route do not. It sends no credentials, so ADR-0022's no-BMC-credentials
-decision stands and the probe can never report `auth_rejected`. The
+decision stands and the probe can never report `auth_rejected`. A failed
+probe step or an invalid host yields `COLLECTION_ERROR` (counted and recorded),
+a server the collector already marked unreachable is not re-probed,
+`parse_bmc_address` never raises, and an inner failure flushes the buffered
+batch (ADR-0062). The
 timeout and concurrency are estimates, not yet measured against the
 821-server appliance.
 

@@ -20,15 +20,22 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import random
 from collections.abc import AsyncGenerator, Callable
+from contextvars import ContextVar
 from typing import Any
 
 import structlog
 
 from app.domain.enums import ManagerType, UnreachableReason, Vendor
 from app.domain.models.manager import Manager
-from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    SERVER_FAILED_MARKER,
+    ProviderServer,
+    ServerIdentity,
+    ServerInventoryProvider,
+)
 from app.infrastructure.providers.redfish import raid
 from app.infrastructure.providers.redfish.client import (
     RedfishAuthError,
@@ -44,6 +51,7 @@ from app.infrastructure.providers.redfish.mapping import (
     _BUILTIN_PCI_DEVICE_MODELS,
     _clean_serial,
     _dell_serial,
+    _server_name,
     controllers_from_storage,
     gpus_from_pcie_devices,
     gpus_from_processors,
@@ -65,11 +73,70 @@ UNREACHABLE_MARKER = ": unreachable — "
 AUTH_REJECTED_MARKER = ": login failed for credential "
 TLS_FAILED_MARKER = ": TLS verification failed — "
 BUDGET_MARKER = ": exceeded its "
+UNEXPECTED_MARKER = SERVER_FAILED_MARKER
 
 # A tree the BMC does not implement, as opposed to one it failed to serve this time.
 _TREE_ABSENT_STATUSES = frozenset({404, 501, 503})
 
 _PCIE_SELECT = "$select=Manufacturer,Description,Status"
+
+# Failures `_collect_host` classifies; a per-system handler must let them through.
+_HOST_LEVEL_ERRORS = (RedfishAuthError, RedfishTlsError, RedfishUnreachableError, TimeoutError)
+
+# The BMC host and System being read, so every `redfish.*` warning can name them.
+_SCOPE: ContextVar[dict[str, str] | None] = ContextVar("redfish_scope", default=None)
+_UNFINISHED_LISTED = 10
+
+
+def _system_path(system: object) -> str:
+    """
+    Name a `ComputerSystem` for a log line.
+
+    Args:
+        system (object): The raw System body.
+
+    Returns:
+        str: Its `@odata.id`, else its `Id`, else an empty string.
+    """
+    if not isinstance(system, dict):
+        return ""
+    return str(system.get("@odata.id") or system.get("Id") or "")
+
+
+def _enter_system(system: object) -> None:
+    """
+    Record which System the current task is reading.
+
+    Args:
+        system (object): The raw System body.
+    """
+    _SCOPE.set({**(_SCOPE.get() or {}), "system": _system_path(system)})
+
+
+def _warn(event: str, **fields: object) -> None:
+    """
+    Log a warning carrying the current BMC host and System.
+
+    Args:
+        event (str): The log event.
+        **fields (object): Extra fields, which win over the scope's.
+    """
+    logger.warning(event, **{**(_SCOPE.get() or {}), **fields})
+
+
+def _hosts_summary(hosts: list[str]) -> str:
+    """
+    Join host names, capped so a dead fleet does not flood one line.
+
+    Args:
+        hosts (list[str]): Host names.
+
+    Returns:
+        str: At most ten names, then "and N more".
+    """
+    shown = ", ".join(hosts[:_UNFINISHED_LISTED])
+    extra = len(hosts) - _UNFINISHED_LISTED
+    return f"{shown} and {extra} more" if extra > 0 else shown
 
 
 def reason_from_error(message: str) -> UnreachableReason:
@@ -83,6 +150,7 @@ def reason_from_error(message: str) -> UnreachableReason:
         UnreachableReason: The reason its marker names, else `PROTOCOL_ERROR`.
     """
     for marker, reason in (
+        (UNEXPECTED_MARKER, UnreachableReason.COLLECTION_ERROR),
         (UNREACHABLE_MARKER, UnreachableReason.NETWORK_UNREACHABLE),
         (AUTH_REJECTED_MARKER, UnreachableReason.AUTH_REJECTED),
         (TLS_FAILED_MARKER, UnreachableReason.TLS_ERROR),
@@ -189,6 +257,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         )
         super().__init__()
         self._auth_failures = 0
+        self._finished_hosts: set[str] = set()
         self._client_factory: Callable[[RedfishTarget], Any] = client_factory or self._new_client
 
     def _new_client(self, target: RedfishTarget) -> RedfishClient:
@@ -242,12 +311,27 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         """
         target = next((t for t in self._targets if t.host == identity.host), None)
         if target is None:
+            logger.warning(
+                "redfish.get_one_failed",
+                host=identity.host,
+                error="host is not in this run's configured targets",
+            )
             return None
         try:
-            servers = await self._collect_systems(target)
-        except (RedfishError, ValueError):
+            async with asyncio.timeout(self._host_budget):
+                servers = await self._collect_systems(target)
+        except (RedfishError, ValueError, TimeoutError) as exc:
+            logger.warning(
+                "redfish.get_one_failed",
+                host=target.host,
+                error_type=type(exc).__name__,
+                error=str(exc) or "timed out",
+            )
             return None
         if not servers:
+            logger.warning(
+                "redfish.get_one_failed", host=target.host, error="the BMC reported no system"
+            )
             return None
         if identity.serial is not None:
             return next((s for s in servers if s.serial == identity.serial), servers[0])
@@ -264,6 +348,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             ProviderServer: One per `ComputerSystem` found.
         """
         self._auth_failures = 0
+        self._finished_hosts: set[str] = set()
 
         # Shuffled so a truncated sweep does not starve the same slow hosts.
         order = list(self._targets)
@@ -295,12 +380,14 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 if budget_expired:
                     break
             if budget_expired:
-                unfinished = len(tasks) - hosts_done
+                unfinished_hosts = [t.host for t in order if t.host not in self._finished_hosts]
+                unfinished = len(unfinished_hosts)
                 logger.error(
                     "redfish.run_budget_exceeded",
                     budget_seconds=self._run_budget,
                     hosts_total=len(order),
                     hosts_unfinished=unfinished,
+                    unfinished_hosts=_hosts_summary(unfinished_hosts),
                     hint=(
                         "The run stopped itself before the CronJob's activeDeadlineSeconds could "
                         "kill it, so this summary exists. Raise "
@@ -310,7 +397,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 )
                 self._record_error(
                     f"run budget of {self._run_budget:.0f}s expired with {unfinished} host(s) "
-                    "not yet collected"
+                    f"not yet collected: {_hosts_summary(unfinished_hosts)}"
                 )
         finally:
             for task in tasks:
@@ -351,6 +438,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 (ADR-0037) on failure.
         """
         reason = UnreachableReason.PROTOCOL_ERROR
+        detail = "collection failed"
         # Slot first, then the budget — queueing is not charged to the host.
         async with semaphore:
             if not target.verify_tls:
@@ -375,30 +463,54 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 )
                 self._record_error(f"{target.host}{BUDGET_MARKER}{self._host_budget:.0f}s budget")
                 reason = UnreachableReason.TIMEOUT
+                detail = f"timed out after {self._host_budget:.0f}s budget"
             except RedfishAuthError as exc:
                 self._record_auth_failure(target, exc)
                 reason = UnreachableReason.AUTH_REJECTED
+                detail = f"login rejected for credential {target.credential.name!r}"
             except RedfishTlsError as exc:
                 logger.exception("redfish.tls_verify_failed", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}{TLS_FAILED_MARKER}{exc}")
                 reason = UnreachableReason.TLS_ERROR
+                detail = f"TLS verification failed: {exc}"
             except RedfishUnreachableError as exc:
                 # ERROR: the log may be the only signal left (UNREACHABLE_MARKER).
                 logger.exception("redfish.host_unreachable", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}{UNREACHABLE_MARKER}{exc}")
                 reason = UnreachableReason.NETWORK_UNREACHABLE
+                detail = f"unreachable: {exc}"
             except (RedfishError, ValueError) as exc:
                 logger.warning("redfish.host_failed", host=target.host, error=str(exc))
                 self._record_error(f"{target.host}: {exc}")
-            return [self._unreachable_stub(target, reason)]
+                detail = f"protocol error: {exc}"
+            except Exception as exc:
+                logger.exception(
+                    "redfish.host_failed_unexpected",
+                    host=target.host,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                self._record_error(
+                    f"{target.host}{UNEXPECTED_MARKER}collecting its systems: "
+                    f"unexpected {type(exc).__name__}: {exc}"
+                )
+                self._server_failures += 1
+                reason = UnreachableReason.COLLECTION_ERROR
+                detail = f"unexpected {type(exc).__name__}: {exc}"
+            finally:
+                self._finished_hosts.add(target.host)
+            return [self._unreachable_stub(target, reason, detail)]
 
-    def _unreachable_stub(self, target: RedfishTarget, reason: UnreachableReason) -> ProviderServer:
+    def _unreachable_stub(
+        self, target: RedfishTarget, reason: UnreachableReason, detail: str
+    ) -> ProviderServer:
         """
         Build the serial-less placeholder for a host that gave nothing (ADR-0037).
 
         Args:
             target (RedfishTarget): The failed BMC.
             reason (UnreachableReason): Why it failed.
+            detail (str): The cause in words, shown to the operator.
 
         Returns:
             ProviderServer: `reachable=False`, every hardware field `None`.
@@ -412,6 +524,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             manager_id=self._manager.id,
             reachable=False,
             unreachable_reason=reason,
+            unreachable_detail=detail,
         )
 
     def _record_auth_failure(self, target: RedfishTarget, exc: RedfishAuthError) -> None:
@@ -452,6 +565,22 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             RedfishError: Propagated to `_collect_host`, which classifies
                 it.
         """
+        token = _SCOPE.set({"host": target.host})
+        try:
+            return await self._collect_systems_scoped(target)
+        finally:
+            _SCOPE.reset(token)
+
+    async def _collect_systems_scoped(self, target: RedfishTarget) -> list[ProviderServer]:
+        """
+        Do `_collect_systems`' work inside its logging scope.
+
+        Args:
+            target (RedfishTarget): The BMC to collect.
+
+        Returns:
+            list[ProviderServer]: As `_collect_systems`.
+        """
         async with self._client_factory(target) as client:
             systems_link = client.service_root.get("Systems", {})
             systems_path = systems_link.get("@odata.id") if isinstance(systems_link, dict) else None
@@ -464,46 +593,69 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 self._note_no_systems(target, reason="Systems collection is empty")
                 return []
 
+            _enter_system(systems[0])
             bmc_mac = await self._bmc_mac(client, systems[0])
+            collected: list[ProviderServer] = []
 
             # Up front, so a tray is recognized before anything is mapped.
             fetched: list[
                 tuple[dict[str, Any], list[dict[str, Any]] | None, dict[str, Any], dict[str, Any]]
             ] = []
+            is_tray: list[bool] = []
+            early_failed = False
             for system in systems:
-                processors = await self._optional(client, system, "Processors")
-                gpu_metrics, gpu_environment = await self._gpu_telemetry(client, processors)
+                _enter_system(system)
+                try:
+                    processors = await self._optional(client, system, "Processors")
+                    gpu_metrics, gpu_environment = await self._gpu_telemetry(client, processors)
+                    tray = has_only_gpu_processors(processors)
+                except Exception as exc:
+                    if isinstance(exc, _HOST_LEVEL_ERRORS):
+                        raise
+                    stub = self._system_failure(
+                        target, system, exc, "reading its sub-resources", multi=len(systems) > 1
+                    )
+                    early_failed = True
+                    # Tray or host is unknown here: on a multi-system BMC the stub could be a
+                    # ghost document for a tray, so only a lone System gets one.
+                    if stub is not None and len(systems) == 1:
+                        collected.append(stub)
+                    continue
                 fetched.append((system, processors, gpu_metrics, gpu_environment))
+                is_tray.append(tray)
 
-            is_tray = [has_only_gpu_processors(f[1]) for f in fetched]
             trays = [f for f, tray in zip(fetched, is_tray, strict=True) if tray]
             hosts = [f for f, tray in zip(fetched, is_tray, strict=True) if not tray]
 
             extra_gpus: tuple[dict[str, object], ...] = ()
+            merge_error: Exception | None = None
             emit = fetched
             if trays and len(hosts) == 1:
                 merged: list[dict[str, object]] = []
-                for tray_system, tray_processors, tray_metrics, tray_environment in trays:
-                    tray_gpus = gpus_from_processors(
-                        tray_processors,
-                        metrics_by_processor=tray_metrics,
-                        environment_by_processor=tray_environment,
-                    )
-                    merged.extend(tray_gpus or ())
-                    logger.info(
-                        "redfish.gpu_baseboard_merged",
-                        host=target.host,
-                        tray=str(tray_system.get("@odata.id") or tray_system.get("Id") or ""),
-                        into=str(hosts[0][0].get("@odata.id") or hosts[0][0].get("Id") or ""),
-                        gpus=len(tray_gpus or ()),
-                    )
+                try:
+                    for tray_system, tray_processors, tray_metrics, tray_environment in trays:
+                        tray_gpus = gpus_from_processors(
+                            tray_processors,
+                            metrics_by_processor=tray_metrics,
+                            environment_by_processor=tray_environment,
+                        )
+                        merged.extend(tray_gpus or ())
+                        logger.info(
+                            "redfish.gpu_baseboard_merged",
+                            host=target.host,
+                            tray=_system_path(tray_system),
+                            into=_system_path(hosts[0][0]),
+                            gpus=len(tray_gpus or ()),
+                        )
+                except Exception as exc:
+                    merge_error = exc
                 extra_gpus = tuple(merged)
                 emit = hosts  # the tray itself is not ingested as its own server
             elif trays:
                 logger.warning(
                     "redfish.gpu_baseboard_ambiguous",
                     host=target.host,
-                    trays=[str(t[0].get("@odata.id") or t[0].get("Id") or "") for t in trays],
+                    trays=[_system_path(t[0]) for t in trays],
                     hosts=len(hosts),
                     hint=(
                         "Found a GPU-baseboard ComputerSystem (has a GPU, no CPU) but could "
@@ -512,61 +664,154 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                     ),
                 )
 
-            collected: list[ProviderServer] = []
             for system, processors, gpu_metrics, gpu_environment in emit:
-                system_extra_gpus = extra_gpus
-                if self._pcie_gpu_detection and not gpus_from_processors(
-                    processors,
-                    metrics_by_processor=gpu_metrics,
-                    environment_by_processor=gpu_environment,
-                ):
-                    pcie_gpus = await self._pcie_gpus(client, system)
-                    if pcie_gpus:
-                        system_extra_gpus = system_extra_gpus + pcie_gpus
-                        logger.info(
-                            "redfish.pcie_gpu_fallback_used",
-                            host=target.host,
-                            system=str(system.get("@odata.id") or system.get("Id") or ""),
-                            gpus=len(pcie_gpus),
-                        )
-                supplies = await self._psus(client, system)
-                psu_metrics = await self._psu_telemetry(client, supplies)
-                storage, storage_status = await self._storage_collection(client, system)
-                storage_controllers, raid_check = await self._raid(
-                    client, system, storage, storage_status
-                )
-                mapped = system_to_provider_server(
-                    system,
-                    host=target.host,
-                    base_url=target.base_url,
-                    manager_id=self._manager.id,
-                    override_name=target.name,
-                    processors=processors,
-                    drives=await self._drives(client, storage),
-                    dimms=await self._optional(client, system, "Memory"),
-                    interfaces=await self._optional(client, system, "EthernetInterfaces"),
-                    bmc_mac=bmc_mac,
-                    storage_controllers=storage_controllers,
-                    raid_check=raid_check,
-                    psus=psus_from_supplies(supplies, metrics_by_supply=psu_metrics),
-                    gpu_metrics_by_processor=gpu_metrics,
-                    gpu_environment_by_processor=gpu_environment,
-                    extra_gpus=system_extra_gpus,
-                    chassis=await self._chassis_fallback(client, system),
-                )
-                if mapped.serial is None:
-                    logger.warning(
-                        "redfish.no_serial",
-                        host=target.host,
-                        system=str(system.get("@odata.id") or system.get("Id") or ""),
-                        hint=(
-                            "Neither ComputerSystem.SerialNumber nor Chassis.SerialNumber "
-                            "resolved; correlation cannot recognize this machine again and a "
-                            "new document will be minted on the next run."
-                        ),
+                _enter_system(system)
+                try:
+                    if merge_error is not None:
+                        raise merge_error
+                    mapped = await self._map_system(
+                        client,
+                        target,
+                        system,
+                        processors,
+                        gpu_metrics,
+                        gpu_environment,
+                        bmc_mac,
+                        extra_gpus,
                     )
-                collected.append(mapped)
+                    if early_failed:  # the failed sibling may be its GPU tray: GPUs are unread
+                        mapped = dataclasses.replace(mapped, gpus=None)
+                    collected.append(mapped)
+                except Exception as exc:
+                    if isinstance(exc, _HOST_LEVEL_ERRORS):
+                        raise
+                    stage = "merging its GPU baseboard" if exc is merge_error else "mapping"
+                    stub = self._system_failure(target, system, exc, stage, multi=len(systems) > 1)
+                    if stub is not None:
+                        collected.append(stub)
         return collected
+
+    async def _map_system(
+        self,
+        client: Any,
+        target: RedfishTarget,
+        system: dict[str, Any],
+        processors: list[dict[str, Any]] | None,
+        gpu_metrics: dict[str, Any],
+        gpu_environment: dict[str, Any],
+        bmc_mac: str | None,
+        extra_gpus: tuple[dict[str, object], ...],
+    ) -> ProviderServer:
+        """
+        Read one `ComputerSystem`'s remaining sub-resources and map it.
+
+        Args:
+            client (Any): The authenticated client.
+            target (RedfishTarget): The BMC.
+            system (dict[str, Any]): The raw System.
+            processors (list[dict[str, Any]] | None): Its `Processors`, when read.
+            gpu_metrics (dict[str, Any]): Per-GPU `ProcessorMetrics`.
+            gpu_environment (dict[str, Any]): Per-GPU `EnvironmentMetrics`.
+            bmc_mac (str | None): The BMC's own MAC.
+            extra_gpus (tuple[dict[str, object], ...]): GPUs merged from a baseboard tray.
+
+        Returns:
+            ProviderServer: The mapped server.
+        """
+        system_extra_gpus = extra_gpus
+        if self._pcie_gpu_detection and not gpus_from_processors(
+            processors,
+            metrics_by_processor=gpu_metrics,
+            environment_by_processor=gpu_environment,
+        ):
+            pcie_gpus = await self._pcie_gpus(client, system)
+            if pcie_gpus:
+                system_extra_gpus = system_extra_gpus + pcie_gpus
+                logger.info(
+                    "redfish.pcie_gpu_fallback_used",
+                    host=target.host,
+                    system=_system_path(system),
+                    gpus=len(pcie_gpus),
+                )
+        supplies = await self._psus(client, system)
+        psu_metrics = await self._psu_telemetry(client, supplies)
+        storage, storage_status = await self._storage_collection(client, system)
+        storage_controllers, raid_check = await self._raid(client, system, storage, storage_status)
+        mapped = system_to_provider_server(
+            system,
+            host=target.host,
+            base_url=target.base_url,
+            manager_id=self._manager.id,
+            override_name=target.name,
+            processors=processors,
+            drives=await self._drives(client, storage),
+            dimms=await self._optional(client, system, "Memory"),
+            interfaces=await self._optional(client, system, "EthernetInterfaces"),
+            bmc_mac=bmc_mac,
+            storage_controllers=storage_controllers,
+            raid_check=raid_check,
+            psus=psus_from_supplies(supplies, metrics_by_supply=psu_metrics),
+            gpu_metrics_by_processor=gpu_metrics,
+            gpu_environment_by_processor=gpu_environment,
+            extra_gpus=system_extra_gpus,
+            chassis=await self._chassis_fallback(client, system),
+        )
+        if mapped.serial is None:
+            logger.warning(
+                "redfish.no_serial",
+                host=target.host,
+                system=_system_path(system),
+                hint=(
+                    "Neither ComputerSystem.SerialNumber nor Chassis.SerialNumber "
+                    "resolved; correlation cannot recognize this machine again and a "
+                    "new document will be minted on the next run."
+                ),
+            )
+        return mapped
+
+    def _system_failure(
+        self, target: RedfishTarget, system: object, exc: Exception, stage: str, *, multi: bool
+    ) -> ProviderServer | None:
+        """
+        Contain one System's failure so its siblings on the same BMC survive.
+
+        Args:
+            target (RedfishTarget): The BMC.
+            system (object): The raw System body, possibly malformed.
+            exc (Exception): What went wrong.
+            stage (str): What was being done.
+            multi (bool): The BMC exposes several Systems, so a serial-less stub would be
+                matched by BMC host to the wrong one.
+
+        Returns:
+            ProviderServer | None: A `COLLECTION_ERROR` stub, `None` without a safe identity.
+        """
+        body = system if isinstance(system, dict) else {}
+        odata = body.get("@odata.id")
+        manufacturer = body.get("Manufacturer")
+        try:
+            vendor = vendor_from_manufacturer(manufacturer).value
+            serial = _dell_serial(body) or _clean_serial(body.get("SerialNumber"))
+        except Exception:
+            vendor, serial = Vendor.STANDALONE.value, None
+        try:
+            mapped_name = _server_name(body)
+        except Exception:
+            mapped_name = target.host
+        stub = self._contain_server_failure(
+            exc,
+            event="redfish.system_failed",
+            stage=stage,
+            vendor=vendor,
+            external_id=f"redfish://{target.host}{odata if isinstance(odata, str) else ''}",
+            name=target.name or mapped_name,
+            serial=serial,
+            manager_id=self._manager.id,
+            bmc_address_raw=target.base_url.replace("https://", "redfish://"),
+            host=target.host,
+            system=_system_path(system),
+        )
+        return None if multi and serial is None else stub
 
     def _note_no_systems(self, target: RedfishTarget, *, reason: str) -> None:
         """
@@ -612,9 +857,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         try:
             members: list[dict[str, Any]] = await client.get_collection(validate_odata_id(path))
         except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
-            logger.warning(
-                "redfish.resource_skipped", host=system.get("Id"), resource=key, error=str(exc)
-            )
+            _warn("redfish.resource_skipped", resource=key, path=path, error=str(exc))
             return None
         else:
             return members
@@ -651,7 +894,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         drives[path] = await client.get(path)
                 except (RedfishForbiddenError, RedfishProtocolError) as exc:
                     incomplete = True
-                    logger.warning("redfish.drive_skipped", error=str(exc))
+                    _warn("redfish.drive_skipped", resource=link.get("@odata.id"), error=str(exc))
         # A drive that cannot be read must not vanish from the list: a short list overwrites the
         # stored one, so a failed drive would drop out of the record and the server would heal.
         return None if incomplete else list(drives.values())
@@ -678,21 +921,11 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         try:
             members: list[dict[str, Any]] = await client.get_collection(validate_odata_id(path))
         except RedfishProtocolError as exc:
-            logger.warning(
-                "redfish.resource_skipped",
-                host=system.get("Id"),
-                resource="Storage",
-                error=str(exc),
-            )
+            _warn("redfish.resource_skipped", resource="Storage", path=path, error=str(exc))
             absent = exc.status_code in _TREE_ABSENT_STATUSES
             return None, raid.ABSENT_TREE if absent else raid.FAILED
         except (RedfishForbiddenError, RedfishUnreachableError) as exc:
-            logger.warning(
-                "redfish.resource_skipped",
-                host=system.get("Id"),
-                resource="Storage",
-                error=str(exc),
-            )
+            _warn("redfish.resource_skipped", resource="Storage", path=path, error=str(exc))
             return None, raid.FAILED
         return members, raid.OK
 
@@ -734,14 +967,12 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             try:
                 volumes[key] = await client.get_collection(validate_odata_id(path))
             except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
-                logger.warning("redfish.volumes_skipped", controller=key, error=str(exc))
+                _warn("redfish.volumes_skipped", resource=path, controller=key, error=str(exc))
                 complete = False
         smart_status, smart = raid.ABSENT_TREE, []
-        if (
-            vendor == "hp"
-            or "Hpe" in (system.get("Oem") or {})
-            or "Hp" in (system.get("Oem") or {})
-        ):
+        oem_raw = system.get("Oem")
+        oem = oem_raw if isinstance(oem_raw, dict) else {}
+        if vendor == "hp" or "Hpe" in oem or "Hp" in oem:
             smart_status, smart = await self._smart_storage(client, system)
         logical_drives = [ld for c in smart for ld in c["logical_drives"]]
         verdict = raid.assess_raid(
@@ -788,25 +1019,31 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         base = base or f"{system.get('@odata.id')}/SmartStorage"
         try:
             root = await client.get(validate_odata_id(base))
-            array_link = (root.get("Links") or {}).get("ArrayControllers")
+            root_links = root.get("Links")
+            array_link = (
+                root_links.get("ArrayControllers") if isinstance(root_links, dict) else None
+            )
             array_path = array_link.get("@odata.id") if isinstance(array_link, dict) else None
             arrays = await client.get_collection(
                 validate_odata_id(array_path or f"{base}/ArrayControllers")
             )
             found: list[dict[str, Any]] = []
             for array in arrays:
-                ld_link = (array.get("Links") or {}).get("LogicalDrives")
+                array_links = array.get("Links")
+                ld_link = (
+                    array_links.get("LogicalDrives") if isinstance(array_links, dict) else None
+                )
                 ld_path = ld_link.get("@odata.id") if isinstance(ld_link, dict) else None
                 drives = await client.get_collection(
                     validate_odata_id(ld_path or f"{array.get('@odata.id')}/LogicalDrives")
                 )
                 found.append({"controller": array, "logical_drives": drives})
         except RedfishProtocolError as exc:
-            logger.warning("redfish.smartstorage_skipped", error=str(exc))
+            _warn("redfish.smartstorage_skipped", resource=base, error=str(exc))
             absent = exc.status_code in _TREE_ABSENT_STATUSES
             return (raid.ABSENT_TREE if absent else raid.FAILED), []
         except (RedfishForbiddenError, RedfishUnreachableError) as exc:
-            logger.warning("redfish.smartstorage_skipped", error=str(exc))
+            _warn("redfish.smartstorage_skipped", resource=base, error=str(exc))
             return raid.FAILED, []
         return raid.OK, found
 
@@ -871,7 +1108,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         try:
             resolved: dict[str, Any] = await client.get(validate_odata_id(path))
         except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
-            logger.warning("redfish.resource_skipped", resource=key, error=str(exc))
+            _warn("redfish.resource_skipped", resource=key, path=path, error=str(exc))
             return None
         else:
             return resolved
@@ -892,13 +1129,15 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                 link or it could not be read.
         """
         links = system.get("Links", {})
-        chassis_refs = links.get("Chassis", []) if isinstance(links, dict) else []
-        if not chassis_refs or not isinstance(chassis_refs[0], dict):
+        chassis_refs = links.get("Chassis") if isinstance(links, dict) else None
+        if not isinstance(chassis_refs, list) or not chassis_refs:
+            return None
+        if not isinstance(chassis_refs[0], dict):
             return None
         try:
             return await client.get(validate_odata_id(chassis_refs[0].get("@odata.id")))
         except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
-            logger.warning("redfish.resource_skipped", resource="Chassis", error=str(exc))
+            _warn("redfish.resource_skipped", resource="Chassis", error=str(exc))
             return None
 
     async def _chassis_fallback(self, client: Any, system: dict[str, Any]) -> dict[str, Any] | None:
@@ -1020,9 +1259,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                     RedfishProtocolError,
                     RedfishUnreachableError,
                 ) as exc:
-                    logger.warning(
-                        "redfish.resource_skipped", resource="PCIeDevice", error=str(exc)
-                    )
+                    _warn("redfish.resource_skipped", resource=ref, error=str(exc))
                     continue
                 found[str(device.get("@odata.id") or ref)] = device
             truncated = truncated or len(direct_refs) > max_devices
@@ -1043,9 +1280,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
                         RedfishProtocolError,
                         RedfishUnreachableError,
                     ) as exc:
-                        logger.warning(
-                            "redfish.resource_skipped", resource="PCIeDevices", error=str(exc)
-                        )
+                        _warn("redfish.resource_skipped", resource=path, error=str(exc))
                     else:
                         for device in collected:
                             key = str(device.get("@odata.id") or "")
@@ -1056,11 +1291,7 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
         if not found and not direct_refs:
             return None
         if truncated:
-            logger.warning(
-                "redfish.pcie_scan_truncated",
-                system=str(system.get("@odata.id") or system.get("Id") or ""),
-                limit=max_devices,
-            )
+            _warn("redfish.pcie_scan_truncated", limit=max_devices)
         return gpus_from_pcie_devices(
             list(found.values()),
             max_gpus=self._pcie_gpu_max_gpus,
@@ -1098,8 +1329,11 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             if first_page and expanding and not page_members:
                 advertised = page.get("Members@odata.count")
                 if isinstance(advertised, int) and advertised > 0:
-                    logger.warning(
-                        "redfish.pcie_expand_returned_nothing", path=path, advertised=advertised
+                    _warn(
+                        "redfish.pcie_expand_returned_nothing",
+                        resource=path,
+                        path=path,
+                        advertised=advertised,
                     )
                     return await self._paged_members(
                         client, path, max_members=max_members, allow_expand=False
@@ -1135,8 +1369,10 @@ class RedfishStandaloneProvider(ServerInventoryProvider):
             str | None: The manager's MAC, or None if unreachable.
         """
         links = system.get("Links", {})
-        managed_by = links.get("ManagedBy", []) if isinstance(links, dict) else []
-        if not managed_by or not isinstance(managed_by[0], dict):
+        managed_by = links.get("ManagedBy") if isinstance(links, dict) else None
+        if not isinstance(managed_by, list) or not managed_by:
+            return None
+        if not isinstance(managed_by[0], dict):
             return None
         with contextlib.suppress(RedfishError):
             manager = await client.get(validate_odata_id(managed_by[0].get("@odata.id")))

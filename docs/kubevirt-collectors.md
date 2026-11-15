@@ -56,6 +56,12 @@ sub-resource answers 200 for a stopped VM.
 
 The facade logs a failed login only at DEBUG, so the client's own request log is the place to count 401s.
 
+**Mapping failures and listing (ADR-0062).** A VM that was read and failed to map is a `collection_error` stub
+keyed by `serial_of` (exit 3). The `/Systems` listing follows `Members@odata.nextLink` (capped at 100 pages; a
+repeated page is a recorded error), and a member link that is not a usable System path is skipped and counted.
+`run_summary` carries `vms_collected` (reachable VMs only), `vms_failed`, `vms_vanished`, `vms_failed_stubs` and
+`bad_member_links`.
+
 ## `/servers/available`
 
 A running VM is offered with `bmc_vendor: null`. On 2026-11-08 it was offered with a live recheck (`get_one` by

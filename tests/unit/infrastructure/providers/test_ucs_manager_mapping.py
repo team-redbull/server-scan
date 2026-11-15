@@ -577,9 +577,10 @@ class TestComputeUnitToProviderServer:
         assert [a.fabric for a in result.attachments] == ["A", "B"]
 
     @pytest.mark.parametrize(
-        ("raw", "expected"), [("32", 32), (None, 0), ("not-a-number", 0), ("", 0)]
+        ("raw", "expected"),
+        [("32", 32), ("0", 0), (None, None), ("not-a-number", None), ("", None)],
     )
-    def test_numeric_fields_parse_defensively(self, raw: str | None, expected: int) -> None:
+    def test_numeric_fields_parse_defensively(self, raw: str | None, expected: int | None) -> None:
         result = compute_unit_to_provider_server(
             _blade(num_of_cpus=raw),
             manager_id="mgr_1",

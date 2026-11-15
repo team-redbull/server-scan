@@ -124,6 +124,7 @@ async def test_list_returns_expected_items(
         "reachable",
         "unreachable_since",
         "unreachable_reason",
+        "unreachable_detail",
         "updated_at",
     }
 

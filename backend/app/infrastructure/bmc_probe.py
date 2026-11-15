@@ -13,7 +13,12 @@ import httpx
 import structlog
 
 from app.domain.enums import UnreachableReason
-from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    SERVER_FAILED_MARKER,
+    ProviderServer,
+    ServerIdentity,
+    ServerInventoryProvider,
+)
 from app.domain.value_objects.bmc_address import parse_bmc_address
 
 logger = structlog.get_logger(__name__)
@@ -77,7 +82,7 @@ class BmcProbe:
 
     async def probe(self, host: str, port: int = BMC_PORT) -> tuple[bool, UnreachableReason | None]:
         """
-        Probe one BMC; never raises.
+        Probe one BMC; classifies every `Exception`, never raises one.
 
         Args:
             host (str): Bare host or IP (IPv6 without brackets).
@@ -91,6 +96,14 @@ class BmcProbe:
         async with self._semaphore:
             try:
                 await self._client.get(f"https://{netloc}:{port}/redfish/v1")
+            except httpx.InvalidURL as exc:
+                logger.warning(
+                    "bmc_probe.invalid_host",
+                    host=host,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                return False, UnreachableReason.COLLECTION_ERROR
             except httpx.TimeoutException:
                 return False, UnreachableReason.TIMEOUT
             except httpx.ConnectError as exc:
@@ -102,10 +115,13 @@ class BmcProbe:
             except httpx.HTTPError:
                 return True, None  # the peer spoke (protocol error, reset mid-response)
             except Exception as exc:
-                logger.warning(
-                    "bmc_probe.unexpected_error", host=host, error_type=type(exc).__name__
+                logger.exception(
+                    "bmc_probe.unexpected_error",
+                    host=host,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
                 )
-                return False, UnreachableReason.NETWORK_UNREACHABLE
+                return False, UnreachableReason.COLLECTION_ERROR
         return True, None
 
 
@@ -147,8 +163,18 @@ class BmcProbedProvider(ServerInventoryProvider):
 
     @property
     def collection_errors(self) -> tuple[str, ...]:
-        """Pass the wrapped collector's partial failures through."""
-        return self._inner.collection_errors
+        """The wrapped collector's partial failures plus this wrapper's own probe failures."""
+        return (*self._inner.collection_errors, *self._collection_errors)
+
+    @property
+    def servers_seen(self) -> int:
+        """Pass the wrapped collector's server count through."""
+        return self._inner.servers_seen
+
+    @property
+    def server_failures(self) -> int:
+        """The wrapped collector's per-server failures plus the probe steps that failed here."""
+        return self._inner.server_failures + self._server_failures
 
     async def health_check(self) -> None:
         """Delegate to the wrapped collector."""
@@ -170,23 +196,66 @@ class BmcProbedProvider(ServerInventoryProvider):
         async with BmcProbe(transport=self._transport) as probe:
             return await self._stamp(probe, server)
 
-    @staticmethod
-    async def _stamp(probe: BmcProbe, server: ProviderServer) -> ProviderServer:
+    def _record_probe_failure(self, server: ProviderServer, cause: str) -> None:
         """
-        Probe one server's BMC host on 443.
+        Count and record one server whose BMC probe step could not run.
+
+        Args:
+            server (ProviderServer): The server that was being probed.
+            cause (str): Why, in words.
+        """
+        self._server_failures += 1
+        self._record_error(
+            f"{server.name} (id {server.external_id}, serial {server.serial})"
+            f"{SERVER_FAILED_MARKER}probing its BMC: {cause}"
+        )
+
+    async def _stamp(self, probe: BmcProbe, server: ProviderServer) -> ProviderServer:
+        """
+        Probe one server's BMC host on 443; a failure here marks only this server.
 
         Args:
             probe (BmcProbe): The shared probe.
             server (ProviderServer): A fully-read server.
 
         Returns:
-            ProviderServer: A copy with the probe result, or `server` itself without a BMC host.
+            ProviderServer: A copy with the probe result, or `server` itself without a BMC
+                host or when the collector already marked it unreachable.
         """
-        address = parse_bmc_address(server.bmc_address_raw)
-        if address is None or not address.host:
+        if not server.reachable:
             return server
-        reachable, reason = await probe.probe(address.host)
-        return dataclasses.replace(server, reachable=reachable, unreachable_reason=reason)
+        try:
+            address = parse_bmc_address(server.bmc_address_raw)
+            if address is None or not address.host:
+                return server
+            reachable, reason = await probe.probe(address.host)
+        except Exception as exc:
+            logger.exception(
+                "bmc_probe.server_failed",
+                host=server.bmc_address_raw,
+                server=server.name,
+                serial=server.serial,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            cause = f"{type(exc).__name__}: {exc}"
+            self._record_probe_failure(server, cause)
+            return dataclasses.replace(
+                server,
+                reachable=False,
+                unreachable_reason=UnreachableReason.COLLECTION_ERROR,
+                unreachable_detail=f"the BMC probe could not run: {cause}",
+            )
+        detail = None
+        if reason is UnreachableReason.COLLECTION_ERROR:
+            detail = (
+                f"the BMC probe could not run for {address.host!r}: invalid host or probe error "
+                "(see the bmc_probe log)"
+            )
+            self._record_probe_failure(server, detail)
+        return dataclasses.replace(
+            server, reachable=reachable, unreachable_reason=reason, unreachable_detail=detail
+        )
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """
@@ -200,11 +269,17 @@ class BmcProbedProvider(ServerInventoryProvider):
             contextlib.aclosing(self._inner.collect()) as servers,
         ):
             batch: list[ProviderServer] = []
-            async for server in servers:
-                batch.append(server)
-                if len(batch) >= PROBE_CONCURRENCY:
-                    for done in await asyncio.gather(*(self._stamp(probe, s) for s in batch)):
-                        yield done
-                    batch = []
+            try:
+                async for server in servers:
+                    batch.append(server)
+                    if len(batch) >= PROBE_CONCURRENCY:
+                        for done in await asyncio.gather(*(self._stamp(probe, s) for s in batch)):
+                            yield done
+                        batch = []
+            except Exception:
+                # Already-mapped servers of this batch must not die with the inner failure.
+                for done in await asyncio.gather(*(self._stamp(probe, s) for s in batch)):
+                    yield done
+                raise
             for done in await asyncio.gather(*(self._stamp(probe, s) for s in batch)):
                 yield done

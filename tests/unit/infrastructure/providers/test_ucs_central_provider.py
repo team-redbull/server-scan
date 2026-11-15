@@ -128,8 +128,14 @@ class FakeDomainProvider(ServerInventoryProvider):
         *,
         error: Exception | None = None,
         delay: float = 0.0,
+        fail_after: int | None = None,
+        child_errors: tuple[str, ...] = (),
+        child_failures: int = 0,
     ) -> None:
         super().__init__()
+        self._fail_after = fail_after
+        self._child_errors = child_errors
+        self._child_failures = child_failures
         self._servers = servers
         self._error = error
         # Only the streaming-order test sets this.
@@ -152,10 +158,15 @@ class FakeDomainProvider(ServerInventoryProvider):
         try:
             if self._delay:
                 await asyncio.sleep(self._delay)
-            if self._error is not None:
+            if self._error is not None and self._fail_after is None:
                 raise self._error
-            for server in self._servers:
+            for index, server in enumerate(self._servers):
+                if self._error is not None and index == self._fail_after:
+                    raise self._error
                 yield server
+            for message in self._child_errors:
+                self._record_error(message)
+            self._server_failures += self._child_failures
         finally:
             self.torn_down = True
 
@@ -637,6 +648,61 @@ class TestListServers:
         assert client.calls == ["login", "logout"]
 
 
+class TestStubIdentityThroughReRooting:
+    """A stub the engine writes must be re-rooted to the same id a clean mapping gets."""
+
+    async def test_the_stub_has_the_same_identity_as_a_clean_mapping_of_the_same_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from tests.unit.infrastructure.providers.test_ucs_manager_provider import (
+            FakeUcsClient,
+            _blade_mo,
+        )
+        from tests.unit.infrastructure.providers.test_ucs_manager_provider import (
+            _domain as ucsm_domain,
+        )
+        from tests.unit.infrastructure.providers.test_ucs_manager_provider import (
+            _provider as ucsm_provider,
+        )
+
+        from app.domain.services.normalize import normalize_text
+        from app.infrastructure.providers.ucs_manager import provider as module
+
+        async def run() -> ProviderServer:
+            ucsm = ucsm_provider(
+                FakeUcsClient(
+                    responses=ucsm_domain(computeBlade=[_blade_mo(1), _blade_mo(2), _blade_mo(3)])
+                )
+            )
+            central = _provider(
+                FakeCentralClient({"computeSystem": [_domain("1009", "a")]}),
+                {"10.0.0.9": ucsm},
+                name_pattern=".*",
+            )
+            servers = await _collect(central)
+            assert len(servers) == 3
+            return next(s for s in servers if s.external_id.endswith("blade-2"))
+
+        clean = await run()
+        real = module.compute_unit_to_provider_server
+
+        def flaky(server_mo: Any, **kwargs: Any) -> Any:
+            if server_mo.dn.endswith("blade-2"):
+                raise KeyError("adaptor")
+            return real(server_mo, **kwargs)
+
+        monkeypatch.setattr(module, "compute_unit_to_provider_server", flaky)
+        stub = await run()
+
+        assert clean.reachable is not False and stub.reachable is False
+        assert clean.external_id == "compute/sys-1009/chassis-1/blade-2"
+
+        def identity(ps: ProviderServer) -> tuple[Any, ...]:
+            return (ps.vendor, normalize_text(ps.serial), ps.external_id, ps.name, ps.manager_id)
+
+        assert identity(stub) == identity(clean)
+
+
 class TestCollectionErrors:
     """What `tools.run_collector` turns into exit code 3. A failed domain
     contributes nothing to the summary counts, so this is the only channel
@@ -911,3 +977,97 @@ class TestSplitCentralExternalId:
     )
     def test_anything_else_is_not_a_central_dn(self, value: str | None) -> None:
         assert split_central_external_id(value) is None
+
+
+class TestOneBadServerAndPartialDomains:
+    async def test_a_domain_failing_mid_stream_keeps_what_it_already_collected(self) -> None:
+        client = FakeCentralClient({"computeSystem": [_domain("1009", "a")]})
+        provider = _provider(
+            client,
+            {
+                "10.0.0.9": FakeDomainProvider(
+                    [_server(f"sys/chassis-1/blade-{n}", f"ocp4-prod-{n}") for n in (1, 2, 3)],
+                    error=RuntimeError("socket reset"),
+                    fail_after=2,
+                )
+            },
+        )
+
+        servers, events = await _collect_with_logs(provider)
+
+        assert [s.name for s in servers] == ["ocp4-prod-1", "ocp4-prod-2"]
+        assert servers[0].external_id == "compute/sys-1009/chassis-1/blade-1"
+        (failure,) = _events(events, "ucs_central.domain_failed")
+        assert failure["collected_before_failure"] == 2
+        assert failure["stage"]
+        (message,) = provider.collection_errors
+        assert "failed after 2 server(s)" in message
+        assert "those 2 were kept" in message
+        assert "10.0.0.9" in message
+        assert "socket reset" in message
+
+    async def test_the_domain_providers_own_errors_and_failures_are_merged_up(self) -> None:
+        client = FakeCentralClient({"computeSystem": [_domain("1009", "a")]})
+        provider = _provider(
+            client,
+            {
+                "10.0.0.9": FakeDomainProvider(
+                    [_server("sys/chassis-1/blade-1", "ocp4-prod-1")],
+                    child_errors=("blade-2 (id sys/chassis-1/blade-2) could not be collected",),
+                    child_failures=1,
+                )
+            },
+        )
+
+        await _collect(provider)
+
+        (message,) = provider.collection_errors
+        assert message.startswith("domain ")
+        assert "blade-2" in message
+        assert provider.server_failures == 1
+
+    async def test_a_server_whose_dn_cannot_be_rerooted_becomes_a_stub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.infrastructure.providers.ucs_central import provider as module
+
+        def boom(external_id: str, *, domain_id: str) -> str:
+            raise ValueError("bad dn")
+
+        monkeypatch.setattr(module, "central_external_id", boom)
+        client = FakeCentralClient({"computeSystem": [_domain("1009", "a")]})
+        server = ProviderServer(
+            external_id="sys/chassis-1/blade-1",
+            vendor="cisco",
+            name="ocp4-prod-1",
+            serial="FCH1",
+            manager_id="mgr_ucs_central",
+        )
+        provider = _provider(client, {"10.0.0.9": FakeDomainProvider([server])})
+
+        servers = await _collect(provider)
+
+        (stub,) = servers
+        assert stub.reachable is False
+        assert stub.serial == "FCH1"
+        assert provider.server_failures == 1
+        assert not any(
+            m in provider.collection_errors[0]
+            for m in (": unreachable — ", ": login failed for credential ")
+        )
+
+    async def test_get_one_logs_why_it_found_nothing(self) -> None:
+        client = FakeCentralClient({"computeSystem": [], "lsServer": []})
+        provider = _provider(client)
+
+        with capture_logs() as events:
+            result = await provider.get_one(
+                ServerIdentity(external_id="compute/sys-9/chassis-1/blade-1", serial="S1")
+            )
+
+        assert result is None
+        event, final = _events(events, "ucs_central.get_one_not_found")
+        assert event["reason"] == "domain not registered"
+        assert "no name to search by" in final["reason"]
+        assert event["serial"] == "S1"
+        assert event["external_id"] == "sys/chassis-1/blade-1"

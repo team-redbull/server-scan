@@ -89,6 +89,7 @@ class ServerSummary(BaseModel):
     reachable: bool
     unreachable_since: datetime | None
     unreachable_reason: UnreachableReason | None
+    unreachable_detail: str | None
     updated_at: datetime
 
     @classmethod
@@ -122,6 +123,7 @@ class ServerSummary(BaseModel):
             reachable=server.reachable,
             unreachable_since=server.unreachable_since,
             unreachable_reason=server.unreachable_reason,
+            unreachable_detail=server.unreachable_detail,
             updated_at=server.updated_at,
         )
 
@@ -407,6 +409,7 @@ class ServerDetail(BaseModel):
     reachable: bool
     unreachable_since: datetime | None
     unreachable_reason: UnreachableReason | None
+    unreachable_detail: str | None
     revision: int
     created_at: datetime
     updated_at: datetime
@@ -466,6 +469,7 @@ class ServerDetail(BaseModel):
             reachable=server.reachable,
             unreachable_since=server.unreachable_since,
             unreachable_reason=server.unreachable_reason,
+            unreachable_detail=server.unreachable_detail,
             revision=server.revision,
             created_at=server.created_at,
             updated_at=server.updated_at,

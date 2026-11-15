@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import ipaddress
 import re
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
@@ -44,6 +45,7 @@ from app.infrastructure.providers.openmanage.mapping import (
     OmeIdentity,
     dell_port_nics,
     identity_from_profile,
+    idrac_bmc_address,
 )
 from app.infrastructure.providers.redfish.provider import reason_from_error
 from app.infrastructure.providers.redfish.targets import RedfishCredential, RedfishTarget
@@ -72,6 +74,43 @@ _BENIGN_REASONS = frozenset(
 )
 
 
+_HOSTNAME_RE = re.compile(r"[a-z0-9]([a-z0-9._-]*[a-z0-9])?")
+_SAMPLE_LIMIT = 10
+
+
+def _usable_host(raw: str | None) -> str | None:
+    """
+    Reduce an OME-reported iDRAC address to the key it is joined on, or reject it.
+
+    Args:
+        raw (str | None): `DeviceManagement[0].NetworkAddress` as OME gave it.
+
+    Returns:
+        str | None: Lowercased, unbracketed IP or hostname; `None` for whitespace or garbage
+            that would make `httpx` raise `InvalidURL`.
+    """
+    text = (raw or "").strip().lower()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    with contextlib.suppress(ValueError):
+        ipaddress.ip_address(text)
+        return text
+    return text if _HOSTNAME_RE.fullmatch(text) else None
+
+
+def _target_host(key: str) -> str:
+    """
+    The host a `RedfishTarget` dials for a `_usable_host` key (IPv6 bracketed).
+
+    Args:
+        key (str): A key from `_usable_host`.
+
+    Returns:
+        str: `key`, in brackets when it is an IPv6 literal.
+    """
+    return f"[{key}]" if ":" in key else key
+
+
 def _is_uncollected(message: str, host: str) -> bool:
     """
     Whether a `collection_errors` entry means `host` was not read at all.
@@ -84,7 +123,21 @@ def _is_uncollected(message: str, host: str) -> bool:
         bool: `True` when `message` is a failure recorded against that
             host, which left it unmeasured (docs/dell-collectors.md, "Collection flow").
     """
-    return message.startswith(f"{host}:")
+    return message.startswith((f"{host}:", f"[{host}]:"))
+
+
+def redfish_failures(redfish: object) -> int:
+    """
+    Read the wrapped Redfish provider's contained-failure count.
+
+    Args:
+        redfish (object): The Redfish collector, or a test double without the property.
+
+    Returns:
+        int: Its `server_failures`, else 0.
+    """
+    count = getattr(redfish, "server_failures", 0)
+    return count if isinstance(count, int) else 0
 
 
 class OpenManageProvider(ServerInventoryProvider):
@@ -167,6 +220,7 @@ class OpenManageProvider(ServerInventoryProvider):
         self._bmc_verify_tls_reason = bmc_verify_tls_reason
         self._bmc_ca_bundle = bmc_ca_bundle
         self._verify_tls = verify_tls
+        self._unusable: list[OmeIdentity] = []
 
     def _new_client(self) -> OmeClient:
         """
@@ -215,12 +269,30 @@ class OpenManageProvider(ServerInventoryProvider):
         if not identity_ome.idrac_ip:
             return self._not_an_idrac_server(identity_ome) if identity_ome.refused_target else None
 
+        key = _usable_host(identity_ome.idrac_ip)
+        if key is None:
+            return self._unusable_address_server(identity_ome)
+        identity_ome = self._with_host(identity_ome, key)
         target = self._target_for(identity_ome)
         redfish = self._redfish_provider_factory([target])
         server = await redfish.get_one(ServerIdentity(host=target.host, serial=identity_ome.serial))
         if server is None:
-            return self._unreachable_server(identity_ome)
-        return self._merged(server, {identity_ome.idrac_ip: identity_ome})
+            logger.warning(
+                "ome.get_one_failed",
+                host=target.host,
+                name=identity_ome.name,
+                serial=identity_ome.serial,
+                hint="The cause is in the redfish.get_one_failed line for this host.",
+            )
+            return self._unreachable_server(
+                identity_ome,
+                detail=f"live recheck of the iDRAC at {target.host} returned no server",
+            )
+        if not server.reachable:
+            return self._unreachable_server(
+                identity_ome, server.unreachable_reason, server.unreachable_detail
+            )
+        return self._merged(server, {key: identity_ome})
 
     async def _discover_one(
         self, client: OmeClient, identity: ServerIdentity
@@ -294,6 +366,8 @@ class OpenManageProvider(ServerInventoryProvider):
         identities, refused = await self._discover()
         for identity in refused:
             yield self._not_an_idrac_server(identity)
+        for identity in self._unusable:
+            yield self._unusable_address_server(identity)
         if not identities:
             logger.info("ome.no_matching_profiles", endpoint=self._endpoint)
             return
@@ -307,17 +381,43 @@ class OpenManageProvider(ServerInventoryProvider):
 
         redfish = self._redfish_provider_factory(targets)
         reached: set[str] = set()
-        uncollected: dict[str, UnreachableReason] = {}
+        uncollected: dict[str, UnreachableReason | None] = {}
+        failed: dict[str, tuple[UnreachableReason | None, str | None]] = {}
         try:
             async with contextlib.aclosing(redfish.collect()) as servers:
                 async for server in servers:
-                    if not server.reachable:
-                        continue
                     parsed = parse_bmc_address(server.bmc_address_raw)
-                    if parsed is not None and parsed.host is not None:
-                        reached.add(parsed.host)
-                    yield self._merged(server, identities)
+                    host = parsed.host if parsed is not None else None
+                    if not server.reachable:
+                        if host is not None:
+                            failed.setdefault(
+                                host, (server.unreachable_reason, server.unreachable_detail)
+                            )
+                        continue
+                    if host is not None:
+                        reached.add(host)
+                    try:
+                        merged = self._merged(server, identities)
+                    except Exception as exc:
+                        stub = self._contain_server_failure(
+                            exc,
+                            event="ome.server_failed",
+                            stage="merging its OME identity",
+                            vendor=Vendor.DELL.value,
+                            external_id=server.external_id,
+                            name=server.name,
+                            serial=server.serial,
+                            model=server.model,
+                            manager_id=self._manager.id,
+                            bmc_address_raw=server.bmc_address_raw,
+                            host=host,
+                        )
+                        if stub is not None:
+                            yield stub
+                        continue
+                    yield merged
         finally:
+            self._server_failures += redfish_failures(redfish)
             # Runs on early close too — docs/dell-collectors.md, "Collection flow".
             for message in redfish.collection_errors:
                 host = next(
@@ -332,8 +432,12 @@ class OpenManageProvider(ServerInventoryProvider):
                 else:
                     self._record_error(message)
 
+        for host, (reason, _detail) in failed.items():
+            if host in identities and host not in reached:
+                uncollected.setdefault(host, reason)
         for host, reason in uncollected.items():
-            yield self._unreachable_server(identities[host], reason)
+            known_reason, detail = failed.get(host, (None, None))
+            yield self._unreachable_server(identities[host], reason or known_reason, detail)
 
     async def _discover(self) -> tuple[dict[str, OmeIdentity], list[OmeIdentity]]:
         """
@@ -352,11 +456,15 @@ class OpenManageProvider(ServerInventoryProvider):
             devices = await client.get_all("/DeviceService/Devices")
 
         # Joined on display name, not address — docs/dell-collectors.md, 2026-09-10.
-        device_by_ip = {
-            str(device.get("DeviceName")): device
-            for device in devices
-            if device.get("DeviceName") is not None
-        }
+        device_by_ip: dict[str, dict[str, Any]] = {}
+        for device in devices:
+            if device.get("DeviceName") is None:
+                continue
+            device_name = str(device.get("DeviceName"))
+            kept = device_by_ip.setdefault(device_name, device)
+            if kept is not device:
+                self._log_duplicate("device name", device_name, kept, device)
+        self._unusable = []
         logger.info(
             "ome.enumerated",
             endpoint=self._endpoint,
@@ -366,7 +474,7 @@ class OpenManageProvider(ServerInventoryProvider):
 
         identities: dict[str, OmeIdentity] = {}
         refused: list[OmeIdentity] = []
-        unassigned = 0
+        unassigned: list[str] = []
         for profile in profiles:
             if not self._matches(profile):
                 continue
@@ -379,21 +487,81 @@ class OpenManageProvider(ServerInventoryProvider):
                 if identity.refused_target:
                     refused.append(identity)
                 else:
-                    unassigned += 1
+                    unassigned.append(identity.name or str(profile.get("Id") or ""))
                 continue
-            identities[host] = identity
+            key = _usable_host(host)
+            if key is None:
+                self._unusable.append(identity)
+                continue
+            identity = self._with_host(identity, key)
+            kept_identity = identities.setdefault(key, identity)
+            if kept_identity is not identity:
+                self._log_duplicate("iDRAC address", key, kept_identity, identity)
 
         if unassigned:
             logger.info(
                 "ome.profile_without_address",
                 endpoint=self._endpoint,
-                profiles=unassigned,
+                profiles=len(unassigned),
+                sample=unassigned[:_SAMPLE_LIMIT],
                 hint=(
                     "Profiles with no target device are undeployed templates "
                     "with no server behind them and were not collected."
                 ),
             )
         return identities, refused
+
+    @staticmethod
+    def _with_host(identity: OmeIdentity, key: str) -> OmeIdentity:
+        """
+        Store the normalized address on an identity, with a dialable BMC URI.
+
+        Args:
+            identity (OmeIdentity): The discovered identity.
+            key (str): Its `_usable_host` key.
+
+        Returns:
+            OmeIdentity: The identity with `idrac_ip` and `bmc_address_raw` normalized.
+        """
+        return dataclasses.replace(
+            identity, idrac_ip=key, bmc_address_raw=idrac_bmc_address(_target_host(key))
+        )
+
+    def _log_duplicate(self, kind: str, key: str, kept: object, ignored: object) -> None:
+        """
+        Warn that two OME records share a join key and the first one won.
+
+        Args:
+            kind (str): `device name` or `iDRAC address`.
+            key (str): The shared key.
+            kept (object): The OME identity or device that is used.
+            ignored (object): The one dropped.
+        """
+
+        def label(item: object) -> dict[str, object]:
+            """
+            Describe one record for the log.
+
+            Args:
+                item (object): An `OmeIdentity` or a raw OME device.
+
+            Returns:
+                dict[str, object]: Its name and id.
+            """
+            if isinstance(item, OmeIdentity):
+                return {"name": item.name, "id": item.profile_id}
+            raw = item if isinstance(item, dict) else {}
+            return {"name": raw.get("DeviceName"), "id": raw.get("Id")}
+
+        logger.warning(
+            "ome.duplicate_identity",
+            endpoint=self._endpoint,
+            kind=kind,
+            key=key,
+            kept=label(kept),
+            ignored=label(ignored),
+            hint="First record wins; the ignored one is not collected under this key.",
+        )
 
     def _matches(self, profile: dict[str, Any]) -> bool:
         """
@@ -424,7 +592,7 @@ class OpenManageProvider(ServerInventoryProvider):
             RedfishTarget: The BMC to collect, with its login and TLS policy.
         """
         return RedfishTarget(
-            host=str(identity.idrac_ip),
+            host=_target_host(_usable_host(identity.idrac_ip) or str(identity.idrac_ip)),
             port=self._bmc_port,
             credential=self._bmc_credential,
             verify_tls=self._bmc_verify_tls,
@@ -433,8 +601,26 @@ class OpenManageProvider(ServerInventoryProvider):
             name=identity.name,
         )
 
+    def _unusable_address_server(self, identity: OmeIdentity) -> ProviderServer:
+        """
+        Build the stub for a profile whose OME-reported iDRAC address cannot be dialled.
+
+        Args:
+            identity (OmeIdentity): The identity, `idrac_ip` as OME wrote it.
+
+        Returns:
+            ProviderServer: A `COLLECTION_ERROR` stub; the run is recorded PARTIAL.
+        """
+        detail = f"OME reports an unusable iDRAC address {identity.idrac_ip!r}"
+        self._server_failures += 1
+        self._record_error(f"{identity.name or identity.serial}: {detail}")
+        return self._unreachable_server(identity, UnreachableReason.COLLECTION_ERROR, detail)
+
     def _unreachable_server(
-        self, identity: OmeIdentity, reason: UnreachableReason | None = None
+        self,
+        identity: OmeIdentity,
+        reason: UnreachableReason | None = None,
+        detail: str | None = None,
     ) -> ProviderServer:
         """
         Build the placeholder for a profile OME knows but whose iDRAC gave nothing.
@@ -445,12 +631,19 @@ class OpenManageProvider(ServerInventoryProvider):
             identity (OmeIdentity): The uncollected profile's OME identity.
             reason (UnreachableReason | None): Why the iDRAC gave nothing,
                 or `None` when the caller cannot tell (`get_one`).
+            detail (str | None): The cause in words, from the Redfish pass.
 
         Returns:
             ProviderServer: `reachable=False`, every hardware/network field
                 `None`. `IngestService` carries the rest forward.
         """
-        logger.error("ome.server_unreachable", host=identity.idrac_ip, name=identity.name)
+        logger.error(
+            "ome.server_unreachable",
+            host=identity.idrac_ip,
+            name=identity.name,
+            reason=reason.value if reason else None,
+            error=detail,
+        )
         return ProviderServer(
             external_id=f"ome-unreachable:{identity.idrac_ip}",
             vendor=Vendor.DELL.value,
@@ -463,6 +656,7 @@ class OpenManageProvider(ServerInventoryProvider):
             profile_template_external_id=identity.profile_template_external_id,
             reachable=False,
             unreachable_reason=reason,
+            unreachable_detail=detail,
         )
 
     def _not_an_idrac_server(self, identity: OmeIdentity) -> ProviderServer:
@@ -481,7 +675,16 @@ class OpenManageProvider(ServerInventoryProvider):
         """
         logger.error("ome.target_not_an_idrac", target=identity.refused_target, name=identity.name)
         return ProviderServer(
-            external_id=f"ome-not-an-idrac:{identity.name}",
+            external_id=(
+                "ome-not-an-idrac:"
+                + (
+                    identity.name
+                    or (identity.profile_id and f"profile-{identity.profile_id}")
+                    or (identity.device_id and f"device-{identity.device_id}")
+                    or identity.serial
+                    or "unnamed"
+                )
+            ),
             vendor=Vendor.DELL.value,
             name=identity.name,
             model=identity.model,

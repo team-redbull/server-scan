@@ -109,6 +109,7 @@ class Server(BaseModel):
     reachable: bool = True  # False: identity known, not reached; hardware carries forward
     unreachable_since: datetime | None = None
     unreachable_reason: UnreachableReason | None = None
+    unreachable_detail: str | None = None  # why the last run failed, in words (ADR-0062)
     # When a manager last yielded this server, reachable or not (docs/adr/0037).
     listed_at: datetime | None = None
 

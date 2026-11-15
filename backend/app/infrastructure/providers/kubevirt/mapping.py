@@ -129,6 +129,20 @@ def nics_for(
     return tuple(replace(nic, link_state="UNKNOWN") for nic in nics)
 
 
+def drives_of(member: dict[str, Any]) -> list[Any]:
+    """
+    A Storage member's `Drives` links, `[]` when absent or not a list.
+
+    Args:
+        member (dict[str, Any]): A `Storage` member.
+
+    Returns:
+        list[Any]: The links.
+    """
+    links = member.get("Drives")
+    return links if isinstance(links, list) else []
+
+
 def controllers_for(
     storage: list[dict[str, Any]] | None, drives: list[dict[str, Any]] | None
 ) -> tuple[dict[str, object], ...] | None:
@@ -150,7 +164,7 @@ def controllers_for(
             "id": str(member.get("Id") or "1"),
             "name": str(member.get("Name") or CONTROLLER_NAME),
             "kind": "OTHER",
-            "drive_count": len(member.get("Drives") or []),
+            "drive_count": len(drives_of(member)),
             "volumes": (),
         }
         for member in storage

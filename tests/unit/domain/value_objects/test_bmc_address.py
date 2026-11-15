@@ -75,3 +75,17 @@ def test_raw_string_is_preserved_verbatim() -> None:
     result = parse_bmc_address(raw)
     assert result is not None
     assert result.raw == raw
+
+
+def test_a_malformed_address_never_raises() -> None:
+    """An unbalanced bracket gives no host; a bad port keeps the host and drops the port."""
+    unbalanced = parse_bmc_address("[::1")
+    bad_port = parse_bmc_address("https://bmc.example:99999")
+    text_port = parse_bmc_address("host:abc")
+    assert unbalanced is not None
+    assert unbalanced.host is None
+    assert bad_port is not None
+    assert bad_port.host == "bmc.example"
+    assert bad_port.port is None
+    assert text_port is not None
+    assert text_port.port is None

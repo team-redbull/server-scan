@@ -223,3 +223,9 @@ lookup adopts the stub when OME later supplies a service tag, so it neither mint
 orphaned. A server that already has a serial is never adopted: a serial-less stub for it becomes its own
 document until pruned. A DNS-named iDRAC reached only through the fallback is
 flagged too: syntax cannot tell it from an OS hostname, and this estate uses IPs.
+
+## Update 2026-11-15 (ADR-0062)
+
+`UnreachableReason` gained `COLLECTION_ERROR`: the manager listed the server but its record could not be processed (a
+mapper failure, an unusable address). `Server.unreachable_detail` holds the cause in words for every `reachable=False`
+stub. The vocabulary stays closed; `COLLECTION_ERROR` is a stub reason, not a BMC fault.

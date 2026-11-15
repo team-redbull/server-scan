@@ -68,3 +68,6 @@ ucs-dryrun.txt
 # not the deliverable. The .architecture.json spec and .html are committed.
 docs/diagrams/*.visual-check.*
 .claude/settings.local.json
+
+# claude-flow / agentdb local vector store
+agentdb.rvf*

@@ -37,6 +37,7 @@ class UnreachableReason(StrEnum):
     TIMEOUT = "timeout"
     PROTOCOL_ERROR = "protocol_error"
     NOT_AN_IDRAC = "not_an_idrac"
+    COLLECTION_ERROR = "collection_error"
 
 
 class ManagerType(StrEnum):

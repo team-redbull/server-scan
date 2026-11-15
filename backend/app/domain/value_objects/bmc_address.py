@@ -61,10 +61,16 @@ def parse_bmc_address(raw: str | None) -> BmcAddress | None:
     # Without a scheme, `urlsplit` reads a bare host as a path with no netloc.
     candidate = text if "://" in text else f"//{text}"
 
-    parts = urlsplit(candidate)
+    try:
+        parts = urlsplit(candidate)
+    except ValueError:  # an unbalanced "[" raises "Invalid IPv6 URL"
+        return BmcAddress(raw=text, scheme=None, host=None, host_is_ip=False, port=None, path=None)
     scheme = parts.scheme or None
     host = parts.hostname  # urlsplit lowercases and strips IPv6 brackets
-    port = parts.port
+    try:
+        port = parts.port
+    except ValueError:  # a non-numeric or out-of-range port: keep the host
+        port = None
     path = parts.path or None
 
     if port is None and scheme in _DEFAULT_PORTS:

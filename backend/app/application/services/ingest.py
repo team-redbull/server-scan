@@ -85,7 +85,7 @@ from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileTemplate, Server, VmHost
 from app.domain.models.site import Site
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider
+from app.domain.ports.provider import ProviderServer, ServerInventoryProvider, redact_secrets
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.bmc_reset import reset_trigger
 from app.domain.services.classification import ClassifiableServer
@@ -357,10 +357,11 @@ def _vm_host(ps: ProviderServer, previous: VmHost | None, unread: list[str]) -> 
         unread (list[str]): This ingest's unread-path accumulator.
 
     Returns:
-        VmHost | None: `None` for a physical server (neither field reported).
+        VmHost | None: `None` for a physical server (neither field reported); the stored
+            host when an unreachable stub reported neither.
     """
     if ps.vm_host_cluster is None and ps.vm_host_node is None:
-        return None
+        return None if ps.reachable else previous
     node = _carry_forward(
         ps.vm_host_node,
         previous.node_name if previous is not None else None,
@@ -701,6 +702,10 @@ class IngestService:
                         "ingest.server_failed",
                         external_id=provider_server.external_id,
                         vendor=provider_server.vendor,
+                        name=provider_server.name,
+                        serial=provider_server.serial,
+                        manager_id=provider_server.manager_id,
+                        provider_type=provider.provider_type,
                     )
                     summary.errors += 1
                     continue
@@ -712,7 +717,15 @@ class IngestService:
                 else:
                     summary.updated += 1
 
-                resets.offer(server)
+                try:
+                    resets.offer(server)
+                except Exception:
+                    logger.exception(
+                        "ingest.reset_offer_failed",
+                        server_id=server.id,
+                        name=server.name,
+                        provider_type=provider.provider_type,
+                    )
         finally:
             await resets.finish()
 
@@ -1080,6 +1093,8 @@ class IngestService:
             system_uuid = ps.system_uuid or existing.identity.system_uuid
         else:
             serial, system_uuid = ps.serial, ps.system_uuid
+            if system_uuid is None and not ps.reachable and existing is not None:
+                system_uuid = existing.identity.system_uuid  # a stub did not read it (ADR-0062)
         identity = Identity(
             vendor=vendor,
             serial=serial,
@@ -1112,16 +1127,19 @@ class IngestService:
 
         vm_host = _vm_host(ps, existing.vm_host if existing is not None else None, unread)
 
+        bmc_info = BmcInfo(
+            address_raw=ps.bmc_address_raw,
+            scheme=bmc_parsed.scheme if bmc_parsed else None,
+            host=bmc_parsed.host if bmc_parsed else None,
+            host_is_ip=bmc_parsed.host_is_ip if bmc_parsed else False,
+            port=bmc_parsed.port if bmc_parsed else None,
+            path=bmc_parsed.path if bmc_parsed else None,
+            mac=bmc_mac,
+        )
+        if not ps.reachable and ps.bmc_address_raw is None and existing is not None:
+            bmc_info = existing.network.bmc  # a stub read no address: keep the stored one
         network = NetworkInfo(
-            bmc=BmcInfo(
-                address_raw=ps.bmc_address_raw,
-                scheme=bmc_parsed.scheme if bmc_parsed else None,
-                host=bmc_parsed.host if bmc_parsed else None,
-                host_is_ip=bmc_parsed.host_is_ip if bmc_parsed else False,
-                port=bmc_parsed.port if bmc_parsed else None,
-                path=bmc_parsed.path if bmc_parsed else None,
-                mac=bmc_mac,
-            ),
+            bmc=bmc_info,
             interfaces=_carry_forward(
                 [
                     NetworkInterface(
@@ -1162,6 +1180,8 @@ class IngestService:
             )
             for a in ps.attachments
         ]
+        if not ps.reachable and not ps.attachments and existing is not None:
+            attachments = list(existing.connectivity.attachments)  # a stub read none (ADR-0062)
         connectivity = Connectivity(
             attachments=attachments, facts=compute_connectivity_facts(attachments)
         )
@@ -1293,8 +1313,12 @@ class IngestService:
             last_seen_at = now
             unreachable_since = None
             unreachable_reason = None
+            unreachable_detail = None
         else:
             unreachable_reason = ps.unreachable_reason
+            unreachable_detail = (
+                redact_secrets(ps.unreachable_detail) if ps.unreachable_detail else None
+            )
             last_seen_at = (
                 now if hardware_read else (existing.last_seen_at if existing is not None else None)
             )
@@ -1328,6 +1352,7 @@ class IngestService:
             reachable=ps.reachable,
             unreachable_since=unreachable_since,
             unreachable_reason=unreachable_reason,
+            unreachable_detail=unreachable_detail,
             listed_at=now,
             unread_fields=unread,
             revision=revision,

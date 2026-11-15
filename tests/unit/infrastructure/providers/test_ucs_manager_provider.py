@@ -23,12 +23,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, UnreachableReason
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
 from app.domain.ports.provider import ServerIdentity
+from app.domain.services.normalize import normalize_text
 from app.infrastructure.providers.ucs_manager.provider import (
     UcsManagerProvider,
     _group_by_owning_server_dn,
@@ -709,3 +711,111 @@ class TestGetOne:
             await _provider(client).get_one(ServerIdentity(external_id="sys/chassis-1/blade-1"))
             is None
         )
+
+
+_BENIGN_MARKERS = (": unreachable — ", ": login failed for credential ")
+
+
+def _blade_mo(n: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        dn=f"sys/chassis-1/blade-{n}",
+        name=f"blade-{n}",
+        model="UCSB-B200-M6",
+        serial=f"FCH0000{n}",
+        uuid=f"uuid-{n}",
+        presence="equipped",
+        oper_state="ok",
+        assigned_to_dn="",
+        num_of_cpus="2",
+        num_of_cores="32",
+        num_of_threads="64",
+        total_memory="524288",
+    )
+
+
+class TestOneBadServer:
+    async def test_a_mapper_crash_on_server_two_of_three_stubs_only_that_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.infrastructure.providers.ucs_manager import provider as module
+
+        real = module.compute_unit_to_provider_server
+
+        def flaky(server_mo: Any, **kwargs: Any) -> Any:
+            if server_mo.dn.endswith("blade-2"):
+                raise KeyError("adaptor")
+            return real(server_mo, **kwargs)
+
+        monkeypatch.setattr(module, "compute_unit_to_provider_server", flaky)
+        client = FakeUcsClient(
+            responses=_domain(computeBlade=[_blade_mo(1), _blade_mo(2), _blade_mo(3)])
+        )
+        provider = _provider(client)
+
+        servers = await _collect(provider)
+
+        assert [s.serial for s in servers] == ["FCH00001", "FCH00002", "FCH00003"]
+        stub = servers[1]
+        assert stub.reachable is False
+        assert stub.unreachable_reason is UnreachableReason.COLLECTION_ERROR
+        assert stub.external_id == "sys/chassis-1/blade-2"
+        assert "KeyError" in (stub.unreachable_detail or "")
+        assert servers[0].reachable is not False
+        assert provider.server_failures == 1
+        (message,) = provider.collection_errors
+        assert "blade-2" in message
+        assert "KeyError" in message
+        assert not any(marker in message for marker in _BENIGN_MARKERS)
+        assert client.calls[-1] == "logout"
+
+    async def test_a_compute_unit_without_a_dn_is_skipped_and_logged(self) -> None:
+        nameless = SimpleNamespace(presence="equipped", name="ghost", serial="X")
+        client = FakeUcsClient(responses=_domain(computeBlade=[_blade_mo(1), nameless]))
+        provider = _provider(client)
+
+        with capture_logs() as events:
+            servers = await _collect(provider)
+
+        assert [s.serial for s in servers] == ["FCH00001"]
+        (skipped,) = [e for e in events if e["event"] == "ucs_manager.mo_skipped"]
+        assert skipped["endpoint"] == "ucsm.lab.example.com"
+        assert "name" in skipped["attributes"]
+        assert len(provider.collection_errors) == 1
+
+    async def test_an_lsserver_without_a_dn_does_not_take_the_domain(self) -> None:
+        client = FakeUcsClient(
+            responses=_domain(lsServer=[SimpleNamespace(name="orphan", type="instance")])
+        )
+        provider = _provider(client)
+
+        servers = await _collect(provider)
+
+        assert len(servers) == 1
+        assert len(provider.collection_errors) == 1
+
+    async def test_the_stub_has_the_same_identity_as_a_clean_mapping_of_the_same_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A different identity would make ingest write a second document for blade-2."""
+        from app.infrastructure.providers.ucs_manager import provider as module
+
+        blades = [_blade_mo(1), _blade_mo(2), _blade_mo(3)]
+        clean = (await _collect(_provider(FakeUcsClient(responses=_domain(computeBlade=blades)))))[
+            1
+        ]
+        real = module.compute_unit_to_provider_server
+
+        def flaky(server_mo: Any, **kwargs: Any) -> Any:
+            if server_mo.dn.endswith("blade-2"):
+                raise KeyError("adaptor")
+            return real(server_mo, **kwargs)
+
+        monkeypatch.setattr(module, "compute_unit_to_provider_server", flaky)
+        stub = (await _collect(_provider(FakeUcsClient(responses=_domain(computeBlade=blades)))))[1]
+
+        assert clean.reachable is not False and stub.reachable is False
+
+        def identity(ps: Any) -> tuple[Any, ...]:
+            return (ps.vendor, normalize_text(ps.serial), ps.external_id, ps.name, ps.manager_id)
+
+        assert identity(stub) == identity(clean)

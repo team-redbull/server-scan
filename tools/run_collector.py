@@ -45,7 +45,13 @@ from app.domain.ports.credentials import (
     ManagerConnection,
     ManagerNotConfiguredError,
 )
-from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    SERVER_FAILED_MARKER,
+    ProviderServer,
+    ServerIdentity,
+    ServerInventoryProvider,
+    is_systemic_failure,
+)
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.bmc_address import parse_bmc_address
@@ -183,6 +189,16 @@ class _NameFilteredProvider(ServerInventoryProvider):
         would look complete.
         """
         return self._inner.collection_errors
+
+    @property
+    def servers_seen(self) -> int:
+        """Pass the wrapped collector's server count through, pre-filter."""
+        return self._inner.servers_seen
+
+    @property
+    def server_failures(self) -> int:
+        """Pass the wrapped collector's per-server failure count through."""
+        return self._inner.server_failures
 
     async def health_check(self) -> None:
         """Delegate to the wrapped collector's own health check."""
@@ -373,6 +389,8 @@ def _is_benign_collection_error(message: str) -> bool:
             `RedfishError`) — those can still signal a problem worth a
             human looking at across many hosts.
     """
+    if SERVER_FAILED_MARKER in message:
+        return False  # a mapping failure is never benign, whatever its exception text says
     return any(marker in message for marker in _BENIGN_COLLECTION_ERROR_MARKERS)
 
 
@@ -679,10 +697,15 @@ class _RunOutcome:
         summary (IngestSummary): Fetched/created/updated/error counts.
         collection_errors (tuple[str, ...]): One message per endpoint the
             collector could not reach, empty for a complete run.
+        servers_seen (int): Servers the provider yielded, failed-mapping stubs included.
+        server_failures (int): Servers it could not map; with `servers_seen` this decides
+            whether the run is a systemic failure (ADR-0062).
     """
 
     summary: IngestSummary
     collection_errors: tuple[str, ...]
+    servers_seen: int = 0
+    server_failures: int = 0
 
 
 async def _run_one_manager(
@@ -726,7 +749,12 @@ async def _run_one_manager(
         )
         # `ingest()` runs `health_check` itself; `managers=` writes the projection (ADR-0016).
         summary = await ingest_service.ingest(provider, managers=[manager])
-        return _RunOutcome(summary=summary, collection_errors=provider.collection_errors)
+        return _RunOutcome(
+            summary=summary,
+            collection_errors=provider.collection_errors,
+            servers_seen=provider.servers_seen,
+            server_failures=provider.server_failures,
+        )
     except Exception:
         logger.exception(
             "collector.manager_failed", manager_id=manager.id, manager_name=manager.name
@@ -893,6 +921,22 @@ async def _run(
                 took=_format_duration(run_duration),
             )
             benign_count = len(outcome.collection_errors) - len(hard_errors)
+            if is_systemic_failure(outcome.server_failures, outcome.servers_seen):
+                logger.error(
+                    "collector.systemic_failure",
+                    manager_id=manager.id,
+                    failed=outcome.server_failures,
+                    seen=outcome.servers_seen,
+                )
+                print(
+                    f"manager={manager.name} FAILED — {outcome.server_failures} of "
+                    f"{outcome.servers_seen} servers could not be collected; this is a "
+                    "collector defect, not bad servers. Each failed server was kept as a "
+                    "CRITICAL collection_error stub with its stored data:"
+                )
+                for message in hard_errors[:10]:
+                    print(f"  - {message}")
+                return 1
             if partial:
                 logger.error(
                     "collector.partial_run",

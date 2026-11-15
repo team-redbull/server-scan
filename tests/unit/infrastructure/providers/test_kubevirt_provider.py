@@ -208,7 +208,7 @@ async def test_a_vm_that_errors_is_recorded_and_the_rest_still_arrive(
 
     assert set(servers) == {"ocp-tlv-kv-01", "ocp-tlv-kv-03"}
     (error,) = provider.collection_errors
-    assert error.startswith("vms.ocp-tlv-kv-02: ")
+    assert error.startswith("vms.ocp-tlv-kv-02 (id ")
     assert "500" in error
 
 

@@ -152,7 +152,7 @@ Structured JSON, one event per line. The ones that matter:
 | `ucs_central.domain_plan` | how many domains will be collected vs skipped |
 | `ucs_central.domain_summary` | per domain: `total_physical_cnt` (what Central claims it holds) against `collected_servers` (what its UCS Manager actually returned). `None` means never contacted, `0` means contacted and empty — these are different problems |
 | `ucs_central.domain_collected` | one line per domain that succeeded, with its server count |
-| `ucs_central.domain_failed` | a domain that errored — login rejected, unreachable, timed out |
+| `ucs_central.domain_failed` | a domain that errored — login rejected, unreachable, timed out; the servers it had already collected are kept (ADR-0062), and a server that failed to map is a `ucs_manager.server_failed` stub, not a lost domain |
 | `ucs_central.domain_without_address` | a registered domain with no address to connect to |
 | `ucs_central.domain_collected_nothing` | Central reported servers, its UCS Manager returned none |
 | `collector.name_filter_applied` | `kept` and `skipped` counts for `INVENTORY_COLLECTOR_NAME_PATTERN` |
