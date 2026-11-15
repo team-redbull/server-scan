@@ -175,6 +175,8 @@ ServerInventoryProvider (ABC)                       # ADR-0023
     ├── provider_type: str
     ├── collect() -> AsyncGenerator[ProviderServer]  # template method
     ├── collection_errors() -> tuple[str, ...]
+    ├── servers_seen / server_failures: int            # ADR-0062
+    ├── _contain_server_failure(...)                   # logs, records, counts, returns the stub
     ├── health_check() -> None                       # abstract
     ├── get_one(ServerIdentity) -> ProviderServer | None  # abstract, ADR-0032
     └── _list_servers() -> AsyncGenerator[...]       # abstract
@@ -302,11 +304,14 @@ CronJob fires
 ```
 
 **Exit code 3 is the interesting one.** A run that wrote some servers but
-could not see the whole fleet is neither success nor failure, and
+could not see the whole fleet (or could not map a server) is neither success nor failure, and
 reporting it as success is how a bad credential on one domain stays
 invisible for weeks. For a fleet of independent BMCs it is the *normal*
 outcome — which is why the guidance is to alert on staleness, never on
-Job status.
+Job status. Since 2026-11-15 a single server whose mapping fails no longer
+fails the run: it is written as a `COLLECTION_ERROR` stub and the run exits 3;
+exit 1 is also returned on a systemic failure (at least 5 servers and over
+20 % of those seen), ADR-0062.
 
 **Two exceptions, both added 2026-09-10**: neither `OPENMANAGE` nor
 `REDFISH_STANDALONE` counts a single BMC's plain connection failure, nor
@@ -495,7 +500,7 @@ collector does, and never call this platform's API.
 | **Error handling** | `exception_handlers` | RFC 9457 Problem Details, extended with a stable `code`, `request_id` and structured `details` (ADR-0002) |
 | **Persistence rules** | `infrastructure/mongodb` | Datetimes stored as ISO 8601 **strings**; range/cursor queries must compare against that type (ADR-0006 — this caused a real silent-wrong-results bug) |
 | **Search** | `domain/services/search_tokens` | Anchored, escaped prefix match over a multikey-indexed token array; structurally incapable of ReDoS or an unanchored scan (ADR-0004). Tokens are word-boundary **suffixes**, so the anchored query still finds a fragment from the middle of a name — `cisco-m6` matches `ocp-cisco-m6-bat-yam-…` (ADR-0025) |
-| **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS, Intersight and KubeVirt are UNKNOWN, skipped (ADR-0037; a VM's "BMC" is the shared facade, ADR-0058) |
+| **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS, Intersight and KubeVirt are UNKNOWN, skipped, except that a server whose record failed to map is a CRITICAL `collection_error` stub from any provider (ADR-0062; ADR-0037; a VM's "BMC" is the shared facade, ADR-0058) |
 | **Staleness** | `observability/fleet_gauges` | `/metrics` carries gauges derived from MongoDB on scrape, throttled to once per 30s: servers not seen within `INVENTORY_STALE_AFTER_SECONDS` per collector, each collector's and each cluster's newest report as a Unix timestamp, the health mix, and (2026-09-16) duplicate-name group/server counts. A CronJob pod is never scraped, so this is the only signal that a collector or membership job has *stopped* (ADR-0029). Each `nodes`/`agents` membership job's most recent run (observed/matched/unmatched hostnames, duration, PARTIAL) is a further gauge set added 2026-09-24, present even when every hostname was unmatched. Shipped with a `ServiceMonitor` and a `PrometheusRule` (fleet, login/dependency, API/frontend pod and audit-retention alerts; the 2026-10-07 updates also add the audit-trail size/oldest-event and unchanged-server gauges) |
 | **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — six CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
 | **Pagination** | `domain/services/cursor` | Keyset only, HMAC-signed cursor bound to the filter/sort combination. A **nullable** sort field needs the null-aware clause: Mongo's range operators are type-bracketed, so a naive `$gt`/`$lt` cursor drops rows with no error (ADR-0026) |
@@ -600,6 +605,7 @@ of it.
 | 0059 | A VM stores the cluster and node it runs on (`Server.vm_host`, names only); `GET /servers/{id}/vm-host` resolves the node to its bare-metal server when read (membership first, then name), never cached; `host-model` is a CPU mode, stored as no model |
 | 0060 | Collectors move to their own chart, `server-scan-collectors` (same image, tag pinned by hand after server-scan); a KubeVirt collector runs in every KubeVirt cluster with a per-cluster manager id (`mgr_kubevirt_<cluster>`, cluster name required); the hub API never rechecks a VM; run gauges gain a `manager` label and `ServerScanCollectorRunStale` |
 | 0061 | Confs (server configurations) are read from a `confs` collection another system writes: `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached), the stored shape reproduced field for field, `conf_id` not unique and `_id` never read, a malformed document skipped and named in `unreadable`; a "Confs" tab after Servers; the fake seeder upserts 20 confs |
+| 0062 | One failed server never aborts a run: every provider guards a server's mapping (`_contain_server_failure`) and writes a `reachable=False` `COLLECTION_ERROR` stub carrying `unreachable_detail`; PARTIAL (exit 3), or exit 1 when at least 5 and over 20 % of the fleet failed |
 
 ---
 
@@ -705,9 +711,10 @@ go stale — treat its date as load-bearing.
 | **Service profile** | UCS's logical server definition. **The source of a UCS server's real name** — `computeBlade.name` is empty in practice. |
 | **IMM** | Intersight Managed Mode. Servers Intersight manages directly, as opposed to `UCSM`-mode servers that UCS Central owns. |
 | **VM host** | `Server.vm_host`: the cluster and node a KubeVirt VM runs on, as names. Resolved to the node's own server record only by `GET /servers/{id}/vm-host` (ADR-0059). |
-| **PARTIAL run** | Exit code 3: some servers were written, but the run did not see the whole fleet. |
-| **`Server.reachable`** | `False` when a provider could not reach a server's management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. Written by `OPENMANAGE`, `REDFISH_STANDALONE` (stub documents) and, via an unauthenticated probe, `ONEVIEW` (ADR-0037); never by `KUBEVIRT`, whose VMs are always `True` (ADR-0058). |
-| **`Server.unreachable_reason`** | Why `reachable` is `False`: `network_unreachable`, `auth_rejected`, `tls_error`, `timeout` or `protocol_error`. Set and cleared together with `unreachable_since` (ADR-0037). |
+| **PARTIAL run** | Exit code 3: some servers were written, but the run did not see the whole fleet or could not map a server. |
+| **`Server.reachable`** | `False` when a provider could not reach a server's management endpoint this run. Hardware/network fields carry forward unaffected — see `unreachable_since` and `docs/dell-collectors.md`'s "Collection flow", 2026-09-10 update. Written by `OPENMANAGE`, `REDFISH_STANDALONE` (stub documents) and, via an unauthenticated probe, `ONEVIEW` (ADR-0037); and by any provider for a server whose record failed to map (`COLLECTION_ERROR`, ADR-0062); `KUBEVIRT` only that way, never for a facade fault (ADR-0058). |
+| **`Server.unreachable_reason`** | Why `reachable` is `False`: `network_unreachable`, `auth_rejected`, `tls_error`, `timeout`, `protocol_error`, `not_an_idrac` or `collection_error`. Set and cleared together with `unreachable_since` (ADR-0037). |
+| **`Server.unreachable_detail`** | The failed collection's cause in words (`mapping hardware: KeyError: 'processorCount'`); `null` when reachable (ADR-0062). |
 | **`Server.listed_at`** | The last time any manager listed the server, reachable or not. Unlike `last_seen_at` it does not freeze for an unreachable server; `tools.prune_servers` deletes on it (ADR-0037). |
 | **UCSPE** | Cisco's free UCS Platform Emulator — the test target that validated the UCS collector. |
 | **PVA** | Intersight Private Virtual Appliance: on-prem Intersight, the only form reachable from an air-gapped site. |

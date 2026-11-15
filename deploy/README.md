@@ -734,15 +734,15 @@ Central, read through that domain's own UCS Manager. `OPENMANAGE`,
 their own, all shipped disabled.
 
 A collector pod's exit code is the only signal a CronJob carries: `0`
-complete, `1` the manager failed outright (`FAILED (see logs)`), `2` not
+complete, `1` the manager failed outright (`FAILED (see logs)`) or at least 5 servers failed to map and over 20 % of the fleet did (`is_systemic_failure`, ADR-0062; those servers are already written as stubs), `2` not
 configured — the message names the `INVENTORY_*` variables to set, and
 is checked before any connection is opened, so a half-configured Secret
 never reads as a fleet of bad passwords — and `3` PARTIAL, some servers
-written but not the whole fleet. On `OPENMANAGE` and `REDFISH_STANDALONE`
+written but not the whole fleet (also any single server whose mapping failed: a `collection_error` stub with `unreachable_detail`). On `OPENMANAGE` and `REDFISH_STANDALONE`
 every failed host is logged at ERROR and written as a stub server with an
 `unreachable_reason`; only a plain unreachable host or a rejected login
 exits `0` (ADR-0016's 2026-09-10 updates), a TLS, budget or protocol failure
-still exits `3`. `KUBEVIRT` never writes a stub: a failed or rejected listing exits `1`, one VM that fails
+still exits `3`. `KUBEVIRT` writes a stub only for a VM that was read and failed to map (`collection_error`, ADR-0062): a failed or rejected listing exits `1`, one VM that fails
 exits `3`, a VM deleted since the listing (404) is skipped.
 Each run also
 writes its outcome onto the `Manager` document, which is what the

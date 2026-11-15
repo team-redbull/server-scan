@@ -110,6 +110,11 @@ TLS, time budget, protocol) yields a `reachable=False` stub with an
 `unreachable_reason` (ADR-0037, 2026-10-01). Only a plain unreachable host or
 a rejected login is left out of `collection_errors` (exit 0); TLS, budget and
 protocol failures are still recorded and make the run **PARTIAL** (exit 3).
+OME validates the iDRAC address (`_usable_host`, IPv6 bracketed): an unusable one becomes a
+`collection_error` stub with detail "OME reports an unusable iDRAC address ...". A Redfish per-system
+`COLLECTION_ERROR` stub becomes an OME stub carrying the cause and OME's own service-tag serial. A
+duplicate iDRAC address or DeviceName is logged (`ome.duplicate_identity`) and the FIRST profile wins (it
+used to be the last); a blank-ProfileName `not-an-idrac` id falls back to the profile/device id (ADR-0062).
 
 Correlation keys on `(vendor, serial)`
 (`app.application.services.ingest`).
@@ -222,8 +227,8 @@ IP-blocks this collector from every iDRAC for about an hour.
 **Widened 2026-10-01 (ADR-0037): every per-host failure is a stub with a
 reason.** The stub's `unreachable_reason` is mapped from the inner Redfish
 error (`network_unreachable`, `auth_rejected`, `tls_error`, `timeout`,
-`protocol_error`); the `get_one` fallback stub has none, because the inner
-`get_one` swallows it. The `bmc` health category makes such a server
+`protocol_error`, or `collection_error` with an `unreachable_detail`, ADR-0062); the `get_one` fallback
+stub carries a detail but no reason, because the inner `get_one` swallows the error. The `bmc` health category makes such a server
 CRITICAL.
 
 **2026-11-05: a target that is not an address (`not_an_idrac`).** The display-name fallback is used only

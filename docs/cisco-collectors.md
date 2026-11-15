@@ -1160,7 +1160,7 @@ would need a real fan-in queue for a saving this collector's domain
 sizes don't make worth it.
 
 A failing domain is caught, logged as `ucs_central.domain_failed` with a
-`collected_before_failure` count, and contributes an empty list — an
+`collected_before_failure` count, and contributes the servers it had already collected before failing (ADR-0062; the engine's per-server failures, `ucs_manager.server_failed` stubs, are merged into Central's errors and counts) — an
 unreachable or slow domain must never cost the fleet its entire run,
 mirroring `tools.run_collector._run_one_manager`'s per-manager
 isolation. Since ADR-0014's 2026-09-02 update, this also means a domain

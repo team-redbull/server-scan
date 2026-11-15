@@ -2,8 +2,9 @@
 
 One facade serves every VM, so failures split two ways (docs/adr/0058): the
 Systems listing failing (unreachable, rejected login, TLS) fails the whole run,
-while one VM failing is recorded and the run moves on. A VM is never a
-`reachable=False` stub: the "BMC" is the shared facade, not the VM's own.
+while one VM failing is recorded and the run moves on. A VM is a
+`COLLECTION_ERROR` stub only when its record was read but could not be mapped
+(ADR-0062); a facade fault is never a VM's "BMC" fault.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Any
 
 import structlog
 
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.provider import (
     NotThisManagersServerError,
@@ -33,6 +34,8 @@ from app.infrastructure.providers.kubevirt.client import (
 )
 from app.infrastructure.providers.kubevirt.mapping import (
     EXTERNAL_ID_SCHEME,
+    external_id_for,
+    serial_of,
     system_to_provider_server,
 )
 from app.infrastructure.providers.redfish.client import (
@@ -48,6 +51,8 @@ logger = structlog.get_logger(__name__)
 
 _PROVIDER_TYPE = ManagerType.KUBEVIRT.value
 _SYSTEMS_PREFIX = f"{SYSTEMS}/"
+_MAX_LISTING_PAGES = 100
+_UNFINISHED_SAMPLE = 10
 
 
 class KubeVirtProvider(ServerInventoryProvider):
@@ -111,6 +116,8 @@ class KubeVirtProvider(ServerInventoryProvider):
         self._debug_http = debug_http
         self._client_factory: Callable[[], Any] = client_factory or self._new_client
         self._auth_rejected = False
+        self._vanished = 0
+        self._bad_links = 0
 
     def _new_client(self) -> KubeVirtClient:
         """
@@ -178,12 +185,28 @@ class KubeVirtProvider(ServerInventoryProvider):
         try:
             async with asyncio.timeout(self._vm_budget), self._client_factory() as client:
                 return await self._collect_system(client, path)
-        except RedfishAuthError:
-            logger.exception("kubevirt.recheck_login_rejected")
+        except RedfishAuthError as exc:
+            logger.error(  # noqa: TRY400
+                "kubevirt.recheck_login_rejected", origin=self._origin, system=path, error=str(exc)
+            )
             return None
         except (RedfishError, TimeoutError) as exc:
-            logger.warning("kubevirt.recheck_failed", path=path, error=str(exc))
+            logger.warning(
+                "kubevirt.recheck_failed",
+                origin=self._origin,
+                system=path,
+                error=f"{type(exc).__name__}: {exc}",
+            )
             return None
+        except Exception as exc:
+            logger.exception(
+                "kubevirt.recheck_failed_unexpected",
+                exc_info=exc,
+                origin=self._origin,
+                system=path,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            raise  # a bug is not "server gone": the caller reports a recheck failure
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """
@@ -198,31 +221,40 @@ class KubeVirtProvider(ServerInventoryProvider):
         """
         self._auth_rejected = False
         async with self._client_factory() as client:
-            paths = member_links(await client.get(SYSTEMS))
+            paths = await self._system_paths(client)
             semaphore = asyncio.Semaphore(self._concurrency)
             tasks = [asyncio.create_task(self._collect_vm(client, p, semaphore)) for p in paths]
             collected = 0
             done = 0
+            self._vanished = 0
             try:
                 for finished in asyncio.as_completed(tasks, timeout=self._run_budget):
                     try:
                         server = await finished
                     except TimeoutError:
+                        unfinished = [p for t, p in zip(tasks, paths, strict=True) if not t.done()]
+                        shown = [p.removeprefix(_SYSTEMS_PREFIX) for p in unfinished]
+                        sample = ", ".join(shown[:_UNFINISHED_SAMPLE])
+                        if len(shown) > _UNFINISHED_SAMPLE:
+                            sample += f" and {len(shown) - _UNFINISHED_SAMPLE} more"
                         self._record_error(
                             f"run budget of {self._run_budget:g}s expired with "
-                            f"{len(tasks) - done} VM(s) not yet collected"
+                            f"{len(tasks) - done} VM(s) not yet collected: {sample}"
                         )
-                        logger.exception(
+                        logger.error(  # noqa: TRY400
                             "kubevirt.run_budget_exceeded",
+                            origin=self._origin,
                             budget_seconds=self._run_budget,
                             vms_unfinished=len(tasks) - done,
+                            unfinished_systems=shown[:_UNFINISHED_SAMPLE],
                             hint="Raise INVENTORY_KUBEVIRT_RUN_BUDGET_SECONDS or "
                             "INVENTORY_KUBEVIRT_CONCURRENCY.",
                         )
                         break
                     done += 1
                     if server is not None:
-                        collected += 1
+                        if server.reachable:
+                            collected += 1
                         yield server
             finally:
                 for task in tasks:
@@ -232,8 +264,85 @@ class KubeVirtProvider(ServerInventoryProvider):
             "kubevirt.run_summary",
             vms_listed=len(paths),
             vms_collected=collected,
-            vms_failed=len(self.collection_errors),
+            vms_failed=len(paths) - collected - self._vanished,
+            vms_vanished=self._vanished,
+            vms_failed_stubs=self.server_failures,
+            bad_member_links=self._bad_links,
         )
+
+    async def _system_paths(self, client: Any) -> list[str]:
+        """
+        Read the Systems collection, following `Members@odata.nextLink` pages.
+
+        Args:
+            client (Any): An open client.
+
+        Returns:
+            list[str]: Every valid System path, deduplicated, in listing order.
+
+        Raises:
+            RedfishError: The first page could not be read.
+        """
+        self._bad_links = 0
+        paths: dict[str, None] = {}
+        page_path: str | None = SYSTEMS
+        seen_pages: set[str] = set()
+        for _ in range(_MAX_LISTING_PAGES):
+            if page_path is None:
+                break
+            if page_path in seen_pages:
+                self._record_error(
+                    f"Systems listing repeats page {page_path!r}: the facade loops, "
+                    "so the VMs after it were not listed"
+                )
+                logger.error(
+                    "kubevirt.listing_cycle",
+                    origin=self._origin,
+                    page=page_path,
+                    pages=len(seen_pages),
+                )
+                break
+            seen_pages.add(page_path)
+            page = await client.get(page_path)
+            paths.update(dict.fromkeys(member_links(page, self._bad_link)))
+            page_path = self._next_page(page)
+        else:
+            if page_path is not None:
+                self._record_error(f"Systems listing capped at {_MAX_LISTING_PAGES} pages")
+                logger.error(
+                    "kubevirt.listing_capped", origin=self._origin, pages=_MAX_LISTING_PAGES
+                )
+        return list(paths)
+
+    def _bad_link(self, link: object, reason: str) -> None:
+        """
+        Record one Systems member whose link was rejected.
+
+        Args:
+            link (object): The raw `@odata.id`.
+            reason (str): Why it was rejected.
+        """
+        self._bad_links += 1
+        self._record_error(f"Systems member link {str(link)[:200]!r} skipped: {reason}")
+
+    def _next_page(self, page: dict[str, Any]) -> str | None:
+        """
+        The validated next page of a collection, or None.
+
+        Args:
+            page (dict[str, Any]): A collection payload.
+
+        Returns:
+            str | None: A path under `/redfish/v1`, or None when absent or unusable.
+        """
+        link = page.get("Members@odata.nextLink")
+        if not isinstance(link, str) or not link:
+            return None
+        try:
+            return validate_odata_id(link.removeprefix(self._origin))
+        except RedfishProtocolError as exc:
+            self._bad_link(link, str(exc))
+            return None
 
     async def _collect_vm(
         self, client: Any, path: str, semaphore: asyncio.Semaphore
@@ -253,32 +362,78 @@ class KubeVirtProvider(ServerInventoryProvider):
             RedfishAuthError: The credential was rejected mid-run; the run stops.
         """
         system_id = path.removeprefix(_SYSTEMS_PREFIX)
+        seen: dict[str, Any] = {}
         async with semaphore:
             if self._auth_rejected:
                 return None
             try:
                 async with asyncio.timeout(self._vm_budget):
-                    return await self._collect_system(client, path)
+                    return await self._collect_system(client, path, seen)
             except RedfishAuthError:
                 self._auth_rejected = True
                 raise
             except TimeoutError:
                 self._record_error(f"{system_id}: exceeded its {self._vm_budget:g}s budget")
-                logger.warning("kubevirt.vm_budget_exceeded", system=system_id)
+                logger.warning("kubevirt.vm_budget_exceeded", system=system_id, path=path)
+                return None
             except NotFoundError:
-                logger.info("kubevirt.vm_vanished", system=system_id)
+                self._vanished += 1
+                logger.info("kubevirt.vm_vanished", system=system_id, path=path)
+                return None
             except RedfishError as exc:
-                self._record_error(f"{system_id}: {exc}")
-                logger.warning("kubevirt.vm_failed", system=system_id, error=str(exc))
-            return None
+                return self._contain_vm(exc, "kubevirt.vm_failed", path, seen)
+            except Exception as exc:
+                return self._contain_vm(exc, "kubevirt.vm_failed_unexpected", path, seen)
 
-    async def _collect_system(self, client: Any, path: str) -> ProviderServer:
+    def _contain_vm(
+        self, exc: Exception, event: str, path: str, system: dict[str, Any]
+    ) -> ProviderServer | None:
+        """
+        Record one VM's failure; stub it only when its System was read.
+
+        Without the System there is no firmware serial, and a stub keyed on the
+        System `Id` would split a VM that normally correlates by firmware serial.
+
+        Args:
+            exc (Exception): The failure.
+            event (str): The log event.
+            path (str): The System's `@odata.id`.
+            system (dict[str, Any]): The System payload if it was read, else empty.
+
+        Returns:
+            ProviderServer | None: A `COLLECTION_ERROR` stub, or None.
+        """
+        system_id = path.removeprefix(_SYSTEMS_PREFIX)
+        name = str(system.get("Name") or system.get("Id") or system_id).strip() if system else None
+        model = system.get("Model")
+        uuid = system.get("UUID")
+        return self._contain_server_failure(
+            exc,
+            event=event,
+            stage="reading the VM" if not system else "mapping the VM",
+            vendor=Vendor.KUBEVIRT.value,
+            external_id=external_id_for(self._netloc, str(system.get("@odata.id") or path)),
+            name=name or system_id,
+            serial=serial_of(system) if system else None,
+            model=model.strip() if isinstance(model, str) and model.strip() else None,
+            manager_id=self._manager.id,
+            bmc_address_raw=f"redfish://{self._netloc}{path}",
+            system_uuid=uuid.strip() if isinstance(uuid, str) and uuid.strip() else None,
+            system=system_id,
+            path=path,
+        )
+
+    async def _collect_system(
+        self, client: Any, path: str, seen: dict[str, Any] | None = None
+    ) -> ProviderServer:
         """
         Read one System and its sub-resources and map them.
 
         Args:
             client (Any): An open client.
             path (str): The System's `@odata.id`.
+            seen (dict[str, Any] | None): Receives the System payload once read, so a
+                caller can identify the VM when a later step fails.
 
         Returns:
             ProviderServer: The VM.
@@ -288,6 +443,8 @@ class KubeVirtProvider(ServerInventoryProvider):
             RedfishError: The System itself could not be read.
         """
         system = await client.get(path)
+        if seen is not None:
+            seen.update(system)
         processors = None
         if not isinstance(system.get("ProcessorSummary"), dict):
             processors = await self._optional(client, system, "Processors")
@@ -300,7 +457,7 @@ class KubeVirtProvider(ServerInventoryProvider):
             processors=processors,
             memory=await self._optional(client, system, "Memory"),
             storage=storage,
-            drives=await self._drives(client, storage),
+            drives=await self._drives(client, storage, system),
             interfaces=await self._optional(client, system, "EthernetInterfaces"),
         )
 
@@ -326,12 +483,17 @@ class KubeVirtProvider(ServerInventoryProvider):
             return await client.get_collection(validate_odata_id(path))
         except (RedfishForbiddenError, RedfishProtocolError, RedfishUnreachableError) as exc:
             logger.warning(
-                "kubevirt.resource_skipped", system=system.get("Id"), resource=key, error=str(exc)
+                "kubevirt.resource_skipped",
+                system=system.get("Id"),
+                system_path=system.get("@odata.id"),
+                resource=key,
+                path=str(path)[:200],
+                error=str(exc),
             )
             return None
 
     async def _drives(
-        self, client: Any, storage: list[dict[str, Any]] | None
+        self, client: Any, storage: list[dict[str, Any]] | None, system: dict[str, Any]
     ) -> list[dict[str, Any]] | None:
         """
         Read every Drive the Storage members link to.
@@ -339,6 +501,7 @@ class KubeVirtProvider(ServerInventoryProvider):
         Args:
             client (Any): An open client.
             storage (list[dict[str, Any]] | None): `Storage` members, or None.
+            system (dict[str, Any]): The owning System, for log fields.
 
         Returns:
             list[dict[str, Any]] | None: Every drive, or None when storage was
@@ -348,7 +511,17 @@ class KubeVirtProvider(ServerInventoryProvider):
             return None
         drives: dict[str, dict[str, Any]] = {}
         for member in storage:
-            for link in member.get("Drives") or []:
+            links = member.get("Drives")
+            if links is not None and not isinstance(links, list):
+                logger.warning(
+                    "kubevirt.drive_skipped",
+                    system=system.get("Id"),
+                    storage=member.get("Id"),
+                    path=system.get("@odata.id"),
+                    error="Drives is not a list",
+                )
+                return None
+            for link in links or []:
                 if not isinstance(link, dict):
                     continue
                 try:
@@ -361,7 +534,11 @@ class KubeVirtProvider(ServerInventoryProvider):
                     RedfishUnreachableError,
                 ) as exc:
                     logger.warning(
-                        "kubevirt.drive_skipped", system=member.get("Id"), error=str(exc)
+                        "kubevirt.drive_skipped",
+                        system=system.get("Id"),
+                        storage=member.get("Id"),
+                        path=str(link.get("@odata.id"))[:200],
+                        error=str(exc),
                     )
                     return None
         return list(drives.values())

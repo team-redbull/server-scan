@@ -25,12 +25,37 @@ never by re-running `_list_servers()` and filtering.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import dataclass, field
 
-from app.domain.enums import UnreachableReason
+import structlog
+
+from app.domain.enums import ManagerType, UnreachableReason
+
+logger = structlog.get_logger(__name__)
+
+_FAILURE_TEXT_LIMIT = 400
+
+SERVER_FAILED_MARKER = " could not be collected at "
+
+_URL_USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s@]+@")
+_SECRET_PARAM = re.compile(r"(?i)([?&](?:password|passwd|pwd|token|secret|api[_-]?key)=)[^&\s]*")
+
+
+def redact_secrets(text: str) -> str:
+    """
+    Mask credentials a vendor or HTTP error may have echoed into its message.
+
+    Args:
+        text (str): An exception message or a stored failure detail.
+
+    Returns:
+        str: The text with URL user-info and secret-looking query values replaced by `***`.
+    """
+    return _SECRET_PARAM.sub(r"\1***", _URL_USERINFO.sub(r"\1***@", text))
 
 
 class NotThisManagersServerError(Exception):
@@ -110,6 +135,7 @@ class ProviderServer:
 
     reachable: bool = True  # False: identity known, BMC unreachable; every field below is None
     unreachable_reason: UnreachableReason | None = None
+    unreachable_detail: str | None = None  # operator-readable cause; set with `reachable=False`
 
     nic_macs: tuple[str, ...] | None = None
 
@@ -153,6 +179,70 @@ class ProviderServer:
     vm_host_node: str | None = None
 
 
+SYSTEMIC_FAILURE_MIN = 5
+SYSTEMIC_FAILURE_RATIO = 0.2
+
+
+def is_systemic_failure(failed: int, seen: int) -> bool:
+    """
+    Whether so many servers failed that the collector, not the servers, is at fault.
+
+    Args:
+        failed (int): Servers a run could not map (each became a stub or was dropped).
+        seen (int): Servers the run yielded, stubs included.
+
+    Returns:
+        bool: True when at least `SYSTEMIC_FAILURE_MIN` failed and they exceed
+            `SYSTEMIC_FAILURE_RATIO` of the fleet (ADR-0062).
+    """
+    return failed >= SYSTEMIC_FAILURE_MIN and failed > seen * SYSTEMIC_FAILURE_RATIO
+
+
+def failed_server(
+    *,
+    external_id: str,
+    vendor: str,
+    name: str,
+    detail: str,
+    serial: str | None = None,
+    model: str | None = None,
+    manager_id: str | None = None,
+    bmc_address_raw: str | None = None,
+    system_uuid: str | None = None,
+) -> ProviderServer:
+    """
+    Build the `reachable=False` stub for a server whose record could not be mapped.
+
+    Args:
+        external_id (str): The manager's id for the server.
+        vendor (str): A `Vendor` value.
+        name (str): The server's name as far as it could be read.
+        detail (str): Why, in words, shown to the operator.
+        serial (str | None): The hardware serial; ingest correlates on it.
+        model (str | None): The model, when readable.
+        manager_id (str | None): The owning manager.
+        bmc_address_raw (str | None): The BMC address, when readable.
+        system_uuid (str | None): The system UUID, when readable.
+
+    Returns:
+        ProviderServer: Identity only; every other field is `None`, so ingest
+            carries the stored values forward.
+    """
+    return ProviderServer(
+        external_id=external_id,
+        vendor=vendor,
+        name=name,
+        model=model,
+        serial=serial,
+        system_uuid=system_uuid,
+        reachable=False,
+        unreachable_reason=UnreachableReason.COLLECTION_ERROR,
+        unreachable_detail=detail,
+        bmc_address_raw=bmc_address_raw,
+        manager_id=manager_id,
+    )
+
+
 class ServerInventoryProvider(ABC):
     """
     The lifecycle every vendor collector implements.
@@ -164,8 +254,105 @@ class ServerInventoryProvider(ABC):
     provider_type: str
 
     def __init__(self) -> None:
-        """Start this run's failure list empty."""
+        """Start this run's failure list and server counters empty."""
         self._collection_errors: list[str] = []
+        self._servers_seen = 0
+        self._server_failures = 0
+
+    @property
+    def servers_seen(self) -> int:
+        """
+        Servers this run yielded, failed-mapping stubs included.
+
+        Returns:
+            int: The count since `collect()` last started.
+        """
+        return self._servers_seen
+
+    @property
+    def server_failures(self) -> int:
+        """
+        Servers this run could not map, whether they became a stub or were dropped.
+
+        Returns:
+            int: The count since `collect()` last started.
+        """
+        return self._server_failures
+
+    def _contain_server_failure(
+        self,
+        exc: Exception,
+        *,
+        event: str,
+        stage: str,
+        vendor: str,
+        external_id: str | None,
+        name: str | None,
+        serial: str | None = None,
+        model: str | None = None,
+        manager_id: str | None = None,
+        bmc_address_raw: str | None = None,
+        system_uuid: str | None = None,
+        **context: object,
+    ) -> ProviderServer | None:
+        """
+        Log, record and count one server's failure, and build its stub.
+
+        Call it from an `except Exception` around one server's mapping and `yield`
+        the result unless it is `None` (no safe identity; ADR-0062).
+
+        Args:
+            exc (Exception): What the mapping raised.
+            event (str): The log event, `<vendor>.server_failed`.
+            stage (str): What was being done, e.g. `mapping hardware`.
+            vendor (str): A `Vendor` value for the stub.
+            external_id (str | None): The manager's id for the server, read from the raw record.
+            name (str | None): The server's name, when readable.
+            serial (str | None): The serial; without it only `REDFISH_STANDALONE` gets a stub.
+            model (str | None): The model, when readable.
+            manager_id (str | None): The owning manager.
+            bmc_address_raw (str | None): The BMC address, when readable.
+            system_uuid (str | None): The system UUID, when readable.
+            **context (object): Extra log fields (endpoint, dn, uri, host).
+
+        Returns:
+            ProviderServer | None: A `reachable=False` stub carrying the cause, or `None`
+                when no safe identity exists.
+        """
+        error = redact_secrets(f"{type(exc).__name__}: {exc}")[:_FAILURE_TEXT_LIMIT]
+        label = name or external_id or "<unidentified server>"
+        logger.error(
+            event,
+            exc_info=exc,
+            stage=stage,
+            vendor=vendor,
+            external_id=external_id,
+            name=name,
+            serial=serial,
+            manager_id=manager_id,
+            error=error,
+            **context,
+        )
+        self._server_failures += 1
+        self._record_error(
+            f"{label} (id {external_id}, serial {serial}){SERVER_FAILED_MARKER}{stage}: {error}"
+        )
+        if not external_id or (
+            not serial and self.provider_type != ManagerType.REDFISH_STANDALONE.value
+        ):
+            self._servers_seen += 1  # nothing is yielded, but the unit was attempted
+            return None
+        return failed_server(
+            external_id=external_id,
+            vendor=vendor,
+            name=label,
+            detail=f"{stage}: {error}",
+            serial=serial,
+            model=model,
+            manager_id=manager_id,
+            bmc_address_raw=bmc_address_raw,
+            system_uuid=system_uuid,
+        )
 
     @property
     def collection_errors(self) -> tuple[str, ...]:
@@ -202,8 +389,11 @@ class ServerInventoryProvider(ABC):
             ProviderServer: Each server `_list_servers()` produces.
         """
         self._collection_errors = []
+        self._servers_seen = 0
+        self._server_failures = 0
         async with aclosing(self._list_servers()) as stream:
             async for server in stream:
+                self._servers_seen += 1
                 yield server
 
     @abstractmethod

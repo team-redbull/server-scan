@@ -174,6 +174,8 @@ class OmeIdentity:
         refused_target (str | None): The display name OME gave as the target when the device
             has no `DeviceManagement` address and that name is not an IP (an OS hostname such as
             `MINWINPC`). It is never dialled: the server is recorded `not_an_idrac` instead.
+        profile_id (str | None): The OME profile's own id, for a unique stub id.
+        device_id (str | None): The OME device's own id, for the same reason.
     """
 
     name: str
@@ -184,6 +186,8 @@ class OmeIdentity:
     profile_template_external_id: str | None
     bmc_address_raw: str | None
     refused_target: str | None = None
+    profile_id: str | None = None
+    device_id: str | None = None
 
 
 def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) -> OmeIdentity:
@@ -225,4 +229,6 @@ def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) ->
         profile_template_external_id=_opt_str(profile.get("TemplateId")) or "",
         bmc_address_raw=idrac_bmc_address(idrac_ip),
         refused_target=refused_target,
+        profile_id=_opt_str(profile.get("Id")),
+        device_id=_opt_str(device.get("Id")),
     )

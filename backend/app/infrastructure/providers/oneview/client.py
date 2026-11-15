@@ -46,8 +46,19 @@ class OneViewConnectionError(Exception):
     Any failure talking to a OneView appliance.
 
     Rejected credentials, a non-2xx response, or an unreachable appliance
-    — one exception type per vendor.
+    — one exception type per vendor. `status_code` marks a non-2xx answer.
     """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        """
+        Build the error.
+
+        Args:
+            message (str): What failed.
+            status_code (int | None): The HTTP status, when the appliance answered.
+        """
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class OneViewClient:
@@ -422,7 +433,8 @@ class OneViewClient:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise OneViewConnectionError(
-                f"OneView {method} {path} on {self._endpoint} failed ({exc.response.status_code})."
+                f"OneView {method} {path} on {self._endpoint} failed ({exc.response.status_code}).",
+                status_code=exc.response.status_code,
             ) from exc
         except httpx.HTTPError as exc:
             raise OneViewConnectionError(

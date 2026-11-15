@@ -80,7 +80,9 @@ is reachable.
 * **32 servers have an unreachable BMC, and all of them read `CRITICAL`.**
   About 4% of the OpenManage (10), standalone Redfish (12) and OneView (10)
   servers carry an `unreachable_reason`, which the `bmc` category's
-  `bmc.unreachable` policy turns into CRITICAL (ADR-0037). The 13 servers
+  `bmc.unreachable` policy turns into CRITICAL (ADR-0037). The fake gives its
+  unreachable stubs (not the OneView ones) an `unreachable_detail` text but never
+  seeds `COLLECTION_ERROR` (ADR-0062). The 13 servers
   `UNKNOWN` overall are those 8 Intersight servers and the 5 stopped VMs;
   before 2026-10-01 the ten unreachable OpenManage ones were too, since no
   hardware field was read and a category

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import random
 import ssl
+from collections.abc import Callable
 from types import TracebackType
 from typing import Any, Self
 from urllib.parse import urlsplit
@@ -287,22 +288,35 @@ class KubeVirtClient:
             logger.debug("kubevirt.http", origin=self._origin, path=path, status=status)
 
 
-def member_links(collection: dict[str, Any]) -> list[str]:
+def member_links(
+    collection: dict[str, Any], on_bad_link: Callable[[object, str], None] | None = None
+) -> list[str]:
     """
     The validated `Members[].@odata.id` of a collection payload.
 
     Args:
         collection (dict[str, Any]): A Redfish collection.
+        on_bad_link (Callable[[object, str], None] | None): Called with the link and the
+            reason for each rejected member, which is then skipped; None makes it raise.
 
     Returns:
-        list[str]: Each member's path; a malformed entry is skipped.
+        list[str]: Each member's path.
 
     Raises:
-        RedfishProtocolError: If a member link points outside `/redfish/v1`.
+        RedfishProtocolError: A link points outside `/redfish/v1` and no callback was given.
     """
     members = collection.get("Members")
-    return [
-        validate_odata_id(member["@odata.id"])
-        for member in (members if isinstance(members, list) else [])
-        if isinstance(member, dict) and member.get("@odata.id")
-    ]
+    links: list[str] = []
+    for member in members if isinstance(members, list) else []:
+        if not isinstance(member, dict) or not member.get("@odata.id"):
+            continue
+        try:
+            links.append(validate_odata_id(member["@odata.id"]))
+        except RedfishProtocolError as exc:
+            if on_bad_link is None:
+                raise
+            logger.warning(
+                "kubevirt.member_link_skipped", link=str(member["@odata.id"])[:200], error=str(exc)
+            )
+            on_bad_link(member["@odata.id"], str(exc))
+    return links

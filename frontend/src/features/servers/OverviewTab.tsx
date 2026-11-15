@@ -133,14 +133,21 @@ export function OverviewTab({ server }: OverviewTabProps) {
           <Field
             label="Collection"
             value={
-              <Badge tone="warning">
-                {server.unreachable_reason
-                  ? UNREACHABLE_LABELS[server.unreachable_reason]
-                  : "Unreachable"}
-                {server.unreachable_since
-                  ? ` since ${formatTimestamp(server.unreachable_since)}`
-                  : ""}
-              </Badge>
+              <span className="flex flex-col items-start gap-1">
+                <Badge tone="warning">
+                  {server.unreachable_reason
+                    ? UNREACHABLE_LABELS[server.unreachable_reason]
+                    : "Unreachable"}
+                  {server.unreachable_since
+                    ? ` since ${formatTimestamp(server.unreachable_since)}`
+                    : ""}
+                </Badge>
+                {server.unreachable_detail && (
+                  <span className="break-words text-[var(--text-secondary)]">
+                    {server.unreachable_detail}
+                  </span>
+                )}
+              </span>
             }
           />
         )}
@@ -278,6 +285,7 @@ const UNREACHABLE_LABELS: Record<UnreachableReason, string> = {
   timeout: "Timed out",
   protocol_error: "Protocol error",
   not_an_idrac: "Not an iDRAC",
+  collection_error: "Collection error",
 };
 
 /** The categories behind "Overall health"; `overall` has its own field. */

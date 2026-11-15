@@ -7,9 +7,15 @@ from collections.abc import AsyncGenerator, Callable
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from app.domain.enums import ManagerType, UnreachableReason
-from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    SERVER_FAILED_MARKER,
+    ProviderServer,
+    ServerIdentity,
+    ServerInventoryProvider,
+)
 from app.infrastructure.bmc_probe import BmcProbe, BmcProbedProvider
 from app.infrastructure.providers.factory import PROVIDER_FACTORIES
 
@@ -224,3 +230,178 @@ def test_only_oneview_factory_wraps() -> None:
     for manager_type, factory in PROVIDER_FACTORIES.items():
         if manager_type is not ManagerType.ONEVIEW:
             assert "BmcProbedProvider" not in inspect.getsource(factory)
+
+
+class _Exploding(ServerInventoryProvider):
+    """Yields servers, then raises, to test the mid-batch flush."""
+
+    provider_type = "ONEVIEW"
+
+    def __init__(self, servers: list[ProviderServer]) -> None:
+        """
+        Args:
+            servers (list[ProviderServer]): Yielded before the failure.
+        """
+        super().__init__()
+        self._servers = servers
+
+    async def health_check(self) -> None:
+        """Always healthy."""
+
+    async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
+        """
+        Not used.
+
+        Args:
+            identity (ServerIdentity): Ignored.
+
+        Returns:
+            ProviderServer | None: Always `None`.
+        """
+        return None
+
+    async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
+        """
+        Yield the servers, then fail.
+
+        Yields:
+            ProviderServer: Each server.
+
+        Raises:
+            RuntimeError: After the last server.
+        """
+        for server in self._servers:
+            yield server
+        raise RuntimeError("inner broke")
+
+
+async def test_inner_failure_still_flushes_the_buffered_batch() -> None:
+    """Already-mapped servers are probed and yielded before the error propagates."""
+    wrapper = BmcProbedProvider(
+        _Exploding([_server("a", "ipmi://10.0.0.1"), _server("b", "ipmi://10.0.0.9")]),
+        transport=_transport_by_host(),
+    )
+    out: list[ProviderServer] = []
+    with pytest.raises(RuntimeError, match="inner broke"):
+        async for server in wrapper.collect():
+            out.append(server)  # noqa: PERF401 - the iteration raises midway
+    assert [s.name for s in out] == ["a", "b"]
+    assert [s.reachable for s in out] == [True, False]
+
+
+async def test_a_server_whose_probe_step_raises_keeps_its_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One probe-step crash marks that server COLLECTION_ERROR; the others are stamped."""
+    real = BmcProbe.probe
+
+    async def flaky(self: BmcProbe, host: str, port: int = 443) -> tuple[bool, None]:
+        """
+        Probe, except host 10.0.0.2.
+
+        Args:
+            self (BmcProbe): The probe.
+            host (str): The host.
+            port (int): The port.
+
+        Returns:
+            tuple[bool, None]: The real result.
+
+        Raises:
+            RuntimeError: For 10.0.0.2.
+        """
+        if host == "10.0.0.2":
+            raise RuntimeError("probe blew up")
+        return await real(self, host, port)  # ty: ignore[invalid-return-type]
+
+    monkeypatch.setattr(BmcProbe, "probe", flaky)
+    servers = [_server(n, f"ipmi://10.0.0.{i}") for i, n in enumerate("abc", 1)]
+    wrapper = BmcProbedProvider(_Inner(servers), transport=_transport_by_host())
+    with capture_logs() as logs:
+        out = [s async for s in wrapper.collect()]
+    assert [s.name for s in out] == ["a", "b", "c"]
+    assert [s.reachable for s in out] == [True, False, True]
+    assert out[1].unreachable_reason is UnreachableReason.COLLECTION_ERROR
+    assert out[1].unreachable_detail is not None
+    assert "RuntimeError: probe blew up" in out[1].unreachable_detail
+    event = next(e for e in logs if e["event"] == "bmc_probe.server_failed")
+    assert event["server"] == "b"
+    assert event["error"] == "probe blew up"
+
+
+async def test_invalid_host_is_a_collection_error_not_a_network_fault() -> None:
+    """A malformed host (httpx.InvalidURL) is classified COLLECTION_ERROR with a detail."""
+    async with BmcProbe(transport=_raising(httpx.InvalidURL("bad host"))) as probe:
+        assert await probe.probe("10.0.0.1") == (False, UnreachableReason.COLLECTION_ERROR)
+    wrapper = BmcProbedProvider(
+        _Inner([_server("a", "ipmi://10.0.0.1")]),
+        transport=_raising(httpx.InvalidURL("bad host")),
+    )
+    result = await wrapper.get_one(ServerIdentity())
+    assert result is not None
+    assert result.unreachable_reason is UnreachableReason.COLLECTION_ERROR
+    assert result.unreachable_detail is not None
+
+
+async def test_a_bad_bracket_address_does_not_raise() -> None:
+    """An unparseable address leaves the server unprobed instead of raising."""
+    wrapper = BmcProbedProvider(
+        _Inner([_server("a", "https://[::1")]), transport=_transport_by_host()
+    )
+    out = [s async for s in wrapper.collect()]
+    assert [s.name for s in out] == ["a"]
+
+
+async def test_an_unexpected_probe_exception_is_a_collection_error_logged_at_error() -> None:
+    """Not NETWORK_UNREACHABLE: a bug in the probe must not look like a dead BMC."""
+    async with BmcProbe(transport=_raising(RuntimeError("weird"))) as probe:
+        with capture_logs() as logs:
+            result = await probe.probe("10.0.0.1")
+    assert result == (False, UnreachableReason.COLLECTION_ERROR)
+    event = next(e for e in logs if e["event"] == "bmc_probe.unexpected_error")
+    assert event["log_level"] == "error"
+    assert event["error"] == "weird"
+
+
+class _Counted(_Inner):
+    """An inner collector that already failed 3 of 7 servers itself."""
+
+    async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
+        """
+        Yield the servers after faking the inner counters.
+
+        Yields:
+            ProviderServer: Each server.
+        """
+        self._server_failures = 3
+        self._servers_seen = 7
+        async for server in super()._list_servers():
+            yield server
+
+
+async def test_the_wrapper_adds_its_own_probe_failures_to_the_inner_counts() -> None:
+    """`server_failures` and `collection_errors` are inner plus own; each own one is marked."""
+    inner = _Counted([_server("a", "ipmi://10.0.0.1"), _server("b", "ipmi://10.0.0.2")])
+    wrapper = BmcProbedProvider(inner, transport=_raising(httpx.InvalidURL("bad host")))
+
+    out = [s async for s in wrapper.collect()]
+
+    assert [s.unreachable_reason for s in out] == [UnreachableReason.COLLECTION_ERROR] * 2
+    assert wrapper.servers_seen == inner.servers_seen
+    assert inner.server_failures == 3
+    assert wrapper.server_failures == 5
+    own = wrapper.collection_errors[len(inner.collection_errors) :]
+    assert len(own) == 2
+    assert all(SERVER_FAILED_MARKER in m and "probing its BMC" in m for m in own)
+    assert wrapper.collection_errors[0] == "slice lost"
+    assert len(wrapper.collection_errors) == len(inner.collection_errors) + 2
+
+
+async def test_the_inner_counters_pass_through_with_no_probe_failure() -> None:
+    inner = _Counted([_server("a", "ipmi://10.0.0.1")])
+    wrapper = BmcProbedProvider(inner, transport=_transport_by_host())
+
+    [s async for s in wrapper.collect()]
+
+    assert (wrapper.servers_seen, wrapper.server_failures) == (inner.servers_seen, 3)
+    assert wrapper.collection_errors == ("slice lost",)

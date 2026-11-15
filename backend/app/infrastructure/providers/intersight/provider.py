@@ -15,19 +15,19 @@ would make one document's fields flip on every run. ADR-0017,
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
 from typing import Any
 
 import structlog
 
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.infrastructure.providers.intersight import mapping
 from app.infrastructure.providers.intersight.client import (
     IntersightClient,
-    IntersightError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -148,6 +148,23 @@ def _group_by(
     return grouped
 
 
+def _safe_name(summary: Mapping[str, Any], profile: Mapping[str, Any] | None) -> str | None:
+    """
+    The server's name for a failure record; never raises.
+
+    Args:
+        summary (Mapping[str, Any]): A `compute.PhysicalSummary`.
+        profile (Mapping[str, Any] | None): Its server profile, when it has one.
+
+    Returns:
+        str | None: What `mapping.server_name` gives, else the summary's own `Name`.
+    """
+    try:
+        return mapping.server_name(summary, profile)
+    except Exception:
+        return mapping._text(summary.get("Name"))
+
+
 class _Joins:
     """
     Every sub-resource table one run collected, keyed by server `Moid`.
@@ -243,6 +260,8 @@ class IntersightProvider(ServerInventoryProvider):
         self._page_size = page_size
         self._modes = tuple(management_modes)
         self._run_budget_seconds = run_budget_seconds
+        self._table_failures = 0
+        self._budget_errors = 0
         self._debug_http = debug_http
         self._client_factory = client_factory
 
@@ -310,7 +329,7 @@ class IntersightProvider(ServerInventoryProvider):
         filter_expr = (
             f"Serial eq '{_odata_literal(identity.serial)}'"
             if identity.serial
-            else f"Moid eq '{moid_hint}'"
+            else f"Moid eq '{_odata_literal(moid_hint)}'"
             if moid_hint
             else None
         )
@@ -429,7 +448,9 @@ class IntersightProvider(ServerInventoryProvider):
                     client,
                     "management/Interfaces",
                     select=_MGMT_INTERFACE_FIELDS,
-                    filter_expr=f"ManagementController.Moid eq '{mgmt_controller['Moid']}'",
+                    filter_expr=(
+                        f"ManagementController.Moid eq '{_odata_literal(mgmt_controller['Moid'])}'"
+                    ),
                 )
 
             return mapping.to_provider_server(
@@ -515,8 +536,11 @@ class IntersightProvider(ServerInventoryProvider):
         Returns:
             Mapping[str, Any] | None: The first matching row, or `None`.
         """
-        async for row in client.list_all(resource, select=select, filter_expr=filter_expr):
-            return row
+        async with contextlib.aclosing(
+            client.list_all(resource, select=select, filter_expr=filter_expr)
+        ) as rows:
+            async for row in rows:
+                return row
         return None
 
     @staticmethod
@@ -575,11 +599,27 @@ class IntersightProvider(ServerInventoryProvider):
         """
         try:
             return [row async for row in client.list_all(resource, select=select)]
-        except IntersightError as exc:
-            message = f"{resource}: {exc}"
-            self._record_error(message)
-            logger.warning("intersight.subresource_failed", resource=resource, error=str(exc))
+        except Exception as exc:
+            self._table_failures += 1
+            self._record_error(f"{resource}: {type(exc).__name__}: {exc}")
+            logger.warning(
+                "intersight.subresource_failed",
+                resource=resource,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             return None
+
+    def _note_skipped(self, tables: Iterable[str], *, parent: str) -> None:
+        """
+        Record the tables left unread because the table they join through failed.
+
+        Args:
+            tables (Iterable[str]): The skipped resources.
+            parent (str): The failed resource they depend on.
+        """
+        for table in tables:
+            self._record_error(f"{table}: not read because its parent table {parent} failed")
 
     def _over_budget(self, started: float) -> bool:
         """
@@ -624,6 +664,8 @@ class IntersightProvider(ServerInventoryProvider):
             joins.templates = {
                 str(t.get("Moid")): t for t in templates or () if t.get("Moid") is not None
             }
+        else:
+            self._note_skipped(["server/ProfileTemplates"], parent="server/Profiles")
 
         if self._over_budget(started):
             self._note_budget_exhausted(phase="after reading server profiles")
@@ -662,6 +704,10 @@ class IntersightProvider(ServerInventoryProvider):
             )
             if host is not None:
                 joins.host_interfaces = _group_by(host, by_adapter)
+        else:
+            self._note_skipped(
+                ["adapter/ExtEthInterfaces", "adapter/HostEthInterfaces"], parent="adapter/Units"
+            )
 
         if self._over_budget(started):
             self._note_budget_exhausted(phase="after reading adapter interfaces")
@@ -685,6 +731,16 @@ class IntersightProvider(ServerInventoryProvider):
         # With the boards unread, `_owning_server` finds no owner for them, which would read as
         # "this server has none" and wipe stored drives/GPUs, so those joins stay unread (None).
         board_joins_ok = boards is not None
+        if not board_joins_ok:
+            self._note_skipped(
+                [
+                    "storage/Controllers",
+                    "storage/PhysicalDisks",
+                    "graphics/Cards",
+                    "processor/Units",
+                ],
+                parent="compute/Boards",
+            )
         controllers = (
             await self._collect_table(
                 client, "storage/Controllers", select=_STORAGE_CONTROLLER_FIELDS
@@ -706,6 +762,8 @@ class IntersightProvider(ServerInventoryProvider):
                         mapping.moref(d.get("StorageController")) or ""
                     ),
                 )
+        elif board_joins_ok:
+            self._note_skipped(["storage/PhysicalDisks"], parent="storage/Controllers")
 
         if self._over_budget(started):
             self._note_budget_exhausted(phase="after reading storage")
@@ -755,6 +813,8 @@ class IntersightProvider(ServerInventoryProvider):
                         ),
                     ).items()
                 }
+        else:
+            self._note_skipped(["management/Interfaces"], parent="management/Controllers")
 
         return joins
 
@@ -768,6 +828,7 @@ class IntersightProvider(ServerInventoryProvider):
         Args:
             phase (str): What the run had reached when the budget went.
         """
+        self._budget_errors += 1
         message = f"run budget of {self._run_budget_seconds:.0f}s exhausted {phase}"
         self._record_error(message)
         logger.warning("intersight.run_budget_exhausted", phase=phase)
@@ -786,6 +847,8 @@ class IntersightProvider(ServerInventoryProvider):
             IntersightError: If the server list itself could not be read.
         """
         started = time.monotonic()
+        self._table_failures = 0
+        self._budget_errors = 0
         client = self._new_client()
         try:
             joins = await self._build_joins(client, started=started)
@@ -804,6 +867,17 @@ class IntersightProvider(ServerInventoryProvider):
 
                 moid = str(summary.get("Moid") or "")
                 if not moid:
+                    logger.error(
+                        "intersight.summary_without_moid",
+                        serial=mapping._text(summary.get("Serial")),
+                        name=mapping._text(summary.get("Name")),
+                        dn=mapping._text(summary.get("Dn")),
+                    )
+                    self._record_error(
+                        "a compute/PhysicalSummaries row has no Moid and was skipped "
+                        f"(serial {mapping._text(summary.get('Serial'))}, "
+                        f"name {mapping._text(summary.get('Name'))})"
+                    )
                     continue
                 profile = joins.profiles.get(moid) if joins.profiles is not None else None
                 template = None
@@ -816,29 +890,49 @@ class IntersightProvider(ServerInventoryProvider):
                 no_template = joins.profiles is not None and not template_moid
 
                 collected += 1
-                yield mapping.to_provider_server(
-                    summary,
-                    provider_type=self.provider_type,
-                    manager_id=self._manager.id,
-                    profile=profile,
-                    template=template,
-                    no_template=no_template,
-                    ext_interfaces=joins.for_server(moid, joins.ext_interfaces),
-                    host_interfaces=joins.for_server(moid, joins.host_interfaces),
-                    disks=joins.for_server(moid, joins.disks),
-                    cards=joins.for_server(moid, joins.cards),
-                    processors=joins.for_server(moid, joins.processors),
-                    psus=joins.for_server(moid, joins.psus),
-                    management_interface=(
-                        joins.management.get(moid) if joins.management is not None else None
-                    ),
-                )
+                try:
+                    server = mapping.to_provider_server(
+                        summary,
+                        provider_type=self.provider_type,
+                        manager_id=self._manager.id,
+                        profile=profile,
+                        template=template,
+                        no_template=no_template,
+                        ext_interfaces=joins.for_server(moid, joins.ext_interfaces),
+                        host_interfaces=joins.for_server(moid, joins.host_interfaces),
+                        disks=joins.for_server(moid, joins.disks),
+                        cards=joins.for_server(moid, joins.cards),
+                        processors=joins.for_server(moid, joins.processors),
+                        psus=joins.for_server(moid, joins.psus),
+                        management_interface=(
+                            joins.management.get(moid) if joins.management is not None else None
+                        ),
+                    )
+                except Exception as exc:
+                    stub = self._contain_server_failure(
+                        exc,
+                        event="intersight.server_failed",
+                        stage="mapping the server summary",
+                        vendor=Vendor.CISCO.value,
+                        external_id=mapping.external_id(summary),
+                        name=_safe_name(summary, profile),
+                        serial=mapping._text(summary.get("Serial")),
+                        model=mapping._text(summary.get("Model")),
+                        manager_id=self._manager.id,
+                        moid=moid,
+                    )
+                    if stub is not None:
+                        yield stub
+                    continue
+                yield server
 
             logger.info(
                 "intersight.run_summary",
                 collected=collected,
                 modes=list(self._modes),
-                unreadable_subresources=len(self._collection_errors),
+                unreadable_subresources=self._table_failures,
+                budget_errors=self._budget_errors,
+                server_failures=self.server_failures,
             )
         finally:
             await client.aclose()

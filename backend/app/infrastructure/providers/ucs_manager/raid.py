@@ -105,12 +105,16 @@ def _volume(virtual_drive: Any) -> dict[str, object]:
     Returns:
         dict[str, object]: Keys mirror `hardware.StorageVolume`.
     """
-    size_mb = str(getattr(virtual_drive, "size", "") or "")
+    try:
+        megabytes = int(str(getattr(virtual_drive, "size", "") or ""))
+    except ValueError:
+        megabytes = -1
+    capacity_bytes: int | None = megabytes * _BYTES_PER_MB if megabytes >= 0 else None
     return {
         "id": str(getattr(virtual_drive, "dn", "") or "").rsplit("/", 1)[-1],
         "raid_type": raid_type(virtual_drive),
         "volume_type": str(getattr(virtual_drive, "type", "") or "") or None,
-        "capacity_bytes": int(size_mb) * _BYTES_PER_MB if size_mb.isdigit() else None,
+        "capacity_bytes": capacity_bytes,
         "health": _VD_HEALTH.get(str(getattr(virtual_drive, "drive_state", "") or "").lower()),
     }
 
@@ -146,6 +150,7 @@ def assess_ucs_raid(
             `RaidCheck` dict. A mirror anywhere is `PRESENT` (health of its legs is the storage
             category's job); `ABSENT` needs a RAID-capable controller and no mirror.
     """
+    controllers = [c for c in controllers if str(getattr(c, "dn", "") or "")]
     controller_dns = [str(c.dn) for c in controllers]
     vds_by_controller: dict[str, list[Any]] = {dn: [] for dn in controller_dns}
     for vd in virtual_drives:

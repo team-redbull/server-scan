@@ -57,9 +57,20 @@ found at least one defect the contract alone could not (ADR-0009/0014,
   per-host failure (dead, rejected login, TLS, budget, protocol); a
   standalone stub has `serial=None` and is matched at ingest by
   `(source_provider, BMC host)`. `ONEVIEW` gets it from an unauthenticated
-  `GET /redfish/v1` probe (`bmc_probe.py`). `KUBEVIRT` never writes it (the
-  "BMC" is the shared facade). It drives the `bmc` health category. A server a manager still lists keeps `listed_at` fresh even
+  `GET /redfish/v1` probe (`bmc_probe.py`). `KUBEVIRT` writes it only for a VM that failed to map (the
+  "BMC" is the shared facade, see ADR-0062). It drives the `bmc` health category. A server a manager still lists keeps `listed_at` fresh even
   while unreachable; pruning reads `listed_at`, never `last_seen_at`.
+- **One bad server never aborts anything but itself** (ADR-0062). A provider's per-server mapping runs in
+  `try/except Exception` and calls `ServerInventoryProvider._contain_server_failure(...)` (log
+  `<vendor>.server_failed` with name/id/serial/stage/endpoint + traceback, `_record_error`, count), then
+  yields the `reachable=False` stub it returns (`unreachable_reason=COLLECTION_ERROR`, `unreachable_detail` = the
+  cause). Read the identity from the **raw** record before mapping, never from the mapper. **A stub needs a real
+  serial** (a serial-less record is a new document at ingest; only `REDFISH_STANDALONE` matches by BMC host): with
+  none the helper returns `None` and the failure is only logged and recorded. The recorded message must contain neither
+  benign marker, or the run exits 0. **Exit 3 normally; exit 1 when at least 5 and over 20 % of the servers failed**
+  (`is_systemic_failure`). A wrapper provider must delegate `servers_seen`/`server_failures`; a provider that wraps
+  engines (UCS Central over UCS Manager, OpenManage over Redfish) merges their errors and failure counts. A bulk
+  step or a generator-level failure still aborts (it has no per-server unit); `parse_bmc_address` never raises.
 - **No `site_id`** — parsed from the name at ingest. **`nic_macs` is the
   minimum; `nics` the richer view.** `interface_kind` is `PHYSICAL` or
   `VNIC`; only PHYSICAL counts as a fabric path.
@@ -196,8 +207,9 @@ the global and filter on the override, silently.
   not zero.
 - **`KUBEVIRT`** (ADR-0058, `docs/kubevirt-collectors.md`): HTTP Basic, no sessions, so not
   `RedfishClient`. The facade blocks an IP after 10 failed logins in 5 minutes: a 401 is never
-  retried, and `health_check` reads only the open service root. **No `reachable=False` stub**
-  (the BMC is the shared facade). A stopped VM's links are `UNKNOWN`, never `DOWN`. Serial is
+  retried, and `health_check` reads only the open service root. **A `reachable=False` stub only for a VM
+  whose System was read and then failed to map** (ADR-0062: `COLLECTION_ERROR`, keyed by `serial_of`; a vanished
+  VM, a timeout and a rejected login never make one; the BMC is the shared facade). A stopped VM's links are `UNKNOWN`, never `DOWN`. Serial is
   the VM's firmware serial, else the System `Id`; KubeVirt writes a random `firmware.serial`
   into every VM, so recreating one from a manifest without its firmware block mints a new document.
   **`INVENTORY_KUBEVIRT_CLUSTER_NAME` is required** (it is the manager id, ADR-0060); `get_one` on

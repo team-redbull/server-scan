@@ -254,6 +254,9 @@ Since 2026-09-13 the platform serves **`GET /api/v1/servers/available`**
 Collector, storage/query and frontend traps live in `.claude/rules/`. The
 long form of each entry is in the 2026-09-13 archive.
 
+- **A provider's per-server mapping never aborts the run** (ADR-0062): wrap it in `try/except Exception`, call
+  `_contain_server_failure`, yield the `COLLECTION_ERROR` stub it returns. A stub needs a real serial (else it duplicates);
+  read identity from the raw record, never the mapper. Details: `.claude/rules/collectors.md`.
 - **`None` from a provider means "could not read this run"**, never zero; **"read, and nothing is there"
   must be sent as `()`/`0`/`""`** (template name/id) or a removed part or template stays forever (ADR-0016,
   2026-10-12: a server taken out of its SPT kept the old template).
@@ -485,18 +488,16 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-11 — a Confs tab: server configurations read from a `confs` collection (ADR-0061).**
-Moved to `docs/notes/session-log.md`: the collectors-chart unit (ADR-0060).
+**2026-11-15 — one failed server never aborts a run: a `COLLECTION_ERROR` stub with the cause (ADR-0062).**
+Moved to `docs/notes/session-log.md`: the Confs tab (ADR-0061).
 
-**Shipped (branch `feat/confs-tab`):** `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached, natural `conf_id`
-order); `Conf` reproduces the operator's schema field for field, `_id` never read, `conf_id` indexed non-unique, a malformed document
-skipped and named in `unreadable`; `/confs` page ("Confs" after "Servers") with search and expandable rows; 20 fake confs replaced by `conf_id`
-by `tools.seed_inventory` (`providers/fake/confs.py`). **`server_count` is not read** (operator, 2026-11-12): no
-field, no column; a stored one is ignored. **Revised the same day to the writer's second schema:** the name (`conf_name`, was `name`)
-is not read either (operator), so the table's column is Part number, "Unmapped" when `null`; new `gpu_vram_gb` (VRAM per GPU);
-`ram.total_gib` 0 shown as a failed scan; cache keys read as `l1/l2/l3` *or* `11/12/13` (`AliasChoices`). **Third schema, same
-day:** disks are `{count, type, capacity_tb}` (no model/protocol), adapters `{count, ports, speed}` (no model), GPUs grouped by
-model, no `detected` wrapper (one document per conf, confirmed).
+**Shipped:** every provider guards one server's mapping (`ServerInventoryProvider._contain_server_failure`: log
+`<vendor>.server_failed`, `_record_error`, count) and yields a `reachable=False` stub (`unreachable_reason=COLLECTION_ERROR`, new
+`unreachable_detail`, in `ServerSummary`/`ServerDetail`, the UI Overview and the skill docs) that carries the serial so ingest
+updates the same document. Exit 3, or exit 1 when at least 5 and over 20 % of the fleet failed (`is_systemic_failure`). Also:
+`parse_bmc_address` never raises, UCS Central keeps a failing domain's collected servers, Redfish drops only a bad
+`ComputerSystem`, the BMC probe never loses a batch, OneView `get_one` raises on anything but a 404, UCS `_as_int` returns `None`
+for an unreadable count, per-server log lines carry host/system/path, silent `get_one` `None`s are logged.
 
-**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); that adapter
-`speed` is Gb/s (the UI says so); whether `gpus: []` beside a non-zero `gpu_count` still occurs; a conf is not linked to a server.
+**Open:** `BmcProbedProvider` does not count its own probe failures in `server_failures`; `RedfishStandaloneProvider.get_one`
+can now return a `COLLECTION_ERROR` stub that `/servers/available` persists; the systemic threshold (5 / 20 %) is a judgment, not measured.

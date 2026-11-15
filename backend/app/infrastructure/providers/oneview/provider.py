@@ -43,7 +43,7 @@ from typing import Any
 
 import structlog
 
-from app.domain.enums import ManagerType
+from app.domain.enums import ManagerType, Vendor
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
@@ -58,6 +58,7 @@ from app.infrastructure.providers.oneview.mapping import (
     POWER_SUPPLIES,
     PROCESSORS,
     OneViewProfile,
+    _opt_str,
     ilo_generation,
     profile_from,
     server_from,
@@ -70,8 +71,24 @@ logger = structlog.get_logger(__name__)
 _PROVIDER_TYPE = ManagerType.ONEVIEW.value
 
 
+_SAMPLE_LIMIT = 5
+
+
+def _sample(items: list[str] | set[str] | dict[str, str]) -> list[str]:
+    """
+    Cap a list of identifiers for a log line.
+
+    Args:
+        items (list[str] | set[str] | dict[str, str]): Identifiers (a dict contributes its keys).
+
+    Returns:
+        list[str]: At most five, sorted.
+    """
+    return sorted(items)[:_SAMPLE_LIMIT]
+
+
 async def _fetch_subresource(
-    client: OneViewClient, uri: str, resource: str
+    client: OneViewClient, uri: str, resource: str, failures: dict[str, str] | None = None
 ) -> list[dict[str, Any]] | None:
     """
     Fetch one server's own per-server subresource collection, containing its failure.
@@ -82,6 +99,7 @@ async def _fetch_subresource(
         client (OneViewClient): The logged-in client.
         uri (str): The owning server-hardware URI.
         resource (str): `"powerSupplies"` or `"processors"`.
+        failures (dict[str, str] | None): Filled with `uri -> cause` when the read fails.
 
     Returns:
         list[dict[str, Any]] | None: The rows, or `None` if the call
@@ -92,10 +110,21 @@ async def _fetch_subresource(
         data = body.get("data")
         rows = data.get("Members") if isinstance(data, dict) else data
         if body.get("collectionState") != "Collected" or not isinstance(rows, list):
+            if failures is not None:
+                failures[uri] = f"collectionState={body.get('collectionState')}"
             return None
         return [row for row in rows if isinstance(row, dict)]
-    except Exception:
+    except Exception as exc:
         # Parse included on purpose — docs/hpe-collectors.md, "Power supplies".
+        logger.debug(
+            "oneview.subresource_failed",
+            uri=uri,
+            resource=resource,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        if failures is not None:
+            failures[uri] = type(exc).__name__
         return None
 
 
@@ -235,17 +264,15 @@ class OneViewProvider(ServerInventoryProvider):
         if not identity.external_id:
             return None
         async with self._client_factory() as client:
-            try:
-                hardware = await client.get_json(identity.external_id)
-            except OneViewConnectionError:
+            hardware = await self._get_or_none(client, identity.external_id)
+            if hardware is None:
                 return None
             hardware_uri = str(hardware.get("uri") or "")
             profile_uri = str(hardware.get("serverProfileUri") or "")
             if not hardware_uri or not profile_uri:
                 return None
-            try:
-                raw_profile = await client.get_json(profile_uri)
-            except OneViewConnectionError:
+            raw_profile = await self._get_or_none(client, profile_uri)
+            if raw_profile is None:
                 return None
 
             template_names: dict[str, str] = {}
@@ -253,7 +280,13 @@ class OneViewProvider(ServerInventoryProvider):
             if template_uri:
                 try:
                     template = await client.get_json(str(template_uri))
-                except OneViewConnectionError:
+                except OneViewConnectionError as exc:
+                    logger.warning(
+                        "oneview.template_unreadable",
+                        uri=str(template_uri),
+                        status=exc.status_code,
+                        error=str(exc),
+                    )
                     template = {}
                 name = template.get("name")
                 if name:
@@ -276,6 +309,31 @@ class OneViewProvider(ServerInventoryProvider):
             power_supplies=power_supplies,
             processors=processors,
         )
+
+    @staticmethod
+    async def _get_or_none(client: OneViewClient, uri: str) -> dict[str, Any] | None:
+        """
+        GET one URI; a 404 is "gone", anything else propagates.
+
+        Args:
+            client (OneViewClient): The logged-in client.
+            uri (str): The resource URI.
+
+        Returns:
+            dict[str, Any] | None: The body, or `None` on a 404.
+
+        Raises:
+            OneViewConnectionError: On any failure other than a 404.
+        """
+        try:
+            return await client.get_json(uri)
+        except OneViewConnectionError as exc:
+            if exc.status_code == 404:
+                return None
+            logger.warning(
+                "oneview.get_one_failed", uri=uri, status=exc.status_code, error=str(exc)
+            )
+            raise
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """
@@ -315,13 +373,34 @@ class OneViewProvider(ServerInventoryProvider):
             servers=len(matched),
         )
         for member, profile in matched:
-            yield server_from(
-                hardware=member,
-                profile=profile,
-                manager_id=self._manager.id,
-                power_supplies=power_supplies.get(str(member.get("uri") or "")),
-                processors=processors.get(str(member.get("uri") or "")),
-            )
+            uri = str(member.get("uri") or "")
+            try:
+                yield_server = server_from(
+                    hardware=member,
+                    profile=profile,
+                    manager_id=self._manager.id,
+                    power_supplies=power_supplies.get(uri),
+                    processors=processors.get(uri),
+                )
+            except Exception as exc:
+                stub = self._contain_server_failure(
+                    exc,
+                    event="oneview.server_failed",
+                    stage="mapping server hardware",
+                    vendor=Vendor.HP.value,
+                    external_id=uri or profile.uri,
+                    name=profile.name,
+                    serial=_opt_str(member.get("serialNumber")),
+                    model=_opt_str(member.get("model")),
+                    manager_id=self._manager.id,
+                    endpoint=self._endpoint,
+                    hardware_uri=uri,
+                    profile_name=profile.name,
+                )
+                if stub is not None:
+                    yield stub
+                continue
+            yield yield_server
 
     def _matched(
         self,
@@ -350,32 +429,57 @@ class OneViewProvider(ServerInventoryProvider):
             if uri and name
         }
         by_uri: dict[str, OneViewProfile] = {}
+        dropped: list[str] = []
+        duplicates: list[str] = []
         for raw in profiles:
             parsed = profile_from(raw, template_names=template_names)
-            if parsed is not None:
-                by_uri[parsed.uri] = parsed
+            if parsed is None:
+                dropped.append(str(raw.get("name") or raw.get("uri") or "<unnamed>"))
+                continue
+            if parsed.uri in by_uri:
+                duplicates.append(parsed.uri)
+            by_uri[parsed.uri] = parsed
+        if dropped:
+            logger.warning(
+                "oneview.profiles_dropped",
+                endpoint=self._endpoint,
+                profiles=len(dropped),
+                sample=_sample(dropped),
+                hint="A profile with no URI or no name cannot be joined to hardware.",
+            )
+        if duplicates:
+            logger.warning(
+                "oneview.profile_uri_duplicated",
+                endpoint=self._endpoint,
+                profiles=len(duplicates),
+                sample_uris=_sample(duplicates),
+                hint="Two profiles share a URI; the later one won.",
+            )
 
         matched: list[tuple[dict[str, Any], OneViewProfile]] = []
-        unassigned = 0
+        unassigned: list[str] = []
         filtered = 0
         unreadable: Counter[str] = Counter()
+        unreadable_uris: list[str] = []
         for member in hardware:
             profile = by_uri.get(str(member.get("serverProfileUri") or ""))
             if profile is None:
                 # No profile, no usable name — docs/hpe-collectors.md, "The name trap".
-                unassigned += 1
+                unassigned.append(str(member.get("uri") or member.get("serialNumber") or "?"))
                 continue
             if self._pattern is not None and not self._pattern.search(profile.name):
                 filtered += 1
                 continue
-            self._count_unreadable(member, unreadable)
+            if self._count_unreadable(member, unreadable):
+                unreadable_uris.append(str(member.get("uri") or member.get("serialNumber") or "?"))
             matched.append((member, profile))
 
         if unassigned:
             logger.info(
                 "oneview.hardware_without_profile",
                 endpoint=self._endpoint,
-                servers=unassigned,
+                servers=len(unassigned),
+                sample=_sample(unassigned),
                 hint=(
                     "Server hardware with no assigned server profile has no "
                     "operator-assigned name and was not collected."
@@ -390,6 +494,7 @@ class OneViewProvider(ServerInventoryProvider):
                 endpoint=self._endpoint,
                 servers=sum(unreadable.values()),
                 by_state_and_generation=dict(unreadable),
+                sample=_sample(unreadable_uris),
                 hint=(
                     "These servers report drives and PCI devices as unread (None), not "
                     "as zero — the stored values are carried forward. iLO 4 cannot "
@@ -437,28 +542,28 @@ class OneViewProvider(ServerInventoryProvider):
             return collected
 
         semaphore = asyncio.Semaphore(self._psu_concurrency)
+        cause: dict[str, str] = {}
 
         async def fetch(uri: str) -> tuple[str, list[dict[str, Any]] | None]:
             async with semaphore:
-                return uri, await _fetch_subresource(client, uri, "powerSupplies")
+                return uri, await _fetch_subresource(client, uri, "powerSupplies", cause)
 
-        failures = 0
         results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException):
-                failures += 1
+                cause[f"<gather {len(cause)}>"] = type(result).__name__
                 continue
             uri, rows = result
-            if rows is None:
-                failures += 1
-            else:
+            if rows is not None:
                 collected[uri] = rows
-        if failures:
+        if cause:
             logger.warning(
                 "oneview.power_supplies_unreadable",
                 endpoint=self._endpoint,
-                servers=failures,
+                servers=len(cause),
                 of=len(to_fetch),
+                causes=dict(Counter(cause.values())),
+                sample_uris=_sample(cause),
             )
         return collected
 
@@ -501,33 +606,33 @@ class OneViewProvider(ServerInventoryProvider):
             return collected
 
         semaphore = asyncio.Semaphore(self._cpu_threads_concurrency)
+        cause: dict[str, str] = {}
 
         async def fetch(uri: str) -> tuple[str, list[dict[str, Any]] | None]:
             async with semaphore:
-                return uri, await _fetch_subresource(client, uri, "processors")
+                return uri, await _fetch_subresource(client, uri, "processors", cause)
 
-        failures = 0
         results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException):
-                failures += 1
+                cause[f"<gather {len(cause)}>"] = type(result).__name__
                 continue
             uri, rows = result
-            if rows is None:
-                failures += 1
-            else:
+            if rows is not None:
                 collected[uri] = rows
-        if failures:
+        if cause:
             logger.warning(
                 "oneview.processors_unreadable",
                 endpoint=self._endpoint,
-                servers=failures,
+                servers=len(cause),
                 of=len(to_fetch),
+                causes=dict(Counter(cause.values())),
+                sample_uris=_sample(cause),
             )
         return collected
 
     @staticmethod
-    def _count_unreadable(member: dict[str, Any], tally: Counter[str]) -> None:
+    def _count_unreadable(member: dict[str, Any], tally: Counter[str]) -> bool:
         """
         Record one server whose subresources could not be read.
 
@@ -536,10 +641,14 @@ class OneViewProvider(ServerInventoryProvider):
         Args:
             member (dict[str, Any]): One `/rest/server-hardware` member.
             tally (Counter[str]): The running tally.
+
+        Returns:
+            bool: True when this server was counted as unreadable.
         """
         envelope = subresource(member, DEVICES)
         state = str(envelope.get("collectionState") or "absent")
         if state == "Collected":
-            return
+            return False
         generation = ilo_generation(member.get("mpModel"))
         tally[f"{state}/iLO{generation if generation is not None else '?'}"] += 1
+        return True

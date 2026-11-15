@@ -762,7 +762,9 @@ def compute_unit_to_provider_server(
         cpu_cores=_as_int(getattr(server_mo, "num_of_cores", None)),
         cpu_threads=_as_int(getattr(server_mo, "num_of_threads", None)),
         cpu_model=_cpu_model(cpu_units),
-        memory_total_bytes=total_memory_mb * _BYTES_PER_MB,
+        memory_total_bytes=(
+            total_memory_mb * _BYTES_PER_MB if total_memory_mb is not None else None
+        ),
         storage_total_bytes=storage_total_bytes,
         storage_drives=storage_drives,
         storage_controllers=controller_entries,
@@ -789,7 +791,7 @@ def compute_unit_to_provider_server(
     )
 
 
-def _as_int(value: object) -> int:
+def _as_int(value: object) -> int | None:
     """
     Coerce a UCS numeric attribute to `int`.
 
@@ -800,12 +802,12 @@ def _as_int(value: object) -> int:
         value (object): The raw attribute value, possibly `None`.
 
     Returns:
-        int: The parsed value, or 0 when missing or non-numeric. Never
-            raises — one unparseable count must not fail a whole server.
+        int | None: The parsed value (a real 0 stays 0), or `None` when missing or
+            non-numeric, meaning "could not read". Never raises.
     """
     if value is None:
-        return 0
+        return None
     try:
         return int(str(value))
     except ValueError:
-        return 0
+        return None

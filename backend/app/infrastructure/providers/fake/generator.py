@@ -991,6 +991,14 @@ _REDFISH_REASON_WEIGHTS = (4, 3, 1, 2)
 _OME_REASONS = (*_REDFISH_REASONS, UnreachableReason.NOT_AN_IDRAC)
 _OME_REASON_WEIGHTS = (4, 3, 1, 2, 1)
 _ONEVIEW_REASONS = (UnreachableReason.NETWORK_UNREACHABLE, UnreachableReason.TIMEOUT)
+_UNREACHABLE_DETAILS = {
+    UnreachableReason.AUTH_REJECTED: "login rejected for the BMC credential",
+    UnreachableReason.NETWORK_UNREACHABLE: "the BMC did not answer on the network",
+    UnreachableReason.TLS_ERROR: "TLS verification of the BMC certificate failed",
+    UnreachableReason.TIMEOUT: "the BMC did not answer within its time budget",
+    UnreachableReason.NOT_AN_IDRAC: "the address OME reports is not an iDRAC",
+    UnreachableReason.COLLECTION_ERROR: "the server's record could not be processed",
+}
 
 
 def _bmc_reachability(
@@ -1430,6 +1438,11 @@ def generate_servers(
             system_uuid=system_uuid,
             reachable=reachable,
             unreachable_reason=reason,
+            unreachable_detail=(
+                _UNREACHABLE_DETAILS.get(reason)
+                if reason is not None and collector is not ManagerType.ONEVIEW
+                else None
+            ),
             nic_macs=nic_macs,
             nics=nics,
             bmc_address_raw=(

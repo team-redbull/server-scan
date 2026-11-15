@@ -177,22 +177,30 @@ class RedfishClient:
         self._session_uri: str | None = None
         self._reauth_count = 0
         self.service_root: dict[str, Any] = {}
-        self._client = httpx.AsyncClient(
-            base_url=target.base_url,
-            verify=build_ssl_context(target, min_version=tls_min_version),
-            timeout=httpx.Timeout(
-                connect=connect_timeout, read=read_timeout, write=read_timeout, pool=connect_timeout
-            ),
-            # The zero-keepalive pool is what makes `Connection: close` real.
-            limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
-            headers={
-                "OData-Version": "4.0",
-                "Accept": "application/json",
-                "Connection": "close",
-            },
-            # A 3xx would retarget the next request, token included — ADR-0016.
-            follow_redirects=False,
-        )
+        try:
+            self._client = httpx.AsyncClient(
+                base_url=target.base_url,
+                verify=build_ssl_context(target, min_version=tls_min_version),
+                timeout=httpx.Timeout(
+                    connect=connect_timeout,
+                    read=read_timeout,
+                    write=read_timeout,
+                    pool=connect_timeout,
+                ),
+                # The zero-keepalive pool is what makes `Connection: close` real.
+                limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
+                headers={
+                    "OData-Version": "4.0",
+                    "Accept": "application/json",
+                    "Connection": "close",
+                },
+                # A 3xx would retarget the next request, token included — ADR-0016.
+                follow_redirects=False,
+            )
+        except httpx.InvalidURL as exc:
+            raise RedfishProtocolError(
+                f"{target.host} is not a usable BMC address ({target.base_url!r}): {exc}"
+            ) from exc
 
     async def __aenter__(self) -> Self:
         """
@@ -277,10 +285,12 @@ class RedfishClient:
         Raises:
             RedfishProtocolError: If the service root advertises neither.
         """
-        links = self.service_root.get("Links", {})
+        links = self.service_root.get("Links")
+        sessions = links.get("Sessions") if isinstance(links, dict) else None
+        service = self.service_root.get("SessionService")
         for candidate in (
-            links.get("Sessions", {}).get("@odata.id") if isinstance(links, dict) else None,
-            self.service_root.get("SessionService", {}).get("@odata.id"),
+            sessions.get("@odata.id") if isinstance(sessions, dict) else None,
+            service.get("@odata.id") if isinstance(service, dict) else None,
         ):
             if candidate:
                 return validate_odata_id(candidate)
@@ -522,8 +532,13 @@ class RedfishClient:
                         "`verify_tls = false` with a reason for this host."
                     ) from exc
                 last = exc
-            except (httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError) as exc:
+            except httpx.TransportError as exc:
                 last = exc
+            except (httpx.DecodingError, httpx.InvalidURL) as exc:
+                raise RedfishProtocolError(
+                    f"{self._target.host} gave an unusable response for {path}: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             else:
                 self._trace(method, path, response.status_code)
                 if response.status_code in _RETRY_STATUSES and attempt < attempts:

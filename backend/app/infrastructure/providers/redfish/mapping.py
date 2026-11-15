@@ -126,11 +126,9 @@ def _as_int(value: object) -> int | None:
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, float):
-        return int(value)
     try:
-        return int(float(str(value)))
-    except (TypeError, ValueError):
+        return int(value) if isinstance(value, float) else int(float(str(value)))
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -1111,7 +1109,7 @@ def memory_bytes(system: dict[str, Any], dimms: list[dict[str, Any]] | None) -> 
             # A summary of 0 is a BMC that has not enumerated memory, not an empty server.
             if round(float(raw) * _GIB) > 0:
                 return round(float(raw) * _GIB)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     if dimms is None:
         return None

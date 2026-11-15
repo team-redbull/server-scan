@@ -305,6 +305,25 @@ class UcsCentralProvider(ServerInventoryProvider):
         finally:
             await client.logout()
 
+    def _not_found(self, identity: ServerIdentity, reason: str, **fields: object) -> None:
+        """
+        Log why a recheck found nothing; the caller still returns `None`.
+
+        Args:
+            identity (ServerIdentity): The server that was looked up.
+            reason (str): Which lookup step came up empty.
+            **fields (object): Extra context (domain, endpoint, local DN).
+        """
+        logger.warning(
+            "ucs_central.get_one_not_found",
+            reason=reason,
+            external_id=identity.external_id,
+            name=identity.name,
+            serial=identity.serial,
+            central=self._endpoint,
+            **fields,
+        )
+
     async def get_one(self, identity: ServerIdentity) -> ProviderServer | None:
         """
         Recheck one server in its own domain, found from its stored DN (ADR-0032).
@@ -326,6 +345,15 @@ class UcsCentralProvider(ServerInventoryProvider):
             if fresh is not None:
                 return fresh
         if not identity.name:
+            self._not_found(
+                identity,
+                (
+                    "stored external_id found nothing in its domain"
+                    if known is not None
+                    else "no domain id in the stored external_id"
+                )
+                + ", and no name to search by",
+            )
             return None
         client = self._client_factory()
         try:
@@ -345,10 +373,12 @@ class UcsCentralProvider(ServerInventoryProvider):
             None,
         )
         if match is None:
+            self._not_found(identity, "no service profile with that name")
             return None
         domain_key = str(getattr(match, "domain", "") or "").strip()
         pn_dn = str(getattr(match, "pn_dn", "") or "").strip()
         if not domain_key or not pn_dn:
+            self._not_found(identity, "profile has no domain or no physical node (pn_dn)")
             return None
 
         domain_mo = next(
@@ -365,12 +395,14 @@ class UcsCentralProvider(ServerInventoryProvider):
             None,
         )
         if domain_mo is None:
+            self._not_found(identity, "domain not registered", domain=domain_key)
             return None
         endpoint = (
             str(getattr(domain_mo, "address", "") or "").strip()
             or str(getattr(domain_mo, "name", "") or "").strip()
         )
         if not endpoint:
+            self._not_found(identity, "domain has no address", domain=domain_key)
             return None
 
         target = DomainTarget(
@@ -383,6 +415,13 @@ class UcsCentralProvider(ServerInventoryProvider):
             ServerIdentity(external_id=pn_dn, serial=identity.serial)
         )
         if fresh is None:
+            self._not_found(
+                identity,
+                "the domain no longer lists that server",
+                domain=target.domain_id,
+                endpoint=endpoint,
+                local_dn=pn_dn,
+            )
             return None
         return replace(
             fresh, external_id=central_external_id(fresh.external_id, domain_id=target.domain_id)
@@ -416,13 +455,16 @@ class UcsCentralProvider(ServerInventoryProvider):
         domain_mo = next(
             (mo for mo in domains if str(getattr(mo, "id", "") or "") == domain_id), None
         )
+        probe = ServerIdentity(external_id=local_dn, serial=serial)
         if domain_mo is None:
+            self._not_found(probe, "domain not registered", domain=domain_id)
             return None
         endpoint = (
             str(getattr(domain_mo, "address", "") or "").strip()
             or str(getattr(domain_mo, "name", "") or "").strip()
         )
         if not endpoint:
+            self._not_found(probe, "domain has no address", domain=domain_id)
             return None
         target = DomainTarget(
             domain_id=domain_id,
@@ -433,6 +475,13 @@ class UcsCentralProvider(ServerInventoryProvider):
             ServerIdentity(external_id=local_dn, serial=serial)
         )
         if fresh is None:
+            self._not_found(
+                probe,
+                "the domain no longer has that server at that DN",
+                domain=domain_id,
+                endpoint=endpoint,
+                local_dn=local_dn,
+            )
             return None
         return replace(
             fresh, external_id=central_external_id(fresh.external_id, domain_id=domain_id)
@@ -534,46 +583,79 @@ class UcsCentralProvider(ServerInventoryProvider):
             sem (asyncio.Semaphore): Limits how many domains run at once.
 
         Returns:
-            list[ProviderServer]: Every server in the domain, with
-                domain-qualified external ids, or an empty list if the
-                domain failed.
+            list[ProviderServer]: Every server collected, with domain-qualified
+                external ids; on a mid-domain failure, those collected before it.
         """
         async with sem:
             provider = self._domain_provider_factory(target)
             collected: list[ProviderServer] = []
+            stage = "starting the domain collection"
             try:
-                # Not a comprehension: the `except` reports partial progress.
                 async with contextlib.aclosing(provider.collect()) as servers:
+                    stage = "reading a server from the domain"
                     async for provider_server in servers:
-                        collected.append(  # noqa: PERF401
-                            replace(
-                                provider_server,
-                                external_id=central_external_id(
-                                    provider_server.external_id, domain_id=target.domain_id
-                                ),
+                        stage = "re-rooting the server's DN under UCS Central"
+                        try:
+                            collected.append(self._qualify(provider_server, target))
+                        except Exception as exc:
+                            stub = self._contain_server_failure(
+                                exc,
+                                event="ucs_central.server_failed",
+                                stage=stage,
+                                vendor="cisco",
+                                external_id=provider_server.external_id,
+                                name=provider_server.name,
+                                serial=provider_server.serial,
+                                model=provider_server.model,
+                                manager_id=provider_server.manager_id,
+                                domain_id=target.domain_id,
+                                endpoint=target.endpoint,
                             )
-                        )
+                            if stub is not None:
+                                collected.append(stub)
+                        stage = "reading a server from the domain"
             except Exception as exc:
                 logger.exception(
                     "ucs_central.domain_failed",
                     domain_id=target.domain_id,
                     domain_name=target.name,
                     endpoint=target.endpoint,
+                    stage=stage,
                     collected_before_failure=len(collected),
                 )
                 self._record_error(
                     f"domain {target.name or target.domain_id!r} ({target.endpoint}) failed "
-                    f"after {len(collected)} server(s): {exc}"
+                    f"after {len(collected)} server(s) while {stage} — those {len(collected)} "
+                    f"were kept: {type(exc).__name__}: {exc}"
                 )
-                return []
-            logger.info(
-                "ucs_central.domain_collected",
-                domain_id=target.domain_id,
-                domain_name=target.name,
-                endpoint=target.endpoint,
-                servers=len(collected),
-            )
+            else:
+                logger.info(
+                    "ucs_central.domain_collected",
+                    domain_id=target.domain_id,
+                    domain_name=target.name,
+                    endpoint=target.endpoint,
+                    servers=len(collected),
+                )
+            for message in provider.collection_errors:
+                self._record_error(f"domain {target.name or target.domain_id!r}: {message}")
+            self._server_failures += provider.server_failures
             return collected
+
+    @staticmethod
+    def _qualify(server: ProviderServer, target: DomainTarget) -> ProviderServer:
+        """
+        Re-root one domain server's DN under UCS Central.
+
+        Args:
+            server (ProviderServer): A server as its UCS Manager reported it.
+            target (DomainTarget): The domain it came from.
+
+        Returns:
+            ProviderServer: The same server with a domain-qualified `external_id`.
+        """
+        return replace(
+            server, external_id=central_external_id(server.external_id, domain_id=target.domain_id)
+        )
 
     async def _collect_domain_result(
         self, target: DomainTarget, sem: asyncio.Semaphore

@@ -16,6 +16,7 @@ from tests.unit.infrastructure.providers.test_ucs_manager_provider import (
 
 from app.domain.ports.provider import ServerIdentity
 from app.infrastructure.providers.ucs_manager.raid import (
+    _volume,
     assess_ucs_raid,
     is_raid_capable,
     raid_type,
@@ -204,3 +205,33 @@ class TestGetOneEqualsScan:
         assert fetched.storage_controllers == scanned.storage_controllers
         assert fetched.raid_check is not None
         assert fetched.raid_check["state"] == ("PRESENT" if with_vd else "ABSENT")
+
+
+class TestHostileInput:
+    def test_a_unicode_digit_size_is_unread_not_a_crash(self) -> None:
+        entries, _ = assess_ucs_raid([_controller()], [_vd(size="²")], [])
+
+        (volume,) = cast("tuple[dict[str, Any]]", entries[0]["volumes"])
+        assert volume["capacity_bytes"] is None
+
+    def test_a_controller_without_a_dn_is_skipped(self) -> None:
+        entries, check = assess_ucs_raid([SimpleNamespace(model="x")], [], [])
+
+        assert entries == ()
+        assert check["state"] == "UNKNOWN"
+
+
+class TestVolumeCapacity:
+    @pytest.mark.parametrize("size", ["-1", "-500", "abc", "²", "1.5", "", None])
+    def test_an_unreadable_or_negative_size_is_none(self, size: str | None) -> None:
+        volume = _volume(SimpleNamespace(dn=f"{_RACK}/board/storage-SATA-3/vd-0", size=size))
+
+        assert volume["capacity_bytes"] is None
+
+    @pytest.mark.parametrize(
+        ("size", "expected"), [("0", 0), ("1", 1024**2), ("953344", 953344 * 1024**2)]
+    )
+    def test_a_non_negative_size_is_megabytes(self, size: str, expected: int) -> None:
+        volume = _volume(SimpleNamespace(dn=f"{_RACK}/board/storage-SATA-3/vd-0", size=size))
+
+        assert volume["capacity_bytes"] == expected

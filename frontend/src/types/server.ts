@@ -45,7 +45,8 @@ export type UnreachableReason =
   | "tls_error"
   | "timeout"
   | "protocol_error"
-  | "not_an_idrac";
+  | "not_an_idrac"
+  | "collection_error";
 
 /** One policy that fired in the last evaluation (worst first, capped by the API). */
 export interface HealthReason {
@@ -335,6 +336,8 @@ export interface ServerDetail {
   reachable: boolean;
   unreachable_since: string | null;
   unreachable_reason: UnreachableReason | null;
+  /** The last failed collection's cause, in words; null when none was recorded. */
+  unreachable_detail: string | null;
   updated_at: string;
   created_at: string;
 }

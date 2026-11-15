@@ -698,6 +698,10 @@ obvious thing for a future change to reach for.
 iLO or OA") is the honest "OneView can't reach the iLO" signal and belongs
 in `collection_errors`, not in a health verdict.
 
+**Failure handling (ADR-0062).** `get_one` raises on a connection error or a 5xx; only a 404 means "gone". A
+server whose mapping fails is a `collection_error` stub keyed by hardware uri and serial, and the
+`oneview.*_unreadable` warnings carry capped samples of the failing records rather than every one.
+
 ## One appliance, and the ceiling that would change that
 
 `INVENTORY_ONEVIEW_IP` is a **single endpoint**, resolved through

@@ -37,8 +37,10 @@ Three facts about the facade shaped the design:
    401. A 401 anywhere (listing, mid-run, recheck) is never retried; mid-run it stops the run.
 4. **Failure split.** The listing failing (unreachable, TLS, 401, any error status) fails the run: exit 1.
    One VM failing is `_record_error`ed and the run continues (exit 3); a 404 on a VM is "deleted between
-   listing and reading" and is skipped silently. **No `reachable=False` stub**: the "BMC" is the shared
-   facade, so a VM is always `reachable=True` and the `bmc` health category does not apply.
+   listing and reading" and is skipped silently. **No `reachable=False` stub for a facade fault**: the "BMC" is
+   the shared facade, so a VM is `reachable=True` and the `bmc` health category does not apply. **Update
+   2026-11-15 (ADR-0062):** a VM whose System was read but failed to map is written as a `COLLECTION_ERROR`
+   stub (same `serial_of` identity), so a mapper bug is visible instead of silent.
 5. **A stopped VM's links are `UNKNOWN`, not `DOWN`** (operator, 2026-11-08). The facade says `NoLink` for a
    powered-off VM; that is not a cable fault. With every link UNKNOWN the VM is UNKNOWN overall
    (`network.all_unknown`), never CRITICAL "all links down". A running VM's `NoLink` (a disconnected NIC) stays
