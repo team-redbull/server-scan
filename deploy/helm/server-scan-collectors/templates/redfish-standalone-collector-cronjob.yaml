@@ -5,9 +5,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-redfish-standalone
+  name: {{ include "collectors.fullname" . }}-collector-redfish-standalone
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-redfish-standalone
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-redfish-standalone
     {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $rf.schedule | quote }}
@@ -81,6 +81,10 @@ spec:
                     name: {{ include "collectors.configMapName" . }}
                 - secretRef:
                     name: {{ include "collectors.credentialsSecretName" . }}
+                {{- with include "collectors.authSecretName" . }}
+                - secretRef:
+                    name: {{ . }}
+                {{- end }}
               volumeMounts:
                 - name: inventory
                   mountPath: /etc/redfish
@@ -102,14 +106,14 @@ spec:
           volumes:
             - name: inventory
               configMap:
-                name: {{ $rf.inventoryConfigMap | default (printf "%s-redfish-inventory" .Release.Name) }}
+                name: {{ $rf.inventoryConfigMap | default (printf "%s-redfish-inventory" (include "collectors.fullname" .)) }}
             {{- if or $rf.credentialsSecret $rf.credentialsFile }}
             - name: host-credentials
               secret:
                 # An externally provisioned Secret always wins; the
                 # chart's own files/redfish/credentials.toml is the
                 # opt-in fallback. See redfish-credentials-secret.yaml.
-                secretName: {{ $rf.credentialsSecret | default (printf "%s-redfish-credentials" .Release.Name) }}
+                secretName: {{ $rf.credentialsSecret | default (printf "%s-redfish-credentials" (include "collectors.fullname" .)) }}
                 defaultMode: 0400
             {{- end }}
             {{- if $tls.caBundleConfigMap }}

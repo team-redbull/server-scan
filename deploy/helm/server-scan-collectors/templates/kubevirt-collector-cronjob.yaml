@@ -6,9 +6,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-kubevirt
+  name: {{ include "collectors.fullname" . }}-collector-kubevirt
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-kubevirt
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-kubevirt
     {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $kv.schedule | default "0 */3 * * *" | quote }}
@@ -68,6 +68,10 @@ spec:
                     name: {{ include "collectors.configMapName" . }}
                 - secretRef:
                     name: {{ include "collectors.credentialsSecretName" . }}
+                {{- with include "collectors.authSecretName" . }}
+                - secretRef:
+                    name: {{ . }}
+                {{- end }}
               {{- if $kv.caBundleConfigMap }}
               volumeMounts:
                 - name: ca-bundle

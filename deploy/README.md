@@ -574,8 +574,26 @@ default; an empty values file renders nothing. The chart is deployed in two shap
   `siteBmcPrefixes` matching the hub's, and `triggerable: false`. Each cluster needs network to the hub's MongoDB
   and a `readWrite` user (every collector start runs `ensure_indexes`).
 
-Every collector sets `INVENTORY_AUTH_ENABLED=false` itself and mounts no auth Secret or Redis: neither is used by a
-collector, and the hub's shared ConfigMap may turn auth on for the API.
+By default every collector sets `INVENTORY_AUTH_ENABLED=false` (and `INVENTORY_MONGO_DB`) itself and mounts no auth
+Secret or Redis: neither is used by a collector, and the hub's shared ConfigMap may turn auth on for the API. A hub
+release that must match CronJobs the platform chart already deployed can opt in, all with `default`, so a values file
+without these keys renders as before (ADR-0060, 2026-11-16 update):
+
+- `fullnameOverride: server-scan` names objects `server-scan-collector-<vendor>`, `server-scan-redfish-inventory`
+  and so on instead of `<release>-collector-<vendor>`, so a release called `server-scan-collectors` adopts those
+  CronJobs in place instead of creating a second, doubled-name fleet. The collector-credentials Secret then
+  becomes `server-scan-collector-credentials`: name it in server-scan's `recheck.credentialsSecret`, or set
+  `collectors.existingSecret`.
+- `auth.existingSecret` adds the API release's auth Secret to every CronJob's `envFrom`. **With it and
+  `config.existingConfigMap` both set**, `INVENTORY_AUTH_ENABLED` and `INVENTORY_MONGO_DB` are no longer pinned and come
+  from that ConfigMap. If the ConfigMap says `auth.enabled=true` the Secret is what keeps the CronJob from
+  crash-looping, which is why the pinning only lifts when both are set.
+- `db.redisUriSecretName` (+ `redisUriKey`) or a literal `db.redisUri` renders `INVENTORY_REDIS_URI`, which a collector
+  never uses; set it only to keep the env identical to a deployed spec. Blank (the default) renders none.
+
+Cutover after adopting: server-scan must stop rendering `<release>-redfish-inventory` and `-redfish-credentials`
+(blank those values in its chart), since this chart now owns them. The collector-credentials Secret stays owned by
+the API chart, which mounts it for the live recheck.
 
 ### Upgrading the collectors (ADR-0060)
 

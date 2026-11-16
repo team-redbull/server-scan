@@ -4,9 +4,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-intersight
+  name: {{ include "collectors.fullname" . }}-collector-intersight
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-intersight
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-intersight
     {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $is.schedule | quote }}
@@ -56,6 +56,10 @@ spec:
                     name: {{ include "collectors.configMapName" . }}
                 - secretRef:
                     name: {{ include "collectors.credentialsSecretName" . }}
+                {{- with include "collectors.authSecretName" . }}
+                - secretRef:
+                    name: {{ . }}
+                {{- end }}
               resources:
                 {{- toYaml $is.resources | nindent 16 }}
               securityContext:

@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-config
+  name: {{ include "collectors.fullname" . }}-config
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-config
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-config
     app.kubernetes.io/component: collector
     app.kubernetes.io/part-of: server-scan
 data:

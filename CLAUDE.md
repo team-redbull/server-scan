@@ -370,7 +370,7 @@ long form of each entry is in the 2026-09-13 archive.
   but CI pins only `server-scan`; a collectors release's tag is bumped by hand, always *after* server-scan (an older API
   cannot load what a newer collector writes). A new collector template goes there, not in server-scan; prunes stay in
   server-scan. **One KubeVirt collector per KubeVirt cluster**, manager `mgr_kubevirt_<slug>` (cluster name required); every
-  other type is one manager per type. Collectors set `INVENTORY_AUTH_ENABLED=false` and use no Redis.
+  other type is one manager per type. Collectors set `INVENTORY_AUTH_ENABLED=false` (unless the hub release mounts the API's auth Secret and consumes its ConfigMap, ADR-0060) and use no Redis.
 - **A server's site is the BMC IP prefix first, then the name, then the profile DN** (ADR-0057 reverses ADR-0056; the iDRAC
   is the source of truth). `INVENTORY_SITE_BMC_PREFIXES`, `SiteCatalog.parse_bmc`: whole octets, longest wins, IPv4 only; any
   caller building a catalog for ingest passes both specs. `Server.site_from_bmc`/`site_from_name` keep both answers, and a
