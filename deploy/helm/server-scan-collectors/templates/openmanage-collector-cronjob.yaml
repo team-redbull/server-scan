@@ -5,9 +5,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-openmanage
+  name: {{ include "collectors.fullname" . }}-collector-openmanage
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-openmanage
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-openmanage
     {{- include "collectors.labels" . | nindent 4 }}
   annotations:
     server-scan.io/trigger-warning: "This run can restart an iDRAC (ADR-0050) when a Dell has every disk or NIC UNKNOWN."
@@ -85,6 +85,10 @@ spec:
                     name: {{ include "collectors.configMapName" . }}
                 - secretRef:
                     name: {{ include "collectors.credentialsSecretName" . }}
+                {{- with include "collectors.authSecretName" . }}
+                - secretRef:
+                    name: {{ . }}
+                {{- end }}
               resources:
                 {{- toYaml $ome.resources | nindent 16 }}
               securityContext:

@@ -100,3 +100,23 @@ aggregates them. So a `KUBEVIRT` collector has to run in every KubeVirt cluster,
 - **One hub collector reading every facade** (a list of URLs). It needs a Route and credentials per cluster in the
   hub, plus network from the hub to every cluster's ingress, and it still needs per-cluster manager identity.
 - **CI pinning both charts.** That keeps today's coupling: every release restarts every cluster's collectors.
+
+## Update 2026-11-16: a hub release can adopt the platform chart's CronJobs byte for byte
+
+The operator's production hub release is named `server-scan-collectors`, which doubled every name
+(`server-scan-collectors-collector-oneview`) and would have run a second fleet beside the deployed
+`server-scan-collector-oneview`. Three opt-in template changes, none of which change a release that does not set them:
+
+- **`fullnameOverride`** (helper `collectors.fullname`) replaces `.Release.Name` in every object name, label and default
+  volume name.
+- **`auth.existingSecret`** is mounted in `envFrom` of every CronJob. The deployed specs carry it, and it is inert.
+- **`db.redisUri`/`db.redisUriSecretName`** render `INVENTORY_REDIS_URI`, again only for parity. Unlike the operator's
+  site copy (which defaulted the Secret name to `server-scan-bundled-db` and so broke a release without one), blank
+  renders nothing.
+
+`INVENTORY_AUTH_ENABLED=false` and `INVENTORY_MONGO_DB` stay pinned unless `config.existingConfigMap` **and**
+`auth.existingSecret` are both set (`collectors.consumesApiConfig`). The site copy lifted them on the ConfigMap alone, which
+would let an `auth.enabled=true` ConfigMap reach a collector with no auth Secret mounted and crash-loop it, a change
+to the rule that a collector never enables auth. Site values (endpoints, schedules, Secret names) stay in the operator's
+values file, not in this chart's defaults. After adoption the platform chart stops rendering the Redfish inventory and
+credentials objects, which this chart now owns.

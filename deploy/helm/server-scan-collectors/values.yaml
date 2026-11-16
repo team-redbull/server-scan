@@ -15,6 +15,13 @@
 #
 # An empty values file renders nothing: every collector is off by default.
 
+# Object-name prefix instead of the release name. Set it to the server-scan
+# release's own name (`server-scan`) on a hub release called
+# `server-scan-collectors`, so the CronJobs are `server-scan-collector-<vendor>`
+# and adopt the ones the platform chart deployed instead of doubling the name
+# (ADR-0060). Leave it unset for a per-KubeVirt release.
+# fullnameOverride: server-scan
+
 image:
   repository: ghcr.io/team-redbull/server-scan-api
   # Blank means the chart's appVersion. Never `latest` (the server-scan
@@ -53,6 +60,26 @@ db:
   # Read explicitly by name, never from the URI's path. Must equal the
   # server-scan chart's db.dbName: both write into the same database.
   dbName: server-scan
+  # INVENTORY_REDIS_URI, rendered only when set (a collector run never opens
+  # Redis): a literal URL, or the key of a Secret named by redisUriSecretName
+  # (the hub shape: the server-scan release's Secret, e.g.
+  # `server-scan-bundled-db`). Set it only to keep a deployed CronJob's env
+  # identical on adoption; a KubeVirt release with no Redis leaves both blank.
+  redisUri: ""
+  redisUriSecretName: ""
+  redisUriKey: redis-uri
+
+# The server-scan release's auth Secret (`<release>-auth-credentials`), mounted
+# into every CronJob's envFrom when named. Inert for a collector (it never
+# authenticates anyone), but a hub release that consumes the API's ConfigMap
+# sets it so the spec matches the deployed one, and then
+# INVENTORY_AUTH_ENABLED and INVENTORY_MONGO_DB come from that ConfigMap
+# instead of being pinned here. Blank (the default, and a KubeVirt release)
+# keeps both pinned and mounts nothing. If the consumed ConfigMap says
+# auth.enabled=true, this MUST be set, or the image's production guard
+# sees auth enabled with no session secret and the CronJob crash-loops.
+auth:
+  existingSecret: ""
 
 # What a collector run reads besides the database: how a server's site is
 # derived at ingest, the GPU VRAM overrides, and the log level. The API-only

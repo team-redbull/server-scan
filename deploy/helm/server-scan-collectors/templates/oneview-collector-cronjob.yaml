@@ -4,9 +4,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-oneview
+  name: {{ include "collectors.fullname" . }}-collector-oneview
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-oneview
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-oneview
     {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $ov.schedule | quote }}
@@ -64,6 +64,10 @@ spec:
                     name: {{ include "collectors.configMapName" . }}
                 - secretRef:
                     name: {{ include "collectors.credentialsSecretName" . }}
+                {{- with include "collectors.authSecretName" . }}
+                - secretRef:
+                    name: {{ . }}
+                {{- end }}
               resources:
                 {{- toYaml $ov.resources | nindent 16 }}
               securityContext:

@@ -19,9 +19,9 @@ passwords, which is why this is a ConfigMap; see the file's own header.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ printf "%s-redfish-inventory" .Release.Name }}
+  name: {{ printf "%s-redfish-inventory" (include "collectors.fullname" .) }}
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-redfish-inventory
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-redfish-inventory
     app.kubernetes.io/component: collector
     app.kubernetes.io/part-of: server-scan
 data:

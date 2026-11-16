@@ -4,9 +4,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-ucs-central
+  name: {{ include "collectors.fullname" . }}-collector-ucs-central
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-ucs-central
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-ucs-central
     {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $ucs.schedule | quote }}
@@ -50,6 +50,10 @@ spec:
                     name: {{ include "collectors.configMapName" . }}
                 - secretRef:
                     name: {{ include "collectors.credentialsSecretName" . }}
+                {{- with include "collectors.authSecretName" . }}
+                - secretRef:
+                    name: {{ . }}
+                {{- end }}
               resources:
                 {{- toYaml $ucs.resources | nindent 16 }}
               securityContext:

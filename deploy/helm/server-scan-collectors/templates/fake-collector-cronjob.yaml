@@ -4,9 +4,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ .Release.Name }}-collector-fake
+  name: {{ include "collectors.fullname" . }}-collector-fake
   labels:
-    app.kubernetes.io/name: {{ .Release.Name }}-collector-fake
+    app.kubernetes.io/name: {{ include "collectors.fullname" . }}-collector-fake
     {{- include "collectors.labels" . | nindent 4 }}
 spec:
   schedule: {{ $fake.schedule | quote }}

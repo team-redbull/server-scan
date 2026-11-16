@@ -4,11 +4,25 @@
 {{ $img.repository | default "ghcr.io/team-redbull/server-scan-api" }}:{{ $img.tag | default .Chart.AppVersion }}
 {{- end -}}
 
+{{- /* Object-name prefix. `fullnameOverride` lets a hub release named differently (`server-scan-collectors`) keep the platform's own `server-scan-collector-*` names and so adopt its CronJobs in place (ADR-0060). */ -}}
+{{- define "collectors.fullname" -}}
+{{ .Values.fullnameOverride | default .Release.Name }}
+{{- end -}}
+
 {{- define "collectors.pullPolicy" -}}
 {{ (.Values.image | default dict).pullPolicy | default "IfNotPresent" }}
 {{- end -}}
 
-{{- /* Collectors write to MongoDB only (never Redis); Settings refuses to start in production without the cursor secret. */ -}}
+{{- /* "true" or nothing: the chart consumes the API release's ConfigMap AND auth Secret (the hub shape), so INVENTORY_AUTH_ENABLED and INVENTORY_MONGO_DB come from that ConfigMap and are not pinned here (ADR-0060). Needs both: a ConfigMap saying auth is on, with no auth Secret mounted, would crash-loop the collector. */ -}}
+{{- define "collectors.consumesApiConfig" -}}
+{{- if and (.Values.config | default dict).existingConfigMap (.Values.auth | default dict).existingSecret }}true{{ end -}}
+{{- end -}}
+
+{{- define "collectors.authSecretName" -}}
+{{ (.Values.auth | default dict).existingSecret }}
+{{- end -}}
+
+{{- /* A collector run never opens Redis, so INVENTORY_REDIS_URI is rendered only when asked: a literal `db.redisUri`, else a Secret named `db.redisUriSecretName`. Settings refuses to start in production without the cursor secret. */ -}}
 {{- define "collectors.dbEnv" -}}
 {{- $db := .Values.db | default dict -}}
 - name: INVENTORY_MONGO_URI
@@ -16,29 +30,43 @@
     secretKeyRef:
       name: {{ $db.secretName | default "server-scan-db" }}
       key: {{ $db.mongoUriKey | default "mongo-uri" }}
+{{- if $db.redisUri }}
+- name: INVENTORY_REDIS_URI
+  value: {{ $db.redisUri | quote }}
+{{- else if $db.redisUriSecretName }}
+- name: INVENTORY_REDIS_URI
+  valueFrom:
+    secretKeyRef:
+      name: {{ $db.redisUriSecretName }}
+      key: {{ $db.redisUriKey | default "redis-uri" }}
+{{- end }}
 - name: INVENTORY_CURSOR_SECRET
   valueFrom:
     secretKeyRef:
       name: {{ $db.cursorSecretName | default "server-scan-cursor-secret" }}
       key: {{ $db.cursorSecretKey | default "cursor-secret" }}
+{{- if not (include "collectors.consumesApiConfig" .) }}
 - name: INVENTORY_MONGO_DB
   value: {{ $db.dbName | default "server-scan" | quote }}
+{{- end }}
 {{- end -}}
 
-{{- /* Explicit env beats envFrom: a consumed server-scan ConfigMap may say INVENTORY_AUTH_ENABLED=true, which would demand the API's AD secrets. */ -}}
+{{- /* Explicit env beats envFrom: a consumed server-scan ConfigMap may say INVENTORY_AUTH_ENABLED=true, which would demand the API's AD secrets, so it is pinned false unless the auth Secret is mounted too. */ -}}
 {{- define "collectors.commonEnv" -}}
 - name: INVENTORY_ENVIRONMENT
   value: production
+{{- if not (include "collectors.consumesApiConfig" .) }}
 - name: INVENTORY_AUTH_ENABLED
   value: "false"
+{{- end }}
 {{- end -}}
 
 {{- define "collectors.configMapName" -}}
-{{ (.Values.config | default dict).existingConfigMap | default (printf "%s-config" .Release.Name) }}
+{{ (.Values.config | default dict).existingConfigMap | default (printf "%s-config" (include "collectors.fullname" .)) }}
 {{- end -}}
 
 {{- define "collectors.credentialsSecretName" -}}
-{{ (.Values.collectors | default dict).existingSecret | default (printf "%s-collector-credentials" .Release.Name) }}
+{{ (.Values.collectors | default dict).existingSecret | default (printf "%s-collector-credentials" (include "collectors.fullname" .)) }}
 {{- end -}}
 
 {{- /* `ternary`, not `default true`: `default` reads an explicit false as unset. */ -}}
