@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     cursor_secret: str = _INSECURE_DEV_CURSOR_SECRET
 
     max_available_count: int = 20
+    available_max_attempts: int = 5
 
     capacity_aliases: str = ""
 

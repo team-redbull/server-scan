@@ -275,18 +275,19 @@ long form of each entry is in the 2026-09-13 archive.
   error), and a server whose content is identical is only `touch_seen`d, so `revision`/`updated_at`
   mean "content changed", not "a run happened". A new per-run stamp in `_build_server` must be added
   to `_VOLATILE_TOP_LEVEL`/`_stable_view` (a guard test fails otherwise).
-- **`GET /servers/available` is the one endpoint that talks to a vendor
-  manager** (ADR-0032): ranks in Mongo, live-rechecks only the few returned via
-  `get_one()`, persists through `IngestService.ingest_one`; an unconfigured
-  manager type degrades to trusting Mongo; the response says per item whether a
-  recheck ran. The item is `AvailableServerItem`, **not** `ServerDetail` (only
+- **`POST /servers/available` is the one endpoint that talks to a vendor
+  manager** (ADR-0063, ADR-0032): it locks one candidate (a probe lease, then `ttl_seconds`), live-rechecks it via
+  `get_one()` while locked, persists through `IngestService.ingest_one`, and returns it or releases it and tries the
+  next (at most `INVENTORY_AVAILABLE_MAX_ATTEMPTS`, default 5); every miss is a 503 `NO_AVAILABLE_SERVER`; an
+  unconfigured manager type degrades to trusting Mongo. **`GET` reads Mongo only** (no recheck, no lock), and
+  both verbs take `max_health` (that tier and every better one), never `health`. The item is `AvailableServerItem`, **not** `ServerDetail` (only
   what a BMH/NMState generator consumes: `bmc_vendor` in bmhgen's
   `HP`/`DELL`/`CISCO`/`INTERSIGHT`, bare BMC host, ordered MACs, per-interface
   `os_name`) — do not grow it back. **The API pod mounts the
   collectors release's credentials Secret** (`recheck.credentialsSecret`, optional, ADR-0060) except
   `REDFISH_STANDALONE`'s per-host TOML files (CronJob-only, so BMC passwords
-  stay out of the Route-exposed pod). No reservation/lock: concurrent callers
-  can draw the same server (accepted in the ADR).
+  stay out of the Route-exposed pod). The POST's lock is what stops
+  two callers drawing one server; it is not idempotent by `workflow_id` (ADR-0063).
 - **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
   (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
 - **Every call on the login path has a timeout, and a 503 says why** (ADR-0042). ldap3's sync
@@ -488,16 +489,13 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-15 — one failed server never aborts a run: a `COLLECTION_ERROR` stub with the cause (ADR-0062).**
-Moved to `docs/notes/session-log.md`: the Confs tab (ADR-0061).
+**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
+Moved to `docs/notes/session-log.md`: one failed server never aborts a run (ADR-0062).
 
-**Shipped:** every provider guards one server's mapping (`ServerInventoryProvider._contain_server_failure`: log
-`<vendor>.server_failed`, `_record_error`, count) and yields a `reachable=False` stub (`unreachable_reason=COLLECTION_ERROR`, new
-`unreachable_detail`, in `ServerSummary`/`ServerDetail`, the UI Overview and the skill docs) that carries the serial so ingest
-updates the same document. Exit 3, or exit 1 when at least 5 and over 20 % of the fleet failed (`is_systemic_failure`). Also:
-`parse_bmc_address` never raises, UCS Central keeps a failing domain's collected servers, Redfish drops only a bad
-`ComputerSystem`, the BMC probe never loses a batch, OneView `get_one` raises on anything but a 404, UCS `_as_int` returns `None`
-for an unreadable count, per-server log lines carry host/system/path, silent `get_one` `None`s are logged.
+**Shipped (branch `feat/available-reserve-and-verify`):** `GET /servers/available` reads Mongo only and takes `max_health` (the old `health` is a 400);
+the new `POST /servers/available` (admin) claims a candidate with a probe lease (`ReservationService.try_claim`), live-rechecks it while
+locked, then extends it to `ttl_seconds` and audits `SERVER_RESERVED`, or releases it (`release_claim`, no event) and draws the next, at most
+`INVENTORY_AVAILABLE_MAX_ATTEMPTS` (5) live checks per request; every miss is a 503 `NO_AVAILABLE_SERVER` with `details.reasons`.
 
-**Open:** `BmcProbedProvider` does not count its own probe failures in `server_failures`; `RedfishStandaloneProvider.get_one`
-can now return a `COLLECTION_ERROR` stub that `/servers/available` persists; the systemic threshold (5 / 20 %) is a judgment, not measured.
+**Open:** the per-manager concurrency cap on live rechecks is still parked; the POST is not idempotent by `workflow_id` (a retry takes another
+server, the first frees itself at its TTL); the Temporal workflows must move to the POST and to `max_health`.

@@ -1385,7 +1385,7 @@ integration that isn't `FakeProvider`. See
   — `PROVIDER_FACTORIES`, the six `_<vendor>_provider` factories,
   `ENDPOINTLESS_TYPES`/`UNFILTERED_TYPES`/`NAME_PATTERN_FIELD`,
   `resolve_name_pattern`, `manager_for`, `build_provider` and
-  `build_provider_for_manager_type` — because `GET /servers/available`
+  `build_provider_for_manager_type` — because `/servers/available`
   (ADR-0032) needs the same resolution and `app` must never import
   `tools`: `tools/` is not an installed package, so the import worked in
   the container and CI only through uvicorn's default `--app-dir .` and
@@ -1578,8 +1578,8 @@ format. The field-level rules a new collector has to honour:
   `servers_seen`/`server_failures` like `collection_errors`. Subclasses with
   their own `__init__` must call `super().__init__()`.
 - **`get_one(ServerIdentity) -> ProviderServer | None`** (ADR-0032) is the
-  sixth abstract method, added for `GET /servers/available`'s live
-  recheck. `ServerIdentity` carries whichever field a provider correlates
+  sixth abstract method, added for `/servers/available`'s live
+  recheck (the `POST`, ADR-0063). `ServerIdentity` carries whichever field a provider correlates
   on (`serial`, `external_id`, `host`, `name`); the contract is a
   single-object fetch — a scoped query, a direct-by-URI/DN read, or a
   single-host recollect — never `_list_servers()` re-run and filtered.
@@ -1695,7 +1695,7 @@ firmware serial/UUID. `app.infrastructure.providers.kubevirt` keeps the Redfish 
   `_CA_BUNDLE`.
 - **`get_one`** re-reads one System by the path in its `external_id` (`kubevirt://<host>/redfish/v1/Systems/...`),
   against the configured `INVENTORY_KUBEVIRT_URL`, never a host taken from the id. An id naming another facade
-  raises `NotThisManagersServerError` with no request, and `/servers/available` answers from Mongo
+  raises `NotThisManagersServerError` with no request, and `POST /servers/available` answers from Mongo
   (`skipped_foreign`). The hub API is not configured for `KUBEVIRT` at all, so in production no VM is rechecked.
 - **One collector per KubeVirt cluster** (ADR-0060): a `server-scan-collectors` release in each cluster, the hub's
   included. Its manager is `mgr_kubevirt_<slug>` (`kubevirt_cluster_slug(INVENTORY_KUBEVIRT_CLUSTER_NAME)`, which is
@@ -2004,6 +2004,20 @@ cached, so an external write shows on the next request. The SPA's `/confs` page
 back to `gpu_count` when the list is empty), shows a disk group as count, size
 and type and an adapter group as count, ports and speed (the writer records no
 disk or adapter model), and shows `ram.total_gib` 0 as a failed scan, not 0 GiB.
+
+## Available servers: read it, or take it (ADR-0032, ADR-0063)
+
+Two verbs on `/api/v1/servers/available`, both selecting by exactly one of `name` or `pattern` and by
+`max_health` (the worst acceptable tier, every better one allowed; UNKNOWN never):
+
+- **`GET`** ranks and draws from the stored documents, best tier first, up to `count`. No vendor call, no lock.
+- **`POST`** (admin) takes one server. Per candidate: claim it with the `revision` compare-and-set (a probe
+  lease of `max(120 s, longest recheck + 60 s)`), live-recheck it through `get_one()` + `IngestService.ingest_one`
+  while it is locked, then either extend the lock to `ttl_seconds` and return it, or release it and draw the next.
+  At most `INVENTORY_AVAILABLE_MAX_ATTEMPTS` (default 5) candidates are live-checked per request; a candidate
+  another request locked first costs no attempt. A miss of any kind is a 503 `NO_AVAILABLE_SERVER` with
+  `details.reasons`. Only the final lock is audited. The code is `app.application.services.available_servers`
+  (the loop, `_lock_and_verify`) over `ReservationService.try_claim` / `extend_claim` / `release_claim`.
 
 ## Running a CronJob from the UI (ADR-0055)
 

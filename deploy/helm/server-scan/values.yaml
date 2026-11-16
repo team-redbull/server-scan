@@ -316,6 +316,9 @@ config:
   # accidentally pay the live-recheck cost of the whole matching fleet
   # in one call. See docs/adr/0032-available-server-lookup-api.md.
   maxAvailableCount: "20"
+  # `POST /servers/available`: candidates one request locks and live-checks before it answers
+  # 503. docs/adr/0063-available-reserves-and-verifies.md.
+  availableMaxAttempts: "5"
   # `token:alias` pairs: a `?pattern=` that is exactly one configured
   # token also matches the alias regex — a `hypershift`-named server
   # carries no explicit capacity token but is a 5tb machine, and

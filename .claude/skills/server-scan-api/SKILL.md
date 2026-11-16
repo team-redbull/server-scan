@@ -45,7 +45,7 @@ token, everything works except events, which answer `403`.
 | One server in full detail (hardware, NICs, BMC, health reasons) | `GET /api/v1/servers/{id}` (id comes from a list result) |
 | The physical server (and CPU) a KubeVirt VM runs on | `GET /api/v1/servers/{id}/vm-host` |
 | What happened to a server or the fleet | `GET /api/v1/events`, `GET /api/v1/servers/{id}/events` |
-| Servers to provision a BareMetalHost on | `GET /api/v1/servers/available` - see the warning below |
+| Servers to provision a BareMetalHost on | `GET /api/v1/servers/available` to look, `POST` to take one - see the warning below |
 | Server configurations (specs) | `GET /api/v1/confs`, `GET /api/v1/confs/{conf_id}` |
 | Why a health verdict exists | `GET /api/v1/health-policies`, `GET /api/v1/classification-rules` |
 
@@ -96,7 +96,7 @@ grouping, counting or filtering on a field the list endpoint lacks.
 
 ## Gotchas
 
-- **`/servers/available` is not a pure read.** It live-queries the vendor manager for the few candidates it returns and writes the refreshed data back, and concurrent callers can be handed the same server. Use it only when the user is picking servers to provision, always give exactly one of `name` (exact) or `pattern` (regex), and keep `count` small (max 20). Otherwise answer "which are free" with the `openshift_state=AVAILABLE` filter above.
+- **`GET /servers/available` reads the stored data only** (no vendor call, no lock), so it is safe to answer "which servers could I use" with it: give exactly one of `name` (exact) or `pattern` (regex), keep `count` small (max 20), and use `max_health` (the worst acceptable tier, never `health`). **`POST /servers/available` locks a server and needs an admin token: never call it to answer a question**, only when the user is actually provisioning. Otherwise answer "which are free" with the `openshift_state=AVAILABLE` filter above.
 - **Health is a verdict, not a reading.** `UNKNOWN` means nothing could be read, not "fine". A server with `reachable=false` (BMC down, or its record could not be processed: read `unreachable_reason` and `unreachable_detail` on the detail endpoint) is `CRITICAL`. `stale=true` means the collectors have not seen it for 12 h - say so rather than presenting old data as current.
 - **Availability is about clusters, not names.** A server named `ocp4-prod-...` can be `AVAILABLE`; trust `openshift_state`.
 - **Errors are RFC 9457 JSON** (`application/problem+json`) with a stable `code`. Read `code` and `detail` (cut to 1,000 characters, ending `… [N more characters cut …]`; the full text is in the server log under `request_id`), fix the request, and retry once: `UNKNOWN_FILTER`, `PAGE_SIZE_TOO_LARGE`, `CURSOR_FILTER_MISMATCH` (cursor reused with different filters), `NOT_FOUND`. `401` means the token is wrong or expired; `403` means a write was attempted with a read-only token, or events were read with a viewer token. Do not retry either - tell the user.
@@ -106,4 +106,4 @@ grouping, counting or filtering on a field the list endpoint lacks.
 
 - Response fields, `available` and events parameters, every endpoint: [references/endpoints.md](references/endpoints.md)
 - Interactive docs on a running instance: `$BASE_URL/docs`
-- Project overview and design decisions: `README.md`, `docs/adr/0032-available-server-lookup-api.md`, `docs/adr/0034-ad-login-roles-and-api-tokens.md`
+- Project overview and design decisions: `README.md`, `docs/adr/0032-available-server-lookup-api.md`, `docs/adr/0063-available-reserves-and-verifies.md`, `docs/adr/0034-ad-login-roles-and-api-tokens.md`

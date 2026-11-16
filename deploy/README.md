@@ -449,7 +449,7 @@ login route alone, since a fleet-wide latency panel hides a few slow logins),
 `server_scan:dependency_calls:rate5m{dependency,outcome}`,
 `server_scan:dependency_call_duration_seconds:p95`/`:p99` and
 `server_scan:dependency_failure_ratio:rate10m` for `dependency` = `ldap`, `ad_api` and
-`vendor_<manager>` (`GET /servers/available`'s live recheck). `ServerScanLoginDependencyFailing`
+`vendor_<manager>` (`POST /servers/available`'s live recheck). `ServerScanLoginDependencyFailing`
 and `ServerScanAvailableRecheckFailing` fire on that ratio, `ServerScanLoginSlow` on the login p95;
 all three read their thresholds with `default`, so a values file that predates them still renders.
 The matching log lines (`ldap.bind_failed`, `ad_api.attempt_failed`, `available.recheck_failed`)
@@ -688,7 +688,7 @@ vendor. A KubeVirt VM is never rechecked by the hub API (no cluster name there, 
 deliberately **not** mounted onto the API pod, since that would put every
 BMC password within reach of the pod the Route exposes.
 
-**`GET /api/v1/servers/available`'s live recheck waits as long as each collector's own CronJob does**
+**`POST /api/v1/servers/available`'s live recheck waits as long as each collector's own CronJob does**
 (ADR-0032, 2026-10-11 update). server-scan's `recheck.timeouts` (a `ManagerType: seconds` map, default
 `UCS_CENTRAL: 240`, `INTERSIGHT: 10`) renders `INVENTORY_AVAILABLE_RECHECK_TIMEOUTS`, and
 `recheck.intersightReadTimeoutSeconds` (60) Intersight's read timeout; keep them equal to the collectors chart's
@@ -956,7 +956,8 @@ the settings module's comments) because each cost a session:
 
   Fixed 2026-09-14 for the six values this app parses as an int, a bool
   or an enum (`logLevel`, `metricsEnabled`, `staleAfterSeconds`,
-  `defaultPageSize`, `maxPageSize`, `maxAvailableCount`): each is now
+  `defaultPageSize`, `maxPageSize`, `maxAvailableCount`; `availableMaxAttempts`, ADR-0063, is read with `default 5`
+  so an older values file still renders): each is now
   `required`, so a missing one fails `helm template` loudly instead of
   shipping a silently-dropped key. **The other five stay unguarded on
   purpose** (`sites`, `gpuModels`, `nicOsNames`, `corsAllowedOrigins`,

@@ -414,7 +414,10 @@ async def test_bmc_vendor_tells_intersight_from_ucs_within_cisco(
     assert ucs["interfaces"][0]["os_name"] == "eno5"
 
 
-async def test_a_vendor_manager_failure_is_a_503_naming_the_manager_not_a_500(
+_CLAIM = {"holder": "install-server", "mce_cluster": "mce-a", "workflow_id": "wf-1"}
+
+
+async def test_a_vendor_manager_failure_is_a_503_naming_the_server_and_the_cause(
     app_context: tuple[AsyncClient, MongoServerRepository], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The 15 s UCS Central `lsServer` timeout used to surface as an unexplained 500."""
@@ -440,14 +443,16 @@ async def test_a_vendor_manager_failure_is_a_503_naming_the_manager_not_a_500(
         ),
     )
 
-    resp = await client.get("/api/v1/servers/available", params={"name": "ocp-ucs-timeout"})
+    resp = await client.post(
+        "/api/v1/servers/available", json={"name": "ocp-ucs-timeout", **_CLAIM}
+    )
 
     assert resp.status_code == 503
     body = resp.json()
-    assert body["code"] == "SERVICE_UNAVAILABLE"
-    assert "UCS_CENTRAL" in body["detail"]
+    assert body["code"] == "NO_AVAILABLE_SERVER"
+    assert "ocp-ucs-timeout" in body["detail"]
     assert "timed out after 15.0s" in body["detail"]
-    assert body["details"]["manager_type"] == "UCS_CENTRAL"
+    assert body["details"]["reasons"] == ["VENDOR_ERROR"]
 
 
 async def test_a_vendor_failure_with_a_multi_mb_message_answers_a_small_503(
@@ -476,13 +481,161 @@ async def test_a_vendor_failure_with_a_multi_mb_message_answers_a_small_503(
         ),
     )
 
-    resp = await client.get("/api/v1/servers/available", params={"name": "ocp-ucs-huge-error"})
+    resp = await client.post(
+        "/api/v1/servers/available", json={"name": "ocp-ucs-huge-error", **_CLAIM}
+    )
 
     assert resp.status_code == 503
     assert len(resp.content) < 4_000
-    body = resp.json()
-    assert "RuntimeError: <html>xxx" in body["detail"]
-    assert "more characters" in body["details"]["reason"]
+    assert "RuntimeError: <html>xxx" in resp.json()["detail"]
+    assert "more characters" in resp.json()["detail"]
+
+
+async def test_get_available_does_no_live_recheck_and_takes_no_lock(
+    app_context: tuple[AsyncClient, MongoServerRepository], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, repo = app_context
+    server = await repo.upsert(
+        _make_server(0, name="ocp-get-only", source_provider=ManagerType.UCS_CENTRAL.value)
+    )
+
+    def _no_provider_expected(manager_type: ManagerType, settings: object) -> None:
+        raise AssertionError("GET must not build a provider")
+
+    monkeypatch.setattr(servers_module, "build_provider_for_manager_type", _no_provider_expected)
+
+    body = (await client.get("/api/v1/servers/available", params={"name": "ocp-get-only"})).json()
+
+    assert body["items"][0]["live_recheck_performed"] is False
+    stored = await repo.get_by_id(server.id)
+    assert stored is not None
+    assert stored.reservation.holder is None
+
+
+async def test_get_available_max_health_picks_a_tier_and_every_better_one(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    for i, health in enumerate(
+        (HealthSeverity.WARNING, HealthSeverity.CRITICAL, HealthSeverity.UNKNOWN)
+    ):
+        await repo.upsert(_make_server(i, name=f"ocp-mh-{health.value.lower()}", health=health))
+
+    async def names(max_health: str) -> list[str] | int:
+        resp = await client.get(
+            "/api/v1/servers/available",
+            params={"pattern": "ocp-mh-", "count": 5, "max_health": max_health},
+        )
+        return (
+            sorted(i["name"] for i in resp.json()["items"])
+            if resp.status_code == 200
+            else (resp.status_code)
+        )
+
+    assert await names("HEALTHY") == 404
+    assert await names("WARNING") == ["ocp-mh-warning"]
+    assert await names("MAJOR") == ["ocp-mh-warning"]
+    assert await names("CRITICAL") == ["ocp-mh-critical", "ocp-mh-warning"]
+    assert await names("UNKNOWN") == 400
+
+
+async def test_the_removed_health_parameter_is_refused_not_ignored(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, _repo = app_context
+    resp = await client.get("/api/v1/servers/available", params={"name": "x", "health": "HEALTHY"})
+    assert resp.status_code == 400
+    assert "max_health" in resp.json()["detail"]
+
+
+async def test_post_available_reserves_one_server_and_a_second_call_gets_the_next(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    for i in range(2):
+        await repo.upsert(_make_server(i, name=f"ocp-post-{i}"))
+
+    first = await client.post("/api/v1/servers/available", json={"pattern": "ocp-post-", **_CLAIM})
+    second = await client.post(
+        "/api/v1/servers/available", json={"pattern": "ocp-post-", **_CLAIM, "workflow_id": "wf-2"}
+    )
+    third = await client.post(
+        "/api/v1/servers/available", json={"pattern": "ocp-post-", **_CLAIM, "workflow_id": "wf-3"}
+    )
+
+    assert first.status_code == second.status_code == 200
+    first_body, second_body = first.json(), second.json()
+    assert first_body["returned"] == first_body["requested"] == 1
+    assert len(first_body["items"]) == 1
+    assert first_body["items"][0]["id"] != second_body["items"][0]["id"]
+    stored = await repo.get_by_id(first_body["items"][0]["id"])
+    assert stored is not None
+    assert stored.reservation.mce_cluster == "mce-a"
+    assert stored.reservation.workflow_id == "wf-1"
+    assert third.status_code == 503
+    assert third.json()["code"] == "NO_AVAILABLE_SERVER"
+
+
+async def test_post_available_with_nothing_at_that_health_is_a_503(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(_make_server(0, name="ocp-post-warn", health=HealthSeverity.WARNING))
+
+    resp = await client.post(
+        "/api/v1/servers/available",
+        json={"pattern": "ocp-post-warn", "max_health": "HEALTHY", **_CLAIM},
+    )
+
+    assert resp.status_code == 503
+    assert "HEALTH" in resp.json()["details"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**_CLAIM},
+        {"name": "a", "pattern": "b", **_CLAIM},
+        {"pattern": "a", "max_health": "UNKNOWN", **_CLAIM},
+    ],
+)
+async def test_post_available_rejects_a_bad_lookup_with_400(
+    app_context: tuple[AsyncClient, MongoServerRepository], body: dict[str, str]
+) -> None:
+    client, _repo = app_context
+    resp = await client.post("/api/v1/servers/available", json=body)
+    assert resp.status_code == 400
+
+
+async def test_post_available_refuses_count_and_other_unknown_fields(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, _repo = app_context
+    resp = await client.post(
+        "/api/v1/servers/available", json={"pattern": "a", "count": 3, **_CLAIM}
+    )
+    assert resp.status_code == 422
+
+
+async def test_post_available_requires_the_holder_and_the_mce_cluster(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, _repo = app_context
+    resp = await client.post("/api/v1/servers/available", json={"pattern": "a"})
+    assert resp.status_code == 422
+
+
+async def test_post_available_name_mode_ambiguous_is_409(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    await repo.upsert(_make_server(0, name="ocp-dup"))
+    await repo.upsert(_make_server(1, name="ocp-dup"))
+
+    resp = await client.post("/api/v1/servers/available", json={"name": "ocp-dup", **_CLAIM})
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "AVAILABLE_SERVER_NAME_AMBIGUOUS"
 
 
 def _installed(server: Server, cluster: str = "ocp4-prod") -> Server:

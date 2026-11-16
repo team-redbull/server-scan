@@ -22,7 +22,12 @@ and in maintenance without any of these services stepping on each other.
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+import structlog
 
 from app.application.services.audit_service import AuditService
 from app.domain.models.audit_event import Actor, EventType
@@ -31,6 +36,44 @@ from app.domain.models.server import Server
 from app.domain.ports.repository import ServerRepository
 from app.errors import ConflictError, NotFoundError, RevisionConflictError
 from app.utils.timeutil import utcnow
+
+logger = structlog.get_logger(__name__)
+
+_WRITE_ATTEMPTS = 3
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationClaim:
+    """Who is taking a lock and for how long; the arguments of `POST /servers/available`.
+
+    Attributes:
+        holder (str): What takes it, e.g. "install-server".
+        mce_cluster (str): The MCE cluster the server goes into.
+        infra_env (str | None): The InfraEnv being filled.
+        namespace (str | None): Where the BareMetalHost will be created.
+        workflow_id (str | None): The run taking it.
+        ttl (timedelta): How long the final lock is honoured.
+    """
+
+    holder: str
+    mce_cluster: str
+    infra_env: str | None
+    namespace: str | None
+    workflow_id: str | None
+    ttl: timedelta
+    token: str = field(default_factory=lambda: uuid.uuid4().hex)
+
+    def owns(self, reservation: Reservation) -> bool:
+        """
+        Whether a stored reservation is this claim's.
+
+        Args:
+            reservation (Reservation): The reservation on a server.
+
+        Returns:
+            bool: True when the per-request token matches.
+        """
+        return reservation.claim_token == self.token
 
 
 class ReservationService:
@@ -259,6 +302,142 @@ class ReservationService:
             },
         )
         return server
+
+    async def try_claim(
+        self, server: Server, claim: ReservationClaim, *, lease: timedelta
+    ) -> Server | None:
+        """
+        Lock a drawn candidate for a short probe lease, without auditing (ADR-0063).
+
+        The compare-and-set on `revision` is the mutual exclusion (ADR-0035, decision 4).
+
+        Args:
+            server (Server): The candidate, as just read.
+            claim (ReservationClaim): Who is taking it.
+            lease (timedelta): How long the lock lasts if this process dies before it is extended.
+
+        Returns:
+            Server | None: The server now holding the lock, or `None` when another caller
+                holds it or wrote to the document first.
+        """
+        now = utcnow()
+        if server.reservation.is_live(now=now):
+            return None
+        expected_revision = server.revision
+        server.reservation = Reservation(
+            holder=claim.holder,
+            mce_cluster=claim.mce_cluster,
+            infra_env=claim.infra_env,
+            namespace=claim.namespace,
+            workflow_id=claim.workflow_id,
+            claim_token=claim.token,
+            created_at=now,
+            expires_at=now + lease,
+        )
+        server.revision += 1
+        server.updated_at = now
+        try:
+            await self._server_repo.upsert_with_revision_check(
+                server, expected_revision=expected_revision
+            )
+        except RevisionConflictError:
+            return None
+        return server
+
+    async def extend_claim(
+        self,
+        server_id: str,
+        claim: ReservationClaim,
+        *,
+        actor: Actor,
+        request_id: str | None,
+        still_ok: Callable[[Server], bool],
+    ) -> Server | None:
+        """
+        Turn a probe lease into the caller's full TTL and audit `SERVER_RESERVED` (ADR-0063).
+
+        Args:
+            server_id (str): The server this claim holds.
+            claim (ReservationClaim): The claim that took it.
+            actor (Actor): Who is reserving.
+            request_id (str | None): The originating API request id, if any.
+            still_ok (Callable[[Server], bool]): Checked on the freshly read document, so a
+                change after the live check (maintenance, membership, health) is not returned.
+
+        Returns:
+            Server | None: The server with the full lock, or `None` when the lock is no longer
+                this claim's, `still_ok` refused it, or the write kept losing to other writers.
+        """
+        for _attempt in range(_WRITE_ATTEMPTS):
+            server = await self._server_repo.get_by_id(server_id)
+            if server is None or not claim.owns(server.reservation) or not still_ok(server):
+                return None
+            now = utcnow()
+            expected_revision = server.revision
+            server.reservation = server.reservation.model_copy(
+                update={"expires_at": now + claim.ttl}
+            )
+            server.revision += 1
+            server.updated_at = now
+            try:
+                await self._server_repo.upsert_with_revision_check(
+                    server, expected_revision=expected_revision
+                )
+            except RevisionConflictError:
+                continue
+            await self._audit.record(
+                EventType.SERVER_RESERVED,
+                actor=actor,
+                server_id=server.id,
+                server_name=server.name,
+                server=server,
+                request_id=request_id,
+                data={
+                    "holder": claim.holder,
+                    "mce_cluster": claim.mce_cluster,
+                    "infra_env": claim.infra_env,
+                    "workflow_id": claim.workflow_id,
+                    "expires_at": _iso(server.reservation.expires_at),
+                    "via": "available",
+                },
+            )
+            return server
+        return None
+
+    async def release_claim(self, server_id: str, claim: ReservationClaim) -> bool:
+        """
+        Release a lock this claim took, without auditing; a rejected candidate leaves no event.
+
+        Re-reads and retries on a revision conflict (a live recheck writes the document too).
+        Never raises: the lock's own expiry is the fallback.
+
+        Args:
+            server_id (str): The server to free.
+            claim (ReservationClaim): The claim that took it. Another holder's lock is left alone.
+
+        Returns:
+            bool: True when the server is no longer locked by this claim.
+        """
+        for _attempt in range(_WRITE_ATTEMPTS):
+            try:
+                server = await self._server_repo.get_by_id(server_id)
+                if server is None or not claim.owns(server.reservation):
+                    return True
+                expected_revision = server.revision
+                server.reservation = Reservation()
+                server.revision += 1
+                server.updated_at = utcnow()
+                await self._server_repo.upsert_with_revision_check(
+                    server, expected_revision=expected_revision
+                )
+            except RevisionConflictError:
+                continue
+            except Exception:
+                logger.exception("reservation.release_failed", server_id=server_id)
+                return False
+            return True
+        logger.warning("reservation.release_conflicted", server_id=server_id)
+        return False
 
     @staticmethod
     def _is_same_claim(existing: Reservation, *, holder: str, workflow_id: str | None) -> bool:

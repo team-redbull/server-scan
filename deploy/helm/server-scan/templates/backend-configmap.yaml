@@ -27,6 +27,7 @@ data:
   INVENTORY_MAX_PAGE_SIZE: {{ required "config.maxPageSize must be set" .Values.config.maxPageSize | quote }}
   INVENTORY_CORS_ALLOWED_ORIGINS: {{ .Values.config.corsAllowedOrigins | quote }}
   INVENTORY_MAX_AVAILABLE_COUNT: {{ required "config.maxAvailableCount must be set" .Values.config.maxAvailableCount | quote }}
+  INVENTORY_AVAILABLE_MAX_ATTEMPTS: {{ .Values.config.availableMaxAttempts | default 5 | quote }}
   INVENTORY_CAPACITY_ALIASES: {{ .Values.config.capacityAliases | quote }}
   INVENTORY_MONGO_DB: {{ .Values.db.dbName | default "server-scan" | quote }}
   # AD login (docs/adr/0034) — the AD API client id, session secret and

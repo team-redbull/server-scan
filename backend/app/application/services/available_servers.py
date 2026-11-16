@@ -1,26 +1,29 @@
-"""`GET /servers/available`: Mongo-side candidate resolution plus a live recheck.
+"""`/servers/available`: Mongo-side candidate resolution, then (POST only) lock and live check.
 
-Two lookup modes share one pipeline: find candidates in Mongo (fast,
-fleet-wide), then live-verify only the few servers about to be returned —
-never the whole matching set. See
-docs/adr/0032-available-server-lookup-api.md for the full design, the
-health-tier fill order, and why a manager type with no credentials
-configured on this process degrades to trusting the stored document
-rather than failing the request.
+`GET` answers from MongoDB alone: it ranks the candidates and returns them without a live
+recheck or a lock. `POST` draws one candidate at a time, locks it, live-checks it while it holds
+the lock, and either returns it or releases it and tries the next, up to a bounded number of
+attempts. See docs/adr/0063-available-reserves-and-verifies.md; the draw, the health-tier order
+and the degrade-to-stored-document rule for an unconfigured manager are
+docs/adr/0032-available-server-lookup-api.md.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 import structlog
 from pydantic import TypeAdapter
 
 from app.application.services.ingest import IngestService
+from app.application.services.reservation_service import ReservationClaim, ReservationService
 from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState
+from app.domain.models.audit_event import Actor
 from app.domain.models.server import Server
 from app.domain.ports.credentials import ManagerNotConfiguredError
 from app.domain.ports.provider import (
@@ -31,6 +34,7 @@ from app.domain.ports.provider import (
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.normalize import normalize_text
 from app.domain.value_objects.capacity_aliases import CapacityAliasCatalog
+from app.errors import ConflictError
 from app.observability.metrics import dependency_call_duration_seconds
 from app.utils.timeutil import utcnow
 
@@ -43,7 +47,29 @@ SELECTABLE_TIERS: tuple[HealthSeverity, ...] = (
     HealthSeverity.MAJOR,
 )
 
-_SELECTABLE_VALUES = [tier.value for tier in SELECTABLE_TIERS]
+# `max_health` picks a prefix of this, best first; UNKNOWN is in none of them (ADR-0063).
+HEALTH_ORDER: tuple[HealthSeverity, ...] = (
+    HealthSeverity.HEALTHY,
+    HealthSeverity.WARNING,
+    HealthSeverity.MAJOR,
+    HealthSeverity.CRITICAL,
+)
+
+
+def tiers_up_to(max_health: HealthSeverity) -> tuple[HealthSeverity, ...]:
+    """
+    The health tiers a `max_health` allows, best first.
+
+    Args:
+        max_health (HealthSeverity): The worst acceptable tier.
+
+    Returns:
+        tuple[HealthSeverity, ...]: That tier and every better one; `()` for UNKNOWN or INFO.
+    """
+    if max_health not in HEALTH_ORDER:
+        return ()
+    return HEALTH_ORDER[: HEALTH_ORDER.index(max_health) + 1]
+
 
 # `health.overall` alone cannot carry this: OneView never reads links and a server with no
 # interface listed still roll up HEALTHY — docs/adr/0032 (2026-09-26, 2026-10-21).
@@ -52,9 +78,14 @@ REQUIRED_NETWORK_HEALTH = HealthSeverity.HEALTHY
 # Reasons only this platform's own database decides: a vendor recheck cannot change them.
 _STORED_ONLY_CODES = frozenset({"INSTALLED", "CLAIMED", "MAINTENANCE", "RESERVED"})
 
-# Bounds worst-case cost when candidates keep failing their live recheck —
-# ADR-0032, "candidate ranking".
-_MAX_REPLACEMENT_ROUNDS_PER_TIER = 3
+# Candidates another request locked first, which cost no vendor call; bounded so a hot pool
+# cannot loop forever (ADR-0063).
+_MAX_CLAIM_RACES = 20
+
+# The probe lease must outlive the vendor call it guards: `recheck timeout + slack`, at least this.
+_MIN_PROBE_LEASE_SECONDS = 120.0
+_PROBE_LEASE_SLACK_SECONDS = 60.0
+_DEFAULT_RECHECK_TIMEOUT_SECONDS = 15.0
 
 # A vendor's exception text reaches the 503 in `detail` and `details.reason` (ADR-0002, 2026-11-09).
 _MAX_RECHECK_REASON_CHARS = 500
@@ -218,6 +249,7 @@ def server_still_qualifies(
     *,
     tiers: tuple[HealthSeverity, ...] = SELECTABLE_TIERS,
     min_nic_macs: int = 0,
+    own_claim: ReservationClaim | None = None,
 ) -> bool:
     """
     Whether a server's current state still makes it assignable.
@@ -230,6 +262,8 @@ def server_still_qualifies(
             degraded recheck, as last stored).
         tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
         min_nic_macs (int): How many NIC MACs must have been read.
+        own_claim (ReservationClaim | None): A lock held by this claim does not count against
+            the server (a POST judges the server it has just locked).
 
     Returns:
         bool: `True` when it is `AVAILABLE`, not in maintenance, reachable, at
@@ -254,8 +288,24 @@ def server_still_qualifies(
         # Agrees with unreserved_filters, as ADR-0032 requires of every clause
         # here: a machine another run is installing is not assignable, however
         # healthy it looks.
-        and not server.reservation.is_live()
+        and not _reserved_by_another(server, own_claim)
     )
+
+
+def _reserved_by_another(server: Server, own_claim: ReservationClaim | None) -> bool:
+    """
+    Whether a live reservation on `server` is somebody else's.
+
+    Args:
+        server (Server): The server.
+        own_claim (ReservationClaim | None): The claim whose lock does not count.
+
+    Returns:
+        bool: True when it is reserved and the lock is not `own_claim`'s.
+    """
+    if not server.reservation.is_live():
+        return False
+    return own_claim is None or not own_claim.owns(server.reservation)
 
 
 def unassignable_reasons(
@@ -263,6 +313,7 @@ def unassignable_reasons(
     *,
     tiers: tuple[HealthSeverity, ...] = SELECTABLE_TIERS,
     min_nic_macs: int = 0,
+    own_claim: ReservationClaim | None = None,
 ) -> list[tuple[str, str]]:
     """
     Why a server is not assignable, one `(code, sentence)` per failed condition.
@@ -273,6 +324,7 @@ def unassignable_reasons(
         server (Server): The server, as freshly rechecked (or last stored).
         tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
         min_nic_macs (int): How many NIC MACs must have been read.
+        own_claim (ReservationClaim | None): A lock held by this claim is not a reason.
 
     Returns:
         list[tuple[str, str]]: Machine code and plain-English reason, most decisive first.
@@ -312,7 +364,7 @@ def unassignable_reasons(
                 f"its BMC is unreachable ({cause.value})" if cause else "its BMC is unreachable",
             )
         )
-    if server.reservation.is_live():
+    if _reserved_by_another(server, own_claim):
         holder = server.reservation.holder or "an install"
         reasons.append(("RESERVED", f"it is reserved by {holder} for an install in progress"))
     if server.health.overall not in tiers:
@@ -355,8 +407,19 @@ def _reason_message(subject: str, reasons: list[tuple[str, str]]) -> AvailableSe
     )
 
 
+@dataclass(slots=True)
+class _Tried:
+    """What one `POST` has done so far: the ids it drew and why each failed."""
+
+    ids: set[str] = field(default_factory=set)
+    failures: list[tuple[str, str, str]] = field(default_factory=list)
+    attempts: int = 0
+    races: int = 0
+    stuck: bool = False
+
+
 class AvailableServersService:
-    """Resolves `GET /servers/available` for both its lookup modes."""
+    """Resolves `/servers/available`: `GET` reads Mongo, `POST` locks, checks and returns."""
 
     def __init__(
         self,
@@ -365,6 +428,11 @@ class AvailableServersService:
         ingest: IngestService,
         provider_factory: Callable[[ManagerType], ServerInventoryProvider],
         capacity_aliases: CapacityAliasCatalog,
+        reservations: ReservationService,
+        max_attempts: int = 5,
+        recheck_timeout: Callable[[ManagerType], float] = lambda _mt: (
+            _DEFAULT_RECHECK_TIMEOUT_SECONDS
+        ),
     ) -> None:
         """
         Build the service for one request.
@@ -379,11 +447,18 @@ class AvailableServersService:
                 credentials for it.
             capacity_aliases (CapacityAliasCatalog): The configured
                 `5tb`/`10tb`-style token expansions.
+            reservations (ReservationService): Locks and releases a candidate (`POST`).
+            max_attempts (int): Candidates one `POST` locks and live-checks before giving up.
+            recheck_timeout (Callable[[ManagerType], float]): The longest a manager type's live
+                recheck may run, in seconds, which sizes the probe lease.
         """
         self._repo = repo
         self._ingest = ingest
         self._provider_factory = provider_factory
         self._capacity_aliases = capacity_aliases
+        self._reservations = reservations
+        self._max_attempts = max_attempts
+        self._recheck_timeout = recheck_timeout
         self._provider_cache: dict[ManagerType, ServerInventoryProvider | None] = {}
 
     async def lookup_by_name(
@@ -395,7 +470,7 @@ class AvailableServersService:
         min_nic_macs: int = 0,
     ) -> AvailableServerResult:
         """
-        Resolve `?name=` mode: one exact, live-verified match.
+        Resolve `GET ?name=`: one exact match, judged on its stored document.
 
         Args:
             name (str): The exact server name, matched case-insensitively.
@@ -405,58 +480,20 @@ class AvailableServersService:
             min_nic_macs (int): How many NIC MACs must have been read.
 
         Returns:
-            AvailableServerResult: The one matching, still-qualifying server.
+            AvailableServerResult: The one matching server; no live recheck ran.
 
         Raises:
-            AvailableServersNotFoundError: No server has that name (under
-                the given filters), its manager no longer reports it, or
-                it no longer qualifies after the live recheck.
+            AvailableServersNotFoundError: No server has that name (under the given filters)
+                or it is not assignable as stored.
             AmbiguousServerNameError: Several documents carry that name.
-            VendorRecheckError: Its vendor manager failed during the live recheck.
         """
-        normalized = normalize_text(name)
-        name_filters = {**extra_filters, "name_normalized": normalized}
-        # Counted before fetching: `find_one_by_name` is an unsorted `find_one`,
-        # so with several matches it judges an arbitrary one — ADR-0032's
-        # 2026-09-25 update.
-        match_count = await self._repo.count(name_filters)
-        if match_count == 0:
-            raise AvailableServersNotFoundError(
-                f"no server named {name!r} matches the given filters"
-            )
-        if match_count > 1:
-            raise AmbiguousServerNameError(name, await self._repo.find_ids(name_filters))
-
-        server = await self._repo.find_one_by_name(normalized, filters=extra_filters)
-        if server is None:
-            raise AvailableServersNotFoundError(
-                f"no server named {name!r} matches the given filters"
-            )
-
-        # No vendor call can change these three, so answer from the stored document
-        # first: an installed server is "installed", even while its manager is down.
-        stored_only = [
-            reason
-            for reason in unassignable_reasons(server, tiers=tiers, min_nic_macs=0)
-            if reason[0] in _STORED_ONLY_CODES
-        ]
-        if stored_only:
-            raise _reason_message(repr(name), stored_only)
-
-        rechecked, live_recheck_performed = await self._recheck(server)
-        if rechecked is None:
-            raise AvailableServersNotFoundError(
-                f"{name!r} was found in inventory, but its manager can no longer find it",
-                ("GONE_FROM_MANAGER",),
-            )
-        if not server_still_qualifies(rechecked, tiers=tiers, min_nic_macs=min_nic_macs):
+        server = await self._find_named(name, extra_filters)
+        if not server_still_qualifies(server, tiers=tiers, min_nic_macs=min_nic_macs):
             raise _reason_message(
                 repr(name),
-                unassignable_reasons(rechecked, tiers=tiers, min_nic_macs=min_nic_macs),
+                unassignable_reasons(server, tiers=tiers, min_nic_macs=min_nic_macs),
             )
-        return AvailableServerResult(
-            server=rechecked, live_recheck_performed=live_recheck_performed
-        )
+        return AvailableServerResult(server=server, live_recheck_performed=False)
 
     async def lookup_by_pattern(
         self,
@@ -468,32 +505,226 @@ class AvailableServersService:
         min_nic_macs: int = 0,
     ) -> AvailableServersOutcome:
         """
-        Resolve `?pattern=` mode: rank, randomly draw, and live-verify up to `count` servers.
+        Resolve `GET ?pattern=`: rank, randomly draw up to `count` servers, no recheck, no lock.
 
         Args:
             pattern (str): A real MongoDB regex against `Server.name`.
             count (int): How many qualifying servers to return.
             extra_filters (dict[str, object]): Already Mongo-keyed
                 `vendor`/`source_provider` filters, if given.
-            tiers (tuple[HealthSeverity, ...]): Health tiers to draw from, best
-                first. Narrowed by `?health=`.
+            tiers (tuple[HealthSeverity, ...]): Health tiers to draw from, best first.
             min_nic_macs (int): How many NIC MACs a candidate must have read.
 
         Returns:
-            AvailableServersOutcome: Up to `count` qualifying servers —
-                fewer is honest partial fulfillment, not an error.
+            AvailableServersOutcome: Up to `count` servers; fewer is honest partial fulfillment.
 
         Raises:
-            AvailableServersNotFoundError: No name matches `pattern` at
-                all, no server survives the vendor/provider filters, or every
-                match was unassignable before any live recheck ran.
-            VendorRecheckError: Every drawn candidate's vendor manager failed, so
-                nothing could be verified (a partial fill is returned instead).
+            AvailableServersNotFoundError: No name matches `pattern` at all, no server survives
+                the vendor/provider filters, or every match was unassignable.
+        """
+        assignable_filters = await self._pattern_filters(
+            pattern, extra_filters, tiers=tiers, min_nic_macs=min_nic_macs
+        )
+        selected: list[AvailableServerResult] = []
+        for tier in tiers:
+            remaining = count - len(selected)
+            if remaining <= 0:
+                break
+            drawn = await self._repo.sample_available_tier(
+                filters=assignable_filters, severity=tier.value, size=remaining
+            )
+            selected.extend(
+                AvailableServerResult(server=server, live_recheck_performed=False)
+                for server in drawn
+            )
+        logger.info("available.filled", requested=count, returned=len(selected), locked=False)
+        return AvailableServersOutcome(items=selected, requested=count)
+
+    async def reserve_by_name(
+        self,
+        name: str,
+        *,
+        claim: ReservationClaim,
+        actor: Actor,
+        request_id: str | None,
+        extra_filters: dict[str, object],
+        tiers: tuple[HealthSeverity, ...],
+        min_nic_macs: int = 0,
+    ) -> AvailableServerResult:
+        """
+        Resolve `POST name=`: lock the one exact match, live-check it, return it or fail (ADR-0063).
+
+        Args:
+            name (str): The exact server name, matched case-insensitively.
+            claim (ReservationClaim): Who is taking the server and for how long.
+            actor (Actor): Who is reserving, for the audit event.
+            request_id (str | None): The originating API request id, if any.
+            extra_filters (dict[str, object]): Already Mongo-keyed `vendor`/`source_provider`.
+            tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
+            min_nic_macs (int): How many NIC MACs must have been read.
+
+        Returns:
+            AvailableServerResult: The locked, live-checked server.
+
+        Raises:
+            AvailableServersNotFoundError: No such server, it is not assignable as stored, or it
+                failed its live check or was locked by another request.
+            AmbiguousServerNameError: Several documents carry that name.
+        """
+        server = await self._find_named(name, extra_filters)
+        # No vendor call can change these, so answer from the stored document first: an
+        # installed server is "installed", even while its manager is down.
+        stored_only = [
+            reason
+            for reason in unassignable_reasons(server, tiers=tiers, min_nic_macs=0)
+            if reason[0] in _STORED_ONLY_CODES
+        ]
+        if stored_only:
+            raise _reason_message(repr(name), stored_only)
+        tried = _Tried()
+        began = time.monotonic()
+        result = await self._lock_and_verify(
+            server, claim, tried, actor, request_id, tiers=tiers, min_nic_macs=min_nic_macs
+        )
+        logger.info(
+            "available.request_timing",
+            mode="name",
+            reserved=result is not None,
+            attempts=tried.attempts,
+            total_ms=round((time.monotonic() - began) * 1000),
+        )
+        if result is None:
+            raise self._exhausted(repr(name), tried)
+        return result
+
+    async def reserve_by_pattern(
+        self,
+        pattern: str,
+        *,
+        claim: ReservationClaim,
+        actor: Actor,
+        request_id: str | None,
+        extra_filters: dict[str, object],
+        tiers: tuple[HealthSeverity, ...],
+        min_nic_macs: int = 0,
+    ) -> AvailableServerResult:
+        """
+        Resolve `POST pattern=`: lock, live-check and return one server, trying up to the cap.
+
+        One candidate at a time, best health first: it is locked, then checked while locked, and
+        either returned or released before the next is drawn (ADR-0063).
+
+        Args:
+            pattern (str): A real MongoDB regex against `Server.name`.
+            claim (ReservationClaim): Who is taking the server and for how long.
+            actor (Actor): Who is reserving, for the audit event.
+            request_id (str | None): The originating API request id, if any.
+            extra_filters (dict[str, object]): Already Mongo-keyed `vendor`/`source_provider`.
+            tiers (tuple[HealthSeverity, ...]): Acceptable health tiers, best first.
+            min_nic_macs (int): How many NIC MACs a candidate must have read.
+
+        Returns:
+            AvailableServerResult: The locked, live-checked server.
+
+        Raises:
+            AvailableServersNotFoundError: Nothing matched or qualified, every candidate failed its
+                live check, was taken by another request, or the attempt cap was reached.
+        """
+        assignable_filters = await self._pattern_filters(
+            pattern, extra_filters, tiers=tiers, min_nic_macs=min_nic_macs
+        )
+        tried = _Tried()
+        began = time.monotonic()
+        while (
+            tried.attempts < self._max_attempts
+            and tried.races < _MAX_CLAIM_RACES
+            and not tried.stuck
+        ):
+            candidate = await self._next_candidate(assignable_filters, tiers, tried.ids)
+            if candidate is None:
+                break
+            result = await self._lock_and_verify(
+                candidate, claim, tried, actor, request_id, tiers=tiers, min_nic_macs=min_nic_macs
+            )
+            if result is not None:
+                logger.info(
+                    "available.reserved",
+                    server=result.server.name,
+                    attempts=tried.attempts,
+                    races=tried.races,
+                    total_ms=round((time.monotonic() - began) * 1000),
+                )
+                return result
+        logger.info(
+            "available.request_timing",
+            mode="pattern",
+            reserved=False,
+            attempts=tried.attempts,
+            races=tried.races,
+            total_ms=round((time.monotonic() - began) * 1000),
+        )
+        raise self._exhausted(repr(pattern), tried)
+
+    async def _find_named(self, name: str, extra_filters: dict[str, object]) -> Server:
+        """
+        The one server called `name` under the filters.
+
+        Args:
+            name (str): The exact name, matched case-insensitively.
+            extra_filters (dict[str, object]): Already Mongo-keyed vendor/provider filters.
+
+        Returns:
+            Server: The match.
+
+        Raises:
+            AvailableServersNotFoundError: No server has that name under the filters.
+            AmbiguousServerNameError: Several documents carry that name.
+        """
+        normalized = normalize_text(name)
+        name_filters = {**extra_filters, "name_normalized": normalized}
+        # Counted before fetching: `find_one_by_name` is an unsorted `find_one`, so with several
+        # matches it judges an arbitrary one (ADR-0032, 2026-09-25 update).
+        match_count = await self._repo.count(name_filters)
+        if match_count == 0:
+            raise AvailableServersNotFoundError(
+                f"no server named {name!r} matches the given filters"
+            )
+        if match_count > 1:
+            raise AmbiguousServerNameError(name, await self._repo.find_ids(name_filters))
+        server = await self._repo.find_one_by_name(normalized, filters=extra_filters)
+        if server is None:
+            raise AvailableServersNotFoundError(
+                f"no server named {name!r} matches the given filters"
+            )
+        return server
+
+    async def _pattern_filters(
+        self,
+        pattern: str,
+        extra_filters: dict[str, object],
+        *,
+        tiers: tuple[HealthSeverity, ...],
+        min_nic_macs: int,
+    ) -> dict[str, object]:
+        """
+        The Mongo filter for a pattern lookup, after proving at least one server can match it.
+
+        Args:
+            pattern (str): The caller's regex.
+            extra_filters (dict[str, object]): Already Mongo-keyed vendor/provider filters.
+            tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
+            min_nic_macs (int): How many NIC MACs a candidate must have read.
+
+        Returns:
+            dict[str, object]: Name, vendor, provider and assignability clauses, without health.
+
+        Raises:
+            AvailableServersNotFoundError: Nothing matches, or nothing assignable does.
         """
         name_filter = self._name_filter(pattern)
 
-        # Counted apart from `extra_filters` so the 404 names the clause that
-        # emptied the set — ADR-0032's 2026-09-25 update.
+        # Counted apart from `extra_filters` so the message names the clause that emptied the
+        # set (ADR-0032, 2026-09-25 update).
         if await self._repo.count(name_filter) == 0:
             raise AvailableServersNotFoundError(f"no server name matches {pattern!r}")
 
@@ -513,21 +744,219 @@ class AvailableServersService:
             **nic_mac_filters(min_nic_macs),
             **unreserved_filters(utcnow()),
         }
-        pre_recheck_count = await self._repo.count(
-            {
-                **assignable_filters,
-                "health.overall": {"$in": [tier.value for tier in tiers]},
-            }
+        drawable = await self._repo.count(
+            {**assignable_filters, "health.overall": {"$in": [tier.value for tier in tiers]}}
         )
-        if pre_recheck_count == 0:
+        if drawable == 0:
             raise await self._explain_none_assignable(
                 pattern, base_filters, tiers=tiers, min_nic_macs=min_nic_macs
             )
+        return assignable_filters
 
-        selected = await self._fill_from_tiers(
-            assignable_filters, count=count, tiers=tiers, min_nic_macs=min_nic_macs
+    async def _next_candidate(
+        self,
+        assignable_filters: dict[str, object],
+        tiers: tuple[HealthSeverity, ...],
+        tried_ids: set[str],
+    ) -> Server | None:
+        """
+        Draw one not-yet-tried candidate from the best tier that has one.
+
+        Args:
+            assignable_filters (dict[str, object]): The assignability filter, without health.
+            tiers (tuple[HealthSeverity, ...]): Acceptable tiers, best first.
+            tried_ids (set[str]): Ids already drawn by this request.
+
+        Returns:
+            Server | None: A random candidate of the best non-empty tier, or `None`.
+        """
+        for tier in tiers:
+            drawn = await self._repo.sample_available_tier(
+                filters=assignable_filters,
+                severity=tier.value,
+                size=1,
+                exclude_ids=tuple(tried_ids),
+            )
+            if drawn:
+                return drawn[0]
+        return None
+
+    def _probe_lease(self, server: Server) -> timedelta:
+        """
+        How long a candidate's provisional lock lasts: longer than the vendor call it guards.
+
+        Args:
+            server (Server): The candidate.
+
+        Returns:
+            timedelta: `recheck timeout + slack`, at least the minimum lease.
+        """
+        timeout = _DEFAULT_RECHECK_TIMEOUT_SECONDS
+        if server.source_provider is not None:
+            with contextlib.suppress(ValueError):
+                timeout = self._recheck_timeout(ManagerType(server.source_provider))
+        return timedelta(
+            seconds=max(_MIN_PROBE_LEASE_SECONDS, timeout + _PROBE_LEASE_SLACK_SECONDS)
         )
-        return AvailableServersOutcome(items=selected, requested=count)
+
+    async def _lock_and_verify(
+        self,
+        candidate: Server,
+        claim: ReservationClaim,
+        tried: _Tried,
+        actor: Actor,
+        request_id: str | None,
+        *,
+        tiers: tuple[HealthSeverity, ...],
+        min_nic_macs: int,
+    ) -> AvailableServerResult | None:
+        """
+        Lock one candidate, live-check it while locked, and keep the lock only if it passes.
+
+        A lost race costs no attempt. Any other outcome that is not a pass releases the lock
+        before returning, and so does an exception or a cancellation.
+
+        Args:
+            candidate (Server): The drawn candidate.
+            claim (ReservationClaim): Who is taking it.
+            tried (_Tried): This request's running record, updated in place.
+            actor (Actor): Who is reserving, for the audit event.
+            request_id (str | None): The originating API request id, if any.
+            tiers (tuple[HealthSeverity, ...]): Acceptable health tiers.
+            min_nic_macs (int): How many NIC MACs must have been read.
+
+        Returns:
+            AvailableServerResult | None: The server holding the full lock, or `None` when it
+                was taken by another request or failed (recorded in `tried`).
+        """
+        tried.ids.add(candidate.id)
+        lease = self._probe_lease(candidate)
+        deadline = max(1.0, lease.total_seconds() - _PROBE_LEASE_SLACK_SECONDS / 2)
+        kept = False
+        lost = False
+        started = time.monotonic()
+        marks: dict[str, float] = {}
+        try:
+            locked = await self._reservations.try_claim(candidate, claim, lease=lease)
+            marks["claim"] = time.monotonic()
+            if locked is None:
+                lost = True
+                tried.races += 1
+                tried.failures.append(
+                    (candidate.name, "RESERVED", "another request locked it first")
+                )
+                logger.info("available.claim_lost", server=candidate.name)
+                return None
+            tried.attempts += 1
+            try:
+                async with asyncio.timeout(deadline):
+                    rechecked, live = await self._recheck(locked)
+                marks["recheck"] = time.monotonic()
+            except VendorRecheckError as exc:
+                tried.failures.append((candidate.name, "VENDOR_ERROR", exc.reason))
+                return None
+            except TimeoutError:
+                tried.failures.append(
+                    (candidate.name, "VENDOR_ERROR", f"the live check ran over {deadline:.0f} s")
+                )
+                return None
+            except ConflictError:
+                tried.failures.append(
+                    (candidate.name, "VENDOR_ERROR", "its record kept changing during the check")
+                )
+                return None
+            if rechecked is None:
+                tried.failures.append(
+                    (candidate.name, "GONE_FROM_MANAGER", "its manager can no longer find it")
+                )
+                return None
+            if not server_still_qualifies(
+                rechecked, tiers=tiers, min_nic_macs=min_nic_macs, own_claim=claim
+            ):
+                reasons = unassignable_reasons(
+                    rechecked, tiers=tiers, min_nic_macs=min_nic_macs, own_claim=claim
+                )
+                tried.failures.append(
+                    (
+                        candidate.name,
+                        reasons[0][0] if reasons else "REJECTED",
+                        "; ".join(text for _code, text in reasons) or "it no longer qualifies",
+                    )
+                )
+                logger.info(
+                    "available.candidate_rejected",
+                    server=candidate.name,
+                    health=rechecked.health.overall.value,
+                    gone_from_manager=False,
+                )
+                return None
+            final = await self._reservations.extend_claim(
+                locked.id,
+                claim,
+                actor=actor,
+                request_id=request_id,
+                still_ok=lambda fresh: server_still_qualifies(
+                    fresh, tiers=tiers, min_nic_macs=min_nic_macs, own_claim=claim
+                ),
+            )
+            if final is None:
+                tried.failures.append(
+                    (candidate.name, "RESERVE_FAILED", "its lock could not be extended")
+                )
+                return None
+            marks["extend"] = time.monotonic()
+            kept = True
+            return AvailableServerResult(server=final, live_recheck_performed=live)
+        finally:
+            ended = time.monotonic()
+            logger.info(
+                "available.candidate_timing",
+                server=candidate.name,
+                source=candidate.source_provider,
+                kept=kept,
+                claim_lost=lost,
+                total_ms=round((ended - started) * 1000),
+                claim_ms=round((marks.get("claim", ended) - started) * 1000),
+                recheck_ms=round((marks["recheck"] - marks["claim"]) * 1000)
+                if "recheck" in marks
+                else None,
+                extend_ms=round((marks["extend"] - marks["recheck"]) * 1000)
+                if "extend" in marks
+                else None,
+            )
+            if not kept and not lost:
+                freed = await asyncio.shield(self._reservations.release_claim(candidate.id, claim))
+                if not freed:
+                    tried.stuck = True
+                    tried.failures.append(
+                        (candidate.name, "RELEASE_FAILED", "its lock could not be released")
+                    )
+
+    @staticmethod
+    def _exhausted(subject: str, tried: _Tried) -> AvailableServersNotFoundError:
+        """
+        The error for a `POST` that locked and returned nothing.
+
+        Args:
+            subject (str): The quoted name or pattern.
+            tried (_Tried): What the request did.
+
+        Returns:
+            AvailableServersNotFoundError: Names each candidate's failure, or says every match was
+                taken by another request.
+        """
+        if not tried.failures:
+            return AvailableServersNotFoundError(
+                f"every server matching {subject} was taken by another request",
+                ("RESERVED",),
+            )
+        listed = "; ".join(f"{name}: {text}" for name, _code, text in tried.failures)
+        codes = tuple(dict.fromkeys(code for _name, code, _text in tried.failures))
+        return AvailableServersNotFoundError(
+            f"no server matching {subject} could be reserved "
+            f"({tried.attempts} live-checked, {tried.races} taken by others): {listed}",
+            codes,
+        )
 
     async def _explain_none_assignable(
         self,
@@ -624,90 +1053,6 @@ class AvailableServersService:
             return {"name": {"$regex": pattern}}
         return {"$or": [{"name": {"$regex": pattern}}, {"name": {"$regex": alias}}]}
 
-    async def _fill_from_tiers(
-        self,
-        assignable_filters: dict[str, object],
-        *,
-        count: int,
-        tiers: tuple[HealthSeverity, ...] = SELECTABLE_TIERS,
-        min_nic_macs: int = 0,
-    ) -> list[AvailableServerResult]:
-        """
-        Draw and live-verify candidates tier by tier until `count` qualify or every tier is spent.
-
-        Args:
-            assignable_filters (dict[str, object]): Name/vendor/
-                source_provider plus the AVAILABLE/not-maintenance/
-                reachable clauses, without a `health.overall` clause.
-            count (int): How many qualifying servers to return.
-            tiers (tuple[HealthSeverity, ...]): Tiers to draw from, best first.
-            min_nic_macs (int): How many NIC MACs a candidate must have read.
-
-        Returns:
-            list[AvailableServerResult]: Up to `count` results, best
-                tiers filled first.
-        """
-        selected: list[AvailableServerResult] = []
-        tried_ids: set[str] = set()
-        disqualified = 0
-        recheck_failures: list[VendorRecheckError] = []
-
-        for tier in tiers:
-            remaining = count - len(selected)
-            if remaining <= 0:
-                break
-            for _round in range(_MAX_REPLACEMENT_ROUNDS_PER_TIER):
-                remaining = count - len(selected)
-                if remaining <= 0:
-                    break
-                candidates = await self._repo.sample_available_tier(
-                    filters=assignable_filters,
-                    severity=tier.value,
-                    size=remaining,
-                    exclude_ids=tuple(tried_ids),
-                )
-                if not candidates:
-                    break
-                for candidate in candidates:
-                    tried_ids.add(candidate.id)
-                    try:
-                        rechecked, live_recheck_performed = await self._recheck(candidate)
-                    except VendorRecheckError as exc:
-                        recheck_failures.append(exc)
-                        continue
-                    qualifies = rechecked is not None and server_still_qualifies(
-                        rechecked, tiers=tiers, min_nic_macs=min_nic_macs
-                    )
-                    if not qualifies:
-                        disqualified += 1
-                        logger.info(
-                            "available.candidate_rejected",
-                            server=candidate.name,
-                            tier=tier.value,
-                            gone_from_manager=rechecked is None,
-                        )
-                    if rechecked is not None and qualifies:
-                        selected.append(
-                            AvailableServerResult(
-                                server=rechecked, live_recheck_performed=live_recheck_performed
-                            )
-                        )
-                        if len(selected) >= count:
-                            break
-        logger.info(
-            "available.filled",
-            requested=count,
-            returned=len(selected),
-            candidates_tried=len(tried_ids),
-            rejected_after_recheck=disqualified,
-            vendor_failures=len(recheck_failures),
-        )
-        if not selected and recheck_failures:
-            # Nothing could be verified because the vendor failed, which is not the
-            # same answer as "nothing is available": surface it (503), not a 404.
-            raise recheck_failures[0]
-        return selected
-
     async def _recheck(self, server: Server) -> tuple[Server | None, bool]:
         """
         Live-verify one server, persisting the fresh state through `IngestService`.
@@ -746,10 +1091,12 @@ class AvailableServersService:
             name=server.name,
         )
         started = time.monotonic()
+        fetched_at = started
         outcome = "failed"
         try:
             try:
                 fresh = await provider.get_one(identity)
+                fetched_at = time.monotonic()
             except NotThisManagersServerError:
                 outcome = "skipped_foreign"
                 return server, False
@@ -777,6 +1124,8 @@ class AvailableServersService:
                 manager_type=manager_type.value,
                 outcome=outcome,
                 duration_ms=round(elapsed * 1000, 1),
+                get_one_ms=round((fetched_at - started) * 1000),
+                ingest_ms=round((started + elapsed - fetched_at) * 1000),
             )
 
     def _provider_for(self, manager_type: ManagerType) -> ServerInventoryProvider | None:

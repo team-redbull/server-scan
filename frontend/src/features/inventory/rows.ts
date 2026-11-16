@@ -18,7 +18,8 @@ export interface RowFilters {
   installation_type?: string[];
   openshift_state?: string[];
   health?: string[];
-  /** Unset shows servers in maintenance with the rest; "only" keeps just them, "exclude" hides them. */
+  /** Unset shows servers in maintenance with the rest; "only" keeps just them, "exclude" hides them.
+   * Healthy servers in maintenance are the exception: Healthy shows them only with "only". */
   maintenance?: "only" | "exclude";
   /** Only servers an install currently holds a lock on (ADR-0035). */
   reserved?: true;
@@ -92,6 +93,26 @@ function nameCounts(rows: ServerRow[]): Map<string, number> {
 }
 
 /**
+ * Whether a row passes the Health dropdown. Healthy means healthy and in service: a Healthy server
+ * in maintenance shows only when Maintenance is ticked too (`maintenance: "only"`), so it never
+ * hides among the healthy rows on a later page. Every other severity still includes its servers
+ * in maintenance.
+ *
+ * Args:
+ *   row (ServerRow): The row to test.
+ *   filters (RowFilters): The active filters; only `health` and `maintenance` are read.
+ *
+ * Returns:
+ *   boolean: True when no severity is ticked or the row's health is among them.
+ */
+function matchesHealth(row: ServerRow, filters: RowFilters): boolean {
+  if (!filters.health?.length) return true;
+  if (!filters.health.includes(row.health)) return false;
+  const pausedHealthy = row.health === "HEALTHY" && row.maintenance.enabled;
+  return !pausedHealthy || filters.maintenance === "only";
+}
+
+/**
  * Keep the rows every set filter matches; `search` is applied last.
  *
  * Args:
@@ -119,7 +140,7 @@ export function filterRows(
         filters.installation_type.includes(row.installation_type)) &&
       (!filters.openshift_state?.length ||
         filters.openshift_state.includes(row.openshift_state)) &&
-      (!filters.health?.length || filters.health.includes(row.health)) &&
+      matchesHealth(row, filters) &&
       (filters.maintenance === undefined ||
         (filters.maintenance === "only") === row.maintenance.enabled) &&
       (!filters.reserved || row.reservation.held) &&
@@ -345,9 +366,26 @@ export function dropdownFacetCounts(
 ): FacetCounts {
   const facets = facetCounts(filterRows(rows, filters));
   for (const [filterKey, facetKey] of DIMENSIONS) {
-    facets[facetKey] = facetCounts(filterRows(rows, without(filters, filterKey)))[facetKey];
+    facets[facetKey] = facetCounts(
+      filterRows(rows, without(filters, filterKey)),
+    )[facetKey];
   }
-  facets.maintenance = facetCounts(filterRows(rows, without(filters, "maintenance"))).maintenance;
+  const ignoringBoth = filterRows(
+    rows,
+    without(without(filters, "maintenance"), "health"),
+  );
+  const severities = filters.health ?? [];
+  facets.maintenance = facetCounts(
+    severities.length
+      ? ignoringBoth.filter((row) => severities.includes(row.health))
+      : ignoringBoth,
+  ).maintenance;
+  const healthBase = filterRows(rows, without(filters, "health"));
+  const inService = (row: ServerRow) =>
+    !(row.health === "HEALTHY" && row.maintenance.enabled);
+  facets.health = facetCounts(
+    filters.maintenance === "only" ? healthBase : healthBase.filter(inService),
+  ).health;
   return facets;
 }
 

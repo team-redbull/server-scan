@@ -13,19 +13,23 @@ support to make a downgrade-and-replace scenario observable at all.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 
 import pytest
 from structlog.testing import capture_logs
 from tests.uncached_logger import UncachedLogger
 
 import app.application.services.available_servers as available_servers_module
+from app.application.services.audit_service import AuditService
 from app.application.services.available_servers import (
+    SELECTABLE_TIERS,
     AvailableServersNotFoundError,
     AvailableServersService,
-    VendorRecheckError,
 )
 from app.application.services.ingest import IngestService
+from app.application.services.reservation_service import ReservationClaim, ReservationService
 from app.domain.enums import HealthSeverity, ManagerType, OpenShiftState, Vendor
+from app.domain.models.audit_event import Actor, ActorType
 from app.domain.models.health import Health
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.openshift import OpenShiftLifecycle
@@ -40,6 +44,7 @@ from app.domain.services.normalize import normalize_text
 from app.domain.services.search_tokens import build_search_tokens
 from app.domain.value_objects.capacity_aliases import capacity_alias_catalog
 from app.domain.value_objects.site import site_catalog
+from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
@@ -63,6 +68,53 @@ def _ingest_service(mongo: MongoClientHolder) -> IngestService:
         site_repo=MongoSiteRepository(mongo),
         manager_repo=MongoManagerRepository(mongo),
     )
+
+
+class DegradingIngest(IngestService):
+    """An ingest whose live check ends with a chosen health per server name, as a policy run would.
+
+    The test ingest has no health policy service, so this stands in for one: it persists the
+    degraded health the way `ingest_one` persists a real evaluation.
+    """
+
+    def __init__(self, mongo: MongoClientHolder, healths: dict[str, HealthSeverity]) -> None:
+        """
+        Build over the same repositories as `_ingest_service`.
+
+        Args:
+            mongo (MongoClientHolder): The test database.
+            healths (dict[str, HealthSeverity]): Health to end with, by server name.
+        """
+        repo = MongoServerRepository(mongo, cursor_secret=_CURSOR_SECRET)
+        super().__init__(
+            sites=SITES,
+            server_repo=repo,
+            site_repo=MongoSiteRepository(mongo),
+            manager_repo=MongoManagerRepository(mongo),
+        )
+        self._repo = repo
+        self._healths = healths
+
+    async def ingest_one(self, ps: ProviderServer, *, provider_type: str) -> Server:
+        """
+        Ingest, then overwrite the health this server's name maps to.
+
+        Args:
+            ps (ProviderServer): The live record.
+            provider_type (str): The collector's manager type.
+
+        Returns:
+            Server: The persisted server, with the chosen health when one is mapped.
+        """
+        server = await super().ingest_one(ps, provider_type=provider_type)
+        health = self._healths.get(server.name)
+        if health is None:
+            return server
+        expected = server.revision
+        server.health = server.health.model_copy(update={"overall": health})
+        server.revision += 1
+        await self._repo.upsert_with_revision_check(server, expected_revision=expected)
+        return server
 
 
 def _no_provider(_manager_type: ManagerType) -> ServerInventoryProvider:
@@ -121,12 +173,33 @@ def _service(
     mongo: MongoClientHolder,
     *,
     provider_factory: Callable[[ManagerType], ServerInventoryProvider] = _no_provider,
+    max_attempts: int = 5,
+    ingest: IngestService | None = None,
 ) -> AvailableServersService:
+    repo = MongoServerRepository(mongo, cursor_secret=_CURSOR_SECRET)
     return AvailableServersService(
-        repo=MongoServerRepository(mongo, cursor_secret=_CURSOR_SECRET),
-        ingest=_ingest_service(mongo),
+        repo=repo,
+        ingest=ingest or _ingest_service(mongo),
         provider_factory=provider_factory,
         capacity_aliases=CAPACITY_ALIASES,
+        reservations=ReservationService(
+            server_repo=repo, audit=AuditService(repo=MongoAuditEventRepository(mongo))
+        ),
+        max_attempts=max_attempts,
+    )
+
+
+ACTOR = Actor(type=ActorType.USER, id="tester")
+
+
+def _claim(workflow_id: str = "wf-1", ttl_seconds: int = 3600) -> ReservationClaim:
+    return ReservationClaim(
+        holder="install-server",
+        mce_cluster="mce-a",
+        infra_env=None,
+        namespace=None,
+        workflow_id=workflow_id,
+        ttl=timedelta(seconds=ttl_seconds),
     )
 
 
@@ -257,8 +330,8 @@ class TestLiveRecheckReplacement:
     async def test_a_downgraded_candidate_is_replaced_from_the_next_tier(
         self, mongo_holder: MongoClientHolder
     ) -> None:
-        """The one HEALTHY candidate is found unreachable on recheck and excluded;
-        the WARNING-tier candidate is drawn as its replacement.
+        """The one HEALTHY candidate is found unreachable on the live check and released;
+        the WARNING-tier candidate is locked and returned instead.
         """
         downgraded = _server(
             0, name="ocp-replace-01", health=HealthSeverity.HEALTHY, external_id="ext-downgrade"
@@ -294,11 +367,17 @@ class TestLiveRecheckReplacement:
         )
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
-        outcome = await service.lookup_by_pattern("ocp-replace", count=1, extra_filters={})
+        result = await service.reserve_by_pattern(
+            "ocp-replace",
+            claim=_claim(),
+            actor=ACTOR,
+            request_id=None,
+            extra_filters={},
+            tiers=SELECTABLE_TIERS,
+        )
 
-        assert len(outcome.items) == 1
-        assert outcome.items[0].server.name == "ocp-replace-02"
-        assert outcome.items[0].live_recheck_performed is True
+        assert result.server.name == "ocp-replace-02"
+        assert result.live_recheck_performed is True
 
 
 class _ExplodingProvider(FakeProvider):
@@ -307,7 +386,7 @@ class _ExplodingProvider(FakeProvider):
 
 
 class TestRecheckLogging:
-    async def test_a_failing_recheck_is_logged_with_its_manager_and_raises_a_vendor_error(
+    async def test_a_failing_live_check_is_logged_with_its_manager_and_fails_the_reservation(
         self, mongo_holder: MongoClientHolder, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(available_servers_module, "logger", UncachedLogger())
@@ -318,8 +397,15 @@ class TestRecheckLogging:
         )
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
-        with capture_logs() as logs, pytest.raises(VendorRecheckError):
-            await service.lookup_by_name("ocp-log-boom", extra_filters={})
+        with capture_logs() as logs, pytest.raises(AvailableServersNotFoundError):
+            await service.reserve_by_name(
+                "ocp-log-boom",
+                claim=_claim(),
+                actor=ACTOR,
+                request_id=None,
+                extra_filters={},
+                tiers=SELECTABLE_TIERS,
+            )
 
         events = {line["event"]: line for line in logs}
         assert events["available.recheck_failed"]["manager_type"] == "REDFISH_STANDALONE"
@@ -343,7 +429,14 @@ class TestAnotherManagersServer:
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
         with capture_logs() as logs:
-            result = await service.lookup_by_name("ocp-foreign-vm", extra_filters={})
+            result = await service.reserve_by_name(
+                "ocp-foreign-vm",
+                claim=_claim(),
+                actor=ACTOR,
+                request_id=None,
+                extra_filters={},
+                tiers=SELECTABLE_TIERS,
+            )
 
         assert result.server.name == "ocp-foreign-vm"
         assert result.live_recheck_performed is False
@@ -357,29 +450,49 @@ class TestAnotherManagersServer:
         provider = _ForeignProvider(seed=1, count=1, provider_type=ManagerType.KUBEVIRT.value)
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
-        outcome = await service.lookup_by_pattern("ocp-fvm-", count=1, extra_filters={})
+        result = await service.reserve_by_pattern(
+            "ocp-fvm-",
+            claim=_claim(),
+            actor=ACTOR,
+            request_id=None,
+            extra_filters={},
+            tiers=SELECTABLE_TIERS,
+        )
 
-        assert [item.server.name for item in outcome.items] == ["ocp-fvm-1"]
-        assert outcome.items[0].live_recheck_performed is False
+        assert result.server.name == "ocp-fvm-1"
+        assert result.live_recheck_performed is False
 
 
 class TestVendorFailure:
-    """A vendor timeout or error is a `VendorRecheckError` (503), never an unexplained 500."""
+    """A vendor error fails that candidate (released, next tried); all failing is a not-found."""
 
-    async def test_the_error_names_the_manager_the_server_and_the_cause(
+    async def test_the_failure_names_the_server_and_the_cause_and_frees_the_lock(
         self, mongo_holder: MongoClientHolder
     ) -> None:
         await _seed(mongo_holder, _server(0, name="ocp-vendor-down", external_id="ext-vd"))
         provider = _ExplodingProvider(seed=1, count=1, provider_type=ManagerType.UCS_CENTRAL.value)
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
-        with pytest.raises(VendorRecheckError) as raised:
-            await service.lookup_by_name("ocp-vendor-down", extra_filters={})
+        with pytest.raises(AvailableServersNotFoundError) as raised:
+            await service.reserve_by_name(
+                "ocp-vendor-down",
+                claim=_claim(),
+                actor=ACTOR,
+                request_id=None,
+                extra_filters={},
+                tiers=SELECTABLE_TIERS,
+            )
 
-        assert raised.value.server_name == "ocp-vendor-down"
-        assert "RuntimeError: vendor manager returned garbage" in raised.value.reason
+        assert raised.value.codes == ("VENDOR_ERROR",)
+        assert (
+            "ocp-vendor-down: RuntimeError: vendor manager returned garbage" in raised.value.reason
+        )
+        repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+        server = await repo.find_one_by_name("ocp-vendor-down", filters={})
+        assert server is not None
+        assert server.reservation.holder is None
 
-    async def test_pattern_mode_raises_when_every_candidate_failed_to_verify(
+    async def test_every_candidate_failing_is_one_not_found_naming_each(
         self, mongo_holder: MongoClientHolder
     ) -> None:
         await _seed(
@@ -390,8 +503,19 @@ class TestVendorFailure:
         provider = _ExplodingProvider(seed=1, count=2, provider_type=ManagerType.UCS_CENTRAL.value)
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
-        with pytest.raises(VendorRecheckError):
-            await service.lookup_by_pattern("ocp-pat-", count=1, extra_filters={})
+        with pytest.raises(AvailableServersNotFoundError) as raised:
+            await service.reserve_by_pattern(
+                "ocp-pat-",
+                claim=_claim(),
+                actor=ACTOR,
+                request_id=None,
+                extra_filters={},
+                tiers=SELECTABLE_TIERS,
+            )
+
+        assert "ocp-pat-1" in raised.value.reason
+        assert "ocp-pat-2" in raised.value.reason
+        assert "2 live-checked" in raised.value.reason
 
 
 class TestNameMode:
@@ -406,7 +530,7 @@ class TestNameMode:
         with pytest.raises(AvailableServersNotFoundError):
             await _service(mongo_holder).lookup_by_name("no-such-name", extra_filters={})
 
-    async def test_no_longer_available_after_recheck_raises(
+    async def test_no_longer_available_after_the_live_check_fails_the_reservation(
         self, mongo_holder: MongoClientHolder
     ) -> None:
         server = _server(0, name="ocp-name-downgrade", external_id="ext-name-downgrade")
@@ -429,6 +553,13 @@ class TestNameMode:
         service = _service(mongo_holder, provider_factory=lambda _mt: provider)
 
         with pytest.raises(AvailableServersNotFoundError) as excinfo:
-            await service.lookup_by_name("ocp-name-downgrade", extra_filters={})
-        assert "is not available: its BMC is unreachable" in excinfo.value.reason
+            await service.reserve_by_name(
+                "ocp-name-downgrade",
+                claim=_claim(),
+                actor=ACTOR,
+                request_id=None,
+                extra_filters={},
+                tiers=SELECTABLE_TIERS,
+            )
+        assert "its BMC is unreachable" in excinfo.value.reason
         assert excinfo.value.codes == ("UNREACHABLE",)

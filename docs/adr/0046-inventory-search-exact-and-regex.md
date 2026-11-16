@@ -74,3 +74,18 @@ Health dropdown: ticking it sets `maintenance=true` and is ANDed with the severi
 2026-10-25 change. The count beside it ignores the maintenance filter itself; the severity counts follow it.
 `maintenance=true` links (Sites cards, bookmarks) keep working; `maintenance=exclude` in a URL still hides
 servers in maintenance, but nothing in the UI sets it any more. The "Maintenance only" chip stays.
+
+## Update 2026-11-11: Healthy excludes servers in maintenance
+
+"Healthy" in the Health dropdown means healthy **and in service** (operator's call). A Healthy server in
+maintenance is shown only when Maintenance is ticked too (`maintenance=true`). Before, a Healthy tick also
+listed them, sorted by name among the other healthy rows, so on the full fleet they sat on a later page and a
+site's list (few healthy rows, one page) showed them while the all-servers list did not: the same filter
+looked inconsistent. Only HEALTHY is special: Critical, Major, Warning and Unknown still include their servers
+in maintenance, and "Critical + Maintenance" is unchanged.
+
+- `rows.ts` `matchesHealth` is the one rule; the Healthy count in the dropdown follows it (so the number
+  equals the rows), and the Maintenance count still counts Healthy servers in maintenance, because that is
+  what ticking it adds.
+- The Sites cards are unchanged: they count a server under its own health, and nothing on a card links to
+  Healthy. A card's "N critical" still opens a list of N. Frontend only; no API change.
