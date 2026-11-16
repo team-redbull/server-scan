@@ -98,7 +98,9 @@ Loaded only when a `frontend/` file is open.
   control of 2026-10-25 is gone): ticking it sets `maintenance=true` (the Sites cards link it) and it is
   ANDed with any severity ticked, so Critical + Maintenance is the critical servers in maintenance. A URL's
   `maintenance=exclude` still hides them, but no control sets it. Its count ignores the maintenance filter
-  itself (`dropdownFacetCounts`), every other count follows it. **`MaintenanceToggle`'s reason card is a portal
+  itself (`dropdownFacetCounts`), every other count follows it. **Healthy
+  excludes servers in maintenance** (2026-11-11, `rows.ts` `matchesHealth`; only HEALTHY is special): they show only with Maintenance
+  ticked, or they hid on a later page of the all-servers list yet showed in a site's, and the Healthy count follows the same rule. **`MaintenanceToggle`'s reason card is a portal
   on `document.body`**, positioned from the button: inside the table's `overflow-x-auto` it was clipped
   (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`. Its list scroller has `scrollbar-gutter: stable`: Firefox sizes a `w-max` box without a classic
   scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with
