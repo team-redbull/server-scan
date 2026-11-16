@@ -41,6 +41,9 @@ export interface AuditEventResponse {
   server_id: string | null;
   /** The server's current name; null for an event with no server or a pruned one. */
   server_name: string | null;
+  /** Serial and BMC host snapshotted at write time; null on legacy events or when unknown. */
+  server_serial: string | null;
+  server_bmc: string | null;
   actor: Actor;
   request_id: string | null;
   created_at: string;

@@ -17,6 +17,8 @@ function ev(
     event_type,
     server_id: "srv_1",
     server_name: "ocp-worker-001",
+    server_serial: null,
+    server_bmc: null,
     actor: { type: "SYSTEM", id: "sys", display: null },
     request_id: null,
     created_at: "2026-08-12T10:00:00Z",

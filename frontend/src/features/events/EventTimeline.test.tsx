@@ -11,6 +11,8 @@ function event(id: string, data: Record<string, unknown>): AuditEventResponse {
     event_type: "MAINTENANCE_ENABLED",
     server_id: `srv_${id}`,
     server_name: `ocp-server-${id}`,
+    server_serial: null,
+    server_bmc: null,
     actor: { type: "USER", id: "alice", display: null },
     request_id: null,
     created_at: "2026-09-30T21:34:17Z",
@@ -279,5 +281,27 @@ describe("EventTimeline classification details", () => {
   it("shows nothing extra for a legacy event with only a rule id", () => {
     open({ from: "UNCLASSIFIED", to: "UPI", matched_rule_id: "r1" });
     expect(screen.queryByText("Matched rule")).not.toBeInTheDocument();
+  });
+});
+
+describe("EventTimeline server details", () => {
+  it("keeps the table to the name and puts the serial and BMC in the details JSON", () => {
+    const withBoth = {
+      ...event("a", {}),
+      server_serial: "JKD123",
+      server_bmc: "10.1.2.3",
+    };
+    render(
+      <MemoryRouter>
+        <EventTimeline events={[withBoth]} showServer />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/JKD123/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Details/ }));
+    const json = screen.getByText(/"server_serial"/);
+    expect(json.textContent).toContain('"server_serial": "JKD123"');
+    expect(json.textContent).toContain('"server_bmc": "10.1.2.3"');
+    expect(json.textContent).toContain('"server_id": "srv_a"');
+    expect(json.textContent).toContain('"server_name": "ocp-server-a"');
   });
 });

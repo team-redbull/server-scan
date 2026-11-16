@@ -114,6 +114,9 @@ class AuditEvent(BaseModel):
     server_id: str | None = None  # None for rule/policy events; their id is in `data`
     # The name at write time, so an event outlives a rename or a prune. None on legacy events.
     server_name: str | None = None
+    # Snapshots like `server_name`: the serial and BMC host at write time, None on legacy events.
+    server_serial: str | None = None
+    server_bmc: str | None = None
     actor: Actor
     request_id: str | None = None
     created_at: datetime

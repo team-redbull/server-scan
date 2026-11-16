@@ -986,6 +986,7 @@ class IngestService:
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
                 server_name=server.name,
+                server=server,
                 data={"vendor": server.identity.vendor.value, "name": server.name},
             )
             return
@@ -996,6 +997,7 @@ class IngestService:
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
                 server_name=server.name,
+                server=server,
                 data={"name_from": existing.name, "name_to": server.name},
             )
 
@@ -1005,6 +1007,7 @@ class IngestService:
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
                 server_name=server.name,
+                server=server,
                 data=classification_changed_data(
                     existing.classification.installation_type,
                     server.classification,
@@ -1019,6 +1022,7 @@ class IngestService:
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
                 server_name=server.name,
+                server=server,
                 data=health_change_data(existing.health, state, policies),
             )
 

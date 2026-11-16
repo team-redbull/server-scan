@@ -766,6 +766,7 @@ class OpenShiftMembershipService:
                 actor=self._actor,
                 server_id=server.id,
                 server_name=server.name,
+                server=server,
                 request_id=None,
                 data={
                     "from": before.lifecycle_state.value,

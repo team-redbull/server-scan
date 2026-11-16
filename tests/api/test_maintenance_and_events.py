@@ -390,3 +390,42 @@ async def test_event_actors_lists_distinct_actors(
     assert items == [
         {"id": "dev", "type": "USER", "display": "Dev (auth disabled)", "event_count": 2}
     ]
+
+
+async def test_events_snapshot_serial_and_bmc_and_filter_case_insensitively(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
+) -> None:
+    from app.domain.models.network import BmcInfo, NetworkInfo
+
+    client, repo, _policy_repo = app_context
+    server = _make_server("srv-snap-1", index=7)
+    server.network = NetworkInfo(bmc=BmcInfo(host="10.9.8.7"))
+    server = await repo.upsert(server)
+    await repo.upsert(_make_server("other-box", index=8))
+    await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "x"})
+
+    for query in ("server_name=evtapi000007", "server_name=EvtApi000007", "server_name=10.9.8"):
+        body = (await client.get(f"/api/v1/events?{query}")).json()
+        assert [e["server_name"] for e in body["items"]] == ["srv-snap-1"], query
+        assert body["items"][0]["server_serial"] == "EVTAPI000007"
+        assert body["items"][0]["server_bmc"] == "10.9.8.7"
+    assert (await client.get("/api/v1/events?server_name=nomatch")).json()["items"] == []
+
+    await repo.delete(server.id)
+    gone = (await client.get("/api/v1/events?server_name=EVTAPI000007")).json()
+    assert [e["server_serial"] for e in gone["items"]] == ["EVTAPI000007"]
+
+
+async def test_serial_filter_matches_a_current_server_whose_events_have_no_snapshot(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoHealthPolicyRepository],
+) -> None:
+    client, repo, _policy_repo = app_context
+    server = await repo.upsert(_make_server("srv-legacy-1", index=9))
+    await client.put(f"/api/v1/servers/{server.id}/maintenance", json={"reason": "x"})
+    mongo = client._transport.app.state.mongo  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    await mongo.db["audit_events"].update_many(
+        {}, {"$unset": {"server_serial": "", "data.serial": ""}}
+    )
+
+    body = (await client.get("/api/v1/events?server_name=evtapi000009")).json()
+    assert [e["server_name"] for e in body["items"]] == ["srv-legacy-1"]

@@ -103,6 +103,7 @@ async def _delete_one(
         "server_id": server.id,
         "name": server.name,
         "serial": server.identity.serial,
+        "bmc": server.network.bmc.host,
         "vendor": server.identity.vendor.value,
         "source_provider": server.source_provider,
         "manager_id": server.manager_id,
@@ -115,6 +116,7 @@ async def _delete_one(
         actor=PRUNE_ACTOR,
         server_id=server.id,
         server_name=server.name,
+        server=server,
         data=details,
     )
     deleted = await repo.delete(server.id)

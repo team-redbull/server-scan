@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.models.audit_event import Actor, ActorType, AuditEvent, EventType
+from app.domain.models.server import Server
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
 from app.utils.ids import new_id
 from app.utils.timeutil import utcnow
@@ -40,6 +41,7 @@ class AuditService:
         actor: Actor,
         server_id: str | None = None,
         server_name: str | None = None,
+        server: Server | None = None,
         request_id: str | None = None,
         data: dict[str, Any] | None = None,
     ) -> AuditEvent:
@@ -51,6 +53,8 @@ class AuditService:
             actor (Actor): Who or what caused it.
             server_id (str | None): The server it concerns, if any.
             server_name (str | None): That server's name, snapshotted onto the event.
+            server (Server | None): The server itself; its serial and BMC host are snapshotted
+                onto the event so they outlive a prune.
             request_id (str | None): The originating API request id, if any.
             data (dict[str, Any] | None): Event-specific payload; defaults to `{}`.
 
@@ -62,6 +66,8 @@ class AuditService:
             event_type=event_type,
             server_id=server_id,
             server_name=server_name,
+            server_serial=server.identity.serial if server else None,
+            server_bmc=server.network.bmc.host if server else None,
             actor=actor,
             request_id=request_id,
             created_at=utcnow(),

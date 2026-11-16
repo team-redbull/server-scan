@@ -60,6 +60,8 @@ _Document = dict[str, Any]
 
 _NAME_MATCH_ID_CAP = 5000
 _ACTOR_LIMIT = 200
+_SERVER_SEARCH_FIELDS = ("name_normalized", "identity.serial_normalized", "network.bmc.host")
+_EVENT_SEARCH_FIELDS = ("server_name", "server_serial", "server_bmc", "data.serial", "data.bmc")
 _MIN_PURGE_AGE = timedelta(days=7)
 
 
@@ -325,10 +327,9 @@ class MongoAuditEventRepository:
             actor_id (str | None): If given, only events by this actor.
             since (datetime | None): Inclusive lower bound on `created_at`.
             until (datetime | None): Exclusive upper bound on `created_at`.
-            server_name (str | None): Case-insensitive substring of the server's
-                name: events of a current server whose `name_normalized` contains
-                it (at most 5000 ids are resolved), or whose snapshot
-                `server_name` does, so pruned servers still match.
+            server_name (str | None): Case-insensitive substring of the server's name, serial
+                or BMC host: events of a current server matching it (at most 5000 ids are
+                resolved), or whose snapshot does, so pruned servers still match.
             cursor (str | None): If given, resume after this page's last
                 item (from a previous call's `next_cursor`).
             page_size (int): Maximum number of items to return.
@@ -357,15 +358,7 @@ class MongoAuditEventRepository:
 
         clauses: list[_Document] = []
         if server_name and (needle := normalize_text(server_name)):
-            ids = await self._server_ids_by_name(needle)
-            clauses.append(
-                {
-                    "$or": [
-                        {"server_id": {"$in": ids}},
-                        {"server_name": {"$regex": re.escape(needle), "$options": "i"}},
-                    ]
-                }
-            )
+            clauses.append(await self._server_match_clause(needle))
         total: int | None = None
         if cursor is None:
             counted = {**query, "$and": clauses} if clauses else query
@@ -402,38 +395,51 @@ class MongoAuditEventRepository:
         )
         return AuditEventPage(items=items, next_cursor=next_cursor, has_more=has_more, total=total)
 
-    async def _server_ids_by_name(self, needle: str) -> list[str]:
+    async def _server_match_clause(self, needle: str) -> _Document:
         """
-        Resolve the ids of current servers whose normalized name contains `needle`.
+        Build the clause for events about a server whose name, serial or BMC contains `needle`.
 
         Args:
-            needle (str): Normalized text.
+            needle (str): Normalized (lowercase) text; matching ignores case.
 
         Returns:
-            list[str]: Up to 5000 server ids.
+            dict: An `$or` over the current servers' ids (at most 5000) and the event snapshots,
+                so a pruned server still matches.
         """
+        pattern = {"$regex": re.escape(needle), "$options": "i"}
         cursor = self._mongo.db[SERVERS_COLLECTION].find(
-            {"name_normalized": {"$regex": re.escape(needle)}}, {"_id": 1}
+            {"$or": [{f: pattern} for f in _SERVER_SEARCH_FIELDS]}, {"_id": 1}
         )
-        return [d["_id"] for d in await cursor.to_list(length=_NAME_MATCH_ID_CAP)]
+        ids = [d["_id"] for d in await cursor.to_list(length=_NAME_MATCH_ID_CAP)]
+        return {"$or": [{"server_id": {"$in": ids}}, *({f: pattern} for f in _EVENT_SEARCH_FIELDS)]}
 
     async def _backfill_server_names(self, items: list[AuditEvent]) -> None:
         """
-        Fill `server_name` on legacy events from the current servers, in one query.
+        Fill the name, serial and BMC snapshots of legacy events from the current servers.
 
         Args:
             items (list[AuditEvent]): A page of events, mutated in place.
         """
-        missing = {e.server_id for e in items if e.server_name is None and e.server_id}
+        missing = {
+            e.server_id
+            for e in items
+            if e.server_id
+            and (e.server_name is None or e.server_serial is None or e.server_bmc is None)
+        }
         if not missing:
             return
         cursor = self._mongo.db[SERVERS_COLLECTION].find(
-            {"_id": {"$in": list(missing)}}, {"name": 1}
+            {"_id": {"$in": list(missing)}},
+            {"name": 1, "identity.serial": 1, "network.bmc.host": 1},
         )
-        names = {d["_id"]: d.get("name") async for d in cursor}
+        servers = {d["_id"]: d async for d in cursor}
         for e in items:
-            if e.server_name is None and e.server_id:
-                e.server_name = names.get(e.server_id)
+            doc = servers.get(e.server_id or "")
+            if doc is None:
+                continue
+            e.server_name = e.server_name or doc.get("name")
+            e.server_serial = e.server_serial or (doc.get("identity") or {}).get("serial")
+            e.server_bmc = e.server_bmc or ((doc.get("network") or {}).get("bmc") or {}).get("host")
 
     async def list_actors(self) -> list[ActorSummary]:
         """

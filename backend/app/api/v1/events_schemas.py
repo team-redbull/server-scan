@@ -17,6 +17,8 @@ class AuditEventResponse(BaseModel):
     event_type: EventType
     server_id: str | None
     server_name: str | None
+    server_serial: str | None
+    server_bmc: str | None
     actor: Actor
     request_id: str | None
     created_at: datetime

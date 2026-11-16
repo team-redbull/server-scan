@@ -75,11 +75,11 @@ error cut to 500 characters; retry later, it does not mean no server is availabl
 ## Events
 
 Auditor or admin token only.
-`GET /api/v1/events` - audit trail, newest first. Parameters: `server_id`, `server_name`,
+`GET /api/v1/events` - audit trail, newest first. Parameters: `server_id`, `server_name` (case-insensitive substring of the server's name, serial or BMC host; pruned servers still match),
 `event_type`, `actor_id`, `since`, `until` (ISO 8601), `cursor`, `page_size`. Response `page` is `{next_cursor, has_more, page_size, total}`; `total` (events matching the filters) is set on the first page only, null once a `cursor` is sent.
 `GET /api/v1/events/actors` - who has acted, with event counts (for the `actor_id` filter).
 `GET /api/v1/servers/{server_id}/events` - one server's history.
-Event: `id, event_type, server_id, server_name, actor{type,id,...}, request_id, created_at, data`.
+Event: `id, event_type, server_id, server_name, server_serial, server_bmc (snapshots at write time; null on old events of a server that is gone), actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED` (data has `from`/`to` and, when the server was renamed in the same collection, `name_from`/`name_to`),
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
 `SERVER_CREATED|UPDATED|DELETED|PRUNED`, `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), plus rule/policy/site/manager events.

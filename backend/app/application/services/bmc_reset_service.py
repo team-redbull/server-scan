@@ -82,6 +82,7 @@ class BmcResetService:
                 actor=SYSTEM_INGEST_ACTOR,
                 server_id=server.id,
                 server_name=server.name,
+                server=server,
                 data={k: v for k, v in fields.items() if k not in ("server_id", "server_name")},
             )
         except Exception:

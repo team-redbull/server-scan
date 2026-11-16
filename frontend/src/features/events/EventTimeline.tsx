@@ -196,6 +196,19 @@ function ClassificationWhy({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+/** The details JSON: the server's id, name, serial and BMC first (for a server event), then `data`. */
+function detailsJson(event: AuditEventResponse): string {
+  const server = event.server_id
+    ? {
+        server_id: event.server_id,
+        server_name: event.server_name,
+        server_serial: event.server_serial,
+        server_bmc: event.server_bmc,
+      }
+    : {};
+  return JSON.stringify({ ...server, ...visibleData(event) }, null, 2);
+}
+
 const KIND_TINT: Record<ActorKind, string> = {
   user: "--tint-info",
   token: "--tint-major",
@@ -343,7 +356,7 @@ export function EventTimeline({
                         <ClassificationWhy data={event.data} />
                       )}
                       <pre className="text-xs break-words whitespace-pre-wrap text-[var(--text-secondary)]">
-                        {JSON.stringify(visibleData(event), null, 2)}
+                        {detailsJson(event)}
                       </pre>
                     </td>
                   </tr>

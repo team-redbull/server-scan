@@ -98,6 +98,7 @@ class ReservationService:
                 actor=actor,
                 server_id=server_id,
                 server_name=server.name,
+                server=server,
                 request_id=request_id,
                 data={
                     "requested_by": holder,
@@ -147,6 +148,7 @@ class ReservationService:
                 actor=actor,
                 server_id=server_id,
                 server_name=server.name,
+                server=server,
                 request_id=request_id,
                 data={
                     "requested_by": holder,
@@ -165,6 +167,7 @@ class ReservationService:
             actor=actor,
             server_id=server_id,
             server_name=server.name,
+            server=server,
             request_id=request_id,
             data={
                 "holder": holder,
@@ -247,6 +250,7 @@ class ReservationService:
             actor=actor,
             server_id=server_id,
             server_name=server.name,
+            server=server,
             request_id=request_id,
             data={
                 "holder": existing.holder,

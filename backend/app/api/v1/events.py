@@ -85,8 +85,8 @@ async def list_events(
         actor_id (str | None): Restrict to events recorded by this actor (exact `actor.id`).
         since (datetime | None): Only events at or after this instant (inclusive).
         until (datetime | None): Only events before this instant (exclusive).
-        server_name (str | None): Case-insensitive substring of the server's name;
-            matches current servers (first 5000 ids) and the name snapshotted on the
+        server_name (str | None): Case-insensitive substring of the server's name, serial or
+            BMC host; matches current servers (first 5000 ids) and the snapshots on the
             event, so pruned servers still match.
         cursor (str | None): Opaque cursor from a previous page's response.
         page_size (int): Maximum items to return, 1-200.

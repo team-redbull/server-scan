@@ -896,6 +896,7 @@ async def reclassify_server(
             actor=actor,
             server_id=server_id,
             server_name=server.name,
+            server=server,
             request_id=request_id,
             data=classification_changed_data(previous_type, server.classification),
         )
@@ -958,6 +959,7 @@ async def recalculate_server_health(
             actor=actor,
             server_id=server_id,
             server_name=server.name,
+            server=server,
             request_id=request_id,
             data=health_change_data(previous_health, state, policies),
         )

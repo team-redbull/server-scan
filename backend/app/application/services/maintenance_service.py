@@ -84,6 +84,7 @@ class MaintenanceService:
             actor=actor,
             server_id=server_id,
             server_name=server.name,
+            server=server,
             request_id=request_id,
             data={"reason": reason},
         )
@@ -122,6 +123,7 @@ class MaintenanceService:
                 actor=actor,
                 server_id=server_id,
                 server_name=server.name,
+                server=server,
                 request_id=request_id,
             )
         return server

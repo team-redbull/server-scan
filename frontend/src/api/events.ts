@@ -3,7 +3,7 @@ import type { AuditEventListResponse, EventActor } from "@/types/events";
 
 export interface EventListParams {
   server_id?: string;
-  /** Case-insensitive substring of the server name. */
+  /** Case-insensitive substring of the server name, serial or BMC host. */
   server_name?: string;
   /** ISO-8601, inclusive. */
   since?: string;

@@ -1149,11 +1149,14 @@ and exposed via reclassify/recalculate endpoints.
   compared as stored ISO strings (ADR-0006; naive = UTC), and `server_name`,
   a case-insensitive substring matched against current servers'
   `name_normalized` (first 5000 ids) OR the name snapshotted on the event, so
-  pruned servers still match. Existing indexes serve all of them (the time
+  pruned servers still match. `server_name` also matches the serial and the BMC host (`identity.serial_normalized`, `network.bmc.host`, the event's
+  `server_serial` / `server_bmc` snapshot, or legacy `data.serial` / `data.bmc`). Existing indexes serve all of them (the time
   window rides `created_at_id`); no index was added. Every item carries
   `server_name`: the `AuditEvent.server_name` snapshot every
   `AuditService.record(server_name=...)` caller writes, else (legacy events)
-  one batched lookup per page against the servers collection, else null.
+  one batched lookup per page against the servers collection, else null; the
+  same goes for `server_serial` and `server_bmc`, which `record(server=...)`
+  snapshots (so a `SERVER_PRUNED` event still shows them).
   `GET /api/v1/events/actors` lists distinct `actor.id`s (type/display from
   the latest event, `event_count`, busiest first, at most 200; a full
   `created_at`-ordered scan, fine at audit-log volumes). Actors: LDAP
@@ -2043,14 +2046,14 @@ Previous / "Page N of M" / Next pager like `/servers` (the API adds `page.total`
 first page only; a later page is fetched on Next and kept for Previous). The Events filters, in bar order, all in the URL: **Event
 type** (All, then the types the backend writes; an old
 `?event_type=HEALTH_STATUS_CHANGED` URL maps to `HEALTH_CHANGED`), **Server** (free text sent as `server_name`,
-a case-insensitive substring match done by the API, so `ocp-dell` lists
+a case-insensitive substring of the name, serial or BMC address, done by the API, so `ocp-dell` lists
 every server containing it; there is no client-side name resolution
 any more), **User** (options from `GET /events/actors`, sent as
 `actor_id`) and **Time range** (presets Last hour / 24 hours / 7 days /
 30 days, or Custom: two `DD/MM/YYYY [HH:MM]` text inputs read as Israel
 time and sent as `since` inclusive / `until` exclusive, in UTC ISO). The
 table columns are Server (the API's `server_name`, linking to the
-server; a legacy event whose server is gone shows a muted "Unknown server"
+server, name only; the expandable Details JSON starts with `server_id`, `server_name`, `server_serial` and `server_bmc`, then the event `data`; a legacy event whose server is gone shows a muted "Unknown server"
 with the id only in its tooltip, never the raw id as text), What happened,
 When and User (the History tab drops Server). Raw ids appear only inside
 the expandable Details JSON. Every timestamp

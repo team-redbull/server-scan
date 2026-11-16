@@ -11,6 +11,8 @@ function makeEvent(overrides: Partial<AuditEventResponse> = {}): AuditEventRespo
     event_type: "CLASSIFICATION_RULE_CREATED",
     server_id: null,
     server_name: null,
+    server_serial: null,
+    server_bmc: null,
     actor: { type: "USER", id: "user_1", display: "baruch" },
     request_id: "req_1",
     created_at: "2026-08-12T10:00:00Z",

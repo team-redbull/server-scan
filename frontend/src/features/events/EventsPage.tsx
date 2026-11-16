@@ -95,7 +95,7 @@ export function EventsPage() {
             id="events-server"
             type="text"
             value={server}
-            placeholder="Server name"
+            placeholder="Name, serial or BMC"
             onChange={(e) => {
               setParam("server_name", e.target.value);
             }}
