@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import random
 import ssl
+import time
 from types import TracebackType
 from typing import Any, Self
 
@@ -176,6 +177,9 @@ class RedfishClient:
         self._token: str | None = None
         self._session_uri: str | None = None
         self._reauth_count = 0
+        self._requests = 0
+        self._request_seconds = 0.0
+        self._opened = time.monotonic()
         self.service_root: dict[str, Any] = {}
         try:
             self._client = httpx.AsyncClient(
@@ -241,6 +245,13 @@ class RedfishClient:
                 drains this task on an early stop, and swallowing it here
                 would make the task appear to finish normally.
         """
+        logger.info(
+            "redfish.session_timing",
+            host=self._target.host,
+            requests=self._requests,
+            in_requests_ms=round(self._request_seconds * 1000),
+            total_ms=round((time.monotonic() - self._opened) * 1000),
+        )
         try:
             if self._session_uri is not None:
                 await asyncio.shield(asyncio.wait_for(self._logout(), timeout=10.0))
@@ -522,8 +533,11 @@ class RedfishClient:
         last: Exception | None = None
         attempts = _MAX_ATTEMPTS if retry else 1
         for attempt in range(1, attempts + 1):
+            self._requests += 1
+            sent = time.monotonic()
             try:
                 response = await self._client.request(method, path, headers=headers, json=json)
+                self._request_seconds += time.monotonic() - sent
             except httpx.ConnectError as exc:
                 if isinstance(exc.__cause__, ssl.SSLError):
                     raise RedfishTlsError(

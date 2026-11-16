@@ -56,21 +56,33 @@ guest's virtual CPU (often null).
 
 ## Available servers
 
-`GET /api/v1/servers/available` - assignable servers for a BareMetalHost, live-rechecked
-against the vendor manager. Exactly one of `name` (exact, case-insensitive) or `pattern`
-(MongoDB regex on the name). Optional: `count` (pattern mode, default 1, max 20), `vendor`,
-`source_provider`, `health` (one of HEALTHY/WARNING/MAJOR; default fills best first),
+`GET /api/v1/servers/available` - assignable servers for a BareMetalHost, read from the stored data
+(no live recheck, no lock; `live_recheck_performed` is always `false`). Exactly one of `name` (exact,
+case-insensitive) or `pattern` (MongoDB regex on the name). Optional: `count` (pattern mode, default 1, max 20),
+`vendor`, `source_provider`, `max_health` (the worst acceptable tier, every better one allowed: `HEALTHY`,
+`WARNING`, `MAJOR` (default) or `CRITICAL`; `UNKNOWN` is a 400; the old `health` is a 400), filled best first,
 `min_nic_macs` (0-16; pass 1+ for a BMH, 2 for bonding).
 Response: `{items, mode, requested, returned}`; item: `id, name, vendor, source_provider,
 bmc_vendor (HP/DELL/CISCO/INTERSIGHT; null for a STANDALONE server and a KUBEVIRT VM), bmc{host, scheme, port, mac...}, nic_macs[],
 interfaces[{name, mac, location, os_name, link_state, speed_mbps}] (natural order of `name`, `eno2` before `eno10`; never rely on stored or `os_name` order), site_id,
 health_overall, live_recheck_performed`.
-Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern),
+Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern, a bad `max_health`, `health`),
 `AVAILABLE_COUNT_TOO_LARGE`, ambiguous name, nothing found (404 `AVAILABLE_SERVER_NOT_FOUND`: `detail` says why,
 e.g. "already installed in cluster x" or "in maintenance", `details.reasons` has codes such as
-`INSTALLED`, `CLAIMED`, `MAINTENANCE`, `UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`), and 503 `SERVICE_UNAVAILABLE` when the
-vendor manager failed or timed out during the live recheck (`details.manager_type`, `details.reason`, the vendor's
-error cut to 500 characters; retry later, it does not mean no server is available).
+`INSTALLED`, `CLAIMED`, `MAINTENANCE`, `UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`).
+
+`POST /api/v1/servers/available` - **takes one server (admin token only; changes data)**. JSON body: exactly one
+of `name`/`pattern`; `holder` and `mce_cluster` (required); `workflow_id`, `infra_env`, `namespace`;
+`ttl_seconds` (300-86400, default 7200: how long the server stays locked); `max_health`, `vendor`,
+`source_provider`, `min_nic_macs` as above. No `count` (unknown fields are a 422). It locks a candidate, live-checks
+it against the vendor manager while locked, and returns it; a candidate that fails the check (health above
+`max_health`, unreachable, in maintenance, gone, vendor error) is released and the next is tried, at most 5 per
+request. Response: the GET envelope with exactly one item (`live_recheck_performed` is `true` unless the manager
+is not configured). Errors: 400 (neither/both of name/pattern, `max_health=UNKNOWN`), 409 ambiguous name,
+422 (unknown or missing field), and **503 `NO_AVAILABLE_SERVER` for every case where nothing could be reserved**
+(`detail` names each candidate's failure; `details.reasons` has `INSTALLED`, `CLAIMED`, `MAINTENANCE`,
+`UNREACHABLE`, `RESERVED`, `HEALTH`, `NETWORK`, `NIC_MACS`, `VENDOR_ERROR`, `GONE_FROM_MANAGER`) - retry later.
+Release a server you will not use with `DELETE /api/v1/servers/{id}/reservation`; it also frees itself at the TTL.
 
 ## Events
 

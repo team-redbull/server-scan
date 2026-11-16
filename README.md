@@ -19,8 +19,8 @@ standalone BMCs, plus OpenShift Virtualization VMs, in several sites.
   they actually use, so "available" means no cluster holds it.
 - **Keeps an audit trail** of every health, classification, maintenance and
   reservation change.
-- **Answers provisioning questions.** `GET /api/v1/servers/available` returns
-  live-verified servers for a BareMetalHost generator.
+- **Answers provisioning questions.** `GET /api/v1/servers/available` lists
+  assignable servers; `POST` locks and live-verifies one for a BareMetalHost generator.
 
 ## Architecture
 
@@ -116,7 +116,8 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/servers/rows` | The whole fleet as flat rows (what the UI loads; ETag, so a poll is a 304). |
 | `GET /api/v1/servers/{id}` | Full detail for one server. |
 | `GET /api/v1/servers/{id}/vm-host` | The bare-metal server a KubeVirt VM runs on, resolved at read time ([ADR-0059](docs/adr/0059-vm-host.md)). |
-| `GET /api/v1/servers/available` | Live-verified assignable servers for BareMetalHost creation. |
+| `GET /api/v1/servers/available` | Assignable servers for BareMetalHost creation, from stored data. |
+| `POST /api/v1/servers/available` | Locks one assignable server, live-checks it and returns it ([ADR-0063](docs/adr/0063-available-reserves-and-verifies.md)). |
 | `GET /api/v1/sites` | Per-site and fleet-wide counts. |
 | `GET /api/v1/confs`, `/confs/{conf_id}` | Server configurations from the `confs` collection, read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | `GET /api/v1/events`, `/servers/{id}/events` | Audit trail. |

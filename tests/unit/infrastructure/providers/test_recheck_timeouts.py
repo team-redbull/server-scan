@@ -43,3 +43,13 @@ def test_names_are_case_and_space_tolerant() -> None:
 
     assert recheck_timeout_seconds(ManagerType.UCS_CENTRAL, settings) == 240
     assert recheck_timeout_seconds(ManagerType.ONEVIEW, settings) == 20
+
+
+def test_a_redfish_backed_recheck_is_budgeted_by_the_host_budget() -> None:
+    from app.infrastructure.providers.factory import recheck_budget_seconds
+
+    settings = Settings(_env_file=None, redfish_host_budget_seconds=180.0)
+
+    assert recheck_budget_seconds(ManagerType.OPENMANAGE, settings) == 180.0
+    assert recheck_budget_seconds(ManagerType.REDFISH_STANDALONE, settings) == 180.0
+    assert recheck_budget_seconds(ManagerType.ONEVIEW, settings) == 15.0

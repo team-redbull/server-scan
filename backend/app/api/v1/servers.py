@@ -43,6 +43,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from app.api.v1.maintenance_schemas import MaintenanceEnableRequest
 from app.api.v1.reservation_schemas import (
     ReleaseServerRequest,
+    ReserveAvailableRequest,
     ReserveServerRequest,
 )
 from app.api.v1.schemas import (
@@ -57,11 +58,10 @@ from app.api.v1.schemas import (
 )
 from app.application.services.audit_service import AuditService
 from app.application.services.available_servers import (
-    SELECTABLE_TIERS,
     AmbiguousServerNameError,
     AvailableServersNotFoundError,
     AvailableServersService,
-    VendorRecheckError,
+    tiers_up_to,
 )
 from app.application.services.classification_service import ClassificationService
 from app.application.services.health_policy_service import HealthPolicyService
@@ -72,7 +72,7 @@ from app.application.services.pipeline import (
     health_change_data,
     health_from_state,
 )
-from app.application.services.reservation_service import ReservationService
+from app.application.services.reservation_service import ReservationClaim, ReservationService
 from app.application.services.vm_host import resolve_vm_host
 from app.config import Settings, get_settings
 from app.dependencies import (
@@ -98,9 +98,9 @@ from app.errors import (
     AvailableLookupConflictingParamsError,
     AvailableServerNameAmbiguousError,
     AvailableServerNotFoundError,
+    NoAvailableServerError,
     NotFoundError,
     PageSizeTooLargeError,
-    ServiceUnavailableError,
     ValidationAppError,
 )
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
@@ -112,7 +112,10 @@ from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolic
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
-from app.infrastructure.providers.factory import build_provider_for_manager_type
+from app.infrastructure.providers.factory import (
+    build_provider_for_manager_type,
+    recheck_budget_seconds,
+)
 from app.infrastructure.redis.cache import (
     LIST_PAGE_TTL_SECONDS,
     SERVER_DETAIL_TTL_SECONDS,
@@ -334,16 +337,18 @@ async def _ingest_service(
 async def _available_servers_service(
     repo: Annotated[MongoServerRepository, Depends(_server_repo)],
     ingest_service: Annotated[IngestService, Depends(_ingest_service)],
+    reservations: Annotated[ReservationService, Depends(_reservation_service)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AvailableServersService:
     """
-    Build the `GET /servers/available` resolver for one request.
+    Build the `/servers/available` resolver for one request.
 
     Args:
         repo (MongoServerRepository): The server repository.
         ingest_service (IngestService): Runs a live recheck's fetched
             record through the ingest pipeline.
-        settings (Settings): Supplies the capacity-alias catalog and
+        reservations (ReservationService): Locks and releases a candidate (`POST`).
+        settings (Settings): Supplies the capacity-alias catalog, the attempt cap and
             resolves each manager type's provider.
 
     Returns:
@@ -356,6 +361,9 @@ async def _available_servers_service(
             manager_type, settings=settings
         ),
         capacity_aliases=capacity_alias_catalog(settings.capacity_aliases),
+        reservations=reservations,
+        max_attempts=settings.available_max_attempts,
+        recheck_timeout=lambda manager_type: recheck_budget_seconds(manager_type, settings),
     )
 
 
@@ -580,27 +588,90 @@ async def server_rows(
 
 # Before `/servers/{server_id}`: FastAPI matches in declaration order, and
 # `available` would otherwise be swallowed as a `server_id` path value.
+def _health_tiers(max_health: HealthSeverity) -> tuple[HealthSeverity, ...]:
+    """
+    The tiers a `max_health` allows, or a 400 for a value that is never assignable.
+
+    Args:
+        max_health (HealthSeverity): The caller's worst acceptable tier.
+
+    Returns:
+        tuple[HealthSeverity, ...]: That tier and every better one, best first.
+
+    Raises:
+        AvailableLookupConflictingParamsError: `max_health` is UNKNOWN or retired.
+    """
+    tiers = tiers_up_to(max_health)
+    if not tiers:
+        raise AvailableLookupConflictingParamsError(
+            "max_health must be one of HEALTHY, WARNING, MAJOR, CRITICAL; "
+            f"{max_health.value} is never assignable."
+        )
+    return tiers
+
+
+def _available_filters(
+    vendor: Vendor | None, source_provider: ManagerType | None
+) -> dict[str, object]:
+    """
+    The Mongo-keyed vendor/provider filters of an available lookup.
+
+    Args:
+        vendor (Vendor | None): Restrict to one vendor.
+        source_provider (ManagerType | None): Restrict to one collector.
+
+    Returns:
+        dict[str, object]: The filters, empty when neither was given.
+    """
+    return build_filter_query(
+        {
+            key: value.value
+            for key, value in (("vendor", vendor), ("source_provider", source_provider))
+            if value is not None
+        }
+    )
+
+
+def _ambiguous_name(exc: AmbiguousServerNameError) -> AvailableServerNameAmbiguousError:
+    """
+    The 409 for a `name` that matched several servers.
+
+    Args:
+        exc (AmbiguousServerNameError): What the service raised.
+
+    Returns:
+        AvailableServerNameAmbiguousError: The API error.
+    """
+    return AvailableServerNameAmbiguousError(
+        f"{exc.name!r} matches {len(exc.server_ids)} servers. Server names are "
+        "not unique — correlation is on (vendor, serial). Narrow the lookup "
+        "with `vendor`/`source_provider`.",
+        details={"name": exc.name, "server_ids": exc.server_ids},
+    )
+
+
+# `available` would otherwise be swallowed as a `server_id` path value.
 @router.get("/servers/available", response_model=AvailableServersResponse)
 async def available_servers(
     service: Annotated[AvailableServersService, Depends(_available_servers_service)],
-    cache: Annotated[CacheClient, Depends(_cache_client)],
     settings: Annotated[Settings, Depends(get_settings)],
     name: str | None = Query(default=None),
     pattern: str | None = Query(default=None),
     count: int | None = Query(default=None, ge=1),
     vendor: Vendor | None = Query(default=None),
     source_provider: ManagerType | None = Query(default=None),
-    health: HealthSeverity | None = Query(default=None),
+    max_health: HealthSeverity = Query(default=HealthSeverity.MAJOR),
     min_nic_macs: int = Query(default=0, ge=0, le=16),
+    health: str | None = Query(default=None, deprecated=True),
 ) -> AvailableServersResponse:
     """
-    Find one or more assignable, live-verified servers for a BMH-creation caller.
+    Find assignable servers from the stored inventory: no live recheck, no lock.
 
-    Exactly one of `name`/`pattern` selects the lookup mode — see ADR-0032.
+    Exactly one of `name`/`pattern` selects the lookup mode (ADR-0032). To take a server, use
+    `POST /servers/available` (ADR-0063).
 
     Args:
         service (AvailableServersService): Resolves both lookup modes.
-        cache (CacheClient): Invalidated for every server a live recheck writes.
         settings (Settings): Supplies `max_available_count` and the NIC
             OS-name mapping for each item's `interfaces[].os_name`.
         name (str | None): Exact, case-insensitive server name.
@@ -608,16 +679,16 @@ async def available_servers(
         count (int | None): Pattern mode only; how many servers to return.
         vendor (Vendor | None): Restrict to one vendor.
         source_provider (ManagerType | None): Restrict to one collector.
-        health (HealthSeverity | None): Restrict to exactly this tier instead
-            of filling `HEALTHY` then `WARNING` then `MAJOR`. A caller that
-            only provisions on `HEALTHY` hardware would otherwise be handed —
-            and pay a live recheck for — a `WARNING` server whenever no
-            `HEALTHY` one is free.
+        max_health (HealthSeverity): The worst acceptable health: that tier and every better one
+            (`HEALTHY` only Healthy, `WARNING` Healthy and Warning, `MAJOR` up to Major,
+            `CRITICAL` all four), filled best first. UNKNOWN is never assignable.
         min_nic_macs (int): Require this many NIC MACs, read this collection
             run. A BMH caller should pass at least 1 — a server with none
             cannot become a `BareMetalHost`, which has no `bootMACAddress`
             without one — and 2 for a bonded NMState configuration. Opt-in
             (default 0) so the endpoint's existing behaviour is unchanged.
+        health (str | None): Removed; replaced by `max_health` (ADR-0063). Refused rather than
+            ignored, so a caller still sending it is not silently widened to the default.
 
     Returns:
         AvailableServersResponse: Always list-shaped, `name` mode returning
@@ -625,14 +696,18 @@ async def available_servers(
 
     Raises:
         AvailableLookupConflictingParamsError: Neither or both of `name`/
-            `pattern` were given, or `count` was given with `name`.
+            `pattern` were given, `count` was given with `name`, `max_health` is UNKNOWN, or
+            the removed `health` was sent.
         AvailableCountTooLargeError: `count` exceeds `settings.max_available_count`.
         AvailableServerNameAmbiguousError: `name` matched several servers.
         AvailableServerNotFoundError: Nothing could be returned at all —
             see `AvailableServersNotFoundError`'s reason in the detail.
-        ServiceUnavailableError: A vendor manager failed (timeout, login, network)
-            while verifying; the detail names the manager type and the reason.
     """
+    if health is not None:
+        raise AvailableLookupConflictingParamsError(
+            "`health` was replaced by `max_health`: the worst acceptable tier, "
+            "with every better one allowed (ADR-0063)."
+        )
     if (name is None) == (pattern is None):
         raise AvailableLookupConflictingParamsError(
             "Exactly one of `name` or `pattern` must be given."
@@ -642,31 +717,14 @@ async def available_servers(
             "`count` only applies to `pattern` mode, since `name` always resolves to at "
             "most one server."
         )
-
-    extra_filters = build_filter_query(
-        {
-            key: value.value
-            for key, value in (("vendor", vendor), ("source_provider", source_provider))
-            if value is not None
-        }
-    )
+    extra_filters = _available_filters(vendor, source_provider)
     nic_names = nic_name_catalog(settings.nic_os_names)
-    if health is not None and health not in SELECTABLE_TIERS:
-        raise AvailableLookupConflictingParamsError(
-            "health must be one of "
-            f"{', '.join(tier.value for tier in SELECTABLE_TIERS)}; "
-            f"{health.value} is never assignable."
-        )
-    # One tier when the caller named one, otherwise the full best-first fill.
-    tiers = (health,) if health is not None else SELECTABLE_TIERS
+    tiers = _health_tiers(max_health)
 
     try:
         if name is not None:
             result = await service.lookup_by_name(
-                name,
-                extra_filters=extra_filters,
-                tiers=tiers,
-                min_nic_macs=min_nic_macs,
+                name, extra_filters=extra_filters, tiers=tiers, min_nic_macs=min_nic_macs
             )
             results = [result]
             mode, requested = "name", 1
@@ -691,31 +749,11 @@ async def available_servers(
             results = outcome.items
             mode, requested = "pattern", outcome.requested
     except AmbiguousServerNameError as exc:
-        raise AvailableServerNameAmbiguousError(
-            f"{exc.name!r} matches {len(exc.server_ids)} servers. Server names are "
-            "not unique — correlation is on (vendor, serial). Narrow the lookup "
-            "with `vendor`/`source_provider`.",
-            details={"name": exc.name, "server_ids": exc.server_ids},
-        ) from exc
+        raise _ambiguous_name(exc) from exc
     except AvailableServersNotFoundError as exc:
         raise AvailableServerNotFoundError(
             exc.reason, details={"reasons": list(exc.codes)} if exc.codes else None
         ) from exc
-    except VendorRecheckError as exc:
-        raise ServiceUnavailableError(
-            f"The {exc.manager_type.value} manager could not be reached to verify "
-            f"{exc.server_name!r}: {exc.reason}",
-            details={
-                "manager_type": exc.manager_type.value,
-                "server": exc.server_name,
-                "reason": exc.reason,
-            },
-        ) from exc
-
-    for result in results:
-        await _invalidate_detail_cache(result.server.id, cache)
-    if results:
-        await _invalidate_list_cache(cache)
 
     return AvailableServersResponse(
         items=[
@@ -729,6 +767,100 @@ async def available_servers(
         mode=mode,
         requested=requested,
         returned=len(results),
+    )
+
+
+@router.post("/servers/available", response_model=AvailableServersResponse)
+async def reserve_available_server(
+    payload: ReserveAvailableRequest,
+    service: Annotated[AvailableServersService, Depends(_available_servers_service)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    actor: Annotated[Actor, Depends(require_admin)],
+    request_id: Annotated[str | None, Depends(get_request_id)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AvailableServersResponse:
+    """
+    Lock one assignable server, live-check it while locked, and return it (ADR-0063).
+
+    Candidates are tried best health first, one at a time; one that fails its live check is
+    released before the next is drawn, up to `INVENTORY_AVAILABLE_MAX_ATTEMPTS`.
+
+    Args:
+        payload (ReserveAvailableRequest): The lookup and who is taking the server.
+        service (AvailableServersService): Locks, checks and releases candidates.
+        cache (CacheClient): Invalidated for the server taken and the list pages.
+        actor (Actor): The actor to attribute the reservation to.
+        request_id (str | None): The current request's ID, for the audit event.
+        settings (Settings): Supplies the NIC OS-name mapping.
+
+    Returns:
+        AvailableServersResponse: Exactly one item, now reserved for `payload.ttl_seconds`.
+
+    Raises:
+        AvailableLookupConflictingParamsError: Neither or both of `name`/`pattern` were given,
+            or `max_health` is UNKNOWN.
+        AvailableServerNameAmbiguousError: `name` matched several servers.
+        NoAvailableServerError: No server could be reserved, whatever the cause (503).
+    """
+    if (payload.name is None) == (payload.pattern is None):
+        raise AvailableLookupConflictingParamsError(
+            "Exactly one of `name` or `pattern` must be given."
+        )
+    tiers = _health_tiers(payload.max_health)
+    extra_filters = _available_filters(payload.vendor, payload.source_provider)
+    claim = ReservationClaim(
+        holder=payload.holder,
+        mce_cluster=payload.mce_cluster,
+        infra_env=payload.infra_env,
+        namespace=payload.namespace,
+        workflow_id=payload.workflow_id,
+        ttl=timedelta(seconds=payload.ttl_seconds),
+    )
+    try:
+        if payload.name is not None:
+            result = await service.reserve_by_name(
+                payload.name,
+                claim=claim,
+                actor=actor,
+                request_id=request_id,
+                extra_filters=extra_filters,
+                tiers=tiers,
+                min_nic_macs=payload.min_nic_macs,
+            )
+            mode = "name"
+        else:
+            result = await service.reserve_by_pattern(
+                payload.pattern or "",
+                claim=claim,
+                actor=actor,
+                request_id=request_id,
+                extra_filters=extra_filters,
+                tiers=tiers,
+                min_nic_macs=payload.min_nic_macs,
+            )
+            mode = "pattern"
+    except AmbiguousServerNameError as exc:
+        raise _ambiguous_name(exc) from exc
+    except AvailableServersNotFoundError as exc:
+        raise NoAvailableServerError(
+            f"No available server: {exc.reason}",
+            details={"reasons": list(exc.codes)} if exc.codes else None,
+        ) from exc
+    finally:
+        await _invalidate_list_cache(cache)
+
+    await _invalidate_detail_cache(result.server.id, cache)
+    return AvailableServersResponse(
+        items=[
+            AvailableServerItem.from_server(
+                result.server,
+                nic_names=nic_name_catalog(settings.nic_os_names),
+                live_recheck_performed=result.live_recheck_performed,
+            )
+        ],
+        mode=mode,
+        requested=1,
+        returned=1,
     )
 
 

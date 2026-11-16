@@ -51,6 +51,8 @@ class Reservation(BaseModel):
         infra_env (str | None): The InfraEnv being filled.
         namespace (str | None): Where the BareMetalHost is being created.
         workflow_id (str | None): The run holding it, for tracing back.
+        claim_token (str | None): Unique per `POST /servers/available` request, so a request
+            never mistakes another request's lock for its own (ADR-0063).
         created_at (datetime | None): When it was taken.
         expires_at (datetime | None): When it stops being honoured. None means
             a reservation that never expires, which `reserve` never writes.
@@ -61,6 +63,7 @@ class Reservation(BaseModel):
     infra_env: str | None = None
     namespace: str | None = None
     workflow_id: str | None = None
+    claim_token: str | None = None
     created_at: datetime | None = None
     expires_at: datetime | None = None
 

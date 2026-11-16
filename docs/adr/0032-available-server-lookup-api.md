@@ -712,3 +712,10 @@ Until that release exists every manager is unconfigured and the API trusts Mongo
 see the collectors chart's values, so keep them equal by hand. A KubeVirt VM is never rechecked: the API pod has no
 KubeVirt cluster name, so `KUBEVIRT` is unconfigured there. A KubeVirt `get_one` asked about another facade's VM
 raises `NotThisManagersServerError`, answered from Mongo with outcome `skipped_foreign` (not a failure).
+
+## Update (2026-11-16): `GET` no longer rechecks, and the lock moved into a `POST` (ADR-0063)
+
+`GET /servers/available` answers from the stored document: no live recheck, no lock, `live_recheck_performed`
+always `false`, and `health` is replaced by `max_health` (that tier and every better one). The recheck described
+above now belongs to `POST /servers/available`, which tries up to `INVENTORY_AVAILABLE_MAX_ATTEMPTS` candidates
+and answers every miss, a vendor failure included, with a 503 `NO_AVAILABLE_SERVER`; it which locks each candidate first (decision 3's "no reservation" no longer holds for it).

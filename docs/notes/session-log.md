@@ -8,6 +8,18 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-15 — one failed server never aborts a run: a `COLLECTION_ERROR` stub with the cause (ADR-0062).**
+**Shipped:** every provider guards one server's mapping (`ServerInventoryProvider._contain_server_failure`: log
+`<vendor>.server_failed`, `_record_error`, count) and yields a `reachable=False` stub (`unreachable_reason=COLLECTION_ERROR`, new
+`unreachable_detail`, in `ServerSummary`/`ServerDetail`, the UI Overview and the skill docs) that carries the serial so ingest
+updates the same document. Exit 3, or exit 1 when at least 5 and over 20 % of the fleet failed (`is_systemic_failure`). Also:
+`parse_bmc_address` never raises, UCS Central keeps a failing domain's collected servers, Redfish drops only a bad
+`ComputerSystem`, the BMC probe never loses a batch, OneView `get_one` raises on anything but a 404, UCS `_as_int` returns `None`
+for an unreadable count, per-server log lines carry host/system/path, silent `get_one` `None`s are logged.
+
+**Open:** `BmcProbedProvider` does not count its own probe failures in `server_failures`; `RedfishStandaloneProvider.get_one`
+can now return a `COLLECTION_ERROR` stub that `/servers/available` persists; the systemic threshold (5 / 20 %) is a judgment, not measured.
+
 **2026-11-11 — a Confs tab: server configurations read from a `confs` collection (ADR-0061).**
 **Shipped (branch `feat/confs-tab`):** `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached, natural `conf_id`
 order); `Conf` reproduces the operator's schema field for field, `_id` never read, `conf_id` indexed non-unique, a malformed document

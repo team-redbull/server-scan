@@ -30,6 +30,7 @@ import contextlib
 import dataclasses
 import ipaddress
 import re
+import time
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
@@ -262,8 +263,10 @@ class OpenManageProvider(ServerInventoryProvider):
                 when OME knows the profile but its iDRAC gave nothing, or
                 `None` when neither `serial` nor `name` resolves a profile.
         """
+        began = time.monotonic()
         async with self._new_client() as client:
             identity_ome = await self._discover_one(client, identity)
+        ome_ms = round((time.monotonic() - began) * 1000)
         if identity_ome is None:
             return None
         if not identity_ome.idrac_ip:
@@ -275,7 +278,14 @@ class OpenManageProvider(ServerInventoryProvider):
         identity_ome = self._with_host(identity_ome, key)
         target = self._target_for(identity_ome)
         redfish = self._redfish_provider_factory([target])
+        idrac_began = time.monotonic()
         server = await redfish.get_one(ServerIdentity(host=target.host, serial=identity_ome.serial))
+        logger.info(
+            "ome.get_one_timing",
+            host=target.host,
+            ome_ms=ome_ms,
+            idrac_ms=round((time.monotonic() - idrac_began) * 1000),
+        )
         if server is None:
             logger.warning(
                 "ome.get_one_failed",

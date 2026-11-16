@@ -69,6 +69,7 @@ class ErrorCode:
     AVAILABLE_LOOKUP_CONFLICTING_PARAMS = "AVAILABLE_LOOKUP_CONFLICTING_PARAMS"
     AVAILABLE_SERVER_NOT_FOUND = "AVAILABLE_SERVER_NOT_FOUND"
     AVAILABLE_SERVER_NAME_AMBIGUOUS = "AVAILABLE_SERVER_NAME_AMBIGUOUS"
+    NO_AVAILABLE_SERVER = "NO_AVAILABLE_SERVER"
 
 
 def _slug(code: str) -> str:
@@ -370,3 +371,14 @@ class AvailableServerNotFoundError(AppError):
 
     status_code = 404
     code = ErrorCode.AVAILABLE_SERVER_NOT_FOUND
+
+
+class NoAvailableServerError(AppError):
+    """503: `POST /servers/available` could not reserve any server (ADR-0063).
+
+    Whatever the cause (nothing at that health, all installed, all reserved, every
+    candidate failing its live check), the caller's answer is the same: try later.
+    """
+
+    status_code = 503
+    code = ErrorCode.NO_AVAILABLE_SERVER

@@ -547,6 +547,27 @@ def recheck_timeout_seconds(manager_type: ManagerType, settings: Settings) -> fl
     )
 
 
+def recheck_budget_seconds(manager_type: ManagerType, settings: Settings) -> float:
+    """
+    The longest one live `get_one()` recheck may run, which sizes `POST /servers/available`'s lease.
+
+    A Redfish-backed `get_one` (OpenManage, standalone Redfish) makes many sequential calls under
+    one per-host budget, so the per-call timeout alone would understate it (ADR-0063).
+
+    Args:
+        manager_type (ManagerType): The collector being rechecked.
+        settings (Settings): Supplies the per-call timeout and `redfish_host_budget_seconds`.
+
+    Returns:
+        float: The per-call timeout, or the host budget when that is longer and the type reads
+            through Redfish.
+    """
+    timeout = recheck_timeout_seconds(manager_type, settings)
+    if manager_type in (ManagerType.OPENMANAGE, ManagerType.REDFISH_STANDALONE):
+        return max(timeout, settings.redfish_host_budget_seconds)
+    return timeout
+
+
 def manager_for(
     manager_type: ManagerType, connection: ManagerConnection, *, kubevirt_cluster: str = ""
 ) -> Manager:

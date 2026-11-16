@@ -216,3 +216,10 @@ still returns candidates without locking them, because the endpoint does
 not know which candidate a caller will choose and locking all of them would
 withhold `count - 1` machines from everyone else on every call. The claim
 belongs to the caller, after it has chosen.
+
+## Update (2026-11-16): `POST /servers/available` takes this lock itself (ADR-0063)
+
+A caller that draws through `POST /servers/available` no longer calls `POST /servers/{id}/reservation` afterwards:
+the draw locks the candidate first (a short probe lease while its live check runs, then `ttl_seconds`), so the
+window this ADR describes is closed at the draw. This endpoint and `DELETE` remain for any other caller and for
+releasing.
