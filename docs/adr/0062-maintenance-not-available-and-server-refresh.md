@@ -53,6 +53,8 @@ already holds every manager's credentials it may hold (ADR-0060).
   so a new `revision`). Transitions it causes are audited by ingest as usual.
 - **Concurrency:** calls for the same server share one read (`singleflight.coalesce`). The per-manager cap
   on live reads stays parked (CLAUDE.md, "Explicitly NOT done yet"); admin-only keeps the caller set small.
+- **Timeouts:** a refresh waits as long as the recheck (`recheck.timeouts`, `UCS_CENTRAL` 240 s at most);
+  the frontend proxy and the Route already allow `route.timeoutSeconds` (300 s), and the SPA sets none.
 - **Never `IngestService.ingest()`**, so a refresh never restarts an iDRAC (ADR-0050).
 - An unchanged server keeps its `revision`/`updated_at` and gets a new `last_seen_at` (ADR-0044); the UI
   says "no changes" when the returned `revision` equals the one it showed.

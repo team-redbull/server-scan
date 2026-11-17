@@ -29,7 +29,8 @@ import type { ServerRow } from "@/types/server";
  * animate nothing — only the background responds to hover.
  *
  * Installation carries two things: the lifecycle state the collectors
- * observed, and — only while a lock is held — which MCE is installing the
+ * observed (shown as "Maintenance" for a free server in maintenance,
+ * `installationOf`, ADR-0062), and — only while a lock is held — which MCE is installing the
  * server (ADR-0035). The second sits under the first rather than replacing
  * it, because a server mid-install is still `AVAILABLE` to the collectors.
  */
