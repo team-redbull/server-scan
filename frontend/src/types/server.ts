@@ -335,6 +335,8 @@ export interface ServerDetail {
   reachable: boolean;
   unreachable_since: string | null;
   unreachable_reason: UnreachableReason | null;
+  /** Moves only when the content changed, so a refresh that kept it found nothing new. */
+  revision: number;
   updated_at: string;
   created_at: string;
 }

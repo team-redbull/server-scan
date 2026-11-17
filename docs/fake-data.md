@@ -93,7 +93,11 @@ is reachable.
   what a name claims and what a cluster reports is the whole point of
   keeping the two apart (ADR-0024) — if only `random-server-*` entries
   were ever free, the Available card would be lying about the shape of a
-  real fleet.
+  real fleet. The seed puts no server in maintenance, so the Sites
+  `MAINTENANCE` slice (ADR-0062) reads 0 until one is toggled.
+* **"Fetch now" reads this same fleet** when the API runs with
+  `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` (development only, ADR-0062); the three
+  values must match `tools.seed_inventory`'s, or every refresh answers `SERVER_NOT_AT_MANAGER`.
 * **GPU VRAM comes from the catalog, not from the fixture.** Only
   Redfish-sourced collectors can read a GPU's memory; Cisco and HPE have
   no field for it (see

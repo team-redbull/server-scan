@@ -209,6 +209,15 @@ describe("describeEvent", () => {
     ).toBe("Ran CronJob r-collector-oneview by hand as Job r-collector-oneview-manual-ab12cd");
   });
 
+  it("describes a server fetched on demand", () => {
+    expect(
+      describeEvent({ ...ev("SERVER_REFRESHED"), data: { manager_type: "ONEVIEW", changed: true } }),
+    ).toBe("Fetched from ONEVIEW on demand (data changed)");
+    expect(
+      describeEvent({ ...ev("SERVER_REFRESHED"), data: { manager_type: "ONEVIEW", changed: false } }),
+    ).toBe("Fetched from ONEVIEW on demand (no change)");
+  });
+
   it("covers every written type", () => {
     for (const t of WRITTEN_EVENT_TYPES) {
       expect(describeEvent(ev(t))).not.toBe(t);

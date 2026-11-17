@@ -226,7 +226,8 @@ Dell iDRAC GPU VRAM check (`docs/field-test-checklist.md` part 3); Intersight's
 `get_one()` owner-relation `$filter`s (ADR-0032, never run live).
 
 Since 2026-09-13 the platform serves **`GET /api/v1/servers/available`**
-(ADR-0032), the one endpoint that reaches a vendor manager.
+(ADR-0032), and since 2026-11-17 `POST /servers/{id}/refresh` (ADR-0062): the
+two endpoints that reach a vendor manager.
 
 ### Explicitly NOT done yet (priority order the user confirmed)
 
@@ -272,8 +273,10 @@ long form of each entry is in the 2026-09-13 archive.
   error), and a server whose content is identical is only `touch_seen`d, so `revision`/`updated_at`
   mean "content changed", not "a run happened". A new per-run stamp in `_build_server` must be added
   to `_VOLATILE_TOP_LEVEL`/`_stable_view` (a guard test fails otherwise).
-- **`GET /servers/available` is the one endpoint that talks to a vendor
-  manager** (ADR-0032): ranks in Mongo, live-rechecks only the few returned via
+- **`GET /servers/available` and `POST /servers/{id}/refresh` are the only endpoints that talk to a
+  vendor manager** (ADR-0032, ADR-0062; both through `available_servers.fetch_live`). The refresh
+  (admin, one server by id, `SERVER_REFRESHED` audited) turns every case the recheck degrades on into a
+  409 (`SERVER_REFRESH_UNSUPPORTED`, `SERVER_NOT_AT_MANAGER`), never an ingest of the whole manager. The recheck: ranks in Mongo, live-rechecks only the few returned via
   `get_one()`, persists through `IngestService.ingest_one`; an unconfigured
   manager type degrades to trusting Mongo; the response says per item whether a
   recheck ran. The item is `AvailableServerItem`, **not** `ServerDetail` (only
@@ -324,7 +327,7 @@ long form of each entry is in the 2026-09-13 archive.
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
-  the six mutation endpoints (maintenance, reservation, reclassify, health recalculate) in `servers.py`) — a new mutation endpoint must
+  the seven mutation endpoints (maintenance, reservation, reclassify, health recalculate, refresh) in `servers.py`) — a new mutation endpoint must
   add it explicitly. Machine callers send `Authorization: Bearer
   <api_token_admin|viewer>`; `auth.enabled=false` returns a fixed dev-admin actor.
 - **`Server.openshift` is written by two CronJobs and nothing else, and the
@@ -485,18 +488,17 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-11 — a Confs tab: server configurations read from a `confs` collection (ADR-0061).**
-Moved to `docs/notes/session-log.md`: the collectors-chart unit (ADR-0060).
+**2026-11-17 — a server in maintenance is not available; "Fetch now" reads one server from its manager (ADR-0062).**
+Moved to `docs/notes/session-log.md`: the Confs unit (ADR-0061).
 
-**Shipped (branch `feat/confs-tab`):** `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached, natural `conf_id`
-order); `Conf` reproduces the operator's schema field for field, `_id` never read, `conf_id` indexed non-unique, a malformed document
-skipped and named in `unreadable`; `/confs` page ("Confs" after "Servers") with search and expandable rows; 20 fake confs replaced by `conf_id`
-by `tools.seed_inventory` (`providers/fake/confs.py`). **`server_count` is not read** (operator, 2026-11-12): no
-field, no column; a stored one is ignored. **Revised the same day to the writer's second schema:** the name (`conf_name`, was `name`)
-is not read either (operator), so the table's column is Part number, "Unmapped" when `null`; new `gpu_vram_gb` (VRAM per GPU);
-`ram.total_gib` 0 shown as a failed scan; cache keys read as `l1/l2/l3` *or* `11/12/13` (`AliasChoices`). **Third schema, same
-day:** disks are `{count, type, capacity_tb}` (no model/protocol), adapters `{count, ports, speed}` (no model), GPUs grouped by
-model, no `detected` wrapper (one document per conf, confirmed).
+**Shipped (branch `feat/maintenance-unavailable-server-refresh`):** Available is derived on read as "no cluster holds it and
+not in maintenance": `GET /servers?openshift_state=AVAILABLE` excludes maintenance, `/sites` adds a `MAINTENANCE` slice to
+`by_openshift_state`, and the UI's Installation badge, filter, facets, sort and XLSX export read "Maintenance" through
+`lib/installation.ts`. `lifecycle_state` is untouched. `POST /api/v1/servers/{id}/refresh` (admin) runs
+`available_servers.fetch_live` (now shared with the `/servers/available` recheck) for one server, 409
+`SERVER_REFRESH_UNSUPPORTED` / `SERVER_NOT_AT_MANAGER`, 503 on a vendor failure, `SERVER_REFRESHED` audited; the detail
+page's "Fetch now" button (`RefreshButton`). `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` (development only) makes every
+live read answer from the fake fleet.
 
-**Open, for the operator to confirm:** who writes `confs` (Server Scan assumes another system and never writes it); that adapter
-`speed` is Gb/s (the UI says so); whether `gpus: []` beside a non-zero `gpu_count` still occurs; a conf is not linked to a server.
+**Open:** a refresh is one more `get_one()` caller with no per-manager cap (still parked, item 1 below "Explicitly NOT
+done yet"); `REDFISH_STANDALONE` and a hub's `KUBEVIRT` servers cannot be refreshed from the API (409 by design).

@@ -677,11 +677,12 @@ Those values render into a single `Secret`
 
 **Since `docs/adr/0032-available-server-lookup-api.md`, the API
 Deployment mounts this same Secret too** — `GET /api/v1/servers/available`'s live
-recheck needs the same manager credentials a collector does. Since ADR-0060 it is another release's Secret:
+recheck needs the same manager credentials a collector does, and so does `POST /api/v1/servers/{id}/refresh`
+(ADR-0062). Since ADR-0060 it is another release's Secret:
 server-scan's `recheck.credentialsSecret` (default `server-scan-collectors-collector-credentials`), mounted with
 `optional: true`. This is not
 a separate toggle: an unconfigured value (or no Secret at all) degrades to the API trusting
-Mongo for that candidate, the same way a collector already treats it, so
+Mongo for that candidate (the refresh answers 409 `SERVER_REFRESH_UNSUPPORTED` instead), the same way a collector already treats it, so
 mounting it is safe even where a deployment has not configured every
 vendor. A KubeVirt VM is never rechecked by the hub API (no cluster name there, ADR-0060). The standalone Redfish collector's per-host TOML files
 (`inventoryFile`/`credentialsFile`, below) are the one exception —

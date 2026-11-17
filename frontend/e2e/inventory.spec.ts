@@ -142,6 +142,34 @@ test.describe("Inventory", () => {
     await expect(header).toHaveAttribute("target", "_blank");
   });
 
+  test("a server's detail header fetches that one server from its manager on demand", async ({
+    page,
+    request,
+  }) => {
+    const { items } = (await (await request.get("/api/v1/servers?page_size=1")).json()) as {
+      items: { id: string }[];
+    };
+    const serverId = items[0]?.id;
+    if (!serverId) throw new Error("No seeded server to fetch.");
+
+    await page.goto(`/servers/${serverId}`);
+    const button = page.getByRole("button", { name: "Fetch this server's data now" });
+    await expect(button).toHaveText("Fetch now");
+
+    // CI's API has no vendor manager (409, said inline); a dev API with INVENTORY_FAKE_MANAGERS answers 200.
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith(`/api/v1/servers/${serverId}/refresh`)),
+      button.click(),
+    ]);
+    if (response.ok()) {
+      await expect(page.getByRole("alert")).toHaveCount(0);
+    } else {
+      const problem = (await response.json()) as { detail: string };
+      await expect(page.getByRole("alert")).toHaveText(problem.detail);
+    }
+    await expect(button).toHaveText("Fetch now");
+  });
+
   test("filters by MCE from the sidebar and keeps the choice in the URL", async ({
     page,
   }) => {

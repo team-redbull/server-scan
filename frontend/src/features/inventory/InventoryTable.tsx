@@ -12,6 +12,7 @@ import type { SortableField } from "@/features/inventory/sorting";
 import { BmcLink } from "@/components/BmcLink";
 import { CopyButton } from "@/components/CopyButton";
 import { InstallationBadge } from "@/components/InstallationBadge";
+import { installationOf } from "@/lib/installation";
 import { ReservationBadge } from "@/components/ReservationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
 import { StateBadge } from "@/components/StateBadge";
@@ -103,7 +104,12 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
     // lock is held, so unaffected rows cost no height. ADR-0035, decision 6.
     cell: (info) => (
       <div className="inline-flex flex-col items-center gap-1">
-        <InstallationBadge state={info.getValue<OpenShiftState>()} />
+        <InstallationBadge
+          state={installationOf(
+            info.getValue<OpenShiftState>(),
+            info.row.original.maintenance.enabled,
+          )}
+        />
         <ReservationBadge reservation={info.row.original.reservation} />
       </div>
     ),

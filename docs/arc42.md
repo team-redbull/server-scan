@@ -108,13 +108,14 @@ read-only, and that is a safety property rather than a missing feature.
   if `/api/v1` becomes `/api/v2`.
 - **Outbound:** MongoDB (source of truth), Redis (cache), and vendor APIs
   — from collector pods for collection, and since ADR-0032 from the API
-  pod for exactly one purpose: `GET /servers/available`'s per-candidate
-  live recheck (`get_one()`, a single-object read, never a bulk one).
+  pod for two purposes: `GET /servers/available`'s per-candidate live
+  recheck and, since ADR-0062, the admin's one-server `POST /servers/{id}/refresh`
+  (both `get_one()`, a single-object read, never a bulk one).
 - **A collector never talks to the API, and the API reaches a vendor only
-  through `ServerInventoryProvider.get_one()` on that one endpoint.**
+  through `ServerInventoryProvider.get_one()` on those two endpoints.**
   MongoDB is otherwise the only thing connecting them. This is the single
-  most load-bearing structural fact about the system, and ADR-0032 is its
-  one deliberate, bounded exception.
+  most load-bearing structural fact about the system, and ADR-0032
+  (extended by ADR-0062) is its deliberate, bounded exception.
 
 ---
 
@@ -249,8 +250,10 @@ card (critical, major, warning, unknown, maintenance).
 They are a sum over `GET /api/v1/sites`, which carries two slice objects
 per site row rather than needing a second endpoint: `by_installation_type`
 (`HOSTED_CLUSTER`/`MCE`/`UPI`/`UNCLASSIFIED`) and `by_openshift_state`
-(`AVAILABLE`/`INSTALLED`/`INSTALLED_TO_INVENTORY`), each carrying the same
-total/health/vendor/maintenance counts a site does. The two answer
+(`AVAILABLE`/`INSTALLED`/`INSTALLED_TO_INVENTORY`/`MAINTENANCE`), each carrying the same
+total/health/vendor/maintenance counts a site does. A server no cluster holds but that is in
+maintenance is `MAINTENANCE`, not `AVAILABLE` (ADR-0062), and `?openshift_state=AVAILABLE` excludes
+it too, so the Available card and the list it links to agree. The two answer
 different questions on purpose — what a server's *name* claims it is,
 against what a cluster reports actually holding it (ADR-0024).
 
@@ -497,7 +500,7 @@ collector does, and never call this platform's API.
 | **Search** | `domain/services/search_tokens` | Anchored, escaped prefix match over a multikey-indexed token array; structurally incapable of ReDoS or an unanchored scan (ADR-0004). Tokens are word-boundary **suffixes**, so the anchored query still finds a fragment from the middle of a name — `cisco-m6` matches `ocp-cisco-m6-bat-yam-…` (ADR-0025) |
 | **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS, Intersight and KubeVirt are UNKNOWN, skipped (ADR-0037; a VM's "BMC" is the shared facade, ADR-0058) |
 | **Staleness** | `observability/fleet_gauges` | `/metrics` carries gauges derived from MongoDB on scrape, throttled to once per 30s: servers not seen within `INVENTORY_STALE_AFTER_SECONDS` per collector, each collector's and each cluster's newest report as a Unix timestamp, the health mix, and (2026-09-16) duplicate-name group/server counts. A CronJob pod is never scraped, so this is the only signal that a collector or membership job has *stopped* (ADR-0029). Each `nodes`/`agents` membership job's most recent run (observed/matched/unmatched hostnames, duration, PARTIAL) is a further gauge set added 2026-09-24, present even when every hostname was unmatched. Shipped with a `ServiceMonitor` and a `PrometheusRule` (fleet, login/dependency, API/frontend pod and audit-retention alerts; the 2026-10-07 updates also add the audit-trail size/oldest-event and unchanged-server gauges) |
-| **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — six CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
+| **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — six CronJobs write continuously and clearing on each would keep the cache cold. The operator writes (maintenance, reservation) and the two live reads that persist one server (`/servers/available`'s recheck, `POST /servers/{id}/refresh`) are the exceptions, because the operator is looking at the list they just wrote to (ADR-0028, ADR-0062) |
 | **Pagination** | `domain/services/cursor` | Keyset only, HMAC-signed cursor bound to the filter/sort combination. A **nullable** sort field needs the null-aware clause: Mongo's range operators are type-bracketed, so a naive `$gt`/`$lt` cursor drops rows with no error (ADR-0026) |
 | **Caching** | `infrastructure/redis` | Cache-aside; revision-keyed detail entries; every method returns a miss on error rather than raising |
 | **Classification** | `domain/services/classification` | Total order `(priority, specificity, order, id)` computed in Python; conflicts recorded, not hidden (ADR-0005 for the sibling idea) |
@@ -518,8 +521,9 @@ a stateless HMAC-signed session cookie, and two static API tokens for a
 machine caller like the BMH generator. `app.dependencies.
 get_current_actor` resolves the caller — the dev bypass, a bearer token,
 or the session cookie — and every router except `health`/`auth`/`metrics`
-requires one; `require_admin` additionally gates the six mutation
-endpoints.
+requires one; `require_admin` additionally gates the seven mutation
+endpoints (maintenance, reservation, reclassify, health recalculate, and
+the one-server refresh of ADR-0062).
 
 **`auth.enabled` is still `false` by default** — no AD is reachable from
 this repo's own dev/test environment, so every existing install (and this
@@ -600,6 +604,7 @@ of it.
 | 0059 | A VM stores the cluster and node it runs on (`Server.vm_host`, names only); `GET /servers/{id}/vm-host` resolves the node to its bare-metal server when read (membership first, then name), never cached; `host-model` is a CPU mode, stored as no model |
 | 0060 | Collectors move to their own chart, `server-scan-collectors` (same image, tag pinned by hand after server-scan); a KubeVirt collector runs in every KubeVirt cluster with a per-cluster manager id (`mgr_kubevirt_<cluster>`, cluster name required); the hub API never rechecks a VM; run gauges gain a `manager` label and `ServerScanCollectorRunStale` |
 | 0061 | Confs (server configurations) are read from a `confs` collection another system writes: `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached), the stored shape reproduced field for field, `conf_id` not unique and `_id` never read, a malformed document skipped and named in `unreadable`; a "Confs" tab after Servers; the fake seeder upserts 20 confs |
+| 0062 | A server in maintenance is not available (derived on read: `?openshift_state=AVAILABLE` excludes it, `/sites` counts it in a `MAINTENANCE` slice, the UI badge reads "Maintenance"); `POST /servers/{id}/refresh` (admin) reads one server from its manager now via `get_one()` + `ingest_one`, 409 when the API cannot reach that manager, `SERVER_REFRESHED` audited; `INVENTORY_FAKE_MANAGERS` (development only) |
 
 ---
 
@@ -712,7 +717,7 @@ go stale — treat its date as load-bearing.
 | **UCSPE** | Cisco's free UCS Platform Emulator — the test target that validated the UCS collector. |
 | **PVA** | Intersight Private Virtual Appliance: on-prem Intersight, the only form reachable from an air-gapped site. |
 | **nodes-status job** (membership job) | A scheduled process, deployed by the `deploy/helm/nodes-status` chart, that runs *inside* an OpenShift cluster and reports which servers that cluster is using. Two sources, `nodes` and `agents`. Not a collector: it reads no vendor and writes only `Server.openshift` (ADR-0024). |
-| **`OpenShiftState`** | Whether a cluster holds a server: `AVAILABLE` (nothing does — the default, and the only state reached by absence), `INSTALLED` (a cluster does), `INSTALLED_TO_INVENTORY` (an MCE holds it but no cluster does — the spare pool). Distinct from **classification**, which is what the *name* claims. |
+| **`OpenShiftState`** | Whether a cluster holds a server: `AVAILABLE` (nothing does — the default, and the only state reached by absence), `INSTALLED` (a cluster does), `INSTALLED_TO_INVENTORY` (an MCE holds it but no cluster does — the spare pool). Distinct from **classification**, which is what the *name* claims. As a filter and a `/sites` slice, available also excludes a server in maintenance (derived on read and reported as `MAINTENANCE`; the stored state is untouched, ADR-0062). |
 | **MCE hub** | A multicluster-engine cluster that provisions and manages other clusters. Runs both `nodes-status` jobs: `agents` for the fleet it manages, `nodes` for its own hardware. |
 | **Agent** | The `agent-install.openshift.io` custom resource an MCE creates per discovered host. Bound to a cluster or unbound; the `agents` job reads these. |
 | **Reconcile (membership)** | Each run claims what its cluster reports *and frees what it does not*, scoped to the servers already naming that cluster. Nothing in Kubernetes reports a removal, so this is the only thing that returns a server to `AVAILABLE`. |

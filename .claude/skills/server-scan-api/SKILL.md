@@ -31,7 +31,7 @@ api "/api/v1/servers?vendor=dell&site_id=tlv&page_size=200" | jq '.items[] | {na
 ```
 
 The auditor token is read-only and, unlike the viewer token, may read the audit trail (the
-events endpoints). Stay on GET: the write endpoints (maintenance, reservation, reclassify) need
+events endpoints). Stay on GET: the write endpoints (maintenance, reservation, reclassify, refresh) need
 the admin token (so does `/api/v1/jobs`, which starts and reads collector Jobs), and you only use them when the user explicitly asks. If this holds a viewer
 token, everything works except events, which answer `403`.
 
@@ -62,7 +62,7 @@ Values are case-sensitive:
 - `site_id`: the lowercase site code, e.g. `tlv`; `unassigned` for servers whose name has no site. List the real codes with `GET /api/v1/sites`.
 - `health_overall`: `HEALTHY` `WARNING` `MAJOR` `CRITICAL` `UNKNOWN`
 - `installation_type`: `UPI` `HOSTED_CLUSTER` `MCE` `UNCLASSIFIED`
-- `openshift_state`: `AVAILABLE` (no cluster is using it) or `INSTALLED`
+- `openshift_state`: `AVAILABLE` (no cluster is using it and it is not in maintenance) or `INSTALLED`
 - `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE` `KUBEVIRT`
 
 Paging: `page_size` defaults to 50, max 200. The response has `page.next_cursor` and

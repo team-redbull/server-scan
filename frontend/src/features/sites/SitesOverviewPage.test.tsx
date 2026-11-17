@@ -57,6 +57,7 @@ function site(
       AVAILABLE: available,
       INSTALLED: breakdown({ total: upi.total + hosted.total - available.total }),
       INSTALLED_TO_INVENTORY: breakdown(),
+      MAINTENANCE: breakdown(),
     },
   };
 }
@@ -108,6 +109,7 @@ const SITES_RESPONSE = {
       INSTALLED_TO_INVENTORY: sumBreakdowns(
         SITE_ITEMS.map((s) => s.by_openshift_state.INSTALLED_TO_INVENTORY),
       ),
+      MAINTENANCE: sumBreakdowns(SITE_ITEMS.map((s) => s.by_openshift_state.MAINTENANCE)),
     },
   },
 };

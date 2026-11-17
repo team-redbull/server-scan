@@ -28,18 +28,22 @@ export interface Breakdown {
   in_maintenance: number;
 }
 
+/** `by_openshift_state`'s keys: every OpenShift state, plus `MAINTENANCE` for servers no
+ * cluster holds that are in maintenance, which the `AVAILABLE` slice excludes (ADR-0062). */
+export type OpenShiftSlice = OpenShiftState | "MAINTENANCE";
+
 export interface SiteStats extends Breakdown {
   site_id: SiteStatsId;
   name: string;
   by_installation_type: Record<InstallationType, Breakdown>;
-  by_openshift_state: Record<OpenShiftState, Breakdown>;
+  by_openshift_state: Record<OpenShiftSlice, Breakdown>;
 }
 
 /** The fleet-wide cards, computed backend-side rather than summed from
  * `items` here. */
 export interface FleetSummary extends Breakdown {
   by_installation_type: Record<InstallationType, Breakdown>;
-  by_openshift_state: Record<OpenShiftState, Breakdown>;
+  by_openshift_state: Record<OpenShiftSlice, Breakdown>;
 }
 
 export interface SiteStatsListResponse {

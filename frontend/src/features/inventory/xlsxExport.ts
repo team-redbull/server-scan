@@ -1,5 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 
+import { installationOf } from "@/lib/installation";
 import type { ServerRow } from "@/types/server";
 
 /** Column order, header text, and value accessor for the inventory export. */
@@ -10,7 +11,7 @@ const COLUMNS: { header: string; value: (row: ServerRow) => string }[] = [
   { header: "Model", value: (r) => r.model ?? "" },
   { header: "Serial", value: (r) => r.serial ?? "" },
   { header: "SPT", value: (r) => r.profile_template_name ?? "" },
-  { header: "Installation", value: (r) => r.openshift_state },
+  { header: "Installation", value: (r) => installationOf(r.openshift_state, r.maintenance.enabled) },
   { header: "MCE", value: (r) => r.mce_name ?? "" },
   { header: "Cluster", value: (r) => r.cluster_name ?? "" },
   { header: "State", value: (r) => r.health },

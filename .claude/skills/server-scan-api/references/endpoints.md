@@ -38,7 +38,7 @@ Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, model, site_id, source_provider, installation_type, health,
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
 contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
-Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.
+Note `health` here is the overall severity string, not an object, and `openshift_state` is the clusters' reading: a row with `AVAILABLE` and `maintenance.enabled` true is not available. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail`: hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
@@ -80,12 +80,13 @@ Auditor or admin token only.
 Event: `id, event_type, server_id, server_name, actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED` (data has `from`/`to` and, when the server was renamed in the same collection, `name_from`/`name_to`),
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
-`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), plus rule/policy/site/manager events.
+`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), `SERVER_REFRESHED` (an admin fetched one server from its manager; data has `manager_type`, `changed`), plus rule/policy/site/manager events.
 
 ## Sites
 
 `GET /api/v1/sites` - `{items: [SiteStats], fleet: FleetSummary}`. Each site: `site_id, name`,
-`total`, `by_vendor` (one entry per vendor, `kubevirt` included, zero where none), `by_health`, `in_maintenance`, `by_installation_type`, `by_openshift_state`.
+`total`, `by_vendor` (one entry per vendor, `kubevirt` included, zero where none), `by_health`, `in_maintenance`, `by_installation_type`, `by_openshift_state`
+(`AVAILABLE`, `INSTALLED`, `INSTALLED_TO_INVENTORY`, and `MAINTENANCE` = no cluster holds it but it is in maintenance, so not available; the four sum to `total`).
 Use it to learn the valid `site_id` codes.
 
 ## Confs
@@ -133,8 +134,11 @@ for one username; wait it out, do not retry.
 
 `PUT|DELETE /api/v1/servers/{id}/maintenance`, `POST|DELETE /api/v1/servers/{id}/reservation`
 (install lock, ADR-0035), `POST /api/v1/servers/{id}/reclassify`,
-`POST /api/v1/servers/{id}/health/recalculate`. Do not call these unless the user asks and
-has supplied the admin token.
+`POST /api/v1/servers/{id}/health/recalculate`, `POST /api/v1/servers/{id}/refresh` (reads that one
+server from its vendor manager now and returns the `ServerDetail`; `revision` moves only if its data
+changed; 409 `SERVER_REFRESH_UNSUPPORTED` when the API is not connected to that manager, e.g. standalone
+Redfish, 409 `SERVER_NOT_AT_MANAGER` when the manager no longer reports it, 503 when the manager fails;
+audited as `SERVER_REFRESHED`). Do not call these unless the user asks and has supplied the admin token.
 
 ## Jobs (admin only, every route, reads included)
 

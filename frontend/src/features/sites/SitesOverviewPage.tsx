@@ -2,7 +2,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { UNASSIGNED_SITE_ID, vendorLabel } from "@/api/sites";
-import type { Breakdown, FleetSummary, SiteStats } from "@/api/sites";
+import type { Breakdown, FleetSummary, OpenShiftSlice, SiteStats } from "@/api/sites";
 import { SEVERITY_GLYPH } from "@/components/severity";
 import { useSitesQuery } from "@/features/sites/hooks";
 import type { HealthSeverity, OpenShiftState } from "@/types/server";
@@ -19,7 +19,7 @@ interface CardSpec {
   stats: Breakdown;
   /** Only set for per-site cards — the fleet row already has its own
    * dedicated Installed/Available cards. */
-  byOpenshiftState?: Record<OpenShiftState, Breakdown>;
+  byOpenshiftState?: Record<OpenShiftSlice, Breakdown>;
 }
 
 /**
@@ -65,7 +65,7 @@ function fleetCards(fleet: FleetSummary): CardSpec[] {
     {
       key: "AVAILABLE",
       name: "Available",
-      subtitle: "no cluster holds these",
+      subtitle: "no cluster holds these, not in maintenance",
       to: "/servers?openshift_state=AVAILABLE",
       stats: fleet.by_openshift_state.AVAILABLE,
     },
@@ -186,7 +186,7 @@ function InstalledAvailableCounts({
   byOpenshiftState,
   to,
 }: {
-  byOpenshiftState: Record<OpenShiftState, Breakdown>;
+  byOpenshiftState: Record<OpenShiftSlice, Breakdown>;
   to: string;
 }) {
   const installed = byOpenshiftState.INSTALLED.total;

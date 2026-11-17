@@ -91,6 +91,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
     reachable: true,
     unreachable_since: null,
     unreachable_reason: null,
+    revision: 1,
     updated_at: "2026-08-13T10:00:00Z",
     ...overrides,
   };
@@ -287,6 +288,17 @@ describe("OverviewTab OpenShift membership", () => {
     render(<OverviewTab server={makeServer()} />);
 
     expect(screen.getByText("Available")).toBeInTheDocument();
+  });
+
+  it("shows a server no cluster holds that is in maintenance as in maintenance, not available", () => {
+    render(
+      <OverviewTab
+        server={makeServer({ maintenance: { enabled: true, reason: "disk replacement" } })}
+      />,
+    );
+
+    expect(screen.getByText("In maintenance")).toBeInTheDocument();
+    expect(screen.queryByText("Available")).not.toBeInTheDocument();
   });
 
   it("names the hosted cluster and the MCE that reported it", () => {

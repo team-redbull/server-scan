@@ -53,7 +53,10 @@ _STATS_CACHE_KEY = "si:4:sites:stats"
 _VENDOR_ORDER: tuple[str, ...] = tuple(v.value for v in Vendor)
 _HEALTH_ORDER: tuple[str, ...] = tuple(s.value for s in HealthSeverity)
 _INSTALLATION_ORDER: tuple[str, ...] = tuple(t.value for t in InstallationType)
-_OPENSHIFT_ORDER: tuple[str, ...] = tuple(s.value for s in OpenShiftState)
+# Not an OpenShift state: no cluster holds these, but they are in maintenance (ADR-0062).
+MAINTENANCE_SLICE = "MAINTENANCE"
+
+_OPENSHIFT_ORDER: tuple[str, ...] = (*(s.value for s in OpenShiftState), MAINTENANCE_SLICE)
 
 _VENDOR_INDEX = {vendor: position for position, vendor in enumerate(_VENDOR_ORDER)}
 
@@ -214,6 +217,10 @@ def _pivot(
 
         # A pre-ADR-0024 state counts as AVAILABLE, so totals still add up.
         state = row.openshift_state or ""
+        if row.maintenance and state not in entry.by_openshift_state:
+            state = OpenShiftState.AVAILABLE.value
+        if row.maintenance and state == OpenShiftState.AVAILABLE.value:
+            state = MAINTENANCE_SLICE
         _accumulate(entry.by_openshift_state.get(state) or _fallback_state(entry), row)
         _accumulate(fleet.by_openshift_state.get(state) or _fallback_state(fleet), row)
 

@@ -27,6 +27,7 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from app.domain.enums import OpenShiftState
 from app.domain.models.server import Server
 from app.domain.value_objects.site import UNASSIGNED_SITE_ID
 from app.errors import (
@@ -141,6 +142,10 @@ def build_filter_query(
         # match on: `?site_id=unassigned` names the state instead.
         if key == "site_id" and value == UNASSIGNED_SITE_ID:
             query[FILTER_FIELDS[key]] = None
+        elif key == "openshift_state" and value == OpenShiftState.AVAILABLE.value:
+            # A server in maintenance is not available, whatever the clusters report (ADR-0062).
+            query[FILTER_FIELDS[key]] = value
+            query["$and"] = [{"maintenance.enabled": {"$ne": True}}]
         else:
             query[FILTER_FIELDS[key]] = value
     return query

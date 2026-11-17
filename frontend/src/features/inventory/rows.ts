@@ -3,6 +3,7 @@ import type { SortableField } from "@/features/inventory/sorting";
 import type { ServerRow } from "@/types/server";
 import { SEVERITY_ORDER } from "@/components/severity";
 import { isDonor } from "@/lib/donor";
+import { installationOf } from "@/lib/installation";
 
 /**
  * Filtering, search, sort, facet counts and paging over the fleet's rows —
@@ -118,7 +119,9 @@ export function filterRows(
       (!filters.installation_type?.length ||
         filters.installation_type.includes(row.installation_type)) &&
       (!filters.openshift_state?.length ||
-        filters.openshift_state.includes(row.openshift_state)) &&
+        filters.openshift_state.includes(
+          installationOf(row.openshift_state, row.maintenance.enabled),
+        )) &&
       (!filters.health?.length || filters.health.includes(row.health)) &&
       (filters.maintenance === undefined ||
         (filters.maintenance === "only") === row.maintenance.enabled) &&
@@ -265,9 +268,14 @@ export function sortRows(
       SEVERITY_ORDER.length - SEVERITY_ORDER.indexOf(row.health);
     return [...rows].sort((a, b) => sign * (rank(a) - rank(b)));
   }
+  // Installation sorts by what the column shows (`installationOf`), not the stored state.
+  const value = (row: ServerRow) =>
+    field === "openshift_state"
+      ? installationOf(row.openshift_state, row.maintenance.enabled)
+      : row[field];
   return [...rows].sort((a, b) => {
-    const av = a[field];
-    const bv = b[field];
+    const av = value(a);
+    const bv = value(b);
     if (av === null) return bv === null ? 0 : 1;
     if (bv === null) return -1;
     return sign * COLLATOR.compare(av, bv);
@@ -306,7 +314,10 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     if (row.source_provider) count(facets.source_provider, row.source_provider);
     count(facets.installation_type, row.installation_type);
     count(facets.site_id, row.site_id ?? UNASSIGNED_SITE_ID);
-    count(facets.openshift_state, row.openshift_state);
+    count(
+      facets.openshift_state,
+      installationOf(row.openshift_state, row.maintenance.enabled),
+    );
     count(facets.health, row.health);
     count(facets.maintenance, String(row.maintenance.enabled));
     count(facets.stale, String(row.stale));

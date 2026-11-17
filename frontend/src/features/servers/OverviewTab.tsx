@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
+import { installationOf } from "@/lib/installation";
 import { ReservationBadge } from "@/components/ReservationBadge";
 import { useVmHostQuery } from "@/features/servers/hooks";
 import { actorIdLabel } from "@/lib/actor";
@@ -180,7 +181,10 @@ function OpenShiftValue({ server }: { server: ServerDetail }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <InstallationBadge state={lifecycle_state} full />
+        <InstallationBadge
+          state={installationOf(lifecycle_state, server.maintenance.enabled)}
+          full
+        />
         {cluster_name && <span className="font-medium">{cluster_name}</span>}
         {/* Beside the state, not instead of it: a mid-install server is still
             AVAILABLE to the collectors. Renders nothing unless a lock is held. */}

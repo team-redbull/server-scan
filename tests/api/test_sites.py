@@ -284,3 +284,24 @@ async def test_fleet_summary_sums_every_site_including_unassigned(
     assert fleet["by_installation_type"]["UNCLASSIFIED"]["total"] == 0
 
     assert fleet["total"] == sum(item["total"] for item in body["items"])
+
+
+async def test_a_server_in_maintenance_is_not_counted_as_available(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """No cluster holds it, but maintenance puts it in its own slice (ADR-0062)."""
+    client, repo = app_context
+    await repo.upsert(_make_server(0, site_id="tlv"))
+    await repo.upsert(
+        _make_server(1, site_id="tlv", health=HealthSeverity.HEALTHY, maintenance_enabled=True)
+    )
+
+    body = (await client.get("/api/v1/sites")).json()
+
+    for record in (_site(body, "tlv"), body["fleet"]):
+        slices = record["by_openshift_state"]
+        assert slices["AVAILABLE"]["total"] == 1
+        assert slices["AVAILABLE"]["in_maintenance"] == 0
+        assert slices["MAINTENANCE"]["total"] == 1
+        assert slices["MAINTENANCE"]["by_health"]["HEALTHY"] == 1
+        assert sum(s["total"] for s in slices.values()) == record["total"]
