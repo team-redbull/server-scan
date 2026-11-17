@@ -94,3 +94,15 @@ it in the image.
 So the standing checklist is two questions, not one: *is anything out of
 date* (`uv run --with pip-audit pip-audit --skip-editable`, `npm audit`)
 and *is anything unused*.
+
+## Update 2026-11-17: the npm audit covers shipped dependencies only
+
+CI and `/gate` run `npm audit --omit=dev`. `picomatch` (GHSA-fc5q-39xc-vjpf, a ReDoS through crafted glob patterns, every
+version up to 4.0.7, no patched version) reached the build tools `vite` and `vitest`, which never enter the bundle, and the only
+fix npm offered was a `vite` downgrade. Turning the whole audit off would hide a shipped package's advisory; omitting
+`devDependencies` keeps that check. The cost: an advisory in a build or test tool no longer fails CI, so read `npm audit`
+(without the flag) now and then. `pip-audit` and `deptry` are unchanged.
+
+`@tailwindcss/vite` and `tailwindcss` moved from `dependencies` to `devDependencies` in `frontend/package.json` (same versions;
+the lockfile only gains `dev` flags): they are compile-time only, and `@tailwindcss/vite` depends on `vite`, so while it sat in
+`dependencies` `--omit=dev` still audited `vite` and `picomatch`.

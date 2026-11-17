@@ -16,7 +16,7 @@ Flags: `--backend`, `--helm`, `--frontend` (any combination; none = all).
 (`scripts/dev-up.sh up`) and takes minutes; run `uv run pytest -q`
 separately when the change touches behaviour.
 
-The audit steps (`pip-audit`, `deptry`, `npm audit`) are CI's own and need the
+The audit steps (`pip-audit`, `deptry`, `npm audit --omit=dev`) are CI's own and need the
 network. They fail on an advisory published since the last green run with NO
 change in your code — that is how a push that passed every local lint step
 still went red on 2026-09-30 (urllib3 2.7.0, undici). Fix with

@@ -296,8 +296,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Shipped dependencies only: vite/vitest and the other devDependencies never reach the
+      # bundle (ADR-0013, 2026-11-17: picomatch had no patched version).
       - name: npm audit
-        run: npm audit
+        run: npm audit --omit=dev
 
       - name: Lint
         run: npm run lint
