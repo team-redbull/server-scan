@@ -226,7 +226,8 @@ Dell iDRAC GPU VRAM check (`docs/field-test-checklist.md` part 3); Intersight's
 `get_one()` owner-relation `$filter`s (ADR-0032, never run live).
 
 Since 2026-09-13 the platform serves **`GET /api/v1/servers/available`**
-(ADR-0032), the one endpoint that reaches a vendor manager.
+(ADR-0032), and since 2026-11-17 `POST /servers/{id}/refresh` (ADR-0064): the
+two endpoints that reach a vendor manager.
 
 ### Explicitly NOT done yet (priority order the user confirmed)
 
@@ -275,8 +276,10 @@ long form of each entry is in the 2026-09-13 archive.
   error), and a server whose content is identical is only `touch_seen`d, so `revision`/`updated_at`
   mean "content changed", not "a run happened". A new per-run stamp in `_build_server` must be added
   to `_VOLATILE_TOP_LEVEL`/`_stable_view` (a guard test fails otherwise).
-- **`POST /servers/available` is the one endpoint that talks to a vendor
-  manager** (ADR-0063, ADR-0032): it locks one candidate (a probe lease, then `ttl_seconds`), live-rechecks it via
+- **`POST /servers/available` and `POST /servers/{id}/refresh` are the only endpoints that talk to a vendor
+  manager** (both through `available_servers.fetch_live`). The refresh (ADR-0064: admin, one server by id,
+  `SERVER_REFRESHED` audited) turns every case the recheck degrades on into a 409 (`SERVER_REFRESH_UNSUPPORTED`,
+  `SERVER_NOT_AT_MANAGER`), never an ingest of the whole manager. The available POST (ADR-0063, ADR-0032): it locks one candidate (a probe lease, then `ttl_seconds`), live-rechecks it via
   `get_one()` while locked, persists through `IngestService.ingest_one`, and returns it or releases it and tries the
   next (at most `INVENTORY_AVAILABLE_MAX_ATTEMPTS`, default 5); every miss is a 503 `NO_AVAILABLE_SERVER`; an
   unconfigured manager type degrades to trusting Mongo. **`GET` reads Mongo only** (no recheck, no lock), and
@@ -328,7 +331,7 @@ long form of each entry is in the 2026-09-13 archive.
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
-  the six mutation endpoints (maintenance, reservation, reclassify, health recalculate) in `servers.py`) — a new mutation endpoint must
+  the eight mutation endpoints (maintenance, reservation, reclassify, health recalculate, `POST /servers/available`, refresh) in `servers.py`) — a new mutation endpoint must
   add it explicitly. Machine callers send `Authorization: Bearer
   <api_token_admin|viewer>`; `auth.enabled=false` returns a fixed dev-admin actor.
 - **`Server.openshift` is written by two CronJobs and nothing else, and the
@@ -489,13 +492,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
-Moved to `docs/notes/session-log.md`: one failed server never aborts a run (ADR-0062).
+**2026-11-17 — "Fetch now": `POST /api/v1/servers/{id}/refresh` reads one server from its manager (ADR-0064).**
+Moved to `docs/notes/session-log.md`: the available reserve-and-verify unit (ADR-0063).
 
-**Shipped (branch `feat/available-reserve-and-verify`):** `GET /servers/available` reads Mongo only and takes `max_health` (the old `health` is a 400);
-the new `POST /servers/available` (admin) claims a candidate with a probe lease (`ReservationService.try_claim`), live-rechecks it while
-locked, then extends it to `ttl_seconds` and audits `SERVER_RESERVED`, or releases it (`release_claim`, no event) and draws the next, at most
-`INVENTORY_AVAILABLE_MAX_ATTEMPTS` (5) live checks per request; every miss is a 503 `NO_AVAILABLE_SERVER` with `details.reasons`.
+**Shipped (branch `feat/server-refresh`):** `POST /api/v1/servers/{id}/refresh` (admin) runs
+`available_servers.fetch_live` (now shared with the `/servers/available` recheck) for one server, 409
+`SERVER_REFRESH_UNSUPPORTED` / `SERVER_NOT_AT_MANAGER`, 503 on a vendor failure, `SERVER_REFRESHED` audited; the detail
+page's "Fetch now" button (`RefreshButton`). `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` (development only) makes every
+live read answer from the fake fleet.
 
-**Open:** the per-manager concurrency cap on live rechecks is still parked; the POST is not idempotent by `workflow_id` (a retry takes another
-server, the first frees itself at its TTL); the Temporal workflows must move to the POST and to `max_health`.
+**Open:** a refresh is one more `get_one()` caller with no per-manager cap (still parked, item 1 below "Explicitly NOT
+done yet"); `REDFISH_STANDALONE` and a hub's `KUBEVIRT` servers cannot be refreshed from the API (409 by design).

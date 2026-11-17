@@ -167,6 +167,10 @@ Loaded only when a `frontend/` file is open.
   maintenance, installed, available; `CountLink`, a `role="link"` span because anchors cannot nest).
   A card whose hover border equals its resting border looks dead: the Fleet row's `emphasis` border was
   `--border-strong`, the same as the hover, so those cards had no hover until it brightened to `--text-muted`.
+- **The detail header holds a second control, "Fetch now"** (`features/servers/RefreshButton`, ADR-0064,
+  `aria-label` "Fetch this server's data now"): its accessible name must keep avoiding "maintenance" (the E2E asserts
+  the detail page has no maintenance control) and the plain server name. Admin-gated like `MaintenanceToggle`; a
+  failure also shows the API's `detail` inline (`role="alert"`), since the reason outlives the 2 s toast.
 - **The audit trail UI is `features/events/`** (History tab + `/events`):
   `describeEvent`'s sentences mirror the `data` keys each backend writer
   records (ingest, maintenance, reservation, openshift_membership, prune, audit

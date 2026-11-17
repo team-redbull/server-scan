@@ -8,6 +8,17 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
+Moved to `docs/notes/session-log.md`: one failed server never aborts a run (ADR-0062).
+
+**Shipped (branch `feat/available-reserve-and-verify`):** `GET /servers/available` reads Mongo only and takes `max_health` (the old `health` is a 400);
+the new `POST /servers/available` (admin) claims a candidate with a probe lease (`ReservationService.try_claim`), live-rechecks it while
+locked, then extends it to `ttl_seconds` and audits `SERVER_RESERVED`, or releases it (`release_claim`, no event) and draws the next, at most
+`INVENTORY_AVAILABLE_MAX_ATTEMPTS` (5) live checks per request; every miss is a 503 `NO_AVAILABLE_SERVER` with `details.reasons`.
+
+**Open:** the per-manager concurrency cap on live rechecks is still parked; the POST is not idempotent by `workflow_id` (a retry takes another
+server, the first frees itself at its TTL); the Temporal workflows must move to the POST and to `max_health`.
+
 **2026-11-15 — one failed server never aborts a run: a `COLLECTION_ERROR` stub with the cause (ADR-0062).**
 **Shipped:** every provider guards one server's mapping (`ServerInventoryProvider._contain_server_failure`: log
 `<vendor>.server_failed`, `_record_error`, count) and yields a `reachable=False` stub (`unreachable_reason=COLLECTION_ERROR`, new

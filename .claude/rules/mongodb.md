@@ -47,7 +47,7 @@ Loaded only when a storage-side file is open. Each item names its ADR.
   (ADR-0028): `/servers` pages (15s) and the `/servers/rows` body (15s,
   ADR-0033) get no invalidation on the ingest path, since five CronJobs
   write continuously.
-  Maintenance and `GET /servers/available`'s live recheck call
+  Maintenance, reservation, `POST /servers/available`'s live recheck and `POST /servers/{id}/refresh` call
   `_invalidate_list_cache`. **Do not extend this to ingest.** `SCAN MATCH`
   has no brace alternation (`{a,b}` matches nothing), and it must
   never become `KEYS`.

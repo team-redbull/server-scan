@@ -338,6 +338,8 @@ export interface ServerDetail {
   unreachable_reason: UnreachableReason | null;
   /** The last failed collection's cause, in words; null when none was recorded. */
   unreachable_detail: string | null;
+  /** Moves only when the content changed, so a refresh that kept it found nothing new. */
+  revision: number;
   updated_at: string;
   created_at: string;
 }

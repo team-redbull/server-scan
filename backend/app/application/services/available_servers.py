@@ -91,12 +91,13 @@ _DEFAULT_RECHECK_TIMEOUT_SECONDS = 15.0
 _MAX_RECHECK_REASON_CHARS = 500
 
 
-def recheck_failure_reason(exc: Exception) -> str:
+def recheck_failure_reason(exc: Exception, *, log_event: str = "available.recheck") -> str:
     """
     Name a vendor failure for the 503, in at most `_MAX_RECHECK_REASON_CHARS` characters.
 
     Args:
         exc (Exception): What the provider's `get_one()` raised; its full text is logged.
+        log_event (str): The caller's log event; the full text is in `<log_event>_failed`.
 
     Returns:
         str: `<ExceptionType>: <message>`, cut with a marker when too long.
@@ -107,7 +108,7 @@ def recheck_failure_reason(exc: Exception) -> str:
     cut = len(reason) - _MAX_RECHECK_REASON_CHARS
     return (
         f"{reason[:_MAX_RECHECK_REASON_CHARS]}… [{cut:,} more characters in the "
-        "available.recheck_failed log line]"
+        f"{log_event}_failed log line]"
     )
 
 
@@ -416,6 +417,79 @@ class _Tried:
     attempts: int = 0
     races: int = 0
     stuck: bool = False
+
+
+async def fetch_live(
+    server: Server,
+    *,
+    manager_type: ManagerType,
+    provider: ServerInventoryProvider,
+    ingest: IngestService,
+    log_event: str,
+) -> Server | None:
+    """
+    Read one server from its vendor manager now and persist it through `IngestService.ingest_one`.
+
+    The core of a live recheck (ADR-0032) and of `POST /servers/{id}/refresh` (ADR-0064).
+
+    Args:
+        server (Server): The stored server to read again.
+        manager_type (ManagerType): The collector that owns it (`server.source_provider`).
+        provider (ServerInventoryProvider): That collector, built for this process.
+        ingest (IngestService): Persists the fresh record (classify, health, audit, CAS write).
+        log_event (str): The log event and metric context, e.g. `available.recheck`.
+
+    Returns:
+        Server | None: The persisted server, or `None` when the manager no longer finds it
+            (nothing is written then).
+
+    Raises:
+        NotThisManagersServerError: The configured manager of this type does not collect it.
+        VendorRecheckError: The manager failed (timeout, login, network).
+    """
+    identity = ServerIdentity(
+        serial=server.identity.serial,
+        external_id=server.identity.external_ids.get(server.manager_id or ""),
+        host=server.network.bmc.host,
+        name=server.name,
+    )
+    started = time.monotonic()
+    fetched_at = started
+    outcome = "failed"
+    try:
+        try:
+            fresh = await provider.get_one(identity)
+            fetched_at = time.monotonic()
+        except NotThisManagersServerError:
+            outcome = "skipped_foreign"
+            raise
+        except Exception as exc:
+            logger.exception(
+                f"{log_event}_failed", server=server.name, manager_type=manager_type.value
+            )
+            raise VendorRecheckError(
+                manager_type, server.name, recheck_failure_reason(exc, log_event=log_event)
+            ) from exc
+        if fresh is None:
+            outcome = "not_found"
+            return None
+        updated = await ingest.ingest_one(fresh, provider_type=manager_type.value)
+        outcome = "verified"
+        return updated
+    finally:
+        elapsed = time.monotonic() - started
+        dependency_call_duration_seconds.labels(
+            dependency=f"vendor_{manager_type.value.lower()}", outcome=outcome
+        ).observe(elapsed)
+        logger.info(
+            log_event,
+            server=server.name,
+            manager_type=manager_type.value,
+            outcome=outcome,
+            duration_ms=round(elapsed * 1000, 1),
+            get_one_ms=round((fetched_at - started) * 1000),
+            ingest_ms=round((started + elapsed - fetched_at) * 1000),
+        )
 
 
 class AvailableServersService:
@@ -1084,49 +1158,17 @@ class AvailableServersService:
             )
             return server, False
 
-        identity = ServerIdentity(
-            serial=server.identity.serial,
-            external_id=server.identity.external_ids.get(server.manager_id or ""),
-            host=server.network.bmc.host,
-            name=server.name,
-        )
-        started = time.monotonic()
-        fetched_at = started
-        outcome = "failed"
         try:
-            try:
-                fresh = await provider.get_one(identity)
-                fetched_at = time.monotonic()
-            except NotThisManagersServerError:
-                outcome = "skipped_foreign"
-                return server, False
-            except Exception as exc:
-                logger.exception(
-                    "available.recheck_failed", server=server.name, manager_type=manager_type.value
-                )
-                raise VendorRecheckError(
-                    manager_type, server.name, recheck_failure_reason(exc)
-                ) from exc
-            if fresh is None:
-                outcome = "not_found"
-                return None, True
-            updated = await self._ingest.ingest_one(fresh, provider_type=manager_type.value)
-            outcome = "verified"
-            return updated, True
-        finally:
-            elapsed = time.monotonic() - started
-            dependency_call_duration_seconds.labels(
-                dependency=f"vendor_{manager_type.value.lower()}", outcome=outcome
-            ).observe(elapsed)
-            logger.info(
-                "available.recheck",
-                server=server.name,
-                manager_type=manager_type.value,
-                outcome=outcome,
-                duration_ms=round(elapsed * 1000, 1),
-                get_one_ms=round((fetched_at - started) * 1000),
-                ingest_ms=round((started + elapsed - fetched_at) * 1000),
+            fresh = await fetch_live(
+                server,
+                manager_type=manager_type,
+                provider=provider,
+                ingest=self._ingest,
+                log_event="available.recheck",
             )
+        except NotThisManagersServerError:
+            return server, False
+        return fresh, True
 
     def _provider_for(self, manager_type: ManagerType) -> ServerInventoryProvider | None:
         """

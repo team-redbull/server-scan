@@ -70,6 +70,8 @@ class ErrorCode:
     AVAILABLE_SERVER_NOT_FOUND = "AVAILABLE_SERVER_NOT_FOUND"
     AVAILABLE_SERVER_NAME_AMBIGUOUS = "AVAILABLE_SERVER_NAME_AMBIGUOUS"
     NO_AVAILABLE_SERVER = "NO_AVAILABLE_SERVER"
+    SERVER_REFRESH_UNSUPPORTED = "SERVER_REFRESH_UNSUPPORTED"
+    SERVER_NOT_AT_MANAGER = "SERVER_NOT_AT_MANAGER"
 
 
 def _slug(code: str) -> str:
@@ -382,3 +384,20 @@ class NoAvailableServerError(AppError):
 
     status_code = 503
     code = ErrorCode.NO_AVAILABLE_SERVER
+
+
+class ServerRefreshUnsupportedError(AppError):
+    """409: `POST /servers/{id}/refresh` cannot reach the manager that collects this server.
+
+    No collector, no connection configured on the API pod, or another manager's server (ADR-0064).
+    """
+
+    status_code = 409
+    code = ErrorCode.SERVER_REFRESH_UNSUPPORTED
+
+
+class ServerNotAtManagerError(AppError):
+    """409: the server's manager no longer reports it, so the refresh left it unchanged."""
+
+    status_code = 409
+    code = ErrorCode.SERVER_NOT_AT_MANAGER

@@ -108,13 +108,14 @@ read-only, and that is a safety property rather than a missing feature.
   if `/api/v1` becomes `/api/v2`.
 - **Outbound:** MongoDB (source of truth), Redis (cache), and vendor APIs
   — from collector pods for collection, and since ADR-0032 from the API
-  pod for exactly one purpose: `GET /servers/available`'s per-candidate
-  live recheck (`get_one()`, a single-object read, never a bulk one).
+  pod for two purposes: `POST /servers/available`'s per-candidate live
+  recheck and, since ADR-0064, the admin's one-server `POST /servers/{id}/refresh`
+  (both `get_one()`, a single-object read, never a bulk one).
 - **A collector never talks to the API, and the API reaches a vendor only
-  through `ServerInventoryProvider.get_one()` on that one endpoint.**
+  through `ServerInventoryProvider.get_one()` on those two endpoints.**
   MongoDB is otherwise the only thing connecting them. This is the single
-  most load-bearing structural fact about the system, and ADR-0032 is its
-  one deliberate, bounded exception.
+  most load-bearing structural fact about the system, and ADR-0032
+  (extended by ADR-0064) is its deliberate, bounded exception.
 
 ---
 
@@ -502,7 +503,7 @@ collector does, and never call this platform's API.
 | **Search** | `domain/services/search_tokens` | Anchored, escaped prefix match over a multikey-indexed token array; structurally incapable of ReDoS or an unanchored scan (ADR-0004). Tokens are word-boundary **suffixes**, so the anchored query still finds a fragment from the middle of a name — `cisco-m6` matches `ocp-cisco-m6-bat-yam-…` (ADR-0025) |
 | **BMC reachability** | `bmc` health category | `Server.reachable=False` makes a server CRITICAL via the `bmc.unreachable` policy. Written by `OPENMANAGE`, `REDFISH_STANDALONE` and a OneView unauthenticated `GET /redfish/v1` probe (`infrastructure/bmc_probe.py`); UCS, Intersight and KubeVirt are UNKNOWN, skipped, except that a server whose record failed to map is a CRITICAL `collection_error` stub from any provider (ADR-0062; ADR-0037; a VM's "BMC" is the shared facade, ADR-0058) |
 | **Staleness** | `observability/fleet_gauges` | `/metrics` carries gauges derived from MongoDB on scrape, throttled to once per 30s: servers not seen within `INVENTORY_STALE_AFTER_SECONDS` per collector, each collector's and each cluster's newest report as a Unix timestamp, the health mix, and (2026-09-16) duplicate-name group/server counts. A CronJob pod is never scraped, so this is the only signal that a collector or membership job has *stopped* (ADR-0029). Each `nodes`/`agents` membership job's most recent run (observed/matched/unmatched hostnames, duration, PARTIAL) is a further gauge set added 2026-09-24, present even when every hostname was unmatched. Shipped with a `ServiceMonitor` and a `PrometheusRule` (fleet, login/dependency, API/frontend pod and audit-retention alerts; the 2026-10-07 updates also add the audit-trail size/oldest-event and unchanged-server gauges) |
-| **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — six CronJobs write continuously and clearing on each would keep the cache cold. The two maintenance endpoints are the one exception, because the operator is looking at the list they just wrote to (ADR-0028) |
+| **List cache** | `api/v1/servers` | Cache-aside pages (15s) and the whole-fleet `/servers/rows` body (15s, ADR-0033), invalidated by **nothing on the ingest path** — six CronJobs write continuously and clearing on each would keep the cache cold. The operator writes (maintenance, reservation) and the two live reads that persist one server (`/servers/available`'s recheck, `POST /servers/{id}/refresh`) are the exceptions, because the operator is looking at the list they just wrote to (ADR-0028, ADR-0064) |
 | **Pagination** | `domain/services/cursor` | Keyset only, HMAC-signed cursor bound to the filter/sort combination. A **nullable** sort field needs the null-aware clause: Mongo's range operators are type-bracketed, so a naive `$gt`/`$lt` cursor drops rows with no error (ADR-0026) |
 | **Caching** | `infrastructure/redis` | Cache-aside; revision-keyed detail entries; every method returns a miss on error rather than raising |
 | **Classification** | `domain/services/classification` | Total order `(priority, specificity, order, id)` computed in Python; conflicts recorded, not hidden (ADR-0005 for the sibling idea) |
@@ -523,8 +524,9 @@ a stateless HMAC-signed session cookie, and two static API tokens for a
 machine caller like the BMH generator. `app.dependencies.
 get_current_actor` resolves the caller — the dev bypass, a bearer token,
 or the session cookie — and every router except `health`/`auth`/`metrics`
-requires one; `require_admin` additionally gates the six mutation
-endpoints.
+requires one; `require_admin` additionally gates the eight mutation
+endpoints (maintenance, reservation, reclassify, health recalculate,
+`POST /servers/available` of ADR-0063, and the one-server refresh of ADR-0064).
 
 **`auth.enabled` is still `false` by default** — no AD is reachable from
 this repo's own dev/test environment, so every existing install (and this
@@ -607,6 +609,7 @@ of it.
 | 0061 | Confs (server configurations) are read from a `confs` collection another system writes: `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached), the stored shape reproduced field for field, `conf_id` not unique and `_id` never read, a malformed document skipped and named in `unreadable`; a "Confs" tab after Servers; the fake seeder upserts 20 confs |
 | 0062 | One failed server never aborts a run: every provider guards a server's mapping (`_contain_server_failure`) and writes a `reachable=False` `COLLECTION_ERROR` stub carrying `unreachable_detail`; PARTIAL (exit 3), or exit 1 when at least 5 and over 20 % of the fleet failed |
 | 0063 | `POST /servers/available` locks a candidate, live-checks it while locked and returns it, or releases it and tries the next (at most `INVENTORY_AVAILABLE_MAX_ATTEMPTS` per request); every miss is a 503 `NO_AVAILABLE_SERVER`; `max_health` (that tier and every better one) replaces `health`; `GET` no longer rechecks or locks |
+| 0064 | `POST /servers/{id}/refresh` (admin) reads one server from its manager now via `get_one()` + `ingest_one` (shared with the `/servers/available` recheck as `fetch_live`), 409 when the API cannot reach that manager or it no longer lists the server, `SERVER_REFRESHED` audited; the detail page's "Fetch now"; `INVENTORY_FAKE_MANAGERS` (development only) |
 
 ---
 

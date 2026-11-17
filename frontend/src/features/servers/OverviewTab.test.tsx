@@ -92,6 +92,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
     unreachable_since: null,
     unreachable_reason: null,
     unreachable_detail: null,
+    revision: 1,
     updated_at: "2026-08-13T10:00:00Z",
     ...overrides,
   };
