@@ -62,7 +62,7 @@ Values are case-sensitive:
 - `site_id`: the lowercase site code, e.g. `tlv`; `unassigned` for servers whose name has no site. List the real codes with `GET /api/v1/sites`.
 - `health_overall`: `HEALTHY` `WARNING` `MAJOR` `CRITICAL` `UNKNOWN`
 - `installation_type`: `UPI` `HOSTED_CLUSTER` `MCE` `UNCLASSIFIED`
-- `openshift_state`: `AVAILABLE` (no cluster is using it) or `INSTALLED`
+- `openshift_state`: `AVAILABLE` (no cluster is using it and it is not in maintenance) or `INSTALLED`
 - `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE` `KUBEVIRT`
 
 Paging: `page_size` defaults to 50, max 200. The response has `page.next_cursor` and

@@ -457,8 +457,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   summed from `items` client-side, so a second consumer gets the
   identical number. An enum value the API does not know lands in a
   catch-all bucket (`UNKNOWN` health, no vendor column, the `AVAILABLE`
-  OpenShift slice) rather than being dropped, so slice totals always add
-  up to the fleet.
+  OpenShift slice, or `MAINTENANCE` when that server is in maintenance) rather
+  than being dropped, so slice totals always add up to the fleet.
 
 ## Classification engine (slice 2)
 
@@ -2032,6 +2032,12 @@ of a `server-scan-collectors` release in that namespace, ADR-0060); a running Jo
 `JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
 `useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane
 that refreshes every 3 s while the Job is active.
+
+## A server in maintenance is not available (ADR-0065)
+
+**Available excludes maintenance**, derived on read: `?openshift_state=AVAILABLE` adds
+`maintenance.enabled != true`, `/sites` counts such a server in a `MAINTENANCE` slice of `by_openshift_state`, and the SPA's
+`lib/installation.ts` (`installationOf`) drives the badge, the inventory filter, facets, sort and export.
 
 ## Audit trail UI
 

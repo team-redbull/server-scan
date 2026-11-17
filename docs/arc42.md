@@ -251,8 +251,10 @@ card (critical, major, warning, unknown, maintenance).
 They are a sum over `GET /api/v1/sites`, which carries two slice objects
 per site row rather than needing a second endpoint: `by_installation_type`
 (`HOSTED_CLUSTER`/`MCE`/`UPI`/`UNCLASSIFIED`) and `by_openshift_state`
-(`AVAILABLE`/`INSTALLED`/`INSTALLED_TO_INVENTORY`), each carrying the same
-total/health/vendor/maintenance counts a site does. The two answer
+(`AVAILABLE`/`INSTALLED`/`INSTALLED_TO_INVENTORY`/`MAINTENANCE`), each carrying the same
+total/health/vendor/maintenance counts a site does. A server no cluster holds but that is in
+maintenance is `MAINTENANCE`, not `AVAILABLE` (ADR-0065), and `?openshift_state=AVAILABLE` excludes
+it too, so the Available card and the list it links to agree. The two answer
 different questions on purpose — what a server's *name* claims it is,
 against what a cluster reports actually holding it (ADR-0024).
 
@@ -607,6 +609,7 @@ of it.
 | 0061 | Confs (server configurations) are read from a `confs` collection another system writes: `GET /api/v1/confs` and `/confs/{conf_id}` (any role, unpaginated, uncached), the stored shape reproduced field for field, `conf_id` not unique and `_id` never read, a malformed document skipped and named in `unreadable`; a "Confs" tab after Servers; the fake seeder upserts 20 confs |
 | 0062 | One failed server never aborts a run: every provider guards a server's mapping (`_contain_server_failure`) and writes a `reachable=False` `COLLECTION_ERROR` stub carrying `unreachable_detail`; PARTIAL (exit 3), or exit 1 when at least 5 and over 20 % of the fleet failed |
 | 0063 | `POST /servers/available` locks a candidate, live-checks it while locked and returns it, or releases it and tries the next (at most `INVENTORY_AVAILABLE_MAX_ATTEMPTS` per request); every miss is a 503 `NO_AVAILABLE_SERVER`; `max_health` (that tier and every better one) replaces `health`; `GET` no longer rechecks or locks |
+| 0065 | A server in maintenance is not available (derived on read: `?openshift_state=AVAILABLE` excludes it, `/sites` counts it in a `MAINTENANCE` slice, the UI badge reads "Maintenance"); the stored `lifecycle_state` is untouched |
 
 ---
 
@@ -720,7 +723,7 @@ go stale — treat its date as load-bearing.
 | **UCSPE** | Cisco's free UCS Platform Emulator — the test target that validated the UCS collector. |
 | **PVA** | Intersight Private Virtual Appliance: on-prem Intersight, the only form reachable from an air-gapped site. |
 | **nodes-status job** (membership job) | A scheduled process, deployed by the `deploy/helm/nodes-status` chart, that runs *inside* an OpenShift cluster and reports which servers that cluster is using. Two sources, `nodes` and `agents`. Not a collector: it reads no vendor and writes only `Server.openshift` (ADR-0024). |
-| **`OpenShiftState`** | Whether a cluster holds a server: `AVAILABLE` (nothing does — the default, and the only state reached by absence), `INSTALLED` (a cluster does), `INSTALLED_TO_INVENTORY` (an MCE holds it but no cluster does — the spare pool). Distinct from **classification**, which is what the *name* claims. |
+| **`OpenShiftState`** | Whether a cluster holds a server: `AVAILABLE` (nothing does — the default, and the only state reached by absence), `INSTALLED` (a cluster does), `INSTALLED_TO_INVENTORY` (an MCE holds it but no cluster does — the spare pool). Distinct from **classification**, which is what the *name* claims. As a filter and a `/sites` slice, available also excludes a server in maintenance (derived on read and reported as `MAINTENANCE`; the stored state is untouched, ADR-0065). |
 | **MCE hub** | A multicluster-engine cluster that provisions and manages other clusters. Runs both `nodes-status` jobs: `agents` for the fleet it manages, `nodes` for its own hardware. |
 | **Agent** | The `agent-install.openshift.io` custom resource an MCE creates per discovered host. Bound to a cluster or unbound; the `agents` job reads these. |
 | **Reconcile (membership)** | Each run claims what its cluster reports *and frees what it does not*, scoped to the servers already naming that cluster. Nothing in Kubernetes reports a removal, so this is the only thing that returns a server to `AVAILABLE`. |

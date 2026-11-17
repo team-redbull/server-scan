@@ -68,4 +68,37 @@ test.describe("Maintenance", () => {
 
     await request.delete(`/api/v1/servers/${server.id}/maintenance`);
   });
+
+  test("a server no cluster holds is not Available while in maintenance", async ({
+    page,
+    request,
+  }) => {
+    const listResponse = await request.get("/api/v1/servers?openshift_state=AVAILABLE&page_size=1");
+    const { items } = (await listResponse.json()) as { items: { id: string; name: string }[] };
+    const server = items[0];
+    if (!server) throw new Error("No seeded AVAILABLE server to test against.");
+    await request.put(`/api/v1/servers/${server.id}/maintenance`, {
+      data: { reason: "e2e not available" },
+    });
+
+    const available = (await (
+      await request.get("/api/v1/servers?openshift_state=AVAILABLE&page_size=200")
+    ).json()) as { items: { id: string }[] };
+    expect(available.items.map((item) => item.id)).not.toContain(server.id);
+
+    await page.goto(`/servers/${server.id}`);
+    await expect(page.getByText("In maintenance", { exact: true })).toBeVisible();
+
+    // Searched by exact name, so the row is on the page whenever it matches at all.
+    const exact = encodeURIComponent(`"${server.name}"`);
+    await page.goto(`/servers?search=${exact}`);
+    await expect(page.getByRole("link", { name: server.name, exact: true })).toBeVisible();
+    await expect(
+      page.locator("tbody tr", { has: page.getByRole("link", { name: server.name, exact: true }) }),
+    ).toContainText("Maintenance");
+    await page.goto(`/servers?openshift_state=AVAILABLE&search=${exact}`);
+    await expect(page.getByRole("link", { name: server.name, exact: true })).toHaveCount(0);
+
+    await request.delete(`/api/v1/servers/${server.id}/maintenance`);
+  });
 });

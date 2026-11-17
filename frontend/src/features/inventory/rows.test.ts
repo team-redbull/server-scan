@@ -408,6 +408,41 @@ describe("sortRows", () => {
   });
 });
 
+describe("a free server in maintenance is not available", () => {
+  const fleet = [
+    row({ name: "free" }),
+    row({ name: "free-maint", maintenance: { enabled: true, reason: "PSU" } }),
+    row({
+      name: "installed-maint",
+      openshift_state: "INSTALLED",
+      maintenance: { enabled: true, reason: "PSU" },
+    }),
+  ];
+
+  it("is left out of the Available filter", () => {
+    expect(
+      filterRows(fleet, { openshift_state: ["AVAILABLE"] }).map((r) => r.name),
+    ).toEqual(["free"]);
+    expect(
+      filterRows(fleet, { openshift_state: ["INSTALLED"] }).map((r) => r.name),
+    ).toEqual(["installed-maint"]);
+  });
+
+  it("is counted as MAINTENANCE, not AVAILABLE", () => {
+    expect(facetCounts(fleet).openshift_state).toEqual({
+      AVAILABLE: 1,
+      MAINTENANCE: 1,
+      INSTALLED: 1,
+    });
+  });
+
+  it("sorts by the installation shown", () => {
+    expect(
+      sortRows(fleet, "openshift_state", false).map((r) => r.name),
+    ).toEqual(["free", "installed-maint", "free-maint"]);
+  });
+});
+
 describe("facetCounts", () => {
   it("counts each dimension, sites included, and omits options matching nothing", () => {
     const facets = facetCounts(FLEET);

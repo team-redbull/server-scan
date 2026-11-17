@@ -225,6 +225,48 @@ async def test_filter_by_maintenance_bool(
     assert body["items"][0]["maintenance"]["enabled"] is True
 
 
+async def test_available_excludes_a_server_in_maintenance(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """In maintenance is not available, whatever the clusters report (ADR-0065)."""
+    client, repo = app_context
+    await repo.upsert(_make_server(1, maintenance_enabled=True))
+    await repo.upsert(_make_server(2, maintenance_enabled=False))
+
+    available = await client.get("/api/v1/servers", params={"openshift_state": "AVAILABLE"})
+    both = await client.get(
+        "/api/v1/servers", params={"openshift_state": "AVAILABLE", "maintenance": "true"}
+    )
+
+    assert [item["name"] for item in available.json()["items"]] == ["api-test-srv-0002"]
+    assert both.json()["items"] == []
+
+
+async def test_available_pages_with_a_stable_cursor(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    """The maintenance clause is part of the HMAC-bound filter, so page two must still verify."""
+    client, repo = app_context
+    for index in range(1, 6):
+        await repo.upsert(_make_server(index, maintenance_enabled=index == 3))
+
+    names: list[str] = []
+    cursor: str | None = None
+    while True:
+        params: dict[str, str | int] = {"openshift_state": "AVAILABLE", "page_size": 2}
+        if cursor:
+            params["cursor"] = cursor
+        resp = await client.get("/api/v1/servers", params=params)
+        assert resp.status_code == 200
+        body = resp.json()
+        names += [item["name"] for item in body["items"]]
+        cursor = body["page"]["next_cursor"]
+        if not body["page"]["has_more"]:
+            break
+
+    assert names == [f"api-test-srv-{i:04d}" for i in (1, 2, 4, 5)]
+
+
 async def test_page_size_too_large_returns_422(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:

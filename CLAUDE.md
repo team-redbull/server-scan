@@ -489,13 +489,12 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
-Moved to `docs/notes/session-log.md`: one failed server never aborts a run (ADR-0062).
+**2026-11-17 — a server in maintenance is not available (ADR-0065).**
+Moved to `docs/notes/session-log.md`: the available reserve-and-verify unit (ADR-0063).
 
-**Shipped (branch `feat/available-reserve-and-verify`):** `GET /servers/available` reads Mongo only and takes `max_health` (the old `health` is a 400);
-the new `POST /servers/available` (admin) claims a candidate with a probe lease (`ReservationService.try_claim`), live-rechecks it while
-locked, then extends it to `ttl_seconds` and audits `SERVER_RESERVED`, or releases it (`release_claim`, no event) and draws the next, at most
-`INVENTORY_AVAILABLE_MAX_ATTEMPTS` (5) live checks per request; every miss is a 503 `NO_AVAILABLE_SERVER` with `details.reasons`.
+**Shipped (branch `feat/maintenance-not-available`):** Available is derived on read as "no cluster holds it and
+not in maintenance": `GET /servers?openshift_state=AVAILABLE` excludes maintenance, `/sites` adds a `MAINTENANCE` slice to
+`by_openshift_state`, and the UI's Installation badge, filter, facets, sort and XLSX export read "Maintenance" through
+`lib/installation.ts`. `lifecycle_state` is untouched; `GET /servers/available` already excluded maintenance.
 
-**Open:** the per-manager concurrency cap on live rechecks is still parked; the POST is not idempotent by `workflow_id` (a retry takes another
-server, the first frees itself at its TTL); the Temporal workflows must move to the POST and to `max_health`.
+**Open:** the seed puts no server in maintenance, so the `MAINTENANCE` slice reads 0 on a fresh dev fleet until one is toggled.

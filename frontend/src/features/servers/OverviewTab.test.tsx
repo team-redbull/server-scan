@@ -290,6 +290,17 @@ describe("OverviewTab OpenShift membership", () => {
     expect(screen.getByText("Available")).toBeInTheDocument();
   });
 
+  it("shows a server no cluster holds that is in maintenance as in maintenance, not available", () => {
+    render(
+      <OverviewTab
+        server={makeServer({ maintenance: { enabled: true, reason: "disk replacement" } })}
+      />,
+    );
+
+    expect(screen.getByText("In maintenance")).toBeInTheDocument();
+    expect(screen.queryByText("Available")).not.toBeInTheDocument();
+  });
+
   it("names the hosted cluster and the MCE that reported it", () => {
     const server = makeServer();
     server.openshift = {

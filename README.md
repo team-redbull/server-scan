@@ -16,7 +16,7 @@ standalone BMCs, plus OpenShift Virtualization VMs, in several sites.
   **scores its health** with declarative policies. Both ship with the platform,
   so every deployment judges the same way.
 - **Knows what is free.** Jobs inside each OpenShift cluster report which servers
-  they actually use, so "available" means no cluster holds it.
+  they actually use, so "available" means no cluster holds it and it is not in maintenance.
 - **Keeps an audit trail** of every health, classification, maintenance and
   reservation change.
 - **Answers provisioning questions.** `GET /api/v1/servers/available` lists

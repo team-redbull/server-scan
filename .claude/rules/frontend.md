@@ -167,6 +167,10 @@ Loaded only when a `frontend/` file is open.
   maintenance, installed, available; `CountLink`, a `role="link"` span because anchors cannot nest).
   A card whose hover border equals its resting border looks dead: the Fleet row's `emphasis` border was
   `--border-strong`, the same as the hover, so those cards had no hover until it brightened to `--text-muted`.
+- **"Installation" is derived, never `row.openshift_state` directly** (ADR-0065): `lib/installation.ts`'s
+  `installationOf(state, maintenance.enabled)` turns a free server in maintenance into `MAINTENANCE`, and the badge,
+  the `openshift_state` filter, its facet, the sort and the Excel export all go through it, so the Sites Available
+  card and its list agree. A new view that renders, filters or counts Installation must use it too.
 - **The audit trail UI is `features/events/`** (History tab + `/events`):
   `describeEvent`'s sentences mirror the `data` keys each backend writer
   records (ingest, maintenance, reservation, openshift_membership, prune, audit

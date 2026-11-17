@@ -214,7 +214,8 @@ def build_server(
         health_overall: Health | None = None,
         installation_type: Installation | None = None,
         openshift_state: Annotated[
-            OpenShift | None, Field(description="AVAILABLE = no cluster uses it.")
+            OpenShift | None,
+            Field(description="AVAILABLE = no cluster uses it and not in maintenance."),
         ] = None,
         cluster_name: str | None = None,
         source_provider: Provider | None = None,

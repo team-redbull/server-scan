@@ -12,6 +12,7 @@ import type { SortableField } from "@/features/inventory/sorting";
 import { BmcLink } from "@/components/BmcLink";
 import { CopyButton } from "@/components/CopyButton";
 import { InstallationBadge } from "@/components/InstallationBadge";
+import { installationOf } from "@/lib/installation";
 import { ReservationBadge } from "@/components/ReservationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
 import { StateBadge } from "@/components/StateBadge";
@@ -28,7 +29,8 @@ import type { ServerRow } from "@/types/server";
  * animate nothing — only the background responds to hover.
  *
  * Installation carries two things: the lifecycle state the collectors
- * observed, and — only while a lock is held — which MCE is installing the
+ * observed (shown as "Maintenance" for a free server in maintenance,
+ * `installationOf`, ADR-0065), and — only while a lock is held — which MCE is installing the
  * server (ADR-0035). The second sits under the first rather than replacing
  * it, because a server mid-install is still `AVAILABLE` to the collectors.
  */
@@ -103,7 +105,12 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
     // lock is held, so unaffected rows cost no height. ADR-0035, decision 6.
     cell: (info) => (
       <div className="inline-flex flex-col items-center gap-1">
-        <InstallationBadge state={info.getValue<OpenShiftState>()} />
+        <InstallationBadge
+          state={installationOf(
+            info.getValue<OpenShiftState>(),
+            info.row.original.maintenance.enabled,
+          )}
+        />
         <ReservationBadge reservation={info.row.original.reservation} />
       </div>
     ),

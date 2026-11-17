@@ -40,7 +40,7 @@ Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, model, site_id, source_provider, installation_type, health,
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
 contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
-Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.
+Note `health` here is the overall severity string, not an object, and `openshift_state` is the clusters' reading: a row with `AVAILABLE` and `maintenance.enabled` true is not available. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail`: hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
@@ -99,7 +99,8 @@ Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_
 ## Sites
 
 `GET /api/v1/sites` - `{items: [SiteStats], fleet: FleetSummary}`. Each site: `site_id, name`,
-`total`, `by_vendor` (one entry per vendor, `kubevirt` included, zero where none), `by_health`, `in_maintenance`, `by_installation_type`, `by_openshift_state`.
+`total`, `by_vendor` (one entry per vendor, `kubevirt` included, zero where none), `by_health`, `in_maintenance`, `by_installation_type`, `by_openshift_state`
+(`AVAILABLE`, `INSTALLED`, `INSTALLED_TO_INVENTORY`, and `MAINTENANCE` = no cluster holds it but it is in maintenance, so not available; the four sum to `total`).
 Use it to learn the valid `site_id` codes.
 
 ## Confs
