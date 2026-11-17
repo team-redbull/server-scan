@@ -103,6 +103,48 @@ function siteCards(items: SiteStats[]): CardSpec[] {
     }));
 }
 
+/** Worst first, so the red end is always at the left edge of the bar. */
+const HEALTH_SEGMENTS: { severity: HealthSeverity; color: string }[] = [
+  { severity: "CRITICAL", color: "var(--color-status-critical)" },
+  { severity: "MAJOR", color: "oklch(0.64 0.19 45)" },
+  { severity: "WARNING", color: "oklch(0.86 0.16 95)" },
+  { severity: "UNKNOWN", color: "var(--color-status-unknown)" },
+  { severity: "HEALTHY", color: "var(--color-status-healthy)" },
+];
+
+/** One stacked bar per card: each health tier's share of the card's servers.
+ * A nonzero tier keeps a 3px minimum so one critical server in 500 is still visible. */
+function HealthBar({ stats }: { stats: Breakdown }) {
+  if (stats.total === 0) {
+    return null;
+  }
+  const segments = HEALTH_SEGMENTS.filter((s) => stats.by_health[s.severity] > 0);
+  const summary = segments
+    .map((s) => `${stats.by_health[s.severity]} ${s.severity.toLowerCase()}`)
+    .join(", ");
+  return (
+    <div
+      role="img"
+      aria-label={`Health: ${summary}`}
+      title={summary}
+      className="mt-4 flex h-2 gap-px overflow-hidden rounded-full bg-[var(--surface-sunken)]"
+    >
+      {segments.map((s) => (
+        <span
+          key={s.severity}
+          className="h-full"
+          style={{
+            flexGrow: stats.by_health[s.severity],
+            flexBasis: 0,
+            minWidth: 3,
+            backgroundColor: s.color,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /** Bar widths are proportional to the card's own total, not the largest card. */
 function VendorBar({ stats }: { stats: Breakdown }) {
   if (stats.total === 0) {
@@ -311,6 +353,7 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
         />
       )}
 
+      <HealthBar stats={stats} />
       <VendorBar stats={stats} />
     </Link>
   );

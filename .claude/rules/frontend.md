@@ -57,7 +57,14 @@ Loaded only when a `frontend/` file is open.
   `MaintenanceToggle`'s own button) measured zero horizontal overflow at
   1440px with MCE showing too — verified with a real headless Chromium
   run (`document.body.scrollWidth` vs `window.innerWidth`), not by eye.
-  Renders nothing for a server with no `bmc_host` read.
+  Renders nothing for a server with no `bmc_host` read. **The BMC cell holds two icons since 2026-11-17**: open
+  (`BmcLink`) and a `CopyButton` that copies the bare `bmc_host` (label "Copy BMC address of X"), always visible
+  (not `revealOnRowHover`). The extra ~32 px was **not measured** at 1440 (no browser could launch in that session):
+  re-measure, and if Maintenance is pushed off-screen make the copy button hover-only.
+- **Each Sites card carries a stacked health bar** (`HealthBar` in `SitesOverviewPage.tsx`, 2026-11-17): critical, major,
+  warning, unknown, healthy left to right, widths by count, a 3 px minimum per nonzero tier. Major and warning use
+  bar-local `oklch` values (a deeper orange, a brighter yellow), not the `--text-on-*` tokens the count text uses. The
+  gray `VendorBar` stays under it because the API has health per card, not per vendor.
 - **The MCE / hosted / UPI sidebar (`ClusterSidebar`, 2026-09-21)** is
   derived from the rows (`clusterFacets`), never configured — ADR-0033's
   2026-09-21 update has the semantics and the measured widths. Its two

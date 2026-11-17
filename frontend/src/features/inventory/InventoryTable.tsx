@@ -88,7 +88,13 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
     header: "BMC",
     cell: (info) => {
       const row = info.getValue<ServerRow>();
-      return <BmcLink host={row.bmc_host} serverName={row.name} />;
+      if (!row.bmc_host) return null;
+      return (
+        <span className="inline-flex items-center gap-1">
+          <BmcLink host={row.bmc_host} serverName={row.name} />
+          <CopyButton text={row.bmc_host} label={`Copy BMC address of ${row.name}`} />
+        </span>
+      );
     },
     enableSorting: false,
   }),
