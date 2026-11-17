@@ -49,11 +49,14 @@ function CheckIcon() {
 export function CopyButton({
   text,
   label,
+  title,
   revealOnRowHover = false,
   compact = false,
 }: {
   text: string;
   label: string;
+  /** Hover tooltip; defaults to `label`. */
+  title?: string;
   revealOnRowHover?: boolean;
   compact?: boolean;
 }) {
@@ -96,7 +99,7 @@ export function CopyButton({
       <button
         type="button"
         onClick={onClick}
-        title={label}
+        title={title ?? label}
         aria-label={label}
         className={`relative inline-flex ${compact ? "size-6" : "size-7"} items-center justify-center rounded-md border transition-[color,border-color,transform,opacity] duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] active:scale-90 motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)] ${tint} ${reveal}`}
       >

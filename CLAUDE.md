@@ -375,7 +375,7 @@ long form of each entry is in the 2026-09-13 archive.
   is the source of truth). `INVENTORY_SITE_BMC_PREFIXES`, `SiteCatalog.parse_bmc`: whole octets, longest wins, IPv4 only; any
   caller building a catalog for ingest passes both specs. `Server.site_from_bmc`/`site_from_name` keep both answers, and a
   disagreement is the CRITICAL `name.site_conflict` reason in the new `name` health category (which also holds the capacity-vs-name check).
-- **`Vendor` is dell/cisco/hp/standalone/kubevirt, no `UNKNOWN`.** `KUBEVIRT` is a VM (ADR-0058). `STANDALONE` is a
+- **`Vendor` is dell/cisco/hp/standalone/kubevirt, no `UNKNOWN`.** `KUBEVIRT` is a VM (ADR-0058); `server_type` (`physical`|`vm`) is derived from it, never stored. `STANDALONE` is a
   manufacturer not modelled *or* not reported by the BMC — never "collected
   without a manager". Correlation is `(vendor, serial_normalized)`, so moving a
   machine between vendors splits it into two documents; the collector is
@@ -489,13 +489,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
-Moved to `docs/notes/session-log.md`: one failed server never aborts a run (ADR-0062).
+**2026-11-17 — inventory: BMC copy button, Type filter (`server_type`), Sites card health bar and Physical/VM/vendor links, every severity hides maintenance.**
+Moved to `docs/notes/session-log.md`: `POST /servers/available` (ADR-0063).
 
-**Shipped (branch `feat/available-reserve-and-verify`):** `GET /servers/available` reads Mongo only and takes `max_health` (the old `health` is a 400);
-the new `POST /servers/available` (admin) claims a candidate with a probe lease (`ReservationService.try_claim`), live-rechecks it while
-locked, then extends it to `ttl_seconds` and audits `SERVER_RESERVED`, or releases it (`release_claim`, no event) and draws the next, at most
-`INVENTORY_AVAILABLE_MAX_ATTEMPTS` (5) live checks per request; every miss is a 503 `NO_AVAILABLE_SERVER` with `details.reasons`.
+**Shipped (branch `feat/server-type`):** the BMC cell has an open and a copy icon (hover shows the address); `server_type` (`physical`|`vm`, derived from
+the vendor by `server_type_of`, only `KUBEVIRT` is a VM) is on `ServerRow`/`ServerDetail`, under the model on the detail page, and a **Type** dropdown sits
+between Source and Site; each Sites card has a stacked health bar (maintenance included) and Physical, VM, Dell, Cisco, HPE, Standalone rows that link into
+`/servers`; a ticked health severity now lists only servers in service (Maintenance ticked brings them back; ADR-0046 2026-11-17), and `GET /sites`
+`by_health` counts in-service servers only so a card's count equals its list.
 
-**Open:** the per-manager concurrency cap on live rechecks is still parked; the POST is not idempotent by `workflow_id` (a retry takes another
-server, the first frees itself at its TTL); the Temporal workflows must move to the POST and to `max_health`.
+**Open:** nothing measured in a browser (no Chromium could launch): the BMC column's added width at 1440 px and Playwright were not run locally; there is no
+API `server_type` filter on `GET /servers` (frontend filter only).

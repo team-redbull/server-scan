@@ -92,7 +92,11 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
       return (
         <span className="inline-flex items-center gap-1">
           <BmcLink host={row.bmc_host} serverName={row.name} />
-          <CopyButton text={row.bmc_host} label={`Copy BMC address of ${row.name}`} />
+          <CopyButton
+            text={row.bmc_host}
+            label={`Copy BMC address of ${row.name}`}
+            title={`${row.bmc_host} — copy`}
+          />
         </span>
       );
     },

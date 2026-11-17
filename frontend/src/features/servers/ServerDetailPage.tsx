@@ -80,6 +80,9 @@ export function ServerDetailPage() {
             <BmcLink host={data.network.bmc.host} serverName={data.name} labeled />
           </div>
           <p className="text-sm text-gray-500">{data.model ?? modelHint(data.hardware.gpus)}</p>
+          <p className="text-sm text-gray-500" data-testid="server-type">
+            {data.server_type === "vm" ? "VM" : "Physical"}
+          </p>
 
           <div className="mt-6 border-b border-gray-200 dark:border-gray-700">
             <nav className="-mb-px flex gap-4" aria-label="Server detail tabs">

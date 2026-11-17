@@ -42,7 +42,7 @@ export function BmcLink({
       href={`https://${host}`}
       target="_blank"
       rel="noopener noreferrer"
-      title={label}
+      title={`${host} — open BMC console`}
       aria-label={label}
       className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-[var(--border-subtle)] text-[var(--text-muted)] transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)] ${labeled ? "px-2.5 text-xs font-medium" : "w-7"}`}
     >

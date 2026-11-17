@@ -153,6 +153,31 @@ describe("SitesOverviewPage", () => {
     vi.unstubAllGlobals();
   });
 
+  it("lists Physical, then VM, then the physical vendors, with no KubeVirt row", async () => {
+    const tlv = {
+      ...SITE_ITEMS[0]!,
+      total: 10,
+      by_vendor: [
+        { vendor: "dell", count: 4 },
+        { vendor: "cisco", count: 2 },
+        { vendor: "hp", count: 0 },
+        { vendor: "standalone", count: 0 },
+        { vendor: "kubevirt", count: 4 },
+      ],
+    };
+    stubSites({ ...SITES_RESPONSE, items: [tlv] });
+    renderPage();
+
+    const tlvCard = await waitFor(() => card("Tel Aviv"));
+    const labels = ["Physical", "VM", "Dell", "Cisco", "HPE", "Standalone"];
+    const positions = labels.map((l) => tlvCard.textContent.indexOf(l));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    expect(within(tlvCard).queryByText("KubeVirt")).not.toBeInTheDocument();
+    expect(within(tlvCard).getByText("Physical").parentElement).toHaveTextContent("6");
+    expect(within(tlvCard).getByText("VM").parentElement).toHaveTextContent("4");
+  });
+
   it("renders the fleet-wide cards from the backend's own fleet summary", async () => {
     renderPage();
 
@@ -160,11 +185,11 @@ describe("SitesOverviewPage", () => {
       expect(screen.getByRole("heading", { name: "Across all sites" })).toBeInTheDocument();
     });
 
-    expect(within(card("Across all sites")).getByText("50")).toBeInTheDocument();
-    expect(within(card("UPI")).getByText("35")).toBeInTheDocument();
-    expect(within(card("Hosted cluster")).getByText("15")).toBeInTheDocument();
+    expect(within(card("Across all sites")).getByTestId("card-total")).toHaveTextContent("50");
+    expect(within(card("UPI")).getByTestId("card-total")).toHaveTextContent("35");
+    expect(within(card("Hosted cluster")).getByTestId("card-total")).toHaveTextContent("15");
     // The fixture has no MCE servers; the card must still render at "0".
-    expect(within(card("MCE")).getByText("0")).toBeInTheDocument();
+    expect(within(card("MCE")).getByTestId("card-total")).toHaveTextContent("0");
   });
 
   it("links each fleet-wide card to the matching pre-filtered server list", async () => {
@@ -213,7 +238,7 @@ describe("SitesOverviewPage", () => {
     });
 
     // 7 in Tel Aviv + 2 in New York.
-    expect(within(card("Available")).getByText("9")).toBeInTheDocument();
+    expect(within(card("Available")).getByTestId("card-total")).toHaveTextContent("9");
   });
 
   it("trusts the backend's fleet field rather than recomputing it from items", async () => {
@@ -252,7 +277,7 @@ describe("SitesOverviewPage", () => {
       expect(screen.getByRole("heading", { name: "Across all sites" })).toBeInTheDocument();
     });
 
-    expect(within(card("Across all sites")).getByText("999")).toBeInTheDocument();
+    expect(within(card("Across all sites")).getByTestId("card-total")).toHaveTextContent("999");
   });
 
   it("carries health into the installation-type cards", async () => {
@@ -294,6 +319,54 @@ describe("SitesOverviewPage", () => {
       expect(router.state.location.pathname).toBe("/servers");
     });
     expect(router.state.location.search).toBe("?site_id=tlv&maintenance=true");
+  });
+
+  it("turns the Physical, VM and vendor rows into links to that inventory filter", async () => {
+    const tlv = {
+      ...SITE_ITEMS[0]!,
+      total: 10,
+      by_vendor: [
+        { vendor: "dell", count: 4 },
+        { vendor: "cisco", count: 2 },
+        { vendor: "hp", count: 0 },
+        { vendor: "standalone", count: 0 },
+        { vendor: "kubevirt", count: 4 },
+      ],
+    };
+    stubSites({ ...SITES_RESPONSE, items: [tlv] });
+    const router = createMemoryRouter(
+      [
+        { path: "/", element: <SitesOverviewPage /> },
+        { path: "/servers", element: <p>inventory</p> },
+      ],
+      { initialEntries: ["/"] },
+    );
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Tel Aviv" })).toBeInTheDocument();
+    });
+
+    expect(within(card("Tel Aviv")).queryByRole("link", { name: /HPE/ })).not.toBeInTheDocument();
+
+    for (const [name, search] of [
+      [/Dell/, "?site_id=tlv&vendor=dell"],
+      [/VM/, "?site_id=tlv&server_type=vm"],
+      [/Physical/, "?site_id=tlv&server_type=physical"],
+    ] as const) {
+      await router.navigate("/");
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: "Tel Aviv" })).toBeInTheDocument();
+      });
+      fireEvent.click(within(card("Tel Aviv")).getByRole("link", { name }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe("/servers");
+      });
+      expect(router.state.location.search).toBe(search);
+    }
   });
 
   it("turns a card's unknown count into a link to the unknown-health filter", async () => {

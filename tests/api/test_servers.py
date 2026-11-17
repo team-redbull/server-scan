@@ -338,6 +338,25 @@ async def test_get_detail_200_for_existing_server(
     assert "hardware" in body  # detail is a superset, unlike the list summary
 
 
+async def test_server_type_is_vm_for_kubevirt_and_physical_otherwise(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    vm = _make_server(1, vendor=Vendor.KUBEVIRT)
+    physical = _make_server(2, vendor=Vendor.STANDALONE)
+    await repo.upsert(vm)
+    await repo.upsert(physical)
+
+    rows = {r["id"]: r for r in (await client.get("/api/v1/servers/rows")).json()["items"]}
+    vm_detail = (await client.get(f"/api/v1/servers/{vm.id}")).json()
+    physical_detail = (await client.get(f"/api/v1/servers/{physical.id}")).json()
+
+    assert rows[vm.id]["server_type"] == "vm"
+    assert rows[physical.id]["server_type"] == "physical"
+    assert vm_detail["server_type"] == "vm"
+    assert physical_detail["server_type"] == "physical"
+
+
 async def test_get_detail_derives_cisco_eno_names(
     app_context: tuple[AsyncClient, MongoServerRepository],
 ) -> None:
@@ -592,6 +611,7 @@ async def test_rows_returns_every_server_as_a_flat_row(
         "id",
         "name",
         "vendor",
+        "server_type",
         "model",
         "site_id",
         "source_provider",

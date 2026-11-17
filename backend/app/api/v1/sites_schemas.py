@@ -29,7 +29,8 @@ class Breakdown(BaseModel):
     # A list, so the UI renders vendors in `Vendor`'s declaration order.
     by_vendor: list[VendorCount] = Field(default_factory=list)
 
-    # Every severity is present, zeroes included; the UI never null-checks.
+    # Servers in service only (those in maintenance are `in_maintenance`). Every severity is
+    # present, zeroes included; the UI never null-checks.
     by_health: dict[str, int] = Field(default_factory=dict)
 
     in_maintenance: int = 0

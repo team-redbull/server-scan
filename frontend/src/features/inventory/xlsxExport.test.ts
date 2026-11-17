@@ -10,6 +10,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     id: "srv_1",
     name: "srv-1",
     vendor: "dell",
+    server_type: "physical",
     model: "R760",
     site_id: "tlv",
     source_provider: "OPENMANAGE",
