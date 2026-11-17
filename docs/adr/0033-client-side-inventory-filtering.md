@@ -342,3 +342,8 @@ A tick is applied to the live URL (`toggleMulti`), never to the last rendered li
 clicks cannot lose the first. Maintenance is a separate Include/Hide/Only control and no longer touches the severities (ADR-0046, 2026-10-25). The chips are one per
 value. Frontend only: `GET /servers` keeps its single-value filter keys.
 
+### 2026-11-17 update: a seventh dropdown, Type
+
+Type (Physical / VM) joins the dropdowns, between Source and Site, as the repeated param `server_type`. The value is
+`ServerRow.server_type`, derived from the vendor server-side (only `kubevirt` is a VM), so the row grows by a few bytes and
+stays byte-stable. Frontend filter only: `GET /servers` has no `server_type` key.

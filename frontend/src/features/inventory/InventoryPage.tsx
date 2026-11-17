@@ -8,7 +8,7 @@ import { ClusterSidebar } from "@/features/inventory/ClusterSidebar";
 import { downloadXlsx, rowsToXlsx } from "@/features/inventory/xlsxExport";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
 import { MultiSelect } from "@/features/inventory/MultiSelect";
-import { siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
+import { SERVER_TYPES, siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
 import { useServerRowsQuery } from "@/features/inventory/hooks";
 import {
   clusterFacets,
@@ -107,6 +107,10 @@ export function InventoryPage() {
 
   // Repeated params (`?vendor=dell&vendor=hp`); a single `?vendor=dell` link is one value.
   const vendors = useMemo(() => searchParams.getAll("vendor"), [searchParams]);
+  const serverTypes = useMemo(
+    () => searchParams.getAll("server_type"),
+    [searchParams],
+  );
   const siteIds = useMemo(() => searchParams.getAll("site_id"), [searchParams]);
   const installationTypes = useMemo(
     () => searchParams.getAll("installation_type"),
@@ -154,6 +158,7 @@ export function InventoryPage() {
     const next: RowFilters = {};
     if (debouncedSearch) next.search = debouncedSearch;
     if (vendors.length) next.vendor = vendors;
+    if (serverTypes.length) next.server_type = serverTypes;
     if (siteIds.length) next.site_id = siteIds;
     if (sourceProviders.length) next.source_provider = sourceProviders;
     if (installationTypes.length) next.installation_type = installationTypes;
@@ -171,6 +176,7 @@ export function InventoryPage() {
   }, [
     debouncedSearch,
     vendors,
+    serverTypes,
     siteIds,
     sourceProviders,
     installationTypes,
@@ -290,6 +296,12 @@ export function InventoryPage() {
     activeFilters.push({ key: "search", label: `Search "${debouncedSearch}"` });
   for (const v of vendors)
     activeFilters.push({ key: "vendor", label: `Vendor ${v}`, value: v });
+  for (const t of serverTypes)
+    activeFilters.push({
+      key: "server_type",
+      label: `Type ${SERVER_TYPES.find((s) => s.value === t)?.label ?? t}`,
+      value: t,
+    });
   for (const id of siteIds)
     activeFilters.push({
       key: "site_id",
@@ -349,6 +361,7 @@ export function InventoryPage() {
     updateFilters({
       search: null,
       vendor: null,
+      server_type: null,
       site_id: null,
       source_provider: null,
       installation_type: null,
@@ -465,6 +478,28 @@ export function InventoryPage() {
                     }}
                     onClear={() => {
                       updateFilters({ source_provider: null });
+                    }}
+                  />
+                </FilterField>
+
+                <FilterField id="filter-server-type" label="Type">
+                  <MultiSelect
+                    id="filter-server-type"
+                    label="Type"
+                    className={FIELD_CLASS}
+                    allLabel={allLabel()}
+                    selected={serverTypes}
+                    options={SERVER_TYPES.map((s) => ({
+                      value: s.value,
+                      label: s.label,
+                      count:
+                        facets?.server_type[s.value] ?? (facets ? 0 : undefined),
+                    }))}
+                    onToggle={(value) => {
+                      toggleMulti("server_type", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ server_type: null });
                     }}
                   />
                 </FilterField>

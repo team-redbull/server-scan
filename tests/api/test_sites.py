@@ -212,7 +212,8 @@ async def test_installation_type_slice_carries_health_vendor_and_maintenance(
 
     assert upi["total"] == 2
     assert upi["by_health"]["CRITICAL"] == 1
-    assert upi["by_health"]["HEALTHY"] == 1
+    # The healthy server is in maintenance, so it counts there and not as healthy.
+    assert upi["by_health"]["HEALTHY"] == 0
     assert upi["in_maintenance"] == 1
     assert {v["vendor"]: v["count"] for v in upi["by_vendor"]} == {
         "dell": 1,
@@ -270,7 +271,7 @@ async def test_fleet_summary_sums_every_site_including_unassigned(
     assert fleet["total"] == 3
     assert fleet["in_maintenance"] == 1
     assert fleet["by_health"]["CRITICAL"] == 1
-    assert fleet["by_health"]["HEALTHY"] == 1
+    assert fleet["by_health"]["HEALTHY"] == 0
     # Server 2 (unassigned) defaults to Dell too, so this is 2, not 1.
     assert {v["vendor"]: v["count"] for v in fleet["by_vendor"]} == {
         "dell": 2,

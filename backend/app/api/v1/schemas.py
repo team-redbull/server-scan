@@ -38,8 +38,10 @@ from app.domain.enums import (
     LinkState,
     ManagerType,
     OpenShiftState,
+    ServerType,
     UnreachableReason,
     Vendor,
+    server_type_of,
 )
 from app.domain.models.classification import Classification
 from app.domain.models.connectivity import Connectivity, ConnectivityFacts
@@ -271,6 +273,7 @@ class ServerRow(BaseModel):
     id: str
     name: str
     vendor: Vendor
+    server_type: ServerType
     model: str | None
     site_id: str | None
     source_provider: str | None
@@ -309,6 +312,7 @@ class ServerRow(BaseModel):
             id=doc["_id"],
             name=doc["name"],
             vendor=doc["identity"]["vendor"],
+            server_type=server_type_of(Vendor(doc["identity"]["vendor"])),
             model=doc.get("model"),
             site_id=doc.get("site_id"),
             source_provider=doc.get("source_provider"),
@@ -384,6 +388,7 @@ class ServerDetail(BaseModel):
     name_normalized: str
     model: str | None
     model_normalized: str
+    server_type: ServerType
     identity: Identity
     profile_template: ProfileTemplate
     hardware: Hardware
@@ -444,6 +449,7 @@ class ServerDetail(BaseModel):
             name_normalized=server.name_normalized,
             model=server.model,
             model_normalized=server.model_normalized,
+            server_type=server_type_of(server.identity.vendor),
             identity=server.identity,
             profile_template=server.profile_template,
             hardware=server.hardware,

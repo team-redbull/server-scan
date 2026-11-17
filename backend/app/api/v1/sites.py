@@ -127,8 +127,8 @@ def _empty_stats(site_id: str, *, name: str) -> SiteStats:
 def _accumulate(entry: Breakdown, row: SiteBreakdownRow) -> None:
     """Add one aggregation bucket into a breakdown, in place.
 
-    An unknown enum value lands in the catch-all bucket rather than being
-    dropped, so slice totals always add up to the fleet size.
+    A server in maintenance counts in `in_maintenance` only, never in `by_health`
+    (ADR-0046, 2026-11-17); an unknown enum value lands in the catch-all bucket.
 
     Args:
         entry (Breakdown): The breakdown to add into.
@@ -137,8 +137,7 @@ def _accumulate(entry: Breakdown, row: SiteBreakdownRow) -> None:
     entry.total += row.count
     if row.maintenance:
         entry.in_maintenance += row.count
-
-    if row.health in entry.by_health:
+    elif row.health in entry.by_health:
         entry.by_health[row.health] += row.count
     else:
         entry.by_health[HealthSeverity.UNKNOWN.value] += row.count
