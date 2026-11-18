@@ -379,7 +379,7 @@ export function InventoryPage() {
   }
 
   return (
-    <main className="mx-auto max-w-[1600px] px-8 py-8">
+    <main className="mx-auto max-w-[1600px] px-8 pt-8 pb-1">
       <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">
         Servers
       </h1>
@@ -763,7 +763,7 @@ export function InventoryPage() {
                   : {})}
               />
 
-              <div className="mt-4 flex items-center gap-3">
+              <div className="mt-2 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => {

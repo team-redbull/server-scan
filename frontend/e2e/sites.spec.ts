@@ -51,7 +51,7 @@ test.describe("Sites overview", () => {
     // stored value the filter queries on. The exception is the seeded
     // siteless family: on a Cisco server the site comes from its service
     // profile's org instead, and its hostname carries no token at all.
-    const names = await page.locator("tbody tr td:first-child").allInnerTexts();
+    const names = await page.locator("tbody tr td:nth-child(2)").allInnerTexts();
     expect(names.length).toBeGreaterThan(0);
     for (const name of names) {
       if (name.toLowerCase().startsWith("random-server-")) continue;

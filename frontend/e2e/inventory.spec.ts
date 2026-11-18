@@ -14,7 +14,7 @@ test.describe("Inventory", () => {
     // wait for; the URL and the rows both follow the box after the debounce.
     await page.getByPlaceholder("Name, serial, BMC…").fill("ocp-dell");
     await expect(page).toHaveURL(/search=ocp-dell/);
-    await expect(rows.first().locator("td").first()).toContainText(/ocp-dell/i);
+    await expect(rows.first().locator("td").nth(1)).toContainText(/ocp-dell/i);
     // A real filter, not a no-op: the seeded fleet has multiple vendors, so
     // narrowing to one name fragment can never show more rows than no filter.
     const filteredCount = await rows.count();
@@ -70,12 +70,12 @@ test.describe("Inventory", () => {
     page,
   }) => {
     await page.goto("/servers");
-    // Scoped to the Name cell: the row also carries a BMC console link.
+    // Scoped to the Name cell (second: the first holds the row's Fetch button); the row also carries a BMC console link.
     const firstLink = page
       .locator("tbody tr")
       .first()
       .locator("td")
-      .first()
+      .nth(1)
       .getByRole("link");
     const name = await firstLink.innerText();
     await firstLink.click();
@@ -118,7 +118,7 @@ test.describe("Inventory", () => {
     const rows = page.locator("tbody tr");
     await expect(rows.first()).toBeVisible();
 
-    await rows.first().locator("td").first().getByRole("link").click();
+    await rows.first().locator("td").nth(1).getByRole("link").click();
     await expect(page).toHaveURL(/\/servers\//);
 
     await page.getByRole("link", { name: "← Back to inventory" }).click();
@@ -155,9 +155,9 @@ test.describe("Inventory", () => {
       .first();
     await expect(row).toBeVisible();
     const href = await row.locator(bmcLink).getAttribute("href");
-    const name = await row.locator("td").first().innerText();
+    const name = await row.locator("td").nth(1).innerText();
 
-    await row.locator("td").first().getByRole("link").click();
+    await row.locator("td").nth(1).getByRole("link").click();
     const header = page.getByRole("link", {
       name: `Open BMC console for ${name}`,
       exact: true,
@@ -223,7 +223,7 @@ test.describe("Inventory", () => {
     await expect(rows.first()).toBeVisible();
     // Every visible row belongs to the ticked MCE (the MCE column exists once a row has one).
     const mceCells = await page
-      .locator("tbody tr td:nth-child(4)")
+      .locator("tbody tr td:nth-child(5)")
       .allInnerTexts();
     expect(mceCells.length).toBeGreaterThan(0);
     for (const cell of mceCells) expect(cell.trim()).toBe(mceName);

@@ -65,7 +65,7 @@ export function EventsPage() {
     text.trim() !== "" && !parseIsraelInput(text);
 
   return (
-    <main className="mx-auto max-w-5xl p-8">
+    <main className="mx-auto max-w-5xl px-8 pt-8 pb-1">
       <h1 className="text-2xl font-semibold">Events</h1>
       <p className="mt-1 text-sm text-[var(--text-muted)]">
         The audit trail, newest first. Times are Israel time.
@@ -165,7 +165,7 @@ export function EventsPage() {
         )}
       </div>
       <div className="mt-6">
-        <EventList key={JSON.stringify(params)} query={query} showServer />
+        <EventList key={JSON.stringify(params)} query={query} showServer fill />
       </div>
     </main>
   );

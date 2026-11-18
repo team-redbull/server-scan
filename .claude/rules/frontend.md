@@ -78,7 +78,12 @@ Loaded only when a `frontend/` file is open.
   blank scroll (hence `relative`); `ClusterSidebar` can be the taller item of the flex row, so it reserves the same bottom room (padding +
   footer) and `below` is measured on the table's column, not `main`; and a window under about 600 px tall keeps the 240 px minimum, so the
   page scrolls a little. The sticky `thead` now pins inside the box. `e2e/inventory.spec.ts` guards it (page height <= window, wheel
-  scrolls the box, not the page).
+  scrolls the box, not the page). The measuring is `lib/useFillViewport` (ref + `style`), shared with `/events` (`EventTimeline fill`,
+  sticky `thead`; the per-server History tab does not pass `fill`). Spacing under the table is deliberately tight (`main` `pb-1`,
+  pager `mt-2`, footer `pt-1 pb-3`): the operator asked for the table to run close to the copyright line.
+- **The inventory's first column is the row's "Fetch now"** (`RowRefreshButton`, icon-only `size-6`, 41 px; shares `RefreshIcon` and
+  `errorMessage` with the detail page's `RefreshButton`): admin only, greyed with a title for a viewer/auditor, `stopPropagation`. At
+  1440 px the table already overflows its box sideways (Maintenance needs a horizontal scroll); a new column worsens it, so measure.
 - **The MCE / hosted / UPI sidebar (`ClusterSidebar`, 2026-09-21)** is
   derived from the rows (`clusterFacets`), never configured — ADR-0033's
   2026-09-21 update has the semantics and the measured widths. Its two
@@ -168,7 +173,7 @@ Loaded only when a `frontend/` file is open.
   `getByRole("link", { name: server.name })` both go ambiguous — the
   BMC link's `aria-label` ("Open BMC console for `<name>`") contains
   the plain name as a substring. Scope a row-level link query to
-  `row.locator("td").first()` (the Name cell); scope a page-level one
+  `row.locator("td").nth(1)` (the Name cell; the first holds the row's Fetch button); scope a page-level one
   with `{ name, exact: true }`. **Any new element added inside a table
   row is a candidate for this — re-run `npx playwright test` locally,
   not just the unit/lint/build gate, before pushing a row change.**

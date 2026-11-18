@@ -1,5 +1,5 @@
 import { flexRender } from "@tanstack/react-table";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import type { SortingState } from "@tanstack/react-table";
 // v9's `/legacy` entry point keeps the v8 hook shape (`useReactTable` /
 // `createColumnHelper`) — the officially supported migration path, not a
@@ -14,6 +14,8 @@ import { CopyButton } from "@/components/CopyButton";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { ReservationBadge } from "@/components/ReservationBadge";
 import { MaintenanceToggle } from "@/features/inventory/MaintenanceToggle";
+import { useFillViewport } from "@/lib/useFillViewport";
+import { RowRefreshButton } from "@/features/inventory/RowRefreshButton";
 import { StateBadge } from "@/components/StateBadge";
 import type { HealthSeverity, OpenShiftState } from "@/types/server";
 import type { ServerRow } from "@/types/server";
@@ -52,7 +54,6 @@ interface InventoryTableProps {
 }
 
 /** The table box never gets shorter than this, even in a short window (the page then scrolls). */
-const MIN_HEIGHT = 240;
 
 const columnHelper = legacyCreateColumnHelper<ServerRow>();
 
@@ -61,6 +62,12 @@ const columnHelper = legacyCreateColumnHelper<ServerRow>();
 // is rejected by `exactOptionalPropertyTypes` on every column.
 function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow, any>[] {
   return [
+  columnHelper.accessor((row) => row, {
+    id: "refresh",
+    header: () => <span className="sr-only">Fetch now</span>,
+    cell: (info) => <RowRefreshButton row={info.getValue<ServerRow>()} />,
+    enableSorting: false,
+  }),
   columnHelper.accessor("name", {
     id: "name",
     header: "Name",
@@ -198,38 +205,7 @@ export function InventoryTable({
   const withMce = servers.some((server) => server.mce_name);
   const columns = useMemo(() => buildColumns(withMce, from), [withMce, from]);
 
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
-  // The table scrolls inside its own box, the page does not: the box's cap is the window height
-  // less its top and everything under it, measured from layout, never from the scroll position.
-  // Traps and measurements: .claude/rules/frontend.md.
-  useLayoutEffect(() => {
-    const update = () => {
-      const el = wrapRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const column = el.parentElement;
-      const main = el.closest("main");
-      // Under the table: the pager (the rest of its column), the page's bottom padding, the footer.
-      // Measured on the column, not `main`: the sidebar beside it can be the taller one.
-      const below =
-        (column ? column.getBoundingClientRect().bottom - rect.bottom : 0) +
-        (main ? parseFloat(getComputedStyle(main).paddingBottom) : 0) +
-        (document.querySelector("footer")?.getBoundingClientRect().height ?? 0);
-      const top = rect.top + window.scrollY;
-      setMaxHeight(Math.max(MIN_HEIGHT, Math.round(window.innerHeight - top - below)));
-    };
-    update();
-    window.addEventListener("resize", update);
-    const column = wrapRef.current?.parentElement;
-    const observer =
-      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
-    if (column) observer?.observe(column);
-    return () => {
-      window.removeEventListener("resize", update);
-      observer?.disconnect();
-    };
-  }, [servers.length]);
+  const fill = useFillViewport<HTMLDivElement>(servers.length);
 
   const table = useLegacyTable({
     data: servers,
@@ -253,8 +229,8 @@ export function InventoryTable({
     // box and the sticky header's scroll block; `relative` contains the rows' `sr-only` spans (see
     // .claude/rules/frontend.md).
     <div
-      ref={wrapRef}
-      style={maxHeight === undefined ? undefined : { maxHeight }}
+      ref={fill.ref}
+      style={fill.style}
       className="relative overflow-auto overscroll-contain rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
     >
       <table className="min-w-full text-sm">

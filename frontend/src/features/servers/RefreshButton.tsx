@@ -1,32 +1,12 @@
-import { ApiError } from "@/api/client";
 import { useAuth } from "@/features/auth/useAuth";
+import { RefreshIcon } from "@/components/RefreshIcon";
+import { errorMessage } from "@/features/servers/refreshError";
 import { useRefreshServerMutation } from "@/features/servers/hooks";
 import { showToast } from "@/lib/toast";
 import type { ServerDetail } from "@/types/server";
 
 const ADMIN_ONLY_TITLE = "Only admins can fetch a server's data";
 const TITLE = "Read this server from its vendor manager now, instead of waiting for the collector";
-
-function RefreshIcon({ spinning }: { spinning: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      className={`size-3.5 fill-none stroke-current ${spinning ? "animate-spin" : ""}`}
-      strokeWidth="1.5"
-      aria-hidden="true"
-    >
-      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" strokeLinecap="round" />
-      <path d="M12.5 1.5v3h-3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.problem.detail;
-  }
-  return error instanceof Error ? error.message : "Failed to fetch the server.";
-}
 
 /** The detail header's "Fetch now": one server read from its manager, not the whole
  * collector run (ADR-0064). Admin only, gated like `MaintenanceToggle`. */

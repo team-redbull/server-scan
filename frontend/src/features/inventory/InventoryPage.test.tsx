@@ -111,7 +111,7 @@ function rowNames(): string[] {
   return screen
     .getAllByRole("row")
     .slice(1)
-    .map((tr) => within(tr).getAllByRole("cell")[0]?.textContent ?? "");
+    .map((tr) => within(tr).getAllByRole("cell")[1]?.textContent ?? "");
 }
 
 /** Open a multi-select dropdown and tick one option by (a prefix of) its label. */
