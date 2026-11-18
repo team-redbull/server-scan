@@ -88,7 +88,13 @@ export function ClusterSidebar({
       const el = asideRef.current;
       if (!el) return;
       const top = Math.max(el.getBoundingClientRect().top, 16);
-      setMaxHeight(Math.max(160, window.innerHeight - top - 16));
+      // Leave the page's bottom padding and the footer free: this box can be the row's taller
+      // item, and the page must not scroll past the table's own box (see `InventoryTable`).
+      const main = el.closest("main");
+      const reserve =
+        (main ? parseFloat(getComputedStyle(main).paddingBottom) : 0) +
+        (document.querySelector("footer")?.getBoundingClientRect().height ?? 0);
+      setMaxHeight(Math.max(160, window.innerHeight - top - 16 - reserve));
     };
     update();
     window.addEventListener("scroll", update, { passive: true });

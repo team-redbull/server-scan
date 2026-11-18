@@ -70,6 +70,15 @@ Loaded only when a `frontend/` file is open.
   nonzero row is a `CountLink` into `/servers` with `server_type=` or `vendor=` added to the card's own filters.
 - **`server_type` (`physical`|`vm`) is derived from the vendor** (`server_type_of`, only `KUBEVIRT` is `vm`), never stored:
   on `ServerRow`/`ServerDetail`, shown under the model on the detail page, and the **Type** filter sits between Source and Site.
+- **The inventory table scrolls inside its own box and the page does not** (2026-11-18, `InventoryTable`): the wrapper is
+  `relative overflow-auto overscroll-contain` with a `maxHeight` of `innerHeight` minus its absolute top minus everything under it
+  (the rest of its column, `main`'s bottom padding, the footer), re-measured on resize and by a `ResizeObserver` on the column, never from
+  the scroll position (that fed back: scrolling grew the box, which lengthened the page). Three traps, each measured in Chromium:
+  the rows' `sr-only` spans are absolutely positioned and **escape a non-`relative` scroll box**, stretching the page to thousands of px of
+  blank scroll (hence `relative`); `ClusterSidebar` can be the taller item of the flex row, so it reserves the same bottom room (padding +
+  footer) and `below` is measured on the table's column, not `main`; and a window under about 600 px tall keeps the 240 px minimum, so the
+  page scrolls a little. The sticky `thead` now pins inside the box. `e2e/inventory.spec.ts` guards it (page height <= window, wheel
+  scrolls the box, not the page).
 - **The MCE / hosted / UPI sidebar (`ClusterSidebar`, 2026-09-21)** is
   derived from the rows (`clusterFacets`), never configured — ADR-0033's
   2026-09-21 update has the semantics and the measured widths. Its two

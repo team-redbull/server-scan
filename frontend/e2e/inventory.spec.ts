@@ -21,6 +21,30 @@ test.describe("Inventory", () => {
     expect(filteredCount).toBeLessThanOrEqual(unfilteredCount);
   });
 
+  test("the table scrolls inside its own box and the page does not", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/servers");
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+    const box = page.locator("table").locator("xpath=..");
+    // The box is measured after layout; wait for its cap (set by a layout effect) to settle.
+    await expect(box).toHaveCSS("max-height", /^\d+(\.\d+)?px$/);
+
+    // The page is exactly as tall as the window: nothing below the footer to scroll into
+    // (the rows' absolutely positioned sr-only spans once stretched it to thousands of px).
+    const pageFits = await page.evaluate(
+      () => document.documentElement.scrollHeight <= window.innerHeight + 1,
+    );
+    expect(pageFits).toBe(true);
+
+    // The wheel over the table scrolls the table, not the page, and the header stays put.
+    const rect = (await box.boundingBox())!;
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => box.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page.locator("thead th").first()).toBeInViewport();
+  });
+
   test("search keeps the caret in place when a character is deleted mid-text", async ({
     page,
   }) => {

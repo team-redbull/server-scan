@@ -1,5 +1,5 @@
 import { flexRender } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SortingState } from "@tanstack/react-table";
 // v9's `/legacy` entry point keeps the v8 hook shape (`useReactTable` /
 // `createColumnHelper`) — the officially supported migration path, not a
@@ -50,6 +50,9 @@ interface InventoryTableProps {
   /** Names the active filters in the empty state. */
   emptyMessage?: string;
 }
+
+/** The table box never gets shorter than this, even in a short window (the page then scrolls). */
+const MIN_HEIGHT = 240;
 
 const columnHelper = legacyCreateColumnHelper<ServerRow>();
 
@@ -195,6 +198,39 @@ export function InventoryTable({
   const withMce = servers.some((server) => server.mce_name);
   const columns = useMemo(() => buildColumns(withMce, from), [withMce, from]);
 
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
+  // The table scrolls inside its own box, the page does not: the box's cap is the window height
+  // less its top and everything under it, measured from layout, never from the scroll position.
+  // Traps and measurements: .claude/rules/frontend.md.
+  useLayoutEffect(() => {
+    const update = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const column = el.parentElement;
+      const main = el.closest("main");
+      // Under the table: the pager (the rest of its column), the page's bottom padding, the footer.
+      // Measured on the column, not `main`: the sidebar beside it can be the taller one.
+      const below =
+        (column ? column.getBoundingClientRect().bottom - rect.bottom : 0) +
+        (main ? parseFloat(getComputedStyle(main).paddingBottom) : 0) +
+        (document.querySelector("footer")?.getBoundingClientRect().height ?? 0);
+      const top = rect.top + window.scrollY;
+      setMaxHeight(Math.max(MIN_HEIGHT, Math.round(window.innerHeight - top - below)));
+    };
+    update();
+    window.addEventListener("resize", update);
+    const column = wrapRef.current?.parentElement;
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    if (column) observer?.observe(column);
+    return () => {
+      window.removeEventListener("resize", update);
+      observer?.disconnect();
+    };
+  }, [servers.length]);
+
   const table = useLegacyTable({
     data: servers,
     columns,
@@ -213,10 +249,14 @@ export function InventoryTable({
   });
 
   return (
-    // `overflow-x-auto`, never `overflow-hidden` (clips the row's only
-    // control) and `-x-` alone: any `overflow-y` but `visible` makes this
-    // div the sticky header's scroll block, and it never scrolls — the page does.
-    <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
+    // `overflow-auto`, never `overflow-hidden` (clips the row's only control). The table's own scroll
+    // box and the sticky header's scroll block; `relative` contains the rows' `sr-only` spans (see
+    // .claude/rules/frontend.md).
+    <div
+      ref={wrapRef}
+      style={maxHeight === undefined ? undefined : { maxHeight }}
+      className="relative overflow-auto overscroll-contain rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
+    >
       <table className="min-w-full text-sm">
         <thead className="sticky top-0 z-10 bg-[var(--surface-sunken)]">
           {table.getHeaderGroups().map((headerGroup) => (
