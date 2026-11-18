@@ -223,7 +223,7 @@ test.describe("Inventory", () => {
     await expect(rows.first()).toBeVisible();
     // Every visible row belongs to the ticked MCE (the MCE column exists once a row has one).
     const mceCells = await page
-      .locator("tbody tr td:nth-child(4)")
+      .locator("tbody tr td:nth-child(5)")
       .allInnerTexts();
     expect(mceCells.length).toBeGreaterThan(0);
     for (const cell of mceCells) expect(cell.trim()).toBe(mceName);
