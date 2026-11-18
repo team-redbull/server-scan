@@ -14,6 +14,7 @@ import {
 import { actorLabel } from "@/lib/actor";
 import type { ActorKind } from "@/lib/actor";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
+import { useFillViewport } from "@/lib/useFillViewport";
 import type { AuditEventResponse } from "@/types/events";
 
 const TYPE_TINT: [prefix: string, tint: string][] = [
@@ -236,6 +237,8 @@ interface EventTimelineProps {
   /** Hide the Server column — the per-server tab already is that server. */
   showServer?: boolean;
   footer?: ReactNode;
+  /** Scroll inside a box that fills the window instead of growing the page (the /events page). */
+  fill?: boolean;
 }
 
 /** A newest-first table of audit events: When, Server, What happened, User. */
@@ -243,7 +246,9 @@ export function EventTimeline({
   events,
   showServer = false,
   footer,
+  fill = false,
 }: EventTimelineProps) {
+  const box = useFillViewport<HTMLDivElement>(events.length);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const columns = showServer ? 4 : 3;
 
@@ -257,7 +262,15 @@ export function EventTimeline({
 
   return (
     <div>
-      <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
+      <div
+        ref={box.ref}
+        style={fill ? box.style : undefined}
+        className={
+          fill
+            ? "relative overflow-auto overscroll-contain rounded-md border border-[var(--border-subtle)]"
+            : "overflow-x-auto rounded-md border border-[var(--border-subtle)]"
+        }
+      >
         {/* Fixed column widths, and the details in their own full-width row:
             opening one must never resize or move another column. */}
         <table className="w-full table-fixed text-left text-sm">
@@ -267,7 +280,7 @@ export function EventTimeline({
             <col className="w-48" />
             <col className="w-52" />
           </colgroup>
-          <thead className="bg-[var(--surface-raised)] text-xs text-[var(--text-secondary)]">
+          <thead className="sticky top-0 z-10 bg-[var(--surface-raised)] text-xs text-[var(--text-secondary)]">
             <tr>
               {showServer && <th className="px-3 py-2 font-medium">Server</th>}
               <th className="px-3 py-2 font-medium">What happened</th>

@@ -9,13 +9,14 @@ import type { AuditEventListResponse } from "@/types/events";
 type Props = {
   query: UseInfiniteQueryResult<InfiniteData<AuditEventListResponse>, Error>;
   showServer?: boolean;
+  fill?: boolean;
 };
 
 const PAGER_BUTTON =
   "rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:border-[var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-40";
 
 /** Loading / error / empty / Previous-Next pager around an `EventTimeline`. */
-export function EventList({ query, showServer }: Props) {
+export function EventList({ query, showServer, fill }: Props) {
   const {
     data,
     isPending,
@@ -52,8 +53,9 @@ export function EventList({ query, showServer }: Props) {
     <EventTimeline
       events={events}
       {...(showServer ? { showServer } : {})}
+      {...(fill ? { fill } : {})}
       footer={
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-2 flex items-center gap-3">
           <button
             type="button"
             disabled={index <= 0}
