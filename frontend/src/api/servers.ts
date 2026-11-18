@@ -47,3 +47,12 @@ export function disableMaintenance(id: string): Promise<ServerDetail> {
     },
   );
 }
+
+/** Reads the server from its vendor manager now (admin only, ADR-0064); `revision`
+ * moves only when its content changed. */
+export function refreshServer(id: string): Promise<ServerDetail> {
+  return apiFetch<ServerDetail>(
+    `/api/v1/servers/${encodeURIComponent(id)}/refresh`,
+    { method: "POST" },
+  );
+}

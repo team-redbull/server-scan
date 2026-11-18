@@ -73,6 +73,9 @@ class Settings(BaseSettings):
 
     available_recheck_timeouts: str = ""
 
+    # `seed:count[:epoch]` of a `tools.seed_inventory` fleet; development only (ADR-0064).
+    fake_managers: str = ""
+
     sites: str = ""
     site_bmc_prefixes: str = ""
 

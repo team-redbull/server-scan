@@ -86,6 +86,7 @@ class EventType(StrEnum):
     TOKEN_CREATED = "TOKEN_CREATED"  # noqa: S105 - an event label, not a credential
     TOKEN_REVOKED = "TOKEN_REVOKED"  # noqa: S105 - an event label, not a credential
     JOB_TRIGGERED = "JOB_TRIGGERED"
+    SERVER_REFRESHED = "SERVER_REFRESHED"
 
 
 LEGACY_EVENT_TYPES = {"HEALTH_STATUS_CHANGED": EventType.HEALTH_CHANGED.value}

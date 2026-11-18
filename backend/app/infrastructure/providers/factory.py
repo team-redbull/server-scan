@@ -28,9 +28,11 @@ from app.domain.ports.credentials import (
     ManagerNotConfiguredError,
 )
 from app.domain.ports.provider import ServerInventoryProvider
+from app.domain.value_objects.site import site_catalog
 from app.infrastructure.bmc_probe import BmcProbedProvider
 from app.infrastructure.credentials import EnvConnectionResolver
 from app.infrastructure.credentials.env import resolve_login
+from app.infrastructure.providers.fake.provider import FakeProvider
 from app.infrastructure.providers.intersight.provider import IntersightProvider
 from app.infrastructure.providers.kubevirt.provider import KubeVirtProvider
 from app.infrastructure.providers.oneview.provider import OneViewProvider
@@ -483,6 +485,9 @@ def build_provider_for_manager_type(
             `PROVIDER_FACTORIES` (`UCS_MANAGER`, reached only through
             `UCS_CENTRAL`).
     """
+    fake = fake_manager_provider(manager_type, settings)
+    if fake is not None:
+        return fake
     credential_resolver = EnvConnectionResolver(settings)
     if manager_type in ENDPOINTLESS_TYPES:
         connection = ManagerConnection(
@@ -498,6 +503,40 @@ def build_provider_for_manager_type(
         credential_resolver=credential_resolver,
         timeout_seconds=recheck_timeout_seconds(manager_type, settings),
         settings=settings,
+    )
+
+
+def fake_manager_provider(
+    manager_type: ManagerType, settings: Settings
+) -> ServerInventoryProvider | None:
+    """
+    The fake fleet standing in for a vendor manager, when `INVENTORY_FAKE_MANAGERS` asks for it.
+
+    Development only, so a test or production process never reads fake data (ADR-0064).
+
+    Args:
+        manager_type (ManagerType): The collector to imitate.
+        settings (Settings): Supplies `fake_managers`, `environment` and the site catalog.
+
+    Returns:
+        ServerInventoryProvider | None: A `FakeProvider` for `seed:count[:epoch]`, or `None`
+            when unset, outside development, or malformed (logged).
+    """
+    spec = settings.fake_managers.strip()
+    if not spec or settings.environment != "development":
+        return None
+    try:
+        seed, count, *rest = (int(part) for part in spec.split(":"))
+        epoch = rest[0] if rest else 0
+    except ValueError:
+        logger.warning("fake_managers.ignored", spec=spec)
+        return None
+    return FakeProvider(
+        seed=seed,
+        count=count,
+        provider_type=manager_type.value,
+        sites=site_catalog(settings.sites, settings.site_bmc_prefixes),
+        epoch=epoch,
     )
 
 

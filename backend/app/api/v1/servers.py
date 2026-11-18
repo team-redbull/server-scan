@@ -15,8 +15,9 @@ anything outside it.
 Caching: list pages are cache-aside under `list_key(...)` — the key is
 fully computable from the request itself (filter/search/sort/cursor hash),
 so there's no bootstrapping problem. They carry a short TTL and no
-invalidation on ingest; the two maintenance endpoints are the one
-exception (`_invalidate_list_cache`). ADR-0028 has the reasoning.
+invalidation on ingest; operator writes (maintenance, reservation, a live
+recheck, a refresh) are the exception (`_invalidate_list_cache`). ADR-0028
+has the reasoning.
 
 Server detail is trickier: the key
 design in `app.infrastructure.redis.keys.server_key` embeds the document's
@@ -61,6 +62,7 @@ from app.application.services.available_servers import (
     AmbiguousServerNameError,
     AvailableServersNotFoundError,
     AvailableServersService,
+    VendorRecheckError,
     tiers_up_to,
 )
 from app.application.services.classification_service import ClassificationService
@@ -73,6 +75,7 @@ from app.application.services.pipeline import (
     health_from_state,
 )
 from app.application.services.reservation_service import ReservationClaim, ReservationService
+from app.application.services.server_refresh import ServerRefreshService
 from app.application.services.vm_host import resolve_vm_host
 from app.config import Settings, get_settings
 from app.dependencies import (
@@ -101,6 +104,7 @@ from app.errors import (
     NoAvailableServerError,
     NotFoundError,
     PageSizeTooLargeError,
+    ServiceUnavailableError,
     ValidationAppError,
 )
 from app.infrastructure.mongodb.audit_event_repository import MongoAuditEventRepository
@@ -364,6 +368,34 @@ async def _available_servers_service(
         reservations=reservations,
         max_attempts=settings.available_max_attempts,
         recheck_timeout=lambda manager_type: recheck_budget_seconds(manager_type, settings),
+    )
+
+
+async def _server_refresh_service(
+    repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+    ingest_service: Annotated[IngestService, Depends(_ingest_service)],
+    audit: Annotated[AuditService, Depends(_audit_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ServerRefreshService:
+    """
+    Build the `POST /servers/{id}/refresh` service for one request.
+
+    Args:
+        repo (MongoServerRepository): The server repository.
+        ingest_service (IngestService): Persists the freshly read record.
+        audit (AuditService): Records `SERVER_REFRESHED`.
+        settings (Settings): Resolves each manager type's provider.
+
+    Returns:
+        ServerRefreshService: A service bound to those dependencies.
+    """
+    return ServerRefreshService(
+        repo=repo,
+        ingest=ingest_service,
+        provider_factory=lambda manager_type: build_provider_for_manager_type(
+            manager_type, settings=settings
+        ),
+        audit=audit,
     )
 
 
@@ -957,12 +989,70 @@ async def _invalidate_detail_cache(server_id: str, cache: CacheClient) -> None:
 async def _invalidate_list_cache(cache: CacheClient) -> None:
     """Drop every cached list page and the rows body after an operator write.
 
-    The two maintenance endpoints only — never ingest. ADR-0028 says why.
+    Operator writes only (maintenance, reservation, live recheck, refresh), never a
+    collector's ingest. ADR-0028 says why.
 
     Args:
         cache (CacheClient): The cache client.
     """
     await cache.delete_matching(*list_cache_patterns())
+
+
+@router.post("/servers/{server_id}/refresh", response_model=ServerDetail)
+async def refresh_server(
+    server_id: str,
+    service: Annotated[ServerRefreshService, Depends(_server_refresh_service)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    actor: Annotated[Actor, Depends(require_admin)],
+    request_id: Annotated[str | None, Depends(get_request_id)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ServerDetail:
+    """
+    Read one server from its vendor manager now, instead of waiting for its collector run.
+
+    The live read `POST /servers/available` uses, for one server and with every failure
+    surfaced (ADR-0064). Concurrent calls for the same server share one read.
+
+    Args:
+        server_id (str): The server's ID.
+        service (ServerRefreshService): Reads and persists the server.
+        cache (CacheClient): Cache-aside to invalidate on write.
+        actor (Actor): The admin to attribute the `SERVER_REFRESHED` event to.
+        request_id (str | None): The current request's ID, for the audit event.
+        settings (Settings): Supplies the NIC OS-name mapping.
+
+    Returns:
+        ServerDetail: The server as just read; `revision` moves only when its content changed.
+
+    Raises:
+        NotFoundError: No server has that ID.
+        ServerRefreshUnsupportedError: The API cannot reach the manager that collects it.
+        ServerNotAtManagerError: The manager no longer reports it.
+        ServiceUnavailableError: The manager failed (timeout, login, network).
+    """
+    try:
+        outcome = await coalesce(
+            f"server-refresh:{server_id}",
+            lambda: service.refresh(server_id, actor=actor, request_id=request_id),
+        )
+    except VendorRecheckError as exc:
+        raise ServiceUnavailableError(
+            f"The {exc.manager_type.value} manager could not be reached to read "
+            f"{exc.server_name!r}: {exc.reason}",
+            details={
+                "manager_type": exc.manager_type.value,
+                "server": exc.server_name,
+                "reason": exc.reason,
+            },
+        ) from exc
+
+    await _invalidate_detail_cache(server_id, cache)
+    await _invalidate_list_cache(cache)
+    return ServerDetail.from_server(
+        outcome.server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+    )
 
 
 @router.post("/servers/{server_id}/reclassify", response_model=ServerDetail)

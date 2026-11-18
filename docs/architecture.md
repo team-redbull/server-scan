@@ -208,8 +208,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   a `TOKEN` actor at that role, for a machine caller like the BMH generator
   that can't do an interactive AD login; otherwise a session cookie is
   verified. Anything else is 401. `require_admin` layers `role is
-  Role.ADMIN` on top, applied to the four mutation endpoints in
-  `servers.py`. **The audit trail is admin/auditor only** (ADR-0043):
+  Role.ADMIN` on top, applied to the eight mutation endpoints in
+  `servers.py` (maintenance, reservation, reclassify, health recalculate, `POST /servers/available`, refresh). **The audit trail is admin/auditor only** (ADR-0043):
   `events_router` carries `require_audit_access`, so a viewer gets 403 on `/events`,
   `/events/actors` and `/servers/{id}/events`; `AUDITOR` is read-only plus that. The SPA
   mirrors it with `useCanReadAudit()` (nav link, `AuditGate` on `/events`, the History tab).
@@ -1086,8 +1086,8 @@ and exposed via reclassify/recalculate endpoints.
   be simultaneously HOSTED_CLUSTER, CRITICAL, and in maintenance without
   the three concepts interfering.
 - **A maintenance write clears the cached list pages, facet counts and the `/servers/rows` body**
-  (`_invalidate_list_cache`, ADR-0028) — the one write path that does.
-  Ingest keeps paying the TTL. Without this the "Maintenance only" filter
+  (`_invalidate_list_cache`, ADR-0028), as do a reservation, the `/servers/available` recheck and
+  `POST /servers/{id}/refresh`: the operator-initiated writes. A collector run's ingest keeps paying the TTL. Without this the "Maintenance only" filter
   served a page computed before the write, so a server taken back out of
   maintenance kept appearing in a list whose whole meaning is that it is
   in maintenance.
@@ -2032,6 +2032,16 @@ of a `server-scan-collectors` release in that namespace, ADR-0060); a running Jo
 `JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
 `useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane
 that refreshes every 3 s while the Job is active.
+
+## Fetching one server now (ADR-0064)
+
+`POST /api/v1/servers/{id}/refresh` (`require_admin`; the detail page's "Fetch now" button, `features/servers/RefreshButton`)
+runs `ServerRefreshService` (`app/application/services/server_refresh.py`): `build_provider_for_manager_type` for the
+server's `source_provider`, then `available_servers.fetch_live` (`get_one()` + `IngestService.ingest_one`, the same core
+as `/servers/available`'s live recheck), then a `SERVER_REFRESHED` event (`manager_type`, `changed`). Calls for one server
+share a read (`coalesce`). Unlike the recheck it never degrades: no connection on the API pod, a foreign server or a
+missing source is 409 `SERVER_REFRESH_UNSUPPORTED`, a server the manager no longer lists 409 `SERVER_NOT_AT_MANAGER`, a
+vendor failure 503. In development `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` points every live read at the fake fleet.
 
 ## Audit trail UI
 

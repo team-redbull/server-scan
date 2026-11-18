@@ -11,6 +11,7 @@ import { HardwareTab } from "@/features/servers/HardwareTab";
 import { useServerDetailQuery } from "@/features/servers/hooks";
 import { NetworkTab } from "@/features/servers/NetworkTab";
 import { OverviewTab } from "@/features/servers/OverviewTab";
+import { RefreshButton } from "@/features/servers/RefreshButton";
 import { inferredGpuModel } from "@/lib/gpuModel";
 import type { GpuInfo } from "@/types/server";
 
@@ -78,6 +79,7 @@ export function ServerDetailPage() {
               <CopyButton text={data.name} label="Copy server name" />
             </div>
             <BmcLink host={data.network.bmc.host} serverName={data.name} labeled />
+            <RefreshButton server={data} />
           </div>
           <p className="text-sm text-gray-500">{data.model ?? modelHint(data.hardware.gpus)}</p>
           <p className="text-sm text-gray-500" data-testid="server-type">
