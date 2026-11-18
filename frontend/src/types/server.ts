@@ -101,6 +101,9 @@ export interface ConnectivityFacts {
   fabrics_present: string[];
 }
 
+/** A real machine or a virtual one, derived server-side from the vendor (`kubevirt` is `vm`). */
+export type ServerType = "physical" | "vm";
+
 /** One inventory row — `GET /api/v1/servers/rows`, the whole fleet in one
  * response, filtered and sorted in the browser (ADR-0033). `serial`,
  * `bmc_host`, `macs` and `profile_template_name` exist for search/CSV
@@ -109,6 +112,7 @@ export interface ServerRow {
   id: string;
   name: string;
   vendor: Vendor;
+  server_type: ServerType;
   model: string | null;
   site_id: SiteCode | null;
   source_provider: string | null;
@@ -306,6 +310,7 @@ export interface ServerDetail {
   id: string;
   name: string;
   model: string | null;
+  server_type: ServerType;
   profile_template: ProfileTemplate;
   identity: ServerIdentity;
   hardware: HardwareInfo;

@@ -11,6 +11,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
     id: "srv_1",
     name: "ocp-dell-worker-000",
     model: "PowerEdge R6515",
+    server_type: "physical",
     profile_template: { name: null, external_id: null },
     identity: {
       vendor: "dell",

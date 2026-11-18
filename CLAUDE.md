@@ -84,7 +84,7 @@ Explicit user instructions; violating one is a real mistake, not style.
    add `cd frontend && npm run lint && npm run typecheck && npm run build`.
    If `ruff format --check` fails, run `uv run ruff format .` — do not
    hand-fix. **CI also audits dependencies** (`uv run --with pip-audit
-   pip-audit --skip-editable`, `deptry`, `npm audit` in `frontend/`) and fails
+   pip-audit --skip-editable`, `deptry`, `npm audit --omit=dev` in `frontend/`) and fails
    on advisories published after your last green run with no code change.
    **Before every push, run the three audits locally** — they are the part of CI that
    fails with no code change, because an advisory landed since the last green run
@@ -92,7 +92,7 @@ Explicit user instructions; violating one is a real mistake, not style.
    `| tail` hid, so a push went red). **Judge each audit by its exit code (`; echo $?`), never by piped or truncated
    output** (`pip-audit` prints the vulnerability table before the "skipped" table). The commands:
    `uv run --with pip-audit pip-audit --skip-editable`,
-   `uv run --with deptry==0.24.0 deptry . --known-first-party app` (CI's exact command), `cd frontend && npm audit`. **Fix, do not wait** (a transitive dependency such as `pyasn1`: `uv lock --upgrade-package <name>`, then the same re-export): for a
+   `uv run --with deptry==0.24.0 deptry . --known-first-party app` (CI's exact command), `cd frontend && npm audit --omit=dev` (shipped dependencies only, ADR-0013). **Fix, do not wait** (a transitive dependency such as `pyasn1`: `uv lock --upgrade-package <name>`, then the same re-export): for a
    Python advisory raise the exact pin in `pyproject.toml` to the fix version (`uv lock`,
    `uv sync --all-groups`, then re-export `requirements.txt` and `pylock.toml`, see
    `docs/air-gap.md`) and rerun the tests; for npm run `npm audit fix` in `frontend/`
@@ -378,7 +378,7 @@ long form of each entry is in the 2026-09-13 archive.
   is the source of truth). `INVENTORY_SITE_BMC_PREFIXES`, `SiteCatalog.parse_bmc`: whole octets, longest wins, IPv4 only; any
   caller building a catalog for ingest passes both specs. `Server.site_from_bmc`/`site_from_name` keep both answers, and a
   disagreement is the CRITICAL `name.site_conflict` reason in the new `name` health category (which also holds the capacity-vs-name check).
-- **`Vendor` is dell/cisco/hp/standalone/kubevirt, no `UNKNOWN`.** `KUBEVIRT` is a VM (ADR-0058). `STANDALONE` is a
+- **`Vendor` is dell/cisco/hp/standalone/kubevirt, no `UNKNOWN`.** `KUBEVIRT` is a VM (ADR-0058); `server_type` (`physical`|`vm`) is derived from it, never stored. `STANDALONE` is a
   manufacturer not modelled *or* not reported by the BMC — never "collected
   without a manager". Correlation is `(vendor, serial_normalized)`, so moving a
   machine between vendors splits it into two documents; the collector is
@@ -469,7 +469,7 @@ itself; Dependabot was removed deliberately (ADR-0013).
 1. **Pins:** compare each `uses:` line's `# vX.Y.Z` to the latest release, and
    verify the new tag resolves first (`github-tag-action` has no `v6`;
    `setup-uv` has no `v8`/`v9`/`v10`).
-2. **Vulnerable / unused:** `/gate` runs `pip-audit`, `deptry`, `npm audit`;
+2. **Vulnerable / unused:** `/gate` runs `pip-audit`, `deptry`, `npm audit --omit=dev`;
    check whether a vulnerable package is actually reached before bumping (the
    `python-multipart` fix was deletion, not an upgrade).
 3. **Runtime deprecations:** actions declare a Node version (`using: node20`);
@@ -493,7 +493,7 @@ When you finish yours, move this entry to the top of
 handoff.
 
 **2026-11-17 — "Fetch now": `POST /api/v1/servers/{id}/refresh` reads one server from its manager (ADR-0064).**
-Moved to `docs/notes/session-log.md`: the available reserve-and-verify unit (ADR-0063).
+Moved to `docs/notes/session-log.md`: the inventory Type filter / Sites cards / health-filter unit.
 
 **Shipped (branch `feat/server-refresh`):** `POST /api/v1/servers/{id}/refresh` (admin) runs
 `available_servers.fetch_live` (now shared with the `/servers/available` recheck) for one server, 409

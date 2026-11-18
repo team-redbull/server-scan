@@ -89,3 +89,11 @@ in maintenance, and "Critical + Maintenance" is unchanged.
   what ticking it adds.
 - The Sites cards are unchanged: they count a server under its own health, and nothing on a card links to
   Healthy. A card's "N critical" still opens a list of N. Frontend only; no API change.
+
+## Update 2026-11-17: every severity excludes servers in maintenance
+
+The Healthy rule above now holds for every severity (operator's call): ticking Critical, Major, Warning, Unknown or
+Healthy lists only servers in service, alone or combined with Site, Installation and the other filters, and a server in
+maintenance appears only with Maintenance ticked too. Without a severity the list still shows every server. To keep the
+Sites cards honest, `GET /sites` `by_health` now counts servers in service only (`in_maintenance` is separate, so
+`total = sum(by_health) + in_maintenance`), so a card's "N critical" link opens N rows.

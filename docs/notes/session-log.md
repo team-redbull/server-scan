@@ -8,9 +8,17 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
-**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
-Moved to `docs/notes/session-log.md`: one failed server never aborts a run (ADR-0062).
+**2026-11-17 — inventory: BMC copy button, Type filter (`server_type`), Sites card health bar and Physical/VM/vendor links, every severity hides maintenance.**
+**Shipped (branch `feat/server-type`):** the BMC cell has an open and a copy icon (hover shows the address); `server_type` (`physical`|`vm`, derived from
+the vendor by `server_type_of`, only `KUBEVIRT` is a VM) is on `ServerRow`/`ServerDetail`, under the model on the detail page, and a **Type** dropdown sits
+between Source and Site; each Sites card has a stacked health bar (maintenance included) and Physical, VM, Dell, Cisco, HPE, Standalone rows that link into
+`/servers`; a ticked health severity now lists only servers in service (Maintenance ticked brings them back; ADR-0046 2026-11-17), and `GET /sites`
+`by_health` counts in-service servers only so a card's count equals its list.
 
+**Open:** nothing measured in a browser (no Chromium could launch): the BMC column's added width at 1440 px and Playwright were not run locally; there is no
+API `server_type` filter on `GET /servers` (frontend filter only).
+
+**2026-11-16 — `POST /servers/available` locks, checks and returns one server; `max_health` replaces `health` (ADR-0063).**
 **Shipped (branch `feat/available-reserve-and-verify`):** `GET /servers/available` reads Mongo only and takes `max_health` (the old `health` is a 400);
 the new `POST /servers/available` (admin) claims a candidate with a probe lease (`ReservationService.try_claim`), live-rechecks it while
 locked, then extends it to `ttl_seconds` and audits `SERVER_RESERVED`, or releases it (`release_claim`, no event) and draws the next, at most

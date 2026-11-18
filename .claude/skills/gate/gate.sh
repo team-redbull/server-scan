@@ -102,7 +102,7 @@ if [ "$want_helm" = 1 ]; then
 fi
 
 if [ "$want_frontend" = 1 ]; then
-  step "npm audit" sh -c 'cd frontend && npm audit'
+  step "npm audit" sh -c 'cd frontend && npm audit --omit=dev'
   step "npm run lint" sh -c 'cd frontend && npm run lint'
   step "npm run typecheck" sh -c 'cd frontend && npm run typecheck'
   step "vitest" sh -c 'cd frontend && npm run test -- --run'

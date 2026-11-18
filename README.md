@@ -92,7 +92,7 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
 
 | Page | Shows |
 |---|---|
-| **Sites** (`/`) | Per-site cards: totals, health, installation types, available vs installed. |
+| **Sites** (`/`) | Per-site cards: totals, a health bar, physical/VM and vendor mix (each row links into the inventory), installation types, available vs installed. |
 | **Servers** (`/servers`) | The whole fleet, filtered, sorted and searched in the browser; maintenance switch; sidebar filters by MCE and cluster. Click a row for the detail page: hardware, NICs, BMC link, health reasons, history. |
 | **Confs** (`/confs`) | Server configurations (specs), read from the `confs` collection; search, expand a row for the full spec. Read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | **Events** (`/events`) | The audit trail, filterable by type, server, user and time range. |

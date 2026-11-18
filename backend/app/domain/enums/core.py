@@ -28,6 +28,26 @@ class Vendor(StrEnum):
     KUBEVIRT = "kubevirt"
 
 
+class ServerType(StrEnum):
+    """Whether a server is a real machine or a virtual one; derived from `Vendor`, never stored."""
+
+    PHYSICAL = "physical"
+    VM = "vm"
+
+
+def server_type_of(vendor: Vendor) -> ServerType:
+    """
+    Classify a server by the vendor its collector reported.
+
+    Args:
+        vendor (Vendor): The server's `identity.vendor`.
+
+    Returns:
+        ServerType: `VM` for `KUBEVIRT`, `PHYSICAL` for every other vendor.
+    """
+    return ServerType.VM if vendor is Vendor.KUBEVIRT else ServerType.PHYSICAL
+
+
 class UnreachableReason(StrEnum):
     """Why a BMC could not be read, set with `reachable=False` (docs/adr/0037)."""
 

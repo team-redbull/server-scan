@@ -103,37 +103,132 @@ function siteCards(items: SiteStats[]): CardSpec[] {
     }));
 }
 
-/** Bar widths are proportional to the card's own total, not the largest card. */
-function VendorBar({ stats }: { stats: Breakdown }) {
+/** Worst first, so the red end is always at the left edge of the bar. Maintenance sits before
+ * Healthy: `by_health` counts servers in service only, so these segments add up to the total. */
+const HEALTH_SEGMENTS: { key: HealthSeverity | "MAINTENANCE"; color: string }[] = [
+  { key: "CRITICAL", color: "var(--color-status-critical)" },
+  { key: "MAJOR", color: "oklch(0.64 0.19 45)" },
+  { key: "WARNING", color: "oklch(0.86 0.16 95)" },
+  { key: "UNKNOWN", color: "var(--color-status-unknown)" },
+  { key: "MAINTENANCE", color: "var(--color-status-maintenance)" },
+  { key: "HEALTHY", color: "var(--color-status-healthy)" },
+];
+
+/** One stacked bar per card: each health tier's share of the card's servers.
+ * A nonzero tier keeps a 3px minimum so one critical server in 500 is still visible. */
+function HealthBar({ stats }: { stats: Breakdown }) {
   if (stats.total === 0) {
     return null;
   }
+  const segments = HEALTH_SEGMENTS.map((s) => ({
+    ...s,
+    count: s.key === "MAINTENANCE" ? stats.in_maintenance : stats.by_health[s.key],
+  })).filter((s) => s.count > 0);
+  const summary = segments.map((s) => `${s.count} ${s.key.toLowerCase()}`).join(", ");
   return (
-    <div className="mt-4 space-y-1.5">
-      {stats.by_vendor.map((entry) => {
-        const percent = Math.round((entry.count / stats.total) * 100);
-        return (
-          <div key={entry.vendor} className="flex items-center gap-2.5 text-xs">
-            <span className="w-16 shrink-0 text-[var(--text-secondary)]">
-              {vendorLabel(entry.vendor)}
-            </span>
-            <span
-              className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-sunken)]"
-              aria-hidden="true"
-            >
-              <span
-                className="block h-full rounded-full bg-[var(--border-strong)]"
-                style={{ width: `${percent}%` }}
-              />
-            </span>
-            <span className="tabular w-9 shrink-0 text-right text-[var(--text-secondary)]">
-              {entry.count}
-            </span>
-          </div>
-        );
-      })}
+    <div
+      role="img"
+      aria-label={`Health: ${summary}`}
+      title={summary}
+      className="mt-4 flex h-2 gap-px overflow-hidden rounded-full bg-[var(--surface-sunken)]"
+    >
+      {segments.map((s) => (
+        <span
+          key={s.key}
+          className="h-full"
+          style={{ flexGrow: s.count, flexBasis: 0, minWidth: 3, backgroundColor: s.color }}
+        />
+      ))}
     </div>
   );
+}
+
+/** One labelled bar; the width is the row's share of the card's own total. A nonzero
+ * row links to the inventory with `to` (the card's own filters plus this one); a zero
+ * row is plain text, as for the health counts. */
+function CountRow({
+  label,
+  count,
+  total,
+  to,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  to: string;
+}) {
+  const percent = Math.round((count / total) * 100);
+  const body = (
+    <>
+      <span className="w-16 shrink-0 text-[var(--text-secondary)] group-hover/row:underline">
+        {label}
+      </span>
+      <span
+        className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-sunken)]"
+        aria-hidden="true"
+      >
+        <span
+          className="block h-full rounded-full bg-[var(--border-strong)]"
+          style={{ width: `${percent}%` }}
+        />
+      </span>
+      <span className="tabular w-9 shrink-0 text-right text-[var(--text-secondary)]">
+        {count}
+      </span>
+    </>
+  );
+  const row = "group/row flex items-center gap-2.5 text-xs";
+  if (count === 0) {
+    return <div className={row}>{body}</div>;
+  }
+  return (
+    <CountLink to={to} className={`${row} cursor-pointer underline-offset-2`}>
+      {body}
+    </CountLink>
+  );
+}
+
+/** Physical, then VM, then each physical vendor. `kubevirt` is the VM row, so it has no
+ * vendor row of its own. Widths are proportional to the card's own total. */
+function VendorBar({ stats, to }: { stats: Breakdown; to: string }) {
+  if (stats.total === 0) {
+    return null;
+  }
+  const vm = stats.by_vendor.find((v) => v.vendor === "kubevirt")?.count ?? 0;
+  return (
+    <div className="mt-4 space-y-1.5">
+      <CountRow
+        label="Physical"
+        count={stats.total - vm}
+        total={stats.total}
+        to={withParam(to, "server_type", "physical")}
+      />
+      <CountRow
+        label="VM"
+        count={vm}
+        total={stats.total}
+        to={withParam(to, "server_type", "vm")}
+      />
+      <div className="space-y-1.5 pt-1.5">
+        {stats.by_vendor
+          .filter((entry) => entry.vendor !== "kubevirt")
+          .map((entry) => (
+            <CountRow
+              key={entry.vendor}
+              label={vendorLabel(entry.vendor)}
+              count={entry.count}
+              total={stats.total}
+              to={withParam(to, "vendor", entry.vendor)}
+            />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+/** Adds one query param to a card's link. */
+function withParam(to: string, key: string, value: string): string {
+  return `${to}${to.includes("?") ? "&" : "?"}${key}=${value}`;
 }
 
 /** The card's link plus `health_overall`, so "3 critical" goes to those 3. */
@@ -237,7 +332,10 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
         <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
           {card.name}
         </h3>
-        <span className="tabular text-2xl font-semibold text-[var(--text-primary)]">
+        <span
+          data-testid="card-total"
+          className="tabular text-2xl font-semibold text-[var(--text-primary)]"
+        >
           {stats.total.toLocaleString()}
         </span>
       </div>
@@ -294,7 +392,8 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
         )}
         {/* Every server evaluated HEALTHY — not merely zero critical/warning,
          * which is also true of a site nothing has evaluated yet. */}
-        {stats.total > 0 && stats.by_health.HEALTHY === stats.total && (
+        {stats.total > stats.in_maintenance &&
+          stats.by_health.HEALTHY === stats.total - stats.in_maintenance && (
           <span className="inline-flex items-center gap-1.5 text-[var(--text-on-healthy)]">
             <span aria-hidden="true">{SEVERITY_GLYPH.HEALTHY}</span> all healthy
           </span>
@@ -311,7 +410,8 @@ function SiteCard({ card, emphasis }: { card: CardSpec; emphasis?: boolean }) {
         />
       )}
 
-      <VendorBar stats={stats} />
+      <HealthBar stats={stats} />
+      <VendorBar stats={stats} to={card.to} />
     </Link>
   );
 }

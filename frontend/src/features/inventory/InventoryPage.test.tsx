@@ -17,6 +17,7 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     id: "srv_1",
     name: "ocp-dell-worker-001",
     vendor: "dell",
+    server_type: "physical",
     model: "PowerEdge R760",
     site_id: "tlv",
     source_provider: "OPENMANAGE",

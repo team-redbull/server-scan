@@ -11,8 +11,9 @@ import { isDonor } from "@/lib/donor";
 
 export interface RowFilters {
   search?: string;
-  /** Each of these six takes several values (OR within, AND across); empty or unset is "any". */
+  /** Each of these seven takes several values (OR within, AND across); empty or unset is "any". */
   vendor?: string[];
+  server_type?: string[];
   site_id?: string[];
   source_provider?: string[];
   installation_type?: string[];
@@ -55,6 +56,7 @@ export interface ClusterFacets {
 export interface FacetCounts {
   total: number;
   vendor: Record<string, number>;
+  server_type: Record<string, number>;
   source_provider: Record<string, number>;
   installation_type: Record<string, number>;
   site_id: Record<string, number>;
@@ -93,23 +95,22 @@ function nameCounts(rows: ServerRow[]): Map<string, number> {
 }
 
 /**
- * Whether a row passes the Health dropdown. Healthy means healthy and in service: a Healthy server
- * in maintenance shows only when Maintenance is ticked too (`maintenance: "only"`), so it never
- * hides among the healthy rows on a later page. Every other severity still includes its servers
- * in maintenance.
+ * Whether a row passes the Health dropdown. Any ticked severity means that severity and in
+ * service: a server in maintenance shows only when Maintenance is ticked too
+ * (`maintenance: "only"`), whatever other filters (site, installation, ...) are set.
  *
  * Args:
  *   row (ServerRow): The row to test.
  *   filters (RowFilters): The active filters; only `health` and `maintenance` are read.
  *
  * Returns:
- *   boolean: True when no severity is ticked or the row's health is among them.
+ *   boolean: True when no severity is ticked, or the row's health is among them and it is in
+ *   service (or Maintenance is ticked).
  */
 function matchesHealth(row: ServerRow, filters: RowFilters): boolean {
   if (!filters.health?.length) return true;
   if (!filters.health.includes(row.health)) return false;
-  const pausedHealthy = row.health === "HEALTHY" && row.maintenance.enabled;
-  return !pausedHealthy || filters.maintenance === "only";
+  return !row.maintenance.enabled || filters.maintenance === "only";
 }
 
 /**
@@ -131,6 +132,8 @@ export function filterRows(
   const kept = rows.filter(
     (row) =>
       (!filters.vendor?.length || filters.vendor.includes(row.vendor)) &&
+      (!filters.server_type?.length ||
+        filters.server_type.includes(row.server_type)) &&
       (!filters.site_id?.length ||
         filters.site_id.includes(row.site_id ?? UNASSIGNED_SITE_ID)) &&
       (!filters.source_provider?.length ||
@@ -314,6 +317,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
   const facets: FacetCounts = {
     total: rows.length,
     vendor: {},
+    server_type: {},
     source_provider: {},
     installation_type: {},
     site_id: {},
@@ -324,6 +328,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
   };
   for (const row of rows) {
     count(facets.vendor, row.vendor);
+    count(facets.server_type, row.server_type);
     if (row.source_provider) count(facets.source_provider, row.source_provider);
     count(facets.installation_type, row.installation_type);
     count(facets.site_id, row.site_id ?? UNASSIGNED_SITE_ID);
@@ -335,9 +340,10 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
   return facets;
 }
 
-/** The filter keys the six multi-select dropdowns own, with the facet each one counts. */
+/** The filter keys the seven multi-select dropdowns own, with the facet each one counts. */
 const DIMENSIONS = [
   ["vendor", "vendor"],
+  ["server_type", "server_type"],
   ["source_provider", "source_provider"],
   ["site_id", "site_id"],
   ["installation_type", "installation_type"],
@@ -356,7 +362,7 @@ const DIMENSIONS = [
  *
  * Returns:
  *   FacetCounts: `total` and the toggles' counts over the fully filtered rows (as `facetCounts`);
- *   the six dropdown dimensions replaced by their own-filter-excluded counts. `maintenance` is
+ *   the seven dropdown dimensions replaced by their own-filter-excluded counts. `maintenance` is
  *   counted without the maintenance filter, so the Include/Hide/Only control always shows all
  *   three numbers; every other count respects it.
  */
@@ -381,8 +387,7 @@ export function dropdownFacetCounts(
       : ignoringBoth,
   ).maintenance;
   const healthBase = filterRows(rows, without(filters, "health"));
-  const inService = (row: ServerRow) =>
-    !(row.health === "HEALTHY" && row.maintenance.enabled);
+  const inService = (row: ServerRow) => !row.maintenance.enabled;
   facets.health = facetCounts(
     filters.maintenance === "only" ? healthBase : healthBase.filter(inService),
   ).health;

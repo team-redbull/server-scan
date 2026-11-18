@@ -81,6 +81,12 @@ export function vendorLabel(vendor: string): string {
   return VENDOR_LABELS[vendor] ?? vendor;
 }
 
+/** The Type filter's options; `server_type` is derived server-side from the vendor. */
+export const SERVER_TYPES: readonly { value: string; label: string }[] = [
+  { value: "physical", label: "Physical" },
+  { value: "vm", label: "VM" },
+];
+
 /** The collectors that exist, as `ManagerType` values.
  * `tests/unit/test_frontend_manager_types.py` fails if the backend gains
  * one that is missing here. */
