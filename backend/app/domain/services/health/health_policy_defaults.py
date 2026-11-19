@@ -596,6 +596,28 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    profile_failed = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Profile deployment failed",
+        description=(
+            "Fires when OpenManage Enterprise reports the server's profile last deployment run "
+            "as Failed (job status 2070), so its configuration did not complete (ADR-0066). "
+            "A run that completed (2060) is healthy; anything else is UNKNOWN, never a verdict."
+        ),
+        policy_key="profile.deployment_failed",
+        category="profile",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="profile.last_run_failed_count", operator="GTE", value=1),
+        evidence=[EvidenceField(key="status", metric="profile.last_run_status")],
+        message_template="profile deployment {status}",
+        scope=PolicyScope(manager_types=[ManagerType.OPENMANAGE.value]),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     return [
         fabric_warning,
         fabric_critical,
@@ -617,4 +639,5 @@ def default_system_policies() -> list[HealthPolicy]:
         gpu_ecc,
         bmc_unreachable,
         raid_missing,
+        profile_failed,
     ]

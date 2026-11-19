@@ -29,7 +29,8 @@ as `source_provider=UCS_CENTRAL` with Central-rooted DNs, service-profile
 org paths and fabric attachments; Cisco rack units arrive as
 `INTERSIGHT` with `intersight/<moid>` ids and no org path; HPE ProLiants
 arrive as `ONEVIEW` with `/rest/server-hardware/<uuid>` ids; Dell servers
-arrive as `OPENMANAGE`; genuinely standalone whiteboxes arrive as
+arrive as `OPENMANAGE`, about 1 in 40 with a Failed profile deployment (`LastRunStatus` 2070,
+so CRITICAL; ADR-0066); genuinely standalone whiteboxes arrive as
 `REDFISH_STANDALONE` with `redfish://` addresses; and the last 4% of the fleet
 (40 of 1000) are OpenShift Virtualization VMs arriving as `KUBEVIRT` with
 `kubevirt://` ids (ADR-0058). Each VM is drawn from its own RNG, so a physical

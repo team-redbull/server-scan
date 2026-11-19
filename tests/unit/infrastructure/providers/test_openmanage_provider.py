@@ -22,7 +22,10 @@ from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
 from app.domain.ports.provider import ProviderServer
-from app.infrastructure.providers.openmanage.mapping import identity_from_profile
+from app.infrastructure.providers.openmanage.mapping import (
+    identity_from_profile,
+    profile_run_status,
+)
 from app.infrastructure.providers.openmanage.provider import OpenManageProvider
 from app.infrastructure.providers.redfish.targets import RedfishCredential, RedfishTarget
 
@@ -515,6 +518,28 @@ class TestTargetThatIsNotAnIdrac:
         identity = identity_from_profile(profile={"ProfileName": "tpl"}, device={})
         assert identity.idrac_ip is None
         assert identity.refused_target is None
+
+
+class TestProfileRunStatus:
+    """The profile's `LastRunStatus` is the last deployment result (ADR-0066)."""
+
+    @pytest.mark.parametrize(
+        ("raw", "name"),
+        [(2060, "Completed"), (2070, "Failed"), (2200, "Not Run"), (2090, "Warning")],
+    )
+    def test_a_known_status_keeps_its_id_and_ome_name(self, raw: int, name: str) -> None:
+        identity = identity_from_profile(
+            profile={**_profile("n", "10.0.0.1"), "LastRunStatus": raw}, device={}
+        )
+        assert (identity.last_run_status, identity.last_run_status_name) == (raw, name)
+
+    def test_an_unlisted_id_is_kept_not_dropped(self) -> None:
+        assert profile_run_status({"LastRunStatus": 9999}) == (9999, "Status 9999")
+
+    @pytest.mark.parametrize("raw", [None, "2070", True, 2060.0])
+    def test_a_missing_or_malformed_status_is_not_read(self, raw: object) -> None:
+        profile = {"LastRunStatus": raw} if raw is not None else {}
+        assert profile_run_status(profile) == (None, None)
 
 
 class TestUnreachableHosts:

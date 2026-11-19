@@ -480,6 +480,23 @@ _TEMPLATE_NAMES: dict[ManagerType, tuple[str, ...]] = {
 }
 
 
+def _profile_run_status(collector: ManagerType, index: int) -> tuple[int | None, str | None]:
+    """
+    Pick a Dell server's profile last-run result without consuming the random stream.
+
+    Args:
+        collector (ManagerType): The collector the server belongs to.
+        index (int): The server's index in the fleet.
+
+    Returns:
+        tuple[int | None, str | None]: OME's `(2060, "Completed")`, or `(2070, "Failed")` for
+            about 1 in 40 servers; `(None, None)` for any collector but OPENMANAGE.
+    """
+    if collector is not ManagerType.OPENMANAGE:
+        return None, None
+    return (2070, "Failed") if index % 40 == 7 else (2060, "Completed")
+
+
 def _profile_template(rng: random.Random, collector: ManagerType) -> tuple[str | None, str | None]:
     """
     The deployment/profile template this server was provisioned from.
@@ -1428,6 +1445,7 @@ def generate_servers(
             _build_attachments(rng, site_code=site_code) if collector in _FABRIC_COLLECTORS else ()
         )
         template_name, template_external_id = _profile_template(rng, collector)
+        profile_status, profile_status_name = _profile_run_status(collector, index)
 
         server = ProviderServer(
             external_id=_external_id(collector, index=index, site_index=site_index, bmc_ip=bmc_ip),
@@ -1455,6 +1473,8 @@ def generate_servers(
             profile_dn=_profile_dn(collector, name=name, site_code=site_code),
             profile_template_name=template_name,
             profile_template_external_id=template_external_id,
+            profile_last_run_status=profile_status,
+            profile_last_run_status_name=profile_status_name,
             cpu_sockets=cpu_sockets,
             cpu_cores=cpu_cores,
             cpu_threads=cpu_threads,

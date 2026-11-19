@@ -30,6 +30,10 @@ _FAILED = frozenset({"CRITICAL", "DOWN"})
 _LINK_STATE_NOT_READ = frozenset({"ONEVIEW"})  # ADR-0027, 2026-10-21 update
 _BMC_CHECKED = frozenset({"REDFISH_STANDALONE", "OPENMANAGE", "ONEVIEW"})
 
+# OME job-status ids (ADR-0066): only a finished run is a verdict; the rest is UNKNOWN.
+_PROFILE_FAILED = 2070
+_PROFILE_JUDGED = frozenset({2060, _PROFILE_FAILED})
+
 _NOT_GOOD = frozenset({"CRITICAL", "WARNING", "DOWN"})
 
 # Storage builds only the server's name records; one boolean fact each.
@@ -139,6 +143,7 @@ def extract_facts(server: Server) -> dict[str, Any]:
     controllers = server.hardware.storage.controllers
     raid = server.hardware.storage.raid
     volumes = [v for c in controllers for v in c.volumes if v.raid_type is not None]
+    profile_status = server.profile_deployment.last_run_status
 
     return {
         "cpu.socket_count": server.hardware.cpu.sockets,
@@ -213,6 +218,9 @@ def extract_facts(server: Server) -> dict[str, Any]:
         ),
         "name.site_by_bmc": server.site_from_bmc,
         "name.site_by_name": server.site_from_name,
+        "profile.has_data": profile_status in _PROFILE_JUDGED,
+        "profile.last_run_failed_count": 1 if profile_status == _PROFILE_FAILED else 0,
+        "profile.last_run_status": server.profile_deployment.last_run_status_name or "unknown",
         "bmc.unreachable_count": 0 if server.reachable else 1,
         "bmc.unreachable_reason": (
             server.unreachable_reason.value if server.unreachable_reason else "unknown"

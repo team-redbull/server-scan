@@ -83,7 +83,7 @@ from app.domain.models.manager import Manager
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
-from app.domain.models.server import Identity, ProfileTemplate, Server, VmHost
+from app.domain.models.server import Identity, ProfileDeployment, ProfileTemplate, Server, VmHost
 from app.domain.models.site import Site
 from app.domain.ports.provider import ProviderServer, ServerInventoryProvider, redact_secrets
 from app.domain.ports.repository import ServerRepository
@@ -370,6 +370,38 @@ def _vm_host(ps: ProviderServer, previous: VmHost | None, unread: list[str]) -> 
         name="vm_host.node_name",
     )
     return VmHost(cluster_name=ps.vm_host_cluster or None, node_name=node or None)
+
+
+def _profile_deployment(
+    ps: ProviderServer,
+    previous: ProfileDeployment | None,
+    provider_type: str,
+    unread: list[str],
+) -> ProfileDeployment:
+    """
+    Build the server's profile deployment result, carrying the stored one when not read.
+
+    Only the `OPENMANAGE` collector reads it (ADR-0066); any other collector leaves it alone
+    and never lists it as unread.
+
+    Args:
+        ps (ProviderServer): The provider's record.
+        previous (ProfileDeployment | None): The stored result, or `None` for a new server.
+        provider_type (str): The collector's `ManagerType` value.
+        unread (list[str]): Accumulator for the fields this run could not read.
+
+    Returns:
+        ProfileDeployment: The reported result, else the stored one, else an empty one.
+    """
+    if provider_type != ManagerType.OPENMANAGE.value:
+        return previous or ProfileDeployment()
+    if ps.profile_last_run_status is None:
+        unread.append("profile_deployment.last_run_status")
+        return previous or ProfileDeployment()
+    return ProfileDeployment(
+        last_run_status=ps.profile_last_run_status,
+        last_run_status_name=ps.profile_last_run_status_name,
+    )
 
 
 def _carry_forward[T](
@@ -1129,6 +1161,10 @@ class IngestService:
             or None,
         )
 
+        profile_deployment = _profile_deployment(
+            ps, existing.profile_deployment if existing is not None else None, provider_type, unread
+        )
+
         vm_host = _vm_host(ps, existing.vm_host if existing is not None else None, unread)
 
         bmc_info = BmcInfo(
@@ -1343,6 +1379,7 @@ class IngestService:
             model_normalized=normalize_text(model),
             identity=identity,
             profile_template=profile_template,
+            profile_deployment=profile_deployment,
             hardware=hardware,
             network=network,
             connectivity=connectivity,

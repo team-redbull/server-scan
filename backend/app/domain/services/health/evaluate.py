@@ -22,7 +22,18 @@ from app.domain.services.health.template import render_template
 from app.utils.timeutil import utcnow
 
 ENGINE_VERSION = 1
-CATEGORIES = ("memory", "storage", "raid", "network", "connectivity", "power", "gpu", "bmc", "name")
+CATEGORIES = (
+    "memory",
+    "storage",
+    "raid",
+    "network",
+    "connectivity",
+    "power",
+    "gpu",
+    "bmc",
+    "name",
+    "profile",
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -26,7 +26,7 @@ mutations need the admin token. Generated from the app's own OpenAPI schema -
 
 `ServerSummary`: `id, name, vendor, model, site_id, manager_id, source_provider,
 classification{installation_type, matched_rule_name, matched_pattern, matched_field},
-health{overall, memory, storage, raid, network, connectivity, power, gpu, bmc, name, reasons[], active_policy_keys[]},
+health{overall, memory, storage, raid, network, connectivity, power, gpu, bmc, name, profile, reasons[], active_policy_keys[]},
 maintenance{enabled, reason, created_by, created_at, expected_end},
 openshift{lifecycle_state, cluster_name, mce_name, last_reported_at, reported_name, previous_reporter,
 claim_changed_at, contested_with},
@@ -45,6 +45,8 @@ Note `health` here is the overall severity string, not an object. `UNKNOWN` also
 `GET /api/v1/servers/{server_id}` - full `ServerDetail` (also carries `server_type`): hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
 `vm_host` is `{cluster_name, node_name}` for a KubeVirt VM (`node_name` null when stopped), null otherwise.
+`profile_deployment` is `{last_run_status, last_run_status_name}` (OME ids: 2060 `Completed`, 2070 `Failed`) for a
+Dell `OPENMANAGE` server, both null for any other collector; a `Failed` one makes `health.profile` and `overall` CRITICAL (ADR-0066).
 
 `GET /api/v1/servers/{server_id}/vm-host` - the bare-metal server a KubeVirt VM runs on, resolved
 now (404 for a non-VM). Response: `cluster_name, node_name, match, host`; `match` is `MEMBERSHIP`
