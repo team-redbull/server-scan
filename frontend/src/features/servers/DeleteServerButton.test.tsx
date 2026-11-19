@@ -126,6 +126,37 @@ describe("DeleteServerButton", () => {
     expect(deleteCalls(fetchMock)).toHaveLength(0);
   });
 
+  it("cannot be dismissed while the delete is in flight, so its completion is never lost", async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    const fetchMock = vi.fn().mockImplementation((input: string, init?: RequestInit) => {
+      const path = new URL(input, "http://localhost").pathname;
+      if (path === "/api/v1/auth/me") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ login_required: true, authenticated: true, username: "u", role: "ADMIN" }),
+        });
+      }
+      expect(init?.method).toBe("DELETE");
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderButton();
+    await openDialog();
+    fireEvent.change(screen.getByLabelText(/Type the server/), { target: { value: SERVER.name } });
+    fireEvent.click(screen.getByRole("button", { name: "Remove server" }));
+
+    expect(await screen.findByRole("button", { name: "Removing…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    finish({ ok: true, status: 204, json: () => Promise.resolve(undefined) });
+    expect(await screen.findByText("the inventory")).toBeInTheDocument();
+  });
+
   it("closes on Cancel without deleting", async () => {
     const fetchMock = stubApi("ADMIN", []);
     renderButton();

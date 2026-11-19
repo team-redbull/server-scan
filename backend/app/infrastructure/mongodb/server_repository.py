@@ -285,17 +285,22 @@ class MongoServerRepository:
         ).sort("_id", 1)
         return [Server.model_validate(doc) for doc in await cursor.to_list(length=None)]
 
-    async def delete(self, server_id: str) -> bool:
+    async def delete(self, server_id: str, *, expected_revision: int | None = None) -> bool:
         """
-        Delete one server document by id.
+        Delete one server document by id, optionally only at a known revision.
 
         Args:
             server_id (str): The server's id.
+            expected_revision (int | None): Delete only if the stored `revision` still equals it,
+                so a write made since the caller's read is never deleted unseen (ADR-0044).
 
         Returns:
             bool: `True` if a document was deleted.
         """
-        result = await self._collection.delete_one({"_id": server_id})
+        query: dict[str, object] = {"_id": server_id}
+        if expected_revision is not None:
+            query["revision"] = expected_revision
+        result = await self._collection.delete_one(query)
         return result.deleted_count == 1
 
     async def backfill_listed_at(self, now: datetime) -> int:

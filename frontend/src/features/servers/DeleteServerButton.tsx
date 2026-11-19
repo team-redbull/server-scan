@@ -32,6 +32,7 @@ export function DeleteServerButton({ server }: { server: ServerDetail }) {
   const otherError = remove.isError && blockers === null;
 
   function close() {
+    if (remove.isPending) return;
     setOpen(false);
     setTyped("");
     setAnyway(false);
@@ -129,6 +130,7 @@ export function DeleteServerButton({ server }: { server: ServerDetail }) {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
+                disabled={remove.isPending}
                 onClick={close}
                 className={`${BUTTON} border border-[var(--border-strong)] text-[var(--text-secondary)]`}
               >

@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import structlog
+
 from app.application.services.audit_service import AuditService
 from app.domain.enums import OpenShiftState
 from app.domain.models.audit_event import Actor, EventType
 from app.domain.models.server import Server
 from app.domain.ports.repository import ServerRepository
-from app.errors import NotFoundError, ServerDeleteBlockedError
+from app.errors import ConflictError, NotFoundError, ServerDeleteBlockedError
+
+logger = structlog.get_logger(__name__)
+_ATTEMPTS = 3
 
 
 def delete_blockers(server: Server) -> list[str]:
@@ -51,7 +56,7 @@ class ServerDeleteService:
         self, server_id: str, *, force: bool, actor: Actor, request_id: str | None
     ) -> Server:
         """
-        Delete a server, after recording who deleted it and what was overridden.
+        Delete a server, then record who deleted it and what was overridden.
 
         Args:
             server_id (str): The server to delete.
@@ -65,31 +70,53 @@ class ServerDeleteService:
         Raises:
             NotFoundError: No server has that ID.
             ServerDeleteBlockedError: It is in use and `force` is false.
+            ConflictError: It changed under every attempt (3 reads), so nothing was deleted.
         """
-        server = await self._repo.get_by_id(server_id)
-        if server is None:
-            raise NotFoundError(f"Server {server_id} not found.")
-        blockers = delete_blockers(server)
-        if blockers and not force:
-            raise ServerDeleteBlockedError(
-                f"{server.name} is not deleted: {'; '.join(blockers)}. "
-                "Use force to delete it anyway.",
-                details={"blockers": blockers},
+        for _ in range(_ATTEMPTS):
+            server = await self._repo.get_by_id(server_id)
+            if server is None:
+                raise NotFoundError(f"Server {server_id} not found.")
+            blockers = delete_blockers(server)
+            if blockers and not force:
+                raise ServerDeleteBlockedError(
+                    f"{server.name} is not deleted: {'; '.join(blockers)}. "
+                    "Use force to delete it anyway.",
+                    details={"blockers": blockers},
+                )
+            if await self._repo.delete(server_id, expected_revision=server.revision):
+                await self._record(server, blockers, actor=actor, request_id=request_id)
+                return server
+        raise ConflictError(f"Server {server_id} kept changing; nothing was deleted. Retry.")
+
+    async def _record(
+        self, server: Server, blockers: list[str], *, actor: Actor, request_id: str | None
+    ) -> None:
+        """
+        Record `SERVER_DELETED` after the delete; a failed write is logged, never undone.
+
+        Args:
+            server (Server): The server as deleted.
+            blockers (list[str]): What was overridden, empty for a free server.
+            actor (Actor): Who deleted it.
+            request_id (str | None): The originating API request id, if any.
+        """
+        data = {
+            "vendor": server.identity.vendor.value,
+            "source_provider": server.source_provider,
+            "forced": bool(blockers),
+            "overridden": blockers,
+        }
+        try:
+            await self._audit.record(
+                EventType.SERVER_DELETED,
+                actor=actor,
+                server_id=server.id,
+                server_name=server.name,
+                server=server,
+                request_id=request_id,
+                data=data,
             )
-        await self._audit.record(
-            EventType.SERVER_DELETED,
-            actor=actor,
-            server_id=server.id,
-            server_name=server.name,
-            server=server,
-            request_id=request_id,
-            data={
-                "vendor": server.identity.vendor.value,
-                "source_provider": server.source_provider,
-                "forced": bool(blockers),
-                "overridden": blockers,
-            },
-        )
-        if not await self._repo.delete(server_id):
-            raise NotFoundError(f"Server {server_id} not found.")
-        return server
+        except Exception:
+            logger.exception(
+                "server.delete_audit_failed", server_id=server.id, name=server.name, **data
+            )

@@ -197,3 +197,60 @@ async def test_only_an_admin_may_delete(role: Role) -> None:
         await client.post("/api/v1/auth/login", json={"username": "u", "password": "x"})
         assert (await client.delete("/api/v1/servers/any")).status_code == 403
         assert (await client.delete("/api/v1/servers/any?force=true")).status_code == 403
+
+
+async def test_a_reservation_taken_after_the_check_still_blocks_the_delete(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoClientHolder],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard is evaluated on a snapshot; the delete must not outrun a write made since."""
+    client, repo, mongo = app_context
+    server = await repo.upsert(_installable_server(7))
+    real_get = MongoServerRepository.get_by_id
+    calls = 0
+
+    async def get_then_reserve(self: MongoServerRepository, server_id: str):  # noqa: ANN202
+        nonlocal calls
+        snapshot = await real_get(self, server_id)
+        calls += 1
+        if calls == 1:
+            await mongo.db["servers"].update_one(
+                {"_id": server_id},
+                {
+                    "$set": {
+                        "reservation.holder": "install-server",
+                        "reservation.mce_cluster": "mce-race",
+                        "reservation.created_at": utcnow().isoformat(),
+                        "reservation.expires_at": (utcnow() + timedelta(hours=1)).isoformat(),
+                    },
+                    "$inc": {"revision": 1},
+                },
+            )
+        return snapshot
+
+    monkeypatch.setattr(MongoServerRepository, "get_by_id", get_then_reserve)
+
+    resp = await client.delete(f"/api/v1/servers/{server.id}")
+
+    assert resp.status_code == 409
+    assert any("mce-race" in b for b in resp.json()["details"]["blockers"])
+    assert await real_get(repo, server.id) is not None
+    assert await _events(mongo, server.id) == []
+
+
+async def test_a_failed_audit_write_does_not_undo_the_delete(
+    app_context: tuple[AsyncClient, MongoServerRepository, MongoClientHolder],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.application.services.audit_service import AuditService
+
+    client, repo, _ = app_context
+    server = await repo.upsert(_installable_server(8))
+
+    async def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("audit down")
+
+    monkeypatch.setattr(AuditService, "record", boom)
+
+    assert (await client.delete(f"/api/v1/servers/{server.id}")).status_code == 204
+    assert await repo.get_by_id(server.id) is None

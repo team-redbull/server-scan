@@ -23,7 +23,10 @@ detail and list caches (ADR-0028). 204 on success, 404 for an unknown id (also a
   without it.
 - **`force=true` skips the checks.** It is the same admin write, not a second permission. The audit event says what
   was overridden, so a forced delete is always attributable.
-- **Audited as `SERVER_DELETED`** (an existing, previously unused event type) before the delete, with the server's
+- **The delete is atomic with the check**: `ServerRepository.delete(id, expected_revision=)` matches the revision the blockers were read at
+  (ADR-0044), so a reservation, maintenance or membership write made in between is re-read and re-checked (3 attempts, then 409).
+- **Audited as `SERVER_DELETED`** (an existing, previously unused event type) **after** the delete succeeds (a failed or lost delete
+  never leaves a false event; a failed audit write is logged with the full snapshot as `server.delete_audit_failed`, the delete stands), with the server's
   name, serial and BMC snapshotted onto the event and `data` = `vendor`, `source_provider`, `forced`, `overridden`.
   `SERVER_PRUNED` stays the automatic job's event.
 - **A server its manager still lists comes back** on the next collector run, as a new document with no maintenance,
@@ -40,4 +43,6 @@ blockers and a "Remove anyway" checkbox, and the second request carries `force=t
 - No new setting, chart value or migration. `ServerRepository` (the port) gains `delete`, which the Mongo repository
   already had.
 - `SERVER_DELETED` appears in the Events filter and reads "Deleted by hand" (plus the overridden reasons).
+- Known, shared with every operator write (ADR-0028): a detail or list read that began before the delete can refill the cache
+  afterwards; the detail pointer lives 60 s, so a deleted server may read 200 for up to that long.
 - Not done: a bulk delete, a soft delete / undo, and an ignore list for a server that must not return.

@@ -19,11 +19,13 @@ test.describe("Remove a server", () => {
     await expect(confirm).toBeDisabled();
 
     await dialog.getByLabel(/Type the server/).fill(target.name);
-    await confirm.click();
+    const [first] = await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "DELETE"),
+      confirm.click(),
+    ]);
     // A server in use is refused first; the dialog says why and offers the override.
-    const anyway = dialog.getByRole("checkbox", { name: "Remove anyway" });
-    if (await anyway.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await anyway.check();
+    if (first.status() === 409) {
+      await dialog.getByRole("checkbox", { name: "Remove anyway" }).check();
       await dialog.getByRole("button", { name: "Remove anyway" }).click();
     }
 
