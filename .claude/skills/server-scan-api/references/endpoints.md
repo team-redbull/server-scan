@@ -96,7 +96,7 @@ Auditor or admin token only.
 Event: `id, event_type, server_id, server_name, server_serial, server_bmc (snapshots at write time; null on old events of a server that is gone), actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED` (data has `from`/`to` and, when the server was renamed in the same collection, `name_from`/`name_to`),
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
-`SERVER_CREATED|UPDATED|DELETED|PRUNED` (`SERVER_DELETED` = an admin removed it by hand; data has `vendor`, `source_provider`, `forced`, `overridden`), `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), `SERVER_REFRESHED` (an admin fetched one server from its manager; data has `manager_type`, `changed`), plus rule/policy/site/manager events.
+`SERVER_CREATED|UPDATED|DELETED|PRUNED` (`SERVER_DELETED` = an admin removed it by hand; data has `vendor`, `source_provider`, `forced`, `overridden`), `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), `CLUSTER_NOT_REPORTING` (a membership job passed 7 days with no run, recorded once per silent stretch; data has `kind`, `name`, `held`, `last_run_at`, `silent_seconds`; no server; actor `cluster-watch`), `CLUSTER_DECOMMISSIONED` (an admin retired a destroyed cluster's job; data has `kind`, `name`, `freed`, `last_run_at`), `SERVER_REFRESHED` (an admin fetched one server from its manager; data has `manager_type`, `changed`), plus rule/policy/site/manager events.
 
 ## Sites
 
@@ -157,6 +157,16 @@ audited as `SERVER_REFRESHED`), and `DELETE /api/v1/servers/{id}` (removes the s
 409 `SERVER_DELETE_BLOCKED` with the reasons in `details.blockers` while it is in use by OpenShift, reserved or
 in maintenance; `?force=true` deletes it anyway; 404 for an unknown id; audited as `SERVER_DELETED` with `forced` and
 `overridden`; a server its manager still lists is recreated by the next collector run). Do not call these unless the user asks and has supplied the admin token.
+
+## OpenShift membership jobs (admin only, every route, reads included)
+
+A viewer, an auditor and every personal token get `403`.
+`GET /api/v1/openshift/clusters`: `{items, silent_after_seconds}`, one item per membership job with a run record:
+`kind` (`nodes` = a cluster's job, `agents` = an MCE's), `name`, `held` (servers it holds), `last_run_at`, `silent_seconds`,
+`silent` (no run for 7 days by default: its cluster is presumed destroyed), longest silent first.
+`POST /api/v1/openshift/clusters/{kind}/{name}/decommission` frees that job's servers, drops its run record and
+returns `{kind, name, freed}`; 404 for a job with no record, 422 for another `kind`; audited as `CLUSTER_DECOMMISSIONED`.
+Do not call the POST unless the user asks and has supplied the admin token.
 
 ## Jobs (admin only, every route, reads included)
 

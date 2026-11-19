@@ -8,6 +8,7 @@ import { ArchitecturePage } from "@/features/architecture/ArchitecturePage";
 import { ConfsPage } from "@/features/confs/ConfsPage";
 import { EventsPage } from "@/features/events/EventsPage";
 import { InventoryPage } from "@/features/inventory/InventoryPage";
+import { ClustersPage } from "@/features/clusters/ClustersPage";
 import { JobsPage } from "@/features/jobs/JobsPage";
 import { RulesPage } from "@/features/rules/RulesPage";
 import { SkillPage } from "@/features/skill/SkillPage";
@@ -43,6 +44,15 @@ export const router = createBrowserRouter([
           <AuditGate>
             <EventsPage />
           </AuditGate>
+        ),
+      },
+      {
+        // Membership jobs by recency; retire a destroyed cluster's; admin only (docs/adr/0067).
+        path: "/clusters",
+        element: (
+          <AdminGate title="Clusters" what="Retiring a cluster">
+            <ClustersPage />
+          </AdminGate>
         ),
       },
       {

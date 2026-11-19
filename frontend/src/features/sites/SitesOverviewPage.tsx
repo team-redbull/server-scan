@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router";
 import { UNASSIGNED_SITE_ID, vendorLabel } from "@/api/sites";
 import type { Breakdown, FleetSummary, SiteStats } from "@/api/sites";
 import { SEVERITY_GLYPH } from "@/components/severity";
+import { SilentClustersBanner } from "@/features/clusters/SilentClustersBanner";
 import { useSitesQuery } from "@/features/sites/hooks";
 import type { HealthSeverity, OpenShiftState } from "@/types/server";
 
@@ -462,6 +463,8 @@ export function SitesOverviewPage() {
           )}
         </p>
       </header>
+
+      <SilentClustersBanner />
 
       {isError && (
         <p

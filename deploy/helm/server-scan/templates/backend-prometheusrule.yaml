@@ -237,7 +237,7 @@ spec:
             severity: warning
           annotations:
             summary: "Collector {{ "{{ $labels.source_provider }}" }} has not read any server for over {{ $silent }}s"
-            description: "Its CronJob is failing, suspended, or never ran. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs."
+            description: "Its CronJob is failing, suspended, or never ran. Check `oc get jobs -n {{ .Release.Namespace }}` and the newest pod's logs. If its cluster was destroyed, decommission it on the Clusters page (ADR-0067)."
         - alert: ServerScanCollectorRunStale
           expr: server_scan:collector_last_run_age_seconds:by_manager > {{ $silent }}
           for: 10m
@@ -269,7 +269,7 @@ spec:
             severity: warning
           annotations:
             summary: "No membership job for {{ "{{ $labels.cluster }}" }} has completed a run for over {{ $membershipSilent }}s"
-            description: "Neither its nodes nor its agents job has finished a run (the run record is written on every real run, matched or not, changed or not), so its servers stay INSTALLED forever and nothing else notices. Check the nodes-status release in that cluster."
+            description: "Neither its nodes nor its agents job has finished a run (the run record is written on every real run, matched or not, changed or not), so its servers stay INSTALLED forever and nothing else notices. Check the nodes-status release in that cluster. If the cluster was destroyed, an admin decommissions it on the Clusters page (ADR-0067), which frees its servers and clears this alert."
         - alert: ServerScanCollectorRunPartial
           expr: server_scan:collector_last_run_partial:max == 1
           for: 5m

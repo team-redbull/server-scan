@@ -612,6 +612,7 @@ of it.
 | 0064 | `POST /servers/{id}/refresh` (admin) reads one server from its manager now via `get_one()` + `ingest_one` (shared with the `/servers/available` recheck as `fetch_live`), 409 when the API cannot reach that manager or it no longer lists the server, `SERVER_REFRESHED` audited; the detail page's "Fetch now"; `INVENTORY_FAKE_MANAGERS` (development only) |
 | 0065 | `DELETE /servers/{id}` (admin) removes one server; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`) while it is installed/in use by OpenShift, reserved or in maintenance, unless `?force=true`; `SERVER_DELETED` audited (with what was overridden); the detail page's "Remove" with a type-the-name dialog |
 | 0066 | A failed OME profile deployment (`LastRunStatus` 2070) makes a Dell server CRITICAL: new `profile` health category and `profile.deployment_failed` policy (OPENMANAGE), `Server.profile_deployment`; only a finished run (2060/2070) is a verdict, the rest is UNKNOWN |
+| 0067 | `GET /openshift/clusters` lists membership jobs by recency (silent after `INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`, 7 days); `POST /openshift/clusters/{kind}/{name}/decommission` (admin) frees a destroyed cluster's servers and drops its run record (gauges and alerts clear); `CLUSTER_DECOMMISSIONED` audited; the Clusters page and "not reporting" banners |
 
 ---
 

@@ -50,6 +50,10 @@ export const queryKeys = {
     all: ["sites"] as const,
     list: () => [...queryKeys.sites.all, "list"] as const,
   },
+  openshift: {
+    all: ["openshift"] as const,
+    clusters: () => [...queryKeys.openshift.all, "clusters"] as const,
+  },
   events: {
     all: ["events"] as const,
     lists: () => [...queryKeys.events.all, "list"] as const,

@@ -595,6 +595,22 @@ class OpenShiftMembershipService:
             return None
         return page.items[0] if page.items else None
 
+    async def release(self, scope: dict[str, object]) -> list[str]:
+        """
+        Free every server a job owns, as that job would on finding it gone (ADR-0067).
+
+        Args:
+            scope (dict[str, object]): The ownership filter, as `reconcile` takes it.
+
+        Returns:
+            list[str]: The IDs of the servers whose membership changed.
+        """
+        return [
+            server.id
+            for server in await self._claimed_by(scope)
+            if await self._free(server, dry_run=False)
+        ]
+
     async def _claimed_by(self, scope: dict[str, object]) -> list[Server]:
         """
         Every server currently naming this cluster.

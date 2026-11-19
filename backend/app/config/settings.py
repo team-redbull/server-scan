@@ -209,6 +209,10 @@ class Settings(BaseSettings):
 
     openshift_cluster_name: str = ""
 
+    openshift_silent_after_seconds: int = 604800
+
+    openshift_silent_check_seconds: int = 900
+
     openshift_mce_name: str = ""
 
     openshift_exclude_name_parts: str = "infra,control-plane,master"

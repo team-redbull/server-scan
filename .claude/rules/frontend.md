@@ -81,6 +81,10 @@ Loaded only when a `frontend/` file is open.
   scrolls the box, not the page). The measuring is `lib/useFillViewport` (ref + `style`), shared with `/events` (`EventTimeline fill`,
   sticky `thead`; the per-server History tab does not pass `fill`). Spacing under the table is deliberately tight (`main` `pb-1`,
   pager `mt-2`, footer `pt-1 pb-3`): the operator asked for the table to run close to the copyright line.
+- **The Clusters page (`/clusters`, ADR-0067) is admin only** (nav link, `AdminGate title=`, and `useClusterJobsQuery` is `enabled` only for an admin, so a viewer's banner makes no request). It lists membership jobs from `GET /openshift/clusters`; a job silent past the API's
+  threshold (7 days) is flagged, and `SilentClustersBanner` shows on Sites (all silent jobs) and on a server's detail
+  (`only` = that server's own cluster/MCE). Decommission is the same type-the-name dialog as "Remove";
+  its success invalidates `openshift`, `servers`, `sites` and `events`.
 - **"Remove" on the detail header deletes the server** (`DeleteServerButton`, ADR-0065): admin only, greyed for a viewer/auditor like
   "Fetch now". The dialog needs the typed name; the **API decides** whether the server is in use (409 `SERVER_DELETE_BLOCKED`,
   `details.blockers`), so the client never duplicates that rule, and the retry carries `?force=true` after "Remove anyway". On success
