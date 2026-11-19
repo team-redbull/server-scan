@@ -31,6 +31,41 @@ from app.domain.ports.provider import ProviderNic
 _FQDD_RE = re.compile(r"^NIC\.[A-Za-z]+\.(\d+)-(\d+)-(\d+)$")
 
 
+# OME job-status ids, from a live appliance's `/JobService/JobStatuses` (ADR-0066).
+_JOB_STATUS_NAMES = {
+    2020: "Scheduled",
+    2030: "Queued",
+    2040: "Starting",
+    2050: "Running",
+    2060: "Completed",
+    2070: "Failed",
+    2080: "New",
+    2090: "Warning",
+    2100: "Aborted",
+    2101: "Paused",
+    2102: "Stopped",
+    2103: "Canceled",
+    2200: "Not Run",
+}
+
+
+def profile_run_status(profile: dict[str, Any]) -> tuple[int | None, str | None]:
+    """
+    Read a profile's last deployment result.
+
+    Args:
+        profile (dict[str, Any]): One `/ProfileService/Profiles` entry.
+
+    Returns:
+        tuple[int | None, str | None]: The `LastRunStatus` id and its OME name, or
+            `(None, None)` when the field is missing or not an integer (could not read).
+    """
+    raw = profile.get("LastRunStatus")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return None, None
+    return raw, _JOB_STATUS_NAMES.get(raw, f"Status {raw}")
+
+
 def _opt_str(value: object) -> str | None:
     """
     Normalize an OME string field to a non-empty `str` or `None`.
@@ -176,6 +211,8 @@ class OmeIdentity:
             `MINWINPC`). It is never dialled: the server is recorded `not_an_idrac` instead.
         profile_id (str | None): The OME profile's own id, for a unique stub id.
         device_id (str | None): The OME device's own id, for the same reason.
+        last_run_status (int | None): The profile's last deployment result (`LastRunStatus`).
+        last_run_status_name (str | None): That result's OME name, e.g. `Failed`.
     """
 
     name: str
@@ -188,6 +225,8 @@ class OmeIdentity:
     refused_target: str | None = None
     profile_id: str | None = None
     device_id: str | None = None
+    last_run_status: int | None = None
+    last_run_status_name: str | None = None
 
 
 def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) -> OmeIdentity:
@@ -219,6 +258,7 @@ def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) ->
             idrac_ip = display
         else:
             refused_target = display
+    status, status_name = profile_run_status(profile)
     return OmeIdentity(
         name=name,
         idrac_ip=idrac_ip,
@@ -231,4 +271,6 @@ def identity_from_profile(*, profile: dict[str, Any], device: dict[str, Any]) ->
         refused_target=refused_target,
         profile_id=_opt_str(profile.get("Id")),
         device_id=_opt_str(device.get("Id")),
+        last_run_status=status,
+        last_run_status_name=status_name,
     )

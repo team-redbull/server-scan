@@ -150,6 +150,9 @@ class ProviderServer:
     # None = could not read (stored value kept); "" = read, and there is none (cleared).
     profile_template_name: str | None = None
     profile_template_external_id: str | None = None
+    # OPENMANAGE only: the profile's last deployment job result; None = not read (ADR-0066).
+    profile_last_run_status: int | None = None
+    profile_last_run_status_name: str | None = None
 
     cpu_sockets: int | None = None
     cpu_cores: int | None = None

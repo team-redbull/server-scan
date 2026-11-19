@@ -141,6 +141,7 @@ export const POLICY_CATEGORIES = [
   "gpu",
   "bmc",
   "name",
+  "profile",
 ] as const;
 export type PolicyCategory = (typeof POLICY_CATEGORIES)[number];
 

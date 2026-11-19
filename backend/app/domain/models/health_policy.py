@@ -113,7 +113,9 @@ class HealthPolicy(BaseModel):
 
     policy_key: str
     mode: str = "EVALUATE"  # EVALUATE | SUPPRESS
-    category: str  # memory | storage | raid | network | connectivity | power | gpu | bmc | name
+    category: (
+        str  # memory | storage | raid | network | connectivity | power | gpu | bmc | name | profile
+    )
     severity: HealthSeverity
     condition: Condition
     evidence: list[EvidenceField] = Field(default_factory=list)

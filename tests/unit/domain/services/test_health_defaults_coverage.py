@@ -26,7 +26,7 @@ from app.domain.models.hardware import (
     StorageVolume,
 )
 from app.domain.models.network import NetworkInfo, NetworkInterface
-from app.domain.models.server import Identity, Server
+from app.domain.models.server import Identity, ProfileDeployment, Server
 from app.domain.services.health.evaluate import CATEGORIES, evaluate_health
 from app.domain.services.health.facts import extract_facts
 from app.domain.services.health.health_policy_defaults import default_system_policies
@@ -359,6 +359,7 @@ class TestManagerScopedDefaults:
             "UCS fabric paths down (critical)",
             "No RAID 1 configured for the OS",
             "Only one network link up",
+            "Profile deployment failed",
         }
 
     def test_single_link_up_covers_every_physical_collector_and_no_vm(self) -> None:
@@ -593,3 +594,55 @@ class TestOsMirrorRaid:
             1 for s in states if s.categories["raid"].severity == HealthSeverity.CRITICAL
         )
         assert critical == sum(1 for i in range(5000) if i % 7 == 0)
+
+
+class TestProfileDeployment:
+    """A failed OME profile deployment is CRITICAL; only a finished run is a verdict (ADR-0066)."""
+
+    @staticmethod
+    def _state(status: int | None, provider: str = "OPENMANAGE") -> Any:
+        """
+        Evaluate a Dell server whose profile last ran with `status`.
+
+        Args:
+            status (int | None): The OME `LastRunStatus`, or None when it was not read.
+            provider (str): The collector that wrote the server.
+
+        Returns:
+            Any: The `HealthState`.
+        """
+        now = utcnow()
+        server = Server(
+            id="srv_profile",
+            name="ocp4-prod-tlv-compute-01",
+            identity=Identity(vendor=Vendor.DELL),
+            source_provider=provider,
+            profile_deployment=ProfileDeployment(last_run_status=status),
+            created_at=now,
+            updated_at=now,
+        )
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        return service.evaluate_with_policies(server, default_system_policies())
+
+    def test_a_completed_run_is_healthy(self) -> None:
+        assert self._state(2060).categories["profile"].severity == HealthSeverity.HEALTHY
+
+    def test_a_failed_run_is_critical_and_so_is_the_server(self) -> None:
+        state = self._state(2070)
+        assert state.categories["profile"].severity == HealthSeverity.CRITICAL
+        assert state.overall == HealthSeverity.CRITICAL
+        assert health_from_state(state).profile == HealthSeverity.CRITICAL
+
+    @pytest.mark.parametrize("status", [None, 2200, 2050, 2090, 2100])
+    def test_anything_but_a_finished_run_is_unknown_never_a_verdict(
+        self, status: int | None
+    ) -> None:
+        state = self._state(status)
+        assert state.categories["profile"].severity == HealthSeverity.UNKNOWN
+        assert state.overall != HealthSeverity.CRITICAL
+
+    def test_other_collectors_are_never_judged(self) -> None:
+        state = self._state(2070, provider="REDFISH_STANDALONE")
+        assert state.categories["profile"].severity == HealthSeverity.UNKNOWN

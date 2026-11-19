@@ -14,6 +14,7 @@ import pytest
 from app.application.services.ingest import IngestService
 from app.domain.enums import HealthSeverity, MediaType
 from app.domain.models.health import Health
+from app.domain.models.server import Server
 from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
 from app.domain.value_objects.site import site_catalog
 from app.infrastructure.mongodb import MongoClientHolder
@@ -225,6 +226,84 @@ async def test_a_profile_template_that_could_not_be_read_survives(
     assert server.profile_template.external_id == "tmpl-001"
     assert "profile_template.name" in server.unread_fields
     assert "profile_template.external_id" in server.unread_fields
+
+
+class _OmeOneShot(_OneShotProvider):
+    """The one-shot provider, reporting itself as the OPENMANAGE collector."""
+
+    provider_type = "OPENMANAGE"
+
+
+async def _stored_server(mongo_holder: MongoClientHolder) -> Server:
+    """
+    Read the one server these tests write back from MongoDB.
+
+    Args:
+        mongo_holder (MongoClientHolder): The test database.
+
+    Returns:
+        Server: The stored server.
+    """
+    repo = MongoServerRepository(mongo_holder, cursor_secret=_CURSOR_SECRET)
+    page = await repo.list_page(
+        filters={"identity.serial_normalized": "sn-partial-1"},
+        search=None,
+        sort="name",
+        sort_desc=False,
+        cursor=None,
+        page_size=1,
+        with_count=False,
+    )
+    return page.items[0]
+
+
+async def test_a_failed_profile_deployment_is_stored(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """OME's `LastRunStatus` 2070 reaches the stored document (ADR-0066)."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OmeOneShot(
+            _fully_read(profile_last_run_status=2070, profile_last_run_status_name="Failed")
+        )
+    )
+
+    server = await _stored_server(mongo_holder)
+
+    assert server.profile_deployment.last_run_status == 2070
+    assert server.profile_deployment.last_run_status_name == "Failed"
+
+
+async def test_a_profile_status_that_could_not_be_read_survives(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """`None` keeps the stored result and lists the field as unread, never HEALTHY."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OmeOneShot(
+            _fully_read(profile_last_run_status=2070, profile_last_run_status_name="Failed")
+        )
+    )
+    summary = await service.ingest(_OmeOneShot(_fully_read(profile_last_run_status=None)))
+    assert summary.errors == 0
+
+    server = await _stored_server(mongo_holder)
+
+    assert server.profile_deployment.last_run_status == 2070
+    assert "profile_deployment.last_run_status" in server.unread_fields
+
+
+async def test_another_collector_is_never_judged_nor_lists_the_field_unread(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """Only OPENMANAGE reads a profile run, so a `test` collector stays UNKNOWN and silent."""
+    service = _service(mongo_holder)
+    await service.ingest(_OneShotProvider(_fully_read()))
+
+    server = await _stored_server(mongo_holder)
+
+    assert server.profile_deployment.last_run_status is None
+    assert "profile_deployment.last_run_status" not in server.unread_fields
 
 
 async def test_gpu_health_detail_survives_the_full_ingest_pipeline(

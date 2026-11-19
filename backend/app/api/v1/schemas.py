@@ -51,7 +51,13 @@ from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
-from app.domain.models.server import Identity, ProfileTemplate, Server, VmHost
+from app.domain.models.server import (
+    Identity,
+    ProfileDeployment,
+    ProfileTemplate,
+    Server,
+    VmHost,
+)
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
 from app.utils.timeutil import utcnow
 
@@ -391,6 +397,7 @@ class ServerDetail(BaseModel):
     server_type: ServerType
     identity: Identity
     profile_template: ProfileTemplate
+    profile_deployment: ProfileDeployment
     hardware: Hardware
     network: NetworkInfo
     connectivity: Connectivity
@@ -452,6 +459,7 @@ class ServerDetail(BaseModel):
             server_type=server_type_of(server.identity.vendor),
             identity=server.identity,
             profile_template=server.profile_template,
+            profile_deployment=server.profile_deployment,
             hardware=server.hardware,
             network=server.network.model_copy(
                 update={"interfaces": _sorted_by_name(server.network.interfaces)}

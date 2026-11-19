@@ -725,6 +725,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   | `network.single_link_up` | **the six physical manager types (not `KUBEVIRT`: a one-NIC VM is normal, ADR-0058)**: exactly one link up, however many were readable | CRITICAL |
   | `gpu.failed` | a GPU reports CRITICAL or DOWN | CRITICAL |
   | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
+  | `profile.deployment_failed` | **OPENMANAGE**: the OME profile's last deployment run is Failed (`LastRunStatus` 2070); Completed (2060) is healthy and every other status is `UNKNOWN`, never a verdict (ADR-0066) | CRITICAL |
   | `raid.os_mirror_missing` | **OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER**: the collector's RAID verdict is `ABSENT` (authoritative vendor tree read, no mirror); `UNKNOWN` (DGX, old BMCs) never fires (ADR-0048) | CRITICAL |
 
   - **Two uplinks are a platform requirement, not a preference

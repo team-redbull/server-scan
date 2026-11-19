@@ -440,6 +440,24 @@ def build_default_registry() -> MetricRegistry:
     )
     registry.register(
         MetricDef(
+            name="profile.last_run_failed_count",
+            type=MetricType.INT,
+            category="profile",
+            description="1 when the server's profile last deployment run failed, else 0",
+            resolver=lambda f: _get(f, "profile.last_run_failed_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="profile.last_run_status",
+            type=MetricType.STRING,
+            category="profile",
+            description="The OME name of the profile's last deployment run (Failed, ...)",
+            resolver=lambda f: _get(f, "profile.last_run_status", "unknown"),
+        )
+    )
+    registry.register(
+        MetricDef(
             name="bmc.unreachable_count",
             type=MetricType.INT,
             category="bmc",
