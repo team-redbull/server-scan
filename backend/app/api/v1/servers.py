@@ -75,6 +75,7 @@ from app.application.services.pipeline import (
     health_from_state,
 )
 from app.application.services.reservation_service import ReservationClaim, ReservationService
+from app.application.services.server_delete import ServerDeleteService
 from app.application.services.server_refresh import ServerRefreshService
 from app.application.services.vm_host import resolve_vm_host
 from app.config import Settings, get_settings
@@ -284,6 +285,23 @@ async def _maintenance_service(
         MaintenanceService: A service bound to those dependencies.
     """
     return MaintenanceService(server_repo=server_repo, audit=audit)
+
+
+async def _server_delete_service(
+    server_repo: Annotated[MongoServerRepository, Depends(_server_repo)],
+    audit: Annotated[AuditService, Depends(_audit_service)],
+) -> ServerDeleteService:
+    """
+    Build the delete service for one request.
+
+    Args:
+        server_repo (MongoServerRepository): The server repository.
+        audit (AuditService): Records the `SERVER_DELETED` event.
+
+    Returns:
+        ServerDeleteService: A service bound to those dependencies.
+    """
+    return ServerDeleteService(repo=server_repo, audit=audit)
 
 
 async def _reservation_service(
@@ -1053,6 +1071,44 @@ async def refresh_server(
         nic_name_catalog(settings.nic_os_names),
         stale_before=_stale_before(settings),
     )
+
+
+@router.delete("/servers/{server_id}", status_code=204)
+async def delete_server(
+    server_id: str,
+    service: Annotated[ServerDeleteService, Depends(_server_delete_service)],
+    cache: Annotated[CacheClient, Depends(_cache_client)],
+    actor: Annotated[Actor, Depends(require_admin)],
+    request_id: Annotated[str | None, Depends(get_request_id)],
+    force: Annotated[
+        bool, Query(description="Delete even if installed, reserved or in maintenance.")
+    ] = False,
+) -> Response:
+    """
+    Remove one server from the database (ADR-0065).
+
+    Refused with 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`) while the server is
+    in use, reserved or in maintenance, unless `force=true`.
+
+    Args:
+        server_id (str): The server's ID.
+        service (ServerDeleteService): Checks, audits and deletes.
+        cache (CacheClient): Cache-aside to invalidate on write.
+        actor (Actor): The admin to attribute the `SERVER_DELETED` event to.
+        request_id (str | None): The current request's ID, for the audit event.
+        force (bool): Override the in-use refusal.
+
+    Returns:
+        Response: An empty 204.
+
+    Raises:
+        NotFoundError: No server has that ID.
+        ServerDeleteBlockedError: It is in use and `force` is false.
+    """
+    await service.delete(server_id, force=force, actor=actor, request_id=request_id)
+    await _invalidate_detail_cache(server_id, cache)
+    await _invalidate_list_cache(cache)
+    return Response(status_code=204)
 
 
 @router.post("/servers/{server_id}/reclassify", response_model=ServerDetail)

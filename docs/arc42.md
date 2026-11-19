@@ -610,6 +610,7 @@ of it.
 | 0062 | One failed server never aborts a run: every provider guards a server's mapping (`_contain_server_failure`) and writes a `reachable=False` `COLLECTION_ERROR` stub carrying `unreachable_detail`; PARTIAL (exit 3), or exit 1 when at least 5 and over 20 % of the fleet failed |
 | 0063 | `POST /servers/available` locks a candidate, live-checks it while locked and returns it, or releases it and tries the next (at most `INVENTORY_AVAILABLE_MAX_ATTEMPTS` per request); every miss is a 503 `NO_AVAILABLE_SERVER`; `max_health` (that tier and every better one) replaces `health`; `GET` no longer rechecks or locks |
 | 0064 | `POST /servers/{id}/refresh` (admin) reads one server from its manager now via `get_one()` + `ingest_one` (shared with the `/servers/available` recheck as `fetch_live`), 409 when the API cannot reach that manager or it no longer lists the server, `SERVER_REFRESHED` audited; the detail page's "Fetch now"; `INVENTORY_FAKE_MANAGERS` (development only) |
+| 0065 | `DELETE /servers/{id}` (admin) removes one server; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`) while it is installed/in use by OpenShift, reserved or in maintenance, unless `?force=true`; `SERVER_DELETED` audited (with what was overridden); the detail page's "Remove" with a type-the-name dialog |
 
 ---
 

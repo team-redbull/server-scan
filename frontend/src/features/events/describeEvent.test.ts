@@ -39,6 +39,12 @@ describe("describeEvent", () => {
       { reason: "r" },
       "Pruned: no longer listed by its manager",
     ],
+    ["SERVER_DELETED", { forced: false, overridden: [] }, "Deleted by hand"],
+    [
+      "SERVER_DELETED",
+      { forced: true, overridden: ["it is in maintenance", "it is reserved for an install (mce-a)"] },
+      "Deleted by hand, forced (it is in maintenance; it is reserved for an install (mce-a))",
+    ],
     [
       "AUDIT_PURGED",
       { deleted: 1200, retention_days: 180 },

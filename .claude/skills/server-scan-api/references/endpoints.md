@@ -26,7 +26,7 @@ mutations need the admin token. Generated from the app's own OpenAPI schema -
 
 `ServerSummary`: `id, name, vendor, model, site_id, manager_id, source_provider,
 classification{installation_type, matched_rule_name, matched_pattern, matched_field},
-health{overall, memory, storage, raid, network, connectivity, power, gpu, bmc, name, reasons[], active_policy_keys[]},
+health{overall, memory, storage, raid, network, connectivity, power, gpu, bmc, name, profile, reasons[], active_policy_keys[]},
 maintenance{enabled, reason, created_by, created_at, expected_end},
 openshift{lifecycle_state, cluster_name, mce_name, last_reported_at, reported_name, previous_reporter,
 claim_changed_at, contested_with},
@@ -45,6 +45,8 @@ Note `health` here is the overall severity string, not an object. `UNKNOWN` also
 `GET /api/v1/servers/{server_id}` - full `ServerDetail` (also carries `server_type`): hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
 `vm_host` is `{cluster_name, node_name}` for a KubeVirt VM (`node_name` null when stopped), null otherwise.
+`profile_deployment` is `{last_run_status, last_run_status_name}` (OME ids: 2060 `Completed`, 2070 `Failed`) for a
+Dell `OPENMANAGE` server, both null for any other collector; a `Failed` one makes `health.profile` and `overall` CRITICAL (ADR-0066).
 
 `GET /api/v1/servers/{server_id}/vm-host` - the bare-metal server a KubeVirt VM runs on, resolved
 now (404 for a non-VM). Response: `cluster_name, node_name, match, host`; `match` is `MEMBERSHIP`
@@ -94,7 +96,7 @@ Auditor or admin token only.
 Event: `id, event_type, server_id, server_name, server_serial, server_bmc (snapshots at write time; null on old events of a server that is gone), actor{type,id,...}, request_id, created_at, data`.
 Types: `HEALTH_CHANGED` (data has `from_reasons`/`to_reasons`), `CLASSIFICATION_CHANGED` (data has `from`/`to` and, when the server was renamed in the same collection, `name_from`/`name_to`),
 `OPENSHIFT_STATE_CHANGED`, `MAINTENANCE_ENABLED|UPDATED|DISABLED`, `SERVER_RESERVED|RELEASED|RESERVATION_REFUSED`,
-`SERVER_CREATED|UPDATED|DELETED|PRUNED`, `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), `SERVER_REFRESHED` (an admin fetched one server from its manager; data has `manager_type`, `changed`), plus rule/policy/site/manager events.
+`SERVER_CREATED|UPDATED|DELETED|PRUNED` (`SERVER_DELETED` = an admin removed it by hand; data has `vendor`, `source_provider`, `forced`, `overridden`), `SERVER_RENAMED` (the manager reports a new name for a known server; data has `name_from`, `name_to`; `server_name` is the new one), `IDRAC_RESET` (the Dell collector restarted a server's iDRAC because every disk or NIC read UNKNOWN; data has `trigger` `disks|nics|both`, `outcome` `requested|unconfirmed|failed`, `bmc_host`, `detail`, `active_jobs`, `powered_on` = the host was off and was powered on first, `power_state` = its `PowerState` read before anything was sent, `On`/`Off`/null), `AUDIT_PURGED` (weekly retention job; data has `deleted`, `retention_days`, `cutoff`; events older than 180 days by default are gone), `LOGIN_SUCCEEDED` / `LOGIN_DENIED` (every authenticated login; `actor.id` and `data.user` are the username, `data.role` is `ADMIN|AUDITOR|VIEWER` or `NO_PERMISSION` for a refused one; no server), `TOKEN_CREATED|TOKEN_REVOKED`, `JOB_TRIGGERED` (an admin ran a CronJob by hand from the UI; data has `cronjob`, `job`, `namespace`; no server), `SERVER_REFRESHED` (an admin fetched one server from its manager; data has `manager_type`, `changed`), plus rule/policy/site/manager events.
 
 ## Sites
 
@@ -151,7 +153,10 @@ for one username; wait it out, do not retry.
 server from its vendor manager now and returns the `ServerDetail`; `revision` moves only if its data
 changed; 409 `SERVER_REFRESH_UNSUPPORTED` when the API is not connected to that manager, e.g. standalone
 Redfish, 409 `SERVER_NOT_AT_MANAGER` when the manager no longer reports it, 503 when the manager fails;
-audited as `SERVER_REFRESHED`). Do not call these unless the user asks and has supplied the admin token.
+audited as `SERVER_REFRESHED`), and `DELETE /api/v1/servers/{id}` (removes the server from the database, 204;
+409 `SERVER_DELETE_BLOCKED` with the reasons in `details.blockers` while it is in use by OpenShift, reserved or
+in maintenance; `?force=true` deletes it anyway; 404 for an unknown id; audited as `SERVER_DELETED` with `forced` and
+`overridden`; a server its manager still lists is recreated by the next collector run). Do not call these unless the user asks and has supplied the admin token.
 
 ## Jobs (admin only, every route, reads included)
 

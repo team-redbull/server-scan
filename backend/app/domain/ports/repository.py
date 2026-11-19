@@ -207,6 +207,18 @@ class ServerRepository(Protocol):
         """
         ...
 
+    async def delete(self, server_id: str) -> bool:
+        """
+        Delete one server document.
+
+        Args:
+            server_id (str): The server's ID.
+
+        Returns:
+            bool: `True` if a document was deleted.
+        """
+        ...
+
     async def get_by_id(self, server_id: str) -> Server | None:
         """
         Look up a server by its `_id`.

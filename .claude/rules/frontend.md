@@ -81,6 +81,11 @@ Loaded only when a `frontend/` file is open.
   scrolls the box, not the page). The measuring is `lib/useFillViewport` (ref + `style`), shared with `/events` (`EventTimeline fill`,
   sticky `thead`; the per-server History tab does not pass `fill`). Spacing under the table is deliberately tight (`main` `pb-1`,
   pager `mt-2`, footer `pt-1 pb-3`): the operator asked for the table to run close to the copyright line.
+- **"Remove" on the detail header deletes the server** (`DeleteServerButton`, ADR-0065): admin only, greyed for a viewer/auditor like
+  "Fetch now". The dialog needs the typed name; the **API decides** whether the server is in use (409 `SERVER_DELETE_BLOCKED`,
+  `details.blockers`), so the client never duplicates that rule, and the retry carries `?force=true` after "Remove anyway". On success
+  the detail query is `removeQueries`d (not refetched: it would 404) and the app returns to `/servers`. `e2e/server-delete.spec.ts`
+  removes the *last* seeded server so no other spec's "first row" is the one that goes.
 - **The inventory's first column is the row's "Fetch now"** (`RowRefreshButton`, icon-only `size-6`, 41 px; shares `RefreshIcon` and
   `errorMessage` with the detail page's `RefreshButton`): admin only, greyed with a title for a viewer/auditor, `stopPropagation`. At
   1440 px the table already overflows its box sideways (Maintenance needs a horizontal scroll); a new column worsens it, so measure.

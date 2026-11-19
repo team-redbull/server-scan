@@ -72,6 +72,7 @@ class ErrorCode:
     NO_AVAILABLE_SERVER = "NO_AVAILABLE_SERVER"
     SERVER_REFRESH_UNSUPPORTED = "SERVER_REFRESH_UNSUPPORTED"
     SERVER_NOT_AT_MANAGER = "SERVER_NOT_AT_MANAGER"
+    SERVER_DELETE_BLOCKED = "SERVER_DELETE_BLOCKED"
 
 
 def _slug(code: str) -> str:
@@ -401,3 +402,10 @@ class ServerNotAtManagerError(AppError):
 
     status_code = 409
     code = ErrorCode.SERVER_NOT_AT_MANAGER
+
+
+class ServerDeleteBlockedError(AppError):
+    """409: `DELETE /servers/{id}` refused, it is in use; `force=true` overrides (ADR-0065)."""
+
+    status_code = 409
+    code = ErrorCode.SERVER_DELETE_BLOCKED

@@ -8,6 +8,18 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-17 — "Fetch now": `POST /api/v1/servers/{id}/refresh` reads one server from its manager (ADR-0064).**
+**Shipped (branch `feat/server-refresh`):** `POST /api/v1/servers/{id}/refresh` (admin) runs
+`available_servers.fetch_live` (now shared with the `/servers/available` recheck) for one server, 409
+`SERVER_REFRESH_UNSUPPORTED` / `SERVER_NOT_AT_MANAGER`, 503 on a vendor failure, `SERVER_REFRESHED` audited; the detail
+page's "Fetch now" button (`RefreshButton`). `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` (development only) makes every
+live read answer from the fake fleet.
+
+**Open:** a refresh is one more `get_one()` caller with no per-manager cap (still parked, item 1 below "Explicitly NOT
+done yet"); `REDFISH_STANDALONE` and a hub's `KUBEVIRT` servers cannot be refreshed from the API (409 by design).
+
+---
+
 **2026-11-17 — inventory: BMC copy button, Type filter (`server_type`), Sites card health bar and Physical/VM/vendor links, every severity hides maintenance.**
 **Shipped (branch `feat/server-type`):** the BMC cell has an open and a copy icon (hover shows the address); `server_type` (`physical`|`vm`, derived from
 the vendor by `server_type_of`, only `KUBEVIRT` is a VM) is on `ServerRow`/`ServerDetail`, under the model on the detail page, and a **Type** dropdown sits
