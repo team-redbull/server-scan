@@ -207,6 +207,19 @@ class ServerRepository(Protocol):
         """
         ...
 
+    async def delete(self, server_id: str, *, expected_revision: int | None = None) -> bool:
+        """
+        Delete one server document, optionally only at a known revision.
+
+        Args:
+            server_id (str): The server's ID.
+            expected_revision (int | None): Delete only if the stored revision still equals it.
+
+        Returns:
+            bool: `True` if a document was deleted.
+        """
+        ...
+
     async def get_by_id(self, server_id: str) -> Server | None:
         """
         Look up a server by its `_id`.

@@ -8,6 +8,7 @@ export const WRITTEN_EVENT_TYPES = [
   "SERVER_CREATED",
   "SERVER_RENAMED",
   "SERVER_PRUNED",
+  "SERVER_DELETED",
   "HEALTH_CHANGED",
   "CLASSIFICATION_CHANGED",
   "OPENSHIFT_STATE_CHANGED",
@@ -144,6 +145,10 @@ export function describeEvent(event: AuditEventResponse): string {
       return `Renamed ${str(d.name_from) ?? "?"} → ${str(d.name_to) ?? "?"}`;
     case "SERVER_PRUNED":
       return "Pruned: no longer listed by its manager";
+    case "SERVER_DELETED":
+      return d.forced === true
+        ? `Deleted by hand, forced (${Array.isArray(d.overridden) ? d.overridden.join("; ") : "in use"})`
+        : "Deleted by hand";
     case "LOGIN_SUCCEEDED":
       return `Logged in as ${str(d.role)?.toLowerCase() ?? "?"}`;
     case "LOGIN_DENIED":

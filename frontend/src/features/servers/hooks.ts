@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "@/api/queryKeys";
-import { getServer, getServerVmHost, refreshServer } from "@/api/servers";
+import { deleteServer, getServer, getServerVmHost, refreshServer } from "@/api/servers";
 
 export function useServerDetailQuery(id: string) {
   return useQuery({
@@ -31,6 +31,26 @@ export function useRefreshServerMutation() {
     mutationFn: (id: string) => refreshServer(id),
     onSuccess: (server) => {
       queryClient.setQueryData(queryKeys.servers.detail(server.id), server);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers.rows() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sites.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.events.all });
+    },
+  });
+}
+
+/**
+ * Delete one server (`DELETE /servers/{id}`), optionally forced.
+ *
+ * Returns:
+ *   The mutation, taking `{ id, force }`; the server's detail cache is dropped and the rows,
+ *   sites and events refetch.
+ */
+export function useDeleteServerMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force: boolean }) => deleteServer(id, force),
+    onSuccess: (_, { id }) => {
+      queryClient.removeQueries({ queryKey: queryKeys.servers.detail(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.servers.rows() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.sites.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.events.all });

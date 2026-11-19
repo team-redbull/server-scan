@@ -2044,6 +2044,15 @@ share a read (`coalesce`). Unlike the recheck it never degrades: no connection o
 missing source is 409 `SERVER_REFRESH_UNSUPPORTED`, a server the manager no longer lists 409 `SERVER_NOT_AT_MANAGER`, a
 vendor failure 503. In development `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` points every live read at the fake fleet.
 
+## Deleting one server (ADR-0065)
+
+`DELETE /api/v1/servers/{id}[?force=true]` (`require_admin`; the detail page's "Remove", `features/servers/DeleteServerButton`)
+runs `ServerDeleteService` (`app/application/services/server_delete.py`): `delete_blockers` names why the server is in use
+(OpenShift state other than `AVAILABLE`, a live reservation, maintenance), a block without `force` is 409
+`SERVER_DELETE_BLOCKED` with the reasons in `details.blockers`, then a `SERVER_DELETED` event (`forced`, `overridden`), then
+`ServerRepository.delete`; the route drops the detail and list caches. A server its manager still lists is recreated by the
+next collector run.
+
 ## Audit trail UI
 
 The server detail page has a **History** tab (`GET /servers/{id}/events`)

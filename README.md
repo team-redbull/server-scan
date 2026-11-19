@@ -82,8 +82,8 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
   ([ADR-0027](docs/adr/0027-unknown-is-not-a-reading.md),
   [ADR-0037](docs/adr/0037-bmc-reachability-health.md)).
 - **Stale.** A server no collector has seen for 12 hours (`INVENTORY_STALE_AFTER_SECONDS`).
-- **Maintenance and reservation.** An operator can pause a server with a reason (the only
-  write in the UI). A caller can take a time-limited install lock on it
+- **Maintenance and reservation.** An operator can pause a server with a reason. A caller can take
+  a time-limited install lock on it
   ([ADR-0035](docs/adr/0035-install-reservation-lock.md)).
 - **`None` means "not read this run".** A collector never turns a failed read into zero, so
   good stored data is not overwritten ([ADR-0016](docs/adr/0016-redfish-standalone-collector.md)).
@@ -122,7 +122,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/confs`, `/confs/{conf_id}` | Server configurations from the `confs` collection, read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | `GET /api/v1/events`, `/servers/{id}/events` | Audit trail. |
 | `GET /api/v1/health-policies`, `/classification-rules` | The rules the platform applies. |
-| `PUT/DELETE /api/v1/servers/{id}/maintenance`, `POST/DELETE .../reservation` | Writes (admin only). |
+| `PUT/DELETE /api/v1/servers/{id}/maintenance`, `POST/DELETE .../reservation`, `POST .../refresh`, `DELETE /api/v1/servers/{id}` | Writes (admin only). A refresh reads one server from its vendor manager now ([ADR-0064](docs/adr/0064-server-refresh.md)); a delete refuses a server in use unless `?force=true` ([ADR-0065](docs/adr/0065-delete-a-server.md)). |
 | `GET /health/live`, `/health/ready` | Probes. |
 
 Filters on `/servers`: `site_id`, `vendor`, `health_overall`, `installation_type`,

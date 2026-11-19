@@ -56,3 +56,12 @@ export function refreshServer(id: string): Promise<ServerDetail> {
     { method: "POST" },
   );
 }
+
+/** Removes the server from the database (admin only, ADR-0065). Without `force`, a server in use
+ * is refused with a 409 whose `details.blockers` lists why. */
+export function deleteServer(id: string, force: boolean): Promise<void> {
+  return apiFetch<void>(
+    `/api/v1/servers/${encodeURIComponent(id)}${force ? "?force=true" : ""}`,
+    { method: "DELETE" },
+  );
+}

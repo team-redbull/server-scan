@@ -331,7 +331,7 @@ long form of each entry is in the 2026-09-13 archive.
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
-  the eight mutation endpoints (maintenance, reservation, reclassify, health recalculate, `POST /servers/available`, refresh) in `servers.py`) — a new mutation endpoint must
+  the nine mutation endpoints (maintenance, reservation, reclassify, health recalculate, `POST /servers/available`, refresh, `DELETE /servers/{id}`) in `servers.py`) — a new mutation endpoint must
   add it explicitly. Machine callers send `Authorization: Bearer
   <api_token_admin|viewer>`; `auth.enabled=false` returns a fixed dev-admin actor.
 - **`Server.openshift` is written by two CronJobs and nothing else, and the
@@ -492,14 +492,11 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-17 — "Fetch now": `POST /api/v1/servers/{id}/refresh` reads one server from its manager (ADR-0064).**
-Moved to `docs/notes/session-log.md`: the inventory Type filter / Sites cards / health-filter unit.
+**2026-11-19 — Delete a server: `DELETE /api/v1/servers/{id}[?force=true]` (ADR-0065).**
+Moved to `docs/notes/session-log.md`: the "Fetch now" unit (also the per-row button and the `/events` own-scroll box).
 
-**Shipped (branch `feat/server-refresh`):** `POST /api/v1/servers/{id}/refresh` (admin) runs
-`available_servers.fetch_live` (now shared with the `/servers/available` recheck) for one server, 409
-`SERVER_REFRESH_UNSUPPORTED` / `SERVER_NOT_AT_MANAGER`, 503 on a vendor failure, `SERVER_REFRESHED` audited; the detail
-page's "Fetch now" button (`RefreshButton`). `INVENTORY_FAKE_MANAGERS=seed:count[:epoch]` (development only) makes every
-live read answer from the fake fleet.
+**Shipped (branch `feat/delete-server`):** admin-only delete; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`)
+while the server is in use by OpenShift, holds a live reservation or is in maintenance, unless `force=true`;
+`SERVER_DELETED` audited with `forced`/`overridden`; the detail page's "Remove" (type-the-name dialog, "Remove anyway").
 
-**Open:** a refresh is one more `get_one()` caller with no per-manager cap (still parked, item 1 below "Explicitly NOT
-done yet"); `REDFISH_STANDALONE` and a hub's `KUBEVIRT` servers cannot be refreshed from the API (409 by design).
+**Open:** a server its manager still lists comes back on the next collector run (no ignore list); no bulk delete or undo.
