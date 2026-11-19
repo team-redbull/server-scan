@@ -91,6 +91,12 @@ export function OverviewTab({ server }: OverviewTabProps) {
             value={server.profile_template.name ?? "—"}
           />
         )}
+        {server.source_provider === "OPENMANAGE" && (
+          <Field
+            label="Profile deployment"
+            value={server.profile_deployment?.last_run_status_name ?? "—"}
+          />
+        )}
         <Field label="Site" value={server.site_id ?? "—"} />
         <Field
           label="Classification"
@@ -302,6 +308,7 @@ const HEALTH_CATEGORIES: {
   { key: "gpu", label: "GPU" },
   { key: "bmc", label: "BMC" },
   { key: "name", label: "Name" },
+  { key: "profile", label: "Profile" },
 ];
 
 /** Cisco servers sit behind the fabric interconnects and are never probed, and
@@ -349,6 +356,7 @@ function HealthBreakdown({
     if (key === "raid") return RAID_PROVIDERS.has(provider);
     if (key === "gpu") return hasGpus;
     if (key === "name") return health.name !== "UNKNOWN";
+    if (key === "profile") return provider === "OPENMANAGE";
     return true;
   });
   const labels = new Map(

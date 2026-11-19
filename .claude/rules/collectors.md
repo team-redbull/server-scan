@@ -147,7 +147,9 @@ the global and filter on the override, silently.
   `ComputerSystem.SerialNumber` (confirmed on iDRAC9 only); BMC address is
   `DeviceManagement[0].NetworkAddress`, **not** `TargetName`/`DeviceName`
   (OME's "Server Device Naming" setting can make those an OS hostname); the display name is only a fallback
-  and only when it is an IP, otherwise the server is a CRITICAL `not_an_idrac` stub (2026-11-05, ADR-0037).
+  and only when it is an IP, otherwise the server is a CRITICAL `not_an_idrac` stub (2026-11-05, ADR-0037). **The profile's
+  `LastRunStatus` is the last deployment run** (ADR-0066): 2070 Failed is CRITICAL, 2060 Completed HEALTHY,
+  every other id UNKNOWN; only this collector writes `Server.profile_deployment`.
 - **`REDFISH_STANDALONE`** and **`OPENMANAGE`** (ADR-0016, ADR-0037): every per-host failure
   (unreachable, rejected login, TLS, blown budget, protocol) is
   ERROR-logged and yields a stub with a reason; only a plain unreachable host

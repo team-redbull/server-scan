@@ -246,6 +246,17 @@ both `None`. The field names are the usual **unverified assumption** —
 confirm `TemplateName`/`TemplateId` exist on the profile object of the OME
 version in use.
 
+## Profile deployment status (2026-11-19, ADR-0066)
+
+The same `/ProfileService/Profiles` entry carries `LastRunStatus`, the last deployment run's result, as an
+integer in OME's job-status ids. They were read from the operator's appliance
+(`GET /api/JobService/JobStatuses`): 2020 Scheduled, 2030 Queued, 2040 Starting, 2050 Running,
+**2060 Completed**, **2070 Failed**, 2080 New, 2090 Warning, 2100 Aborted, 2101 Paused, 2102 Stopped,
+2103 Canceled, 2200 Not Run. The collector maps it onto `ProviderServer.profile_last_run_status` (id) and
+`_name`; 2070 makes the server CRITICAL (`profile.deployment_failed`), 2060 is HEALTHY, everything else is
+UNKNOWN. `ProfileState` is undocumented (4 on every attached profile, 0 on profiles with `TargetId` 0 and no
+`TargetName`, which are never collected) and is not read. `DeploymentTaskId` names the job and is not read yet.
+
 ## BMC address
 
 The iDRAC IP is rendered as

@@ -68,6 +68,17 @@ class ProfileTemplate(BaseModel):
     external_id: str | None = None
 
 
+class ProfileDeployment(BaseModel):
+    """
+    The last deployment result of the server's profile (OPENMANAGE only, ADR-0066).
+
+    `None` = never read; the ids and names are the vendor's own.
+    """
+
+    last_run_status: int | None = None
+    last_run_status_name: str | None = None
+
+
 class Server(BaseModel):
     """One document in the `servers` collection — one physical machine's full record."""
 
@@ -81,6 +92,7 @@ class Server(BaseModel):
 
     identity: Identity
     profile_template: ProfileTemplate = Field(default_factory=ProfileTemplate)
+    profile_deployment: ProfileDeployment = Field(default_factory=ProfileDeployment)
     hardware: Hardware = Field(default_factory=Hardware)
     network: NetworkInfo = Field(default_factory=NetworkInfo)
     connectivity: Connectivity = Field(default_factory=Connectivity)

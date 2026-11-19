@@ -60,6 +60,7 @@ function makeServer(overrides: Partial<ServerDetail> = {}): ServerDetail {
       gpu: "UNKNOWN",
       bmc: "UNKNOWN",
       name: "UNKNOWN",
+      profile: "UNKNOWN",
     },
     maintenance: { enabled: false, reason: null },
     reservation: {
@@ -215,6 +216,23 @@ describe("OverviewTab health breakdown", () => {
     expect(screen.getByText("BMC")).toBeInTheDocument();
     expect(screen.getByText("RAID")).toBeInTheDocument();
     expect(screen.getByText("Power")).toBeInTheDocument();
+  });
+
+  it("shows the Profile row and the failed deployment for a Dell server, and no other vendor's", () => {
+    const failed = makeServer({
+      source_provider: "OPENMANAGE",
+      profile_deployment: { last_run_status: 2070, last_run_status_name: "Failed" },
+    });
+    failed.health.profile = "CRITICAL";
+    const { unmount } = render(<OverviewTab server={failed} />);
+    expect(screen.getByText("Profile")).toBeInTheDocument();
+    expect(screen.getByText("Profile deployment")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    unmount();
+
+    render(<OverviewTab server={makeServer({ source_provider: "UCS_CENTRAL" })} />);
+    expect(screen.queryByText("Profile")).not.toBeInTheDocument();
+    expect(screen.queryByText("Profile deployment")).not.toBeInTheDocument();
   });
 });
 

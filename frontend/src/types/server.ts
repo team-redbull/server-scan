@@ -38,6 +38,13 @@ export interface ProfileTemplate {
   external_id: string | null;
 }
 
+/** Dell OpenManage only: the OME profile's last deployment run (ADR-0066).
+ * `last_run_status` is null when it was never read. */
+export interface ProfileDeployment {
+  last_run_status: number | null;
+  last_run_status_name: string | null;
+}
+
 /** Never absent or null: `UNKNOWN` is "no policy has said anything yet". */
 export type UnreachableReason =
   | "network_unreachable"
@@ -68,6 +75,8 @@ export interface HealthSummary {
   gpu: HealthSeverity;
   bmc: HealthSeverity;
   name: HealthSeverity;
+  /** Dell OpenManage only: the profile's last deployment run (ADR-0066). */
+  profile: HealthSeverity;
   /** Absent on a document written before the API recorded them. */
   reasons?: HealthReason[];
 }
@@ -312,6 +321,8 @@ export interface ServerDetail {
   model: string | null;
   server_type: ServerType;
   profile_template: ProfileTemplate;
+  /** Absent on a response from an API older than ADR-0066. */
+  profile_deployment?: ProfileDeployment;
   identity: ServerIdentity;
   hardware: HardwareInfo;
   network: NetworkInfo;
