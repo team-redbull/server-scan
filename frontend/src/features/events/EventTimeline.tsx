@@ -22,6 +22,8 @@ const TYPE_TINT: [prefix: string, tint: string][] = [
   ["MAINTENANCE_", "--tint-maintenance"],
   ["SERVER_PRUNED", "--tint-critical"],
   ["SERVER_DELETED", "--tint-critical"],
+  ["CLUSTER_NOT_REPORTING", "--tint-warning"],
+  ["CLUSTER_DECOMMISSIONED", "--tint-critical"],
   ["AUDIT_PURGED", "--surface-hover"],
   ["IDRAC_RESET", "--tint-warning"],
   ["LOGIN_DENIED", "--tint-critical"],

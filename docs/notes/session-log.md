@@ -8,6 +8,15 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-19 — Delete a server: `DELETE /api/v1/servers/{id}[?force=true]` (ADR-0065).**
+**Shipped (branch `feat/delete-server`):** admin-only delete; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`)
+while the server is in use by OpenShift, holds a live reservation or is in maintenance, unless `force=true`;
+`SERVER_DELETED` audited with `forced`/`overridden`; the detail page's "Remove" (type-the-name dialog, "Remove anyway").
+
+**Open:** a server its manager still lists comes back on the next collector run (no ignore list); no bulk delete or undo.
+
+---
+
 **2026-11-17 — "Fetch now": `POST /api/v1/servers/{id}/refresh` reads one server from its manager (ADR-0064).**
 **Shipped (branch `feat/server-refresh`):** `POST /api/v1/servers/{id}/refresh` (admin) runs
 `available_servers.fetch_live` (now shared with the `/servers/available` recheck) for one server, 409

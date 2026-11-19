@@ -46,6 +46,16 @@ describe("describeEvent", () => {
       "Deleted by hand, forced (it is in maintenance; it is reserved for an install (mce-a))",
     ],
     [
+      "CLUSTER_NOT_REPORTING",
+      { kind: "nodes", name: "ocp-tomer-bat-yam", held: 3, silent_seconds: 8 * 86400 + 600 },
+      "Cluster ocp-tomer-bat-yam stopped reporting: no run for 8 days, 3 servers still held",
+    ],
+    [
+      "CLUSTER_DECOMMISSIONED",
+      { kind: "nodes", name: "ocp-tomer-bat-yam", freed: 3 },
+      "Decommissioned nodes job ocp-tomer-bat-yam: 3 servers freed",
+    ],
+    [
       "AUDIT_PURGED",
       { deleted: 1200, retention_days: 180 },
       "Purged 1200 audit events older than 180 days",

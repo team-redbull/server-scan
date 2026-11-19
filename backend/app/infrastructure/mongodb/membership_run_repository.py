@@ -8,6 +8,7 @@ hostname was unmatched — see ADR-0029's 2026-09-24 update.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pymongo.asynchronous.collection import AsyncCollection
@@ -15,8 +16,12 @@ from pymongo.asynchronous.collection import AsyncCollection
 from app.domain.models.openshift import MembershipRun
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.indexes import MEMBERSHIP_RUNS_COLLECTION
+from app.utils.timeutil import utcnow
 
 _Document = dict[str, Any]
+
+# Set once a job has been reported silent; a new run clears it (ADR-0067).
+NOT_REPORTING_FIELD = "not_reporting_notified_at"
 
 
 class MongoMembershipRunRepository:
@@ -48,9 +53,57 @@ class MongoMembershipRunRepository:
         doc_id = f"{run.kind}:{run.reported_by}"
         await self._collection.update_one(
             {"_id": doc_id},
-            {"$set": run.model_dump(mode="json")},
+            {"$set": run.model_dump(mode="json"), "$unset": {NOT_REPORTING_FIELD: ""}},
             upsert=True,
         )
+
+    async def claim_not_reporting(self, kind: str, reported_by: str, *, cutoff: datetime) -> bool:
+        """
+        Atomically mark a job as reported silent, once per silent stretch.
+
+        Args:
+            kind (str): `nodes` or `agents`.
+            reported_by (str): The cluster or MCE name.
+            cutoff (datetime): A run that finished before this is silent.
+
+        Returns:
+            bool: `True` for the one caller that marked it (so only it records the event).
+        """
+        result = await self._collection.update_one(
+            {
+                "_id": f"{kind}:{reported_by}",
+                "finished_at": {"$lt": cutoff.isoformat()},
+                NOT_REPORTING_FIELD: {"$exists": False},
+            },
+            {"$set": {NOT_REPORTING_FIELD: utcnow().isoformat()}},
+        )
+        return result.modified_count == 1
+
+    async def release_not_reporting(self, kind: str, reported_by: str) -> None:
+        """
+        Clear the mark, so the next check retries an event that could not be written.
+
+        Args:
+            kind (str): `nodes` or `agents`.
+            reported_by (str): The cluster or MCE name.
+        """
+        await self._collection.update_one(
+            {"_id": f"{kind}:{reported_by}"}, {"$unset": {NOT_REPORTING_FIELD: ""}}
+        )
+
+    async def delete(self, kind: str, reported_by: str) -> bool:
+        """
+        Delete one job's run record, so its gauges and alerts disappear.
+
+        Args:
+            kind (str): `nodes` or `agents`.
+            reported_by (str): The cluster or MCE name.
+
+        Returns:
+            bool: `True` if a record was deleted.
+        """
+        result = await self._collection.delete_one({"_id": f"{kind}:{reported_by}"})
+        return result.deleted_count == 1
 
     async def list_all(self) -> list[MembershipRun]:
         """

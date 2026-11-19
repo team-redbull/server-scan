@@ -9,6 +9,8 @@ export const WRITTEN_EVENT_TYPES = [
   "SERVER_RENAMED",
   "SERVER_PRUNED",
   "SERVER_DELETED",
+  "CLUSTER_NOT_REPORTING",
+  "CLUSTER_DECOMMISSIONED",
   "HEALTH_CHANGED",
   "CLASSIFICATION_CHANGED",
   "OPENSHIFT_STATE_CHANGED",
@@ -149,6 +151,12 @@ export function describeEvent(event: AuditEventResponse): string {
       return d.forced === true
         ? `Deleted by hand, forced (${Array.isArray(d.overridden) ? d.overridden.join("; ") : "in use"})`
         : "Deleted by hand";
+    case "CLUSTER_NOT_REPORTING":
+      return `${str(d.kind) === "agents" ? "MCE" : "Cluster"} ${str(d.name) ?? "?"} stopped reporting: no run for ${
+        typeof d.silent_seconds === "number" ? Math.floor(d.silent_seconds / 86400) : "?"
+      } days, ${count(d.held)} servers still held`;
+    case "CLUSTER_DECOMMISSIONED":
+      return `Decommissioned ${str(d.kind) ?? "?"} job ${str(d.name) ?? "?"}: ${count(d.freed)} servers freed`;
     case "LOGIN_SUCCEEDED":
       return `Logged in as ${str(d.role)?.toLowerCase() ?? "?"}`;
     case "LOGIN_DENIED":

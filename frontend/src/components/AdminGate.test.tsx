@@ -54,3 +54,28 @@ describe("admin-only Jobs", () => {
     expect(screen.queryByText("secret")).not.toBeInTheDocument();
   });
 });
+
+describe("admin-only Clusters", () => {
+  it.each<[Role, boolean]>([
+    ["ADMIN", true],
+    ["AUDITOR", false],
+    ["VIEWER", false],
+  ])("%s sees the Clusters link: %s", async (role, visible) => {
+    stubMe(role);
+    renderWithClient(<AppNav />);
+    await screen.findByText(role);
+    expect(screen.queryByRole("link", { name: "Clusters" }) !== null).toBe(visible);
+  });
+
+  it("keeps a non-admin off the page, under its own title", async () => {
+    stubMe("VIEWER");
+    renderWithClient(
+      <AdminGate title="Clusters" what="Retiring a cluster">
+        <p>secret</p>
+      </AdminGate>,
+    );
+    expect(await screen.findByText("Retiring a cluster is available to admins only.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Clusters" })).toBeInTheDocument();
+    expect(screen.queryByText("secret")).toBeNull();
+  });
+});

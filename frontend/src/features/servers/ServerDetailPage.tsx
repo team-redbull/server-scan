@@ -11,6 +11,7 @@ import { HardwareTab } from "@/features/servers/HardwareTab";
 import { useServerDetailQuery } from "@/features/servers/hooks";
 import { NetworkTab } from "@/features/servers/NetworkTab";
 import { OverviewTab } from "@/features/servers/OverviewTab";
+import { SilentClustersBanner } from "@/features/clusters/SilentClustersBanner";
 import { DeleteServerButton } from "@/features/servers/DeleteServerButton";
 import { RefreshButton } from "@/features/servers/RefreshButton";
 import { inferredGpuModel } from "@/lib/gpuModel";
@@ -74,6 +75,15 @@ export function ServerDetailPage() {
 
       {data && (
         <>
+          <div className="mt-4 empty:hidden">
+            <SilentClustersBanner
+              only={(job) =>
+                job.kind === "nodes"
+                  ? job.name === data.openshift.cluster_name
+                  : job.name === data.openshift.mce_name
+              }
+            />
+          </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold">{data.name}</h1>

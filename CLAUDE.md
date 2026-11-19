@@ -331,7 +331,7 @@ long form of each entry is in the 2026-09-13 archive.
 - **Every router except `health`/`auth`/`metrics` requires a resolved caller**
   (ADR-0034): `app.main` mounts `Depends(get_current_actor)` at
   `include_router`. A **write** also needs `Depends(require_admin)` (currently
-  the nine mutation endpoints (maintenance, reservation, reclassify, health recalculate, `POST /servers/available`, refresh, `DELETE /servers/{id}`) in `servers.py`) — a new mutation endpoint must
+  the nine mutation endpoints (maintenance, reservation, reclassify, health recalculate, `POST /servers/available`, refresh, `DELETE /servers/{id}`) in `servers.py`, plus `POST /openshift/clusters/{kind}/{name}/decommission` in `openshift.py`, whose `GET` is admin only too) — a new mutation endpoint must
   add it explicitly. Machine callers send `Authorization: Bearer
   <api_token_admin|viewer>`; `auth.enabled=false` returns a fixed dev-admin actor.
 - **`Server.openshift` is written by two CronJobs and nothing else, and the
@@ -492,11 +492,13 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-19 — Delete a server: `DELETE /api/v1/servers/{id}[?force=true]` (ADR-0065).**
-Moved to `docs/notes/session-log.md`: the "Fetch now" unit (also the per-row button and the `/events` own-scroll box).
+**2026-11-19 — Retire a destroyed cluster: `GET /openshift/clusters`, `POST .../decommission`, the Clusters page (ADR-0067).**
+Moved to `docs/notes/session-log.md`: the delete-a-server unit.
 
-**Shipped (branch `feat/delete-server`):** admin-only delete; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`)
-while the server is in use by OpenShift, holds a live reservation or is in maintenance, unless `force=true`;
-`SERVER_DELETED` audited with `forced`/`overridden`; the detail page's "Remove" (type-the-name dialog, "Remove anyway").
+**Shipped (branch `feat/cluster-decommission`):** a membership job dies with its cluster, leaving servers `INSTALLED`, a
+`membership_runs` record and two firing alerts. Jobs are listed with `silent` (no run for 7 days,
+`INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`) and a timer in the API (`INVENTORY_OPENSHIFT_SILENT_CHECK_SECONDS`) records
+`CLUSTER_NOT_REPORTING` once per silent stretch; an admin decommissions one (frees its servers, drops its record, audits
+`CLUSTER_DECOMMISSIONED`); the Clusters page, a banner on Sites and on a silent cluster's server detail.
 
-**Open:** a server its manager still lists comes back on the next collector run (no ignore list); no bulk delete or undo.
+**Open:** no automatic release (deliberate); a cluster no job ever wrote a record for is not listed; the threshold is not a Helm value.

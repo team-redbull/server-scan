@@ -118,6 +118,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/servers/{id}/vm-host` | The bare-metal server a KubeVirt VM runs on, resolved at read time ([ADR-0059](docs/adr/0059-vm-host.md)). |
 | `GET /api/v1/servers/available` | Assignable servers for BareMetalHost creation, from stored data. |
 | `POST /api/v1/servers/available` | Locks one assignable server, live-checks it and returns it ([ADR-0063](docs/adr/0063-available-reserves-and-verifies.md)). |
+| `GET /api/v1/openshift/clusters`, `POST .../{kind}/{name}/decommission` | Admin only. The membership jobs by recency; an admin retires a destroyed cluster's ([ADR-0067](docs/adr/0067-decommission-a-destroyed-cluster.md)). |
 | `GET /api/v1/sites` | Per-site and fleet-wide counts. |
 | `GET /api/v1/confs`, `/confs/{conf_id}` | Server configurations from the `confs` collection, read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | `GET /api/v1/events`, `/servers/{id}/events` | Audit trail. |

@@ -10,6 +10,8 @@ continues, readiness reports it as degraded).
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -33,17 +35,21 @@ from app.api.v1.confs import router as confs_router
 from app.api.v1.events import router as events_router
 from app.api.v1.health_policies import router as health_policies_router
 from app.api.v1.jobs import router as jobs_router
+from app.api.v1.openshift import router as openshift_router
 from app.api.v1.servers import router as servers_router
 from app.api.v1.sites import router as sites_router
 from app.api.v1.skill import router as skill_router
 from app.api.v1.tokens import router as tokens_router
+from app.application.services.audit_service import AuditService
 from app.application.services.bootstrap import (
     ensure_default_classification_rules,
     ensure_default_health_policies,
 )
-from app.config import get_settings
+from app.application.services.cluster_decommission import ClusterDecommissionService
+from app.config import Settings, get_settings
 from app.config.jobs import effective_backend, get_jobs_settings
 from app.dependencies import get_current_actor, require_audit_access
+from app.domain.models.audit_event import Actor, ActorType
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
 from app.domain.value_objects.site import site_catalog
@@ -66,8 +72,37 @@ from app.infrastructure.singleflight import drain as drain_singleflight
 from app.middleware.request_context import RequestContextMiddleware
 from app.observability.fleet_gauges import FleetGaugeRefresher
 from app.observability.metrics import http_request_duration_seconds, http_requests_total
+from app.utils.timeutil import utcnow
 
 logger = structlog.get_logger(__name__)
+
+
+async def _watch_silent_clusters(mongo: MongoClientHolder, settings: Settings) -> None:
+    """
+    Record each membership job that has just gone silent, on a timer (ADR-0067).
+
+    Args:
+        mongo (MongoClientHolder): The connected Mongo client.
+        settings (Settings): Supplies `openshift_silent_check_seconds` (0 disables) and the
+            silence threshold.
+    """
+    interval = settings.openshift_silent_check_seconds
+    if interval <= 0:
+        return
+    service = ClusterDecommissionService(
+        server_repo=MongoServerRepository(mongo, cursor_secret=settings.cursor_secret),
+        runs=MongoMembershipRunRepository(mongo),
+        audit=AuditService(repo=MongoAuditEventRepository(mongo)),
+        actor=Actor(type=ActorType.SYSTEM, id="cluster-watch"),
+    )
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await service.notify_silent(
+                now=utcnow(), silent_after_seconds=settings.openshift_silent_after_seconds
+            )
+        except Exception:
+            logger.exception("cluster_watch.failed")
 
 
 @asynccontextmanager
@@ -129,11 +164,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         effective_backend(get_jobs_settings(), settings.environment), get_jobs_settings().namespace
     )
 
+    watch = asyncio.create_task(_watch_silent_clusters(mongo, settings))
     logger.info("app.ready")
     try:
         yield
     finally:
         logger.info("app.stopping")
+        watch.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watch
         # Before the clients close — see `singleflight.drain`.
         await drain_singleflight()
         await redis.close()
@@ -226,6 +265,8 @@ def create_app() -> FastAPI:
     app.include_router(tokens_router, dependencies=_authenticated)
     # Admin only on every route, reads included (docs/adr/0055); the router adds `require_admin`.
     app.include_router(jobs_router, dependencies=_authenticated)
+    # Admin only on every route, reads included (docs/adr/0067); the router adds `require_admin`.
+    app.include_router(openshift_router, dependencies=_authenticated)
 
     if settings.metrics_enabled:
 

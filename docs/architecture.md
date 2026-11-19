@@ -2053,6 +2053,17 @@ runs `ServerDeleteService` (`app/application/services/server_delete.py`): `delet
 `ServerRepository.delete`; the route drops the detail and list caches. A server its manager still lists is recreated by the
 next collector run.
 
+## Retiring a destroyed cluster (ADR-0067)
+
+A membership job lives inside its cluster, so a destroyed cluster leaves servers `INSTALLED`, a `membership_runs` record
+and two firing alerts. `GET /api/v1/openshift/clusters` (`ClusterDecommissionService.list_jobs`; the whole router is admin only) lists each job with its
+held servers and `silent` (no run for `INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`, 7 days); `POST .../{kind}/{name}/decommission`
+(`require_admin`) calls `OpenShiftMembershipService.release(scope)` (the job's own `_free`), deletes the run record
+(`MongoMembershipRunRepository.delete`) and records `CLUSTER_DECOMMISSIONED`. A timer in the API process
+(`INVENTORY_OPENSHIFT_SILENT_CHECK_SECONDS`, `notify_silent`) records `CLUSTER_NOT_REPORTING` once when a job first passes the threshold (an atomic
+mark on the run record, cleared by the next real run). The UI is the Clusters page plus a banner on
+Sites and on the detail page of a server whose cluster is silent.
+
 ## Audit trail UI
 
 The server detail page has a **History** tab (`GET /servers/{id}/events`)
