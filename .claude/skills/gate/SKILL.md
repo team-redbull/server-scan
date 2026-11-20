@@ -18,8 +18,8 @@ separately when the change touches behaviour.
 
 The audit steps (`pip-audit`, `deptry`, `npm audit --omit=dev`) are CI's own and need the
 network. They fail on an advisory published since the last green run with NO
-change in your code — that is how a push that passed every local lint step
-still went red on 2026-09-30 (urllib3 2.7.0, undici). Fix with
+change in your code, so a push that passed every local lint step can still
+go red. Fix with
 `uv lock --upgrade-package <pkg>` (then re-export `requirements.txt` /
 `pylock.toml`, docs/air-gap.md) or `npm audit fix`. An audit that failed
 because the network was down is not a pass.

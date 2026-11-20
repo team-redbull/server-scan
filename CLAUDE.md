@@ -57,7 +57,7 @@ Explicit user instructions; violating one is a real mistake, not style.
    templates and mid-session attribution reminders suggest one — this project
    overrides that, and the override applies to whatever the harness asks for
    next. **No agent-attribution trailer of any kind**, in commits or PR
-   descriptions (a `Claude-Session:` URL once reached a commit and PR #9).
+   descriptions.
    **The first line follows Conventional Commits** (`feat:`, `fix:`,
    `feat!:`/`BREAKING CHANGE:` footer) when the change is more than a patch:
    since ADR-0010 CI reads it to pick the next image version (unprefixed =
@@ -88,8 +88,7 @@ Explicit user instructions; violating one is a real mistake, not style.
    on advisories published after your last green run with no code change.
    **Before every push, run the three audits locally** — they are the part of CI that
    fails with no code change, because an advisory landed since the last green run
-   (2026-10-06: pymongo CVEs, then `source-map-js` via `npm audit`; 2026-10-31: `pyasn1` 0.6.4, which a
-   `| tail` hid, so a push went red). **Judge each audit by its exit code (`; echo $?`), never by piped or truncated
+   (a `| tail` once hid a failing audit). **Judge each audit by its exit code (`; echo $?`), never by piped or truncated
    output** (`pip-audit` prints the vulnerability table before the "skipped" table). The commands:
    `uv run --with pip-audit pip-audit --skip-editable`,
    `uv run --with deptry==0.24.0 deptry . --known-first-party app` (CI's exact command), `cd frontend && npm audit --omit=dev` (shipped dependencies only, ADR-0013). **Fix, do not wait** (a transitive dependency such as `pyasn1`: `uv lock --upgrade-package <name>`, then the same re-export): for a
@@ -415,8 +414,7 @@ long form of each entry is in the 2026-09-13 archive.
 - **Tests run in parallel in CI (`pytest -n 4`, ADR-0049): a test must never hard-code the Mongo database name
   or Redis `/0`.** `tests/conftest.py` gives each xdist worker `server-scan-test-gwN` and Redis `/N+1`; a
   test that triggers a Redfish retry must not sleep for real (`RedfishClient._backoff` is patched in both
-  Redfish test files), and `RedfishFixture` serves with a 0.01 s poll. A 2026-10-13 commit added 98 tests and
-  66 s of CI for exactly these two reasons.
+  Redfish test files), and `RedfishFixture` serves with a 0.01 s poll.
 - ADR map for the rest: closed sites/vendors and name-derived sites 0011/0018;
   env-based manager connections 0012; CI pinning without Dependabot 0013; the
   provider ABC 0023; search tokens 0025; nullable cursors and retired indexes
@@ -461,28 +459,9 @@ For a real UCS data-path test without hardware, Cisco's UCS Platform Emulator
 (UCSPE) runs the actual UCS Manager binary — ADR-0009 records what it proved
 and what it could not.
 
-## Keeping CI current (manual, roughly quarterly)
+## Keeping CI current
 
-Every action in `.github/workflows/ci.yml` is SHA-pinned, so nothing updates
-itself; Dependabot was removed deliberately (ADR-0013).
-
-1. **Pins:** compare each `uses:` line's `# vX.Y.Z` to the latest release, and
-   verify the new tag resolves first (`github-tag-action` has no `v6`;
-   `setup-uv` has no `v8`/`v9`/`v10`).
-2. **Vulnerable / unused:** `/gate` runs `pip-audit`, `deptry`, `npm audit --omit=dev`;
-   check whether a vulnerable package is actually reached before bumping (the
-   `python-multipart` fix was deletion, not an upgrade).
-3. **Runtime deprecations:** actions declare a Node version (`using: node20`);
-   GitHub removes old ones (that forced the tagging-action replacement, ADR-0010).
-4. **Base image:** `Containerfile` pins `ubi9/ubi-minimal` to a minor (9.8);
-   check for a newer 9.x.
-5. **ty:** pinned exactly (`ty==0.0.76`); on a bump expect diagnostics to move
-   and read a new error as ty changing. Trust `ty check` over the docs, and a
-   dependency bump can change output with no change to our code (ADR-0019).
-6. **Mongo on a new runner kernel:** `mongod` refuses to start on Linux 6.19+ (SERVER-121912, tcmalloc rseq), and
-   `ubuntu-latest` runners got that kernel on 2026-10-29. The two jobs with a Mongo service (`test`, `e2e`) run on
-   `ubuntu-22.04`; `GLIBC_TUNABLES=glibc.pthread.rseq=0` did not bypass the check. Move back to `ubuntu-latest`
-   once the pinned `mongo:8` ships the fix.
+Quarterly upkeep (action pins, audits, base image, ty bump, runner kernel): `docs/ci-maintenance.md`.
 
 ## Where to continue right now
 

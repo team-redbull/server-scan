@@ -2,7 +2,7 @@
 
 All paths are under `$BASE_URL`. JSON everywhere. Read endpoints work with the viewer
 or auditor token (the events endpoints need the auditor or admin token, a viewer gets `403`);
-mutations need the admin token. Generated from the app's own OpenAPI schema -
+mutations need the admin token. Maintained by hand against the app's OpenAPI schema -
 `$BASE_URL/openapi.json` is authoritative if this drifts.
 
 ## Contents

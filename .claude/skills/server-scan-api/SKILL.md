@@ -30,8 +30,11 @@ api() { curl -sS -H "Authorization: Bearer $AUDITOR_TOKEN" -H "Accept: applicati
 api "/api/v1/servers?vendor=dell&site_id=tlv&page_size=200" | jq '.items[] | {name, model, health: .health.overall}'
 ```
 
+Each Bash call starts a fresh shell, so begin every command with the two variable lines
+and the `api()` line; the recipes below assume them.
+
 The auditor token is read-only and, unlike the viewer token, may read the audit trail (the
-events endpoints). Stay on GET: the write endpoints (maintenance, reservation, reclassify, refresh, delete, cluster decommission) need
+events endpoints). Stay on GET: the write endpoints (maintenance, reservation, reclassify, health recalculate, refresh, delete, cluster decommission) need
 the admin token (so does `/api/v1/jobs`, which starts and reads collector Jobs), and you only use them when the user explicitly asks. If this holds a viewer
 token, everything works except events, which answer `403`.
 
@@ -106,4 +109,4 @@ grouping, counting or filtering on a field the list endpoint lacks.
 
 - Response fields, `available` and events parameters, every endpoint: [references/endpoints.md](references/endpoints.md)
 - Interactive docs on a running instance: `$BASE_URL/docs`
-- Project overview and design decisions: `README.md`, `docs/adr/0032-available-server-lookup-api.md`, `docs/adr/0063-available-reserves-and-verifies.md`, `docs/adr/0034-ad-login-roles-and-api-tokens.md`
+- Design background (not shipped with this skill): the operator's Server Scan repository, ADR-0032 (available lookup), ADR-0063 (reserve and verify), ADR-0034 (login, roles, tokens)
