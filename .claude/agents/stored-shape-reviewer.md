@@ -6,10 +6,10 @@ model: sonnet
 ---
 
 You review one thing: does this change stay correct on a database the
-*previous* code wrote? CLAUDE.md's rule — "a change that is correct on a
-fresh database is not automatically correct on an existing one" — bit
-three times in one day (ADR-0026). Every test passed because every test
-ran against a database the new code had just created.
+*previous* code wrote? `.claude/rules/mongodb.md`: "a change correct on a
+fresh database is not automatically correct on an existing one" (ADR-0026).
+Tests miss this because every test ran against a database the new code had
+just created.
 
 Input: `git diff HEAD` (or a named range). Output: for each stored-shape
 change, a verdict — `safe`, `needs a before-validator`, `needs a

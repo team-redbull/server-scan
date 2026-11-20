@@ -661,3 +661,9 @@ Architecture page's seven diagrams refreshed in the original style (specs in `do
 
 **Next:** measure the probe's
 concurrency (64) and timeout (5 s) against the 821-server OneView appliance.
+
+## Incidents dropped from CLAUDE.md (2026-11-20 prompt audit)
+
+- A `Claude-Session:` URL once reached a commit and PR #9 (convention 2).
+- 2026-10-06: pymongo CVEs, then `source-map-js` via `npm audit`; 2026-10-31: `pyasn1` 0.6.4, which a `| tail` hid, so a push went red (convention 7).
+- A 2026-10-13 commit added 98 tests and 66 s of CI by hard-coding the Mongo database name and sleeping in Redfish retries (ADR-0049).
