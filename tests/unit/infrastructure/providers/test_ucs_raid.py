@@ -15,6 +15,7 @@ from tests.unit.infrastructure.providers.test_ucs_manager_provider import (
 )
 
 from app.domain.ports.provider import ServerIdentity
+from app.infrastructure.providers.ucs_manager.mapping import _storage_drives
 from app.infrastructure.providers.ucs_manager.raid import (
     _volume,
     assess_ucs_raid,
@@ -235,3 +236,98 @@ class TestVolumeCapacity:
         volume = _volume(SimpleNamespace(dn=f"{_RACK}/board/storage-SATA-3/vd-0", size=size))
 
         assert volume["capacity_bytes"] == expected
+
+
+def _missing_disk(unit: str, n: int, **overrides: Any) -> SimpleNamespace:
+    """A leg UCS still lists but no longer sees (live capture 2026-11: rack-unit-21 disk-2)."""
+    base: dict[str, Any] = {
+        "dn": f"{unit}/board/storage-SATA-3/disk-{n}",
+        "presence": "missing",
+        "model": "",
+        "serial": "",
+        "device_type": "",
+        "disk_state": "unknown",
+        "size": "",
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class TestMissingDisk:
+    """A `missing` leg of a degraded virtual drive is reported, not dropped (ADR-0068)."""
+
+    def test_a_missing_leg_of_a_degraded_drive_is_a_critical_drive(self) -> None:
+        drives, total = _storage_drives(
+            [_disk(_RACK, 1, "online"), _missing_disk(_RACK, 2)],
+            [_vd(drive_state="degraded")],
+        )
+
+        by_id = {str(d["id"]).rsplit("/", 1)[-1]: d for d in drives}
+        assert set(by_id) == {"disk-1", "disk-2"}
+        assert by_id["disk-2"]["health"] == "CRITICAL"
+        assert by_id["disk-2"]["health_detail"] == "missing"
+        assert by_id["disk-2"]["capacity_bytes"] is None
+        assert by_id["disk-2"]["serial"] is None
+        assert total == 457862 * 1024 * 1024
+
+    @pytest.mark.parametrize("state", ["degraded", "partially-degraded", "rebuilding", "offline"])
+    def test_every_non_optimal_state_reports_the_missing_leg(self, state: str) -> None:
+        drives, _ = _storage_drives([_missing_disk(_RACK, 2)], [_vd(drive_state=state)])
+
+        assert [d["health_detail"] for d in drives] == ["missing"]
+
+    def test_a_cache_degraded_drive_does_not_make_a_missing_disk_a_lost_leg(self) -> None:
+        drives, _ = _storage_drives([_missing_disk(_RACK, 2)], [_vd(drive_state="cache-degraded")])
+
+        assert drives == ()
+
+    @pytest.mark.parametrize("state", ["optimal", "unknown", "", None])
+    def test_a_missing_disk_beside_a_healthy_or_unread_drive_is_not_reported(
+        self, state: str | None
+    ) -> None:
+        drives, _ = _storage_drives([_missing_disk(_RACK, 2)], [_vd(drive_state=state)])
+
+        assert drives == ()
+
+    def test_a_missing_disk_with_no_virtual_drive_is_not_reported(self) -> None:
+        drives, _ = _storage_drives([_missing_disk(_RACK, 2)], [])
+
+        assert drives == ()
+
+    def test_a_degraded_drive_on_another_controller_does_not_report_it(self) -> None:
+        elsewhere = _vd(drive_state="degraded", dn=f"{_RACK}/board/storage-SAS-1/vd-1000")
+
+        drives, _ = _storage_drives([_missing_disk(_RACK, 2)], [elsewhere])
+
+        assert drives == ()
+
+    def test_an_empty_bay_stays_dropped_beside_a_degraded_drive(self) -> None:
+        drives, _ = _storage_drives(
+            [_missing_disk(_RACK, 3, presence="empty")], [_vd(drive_state="degraded")]
+        )
+
+        assert drives == ()
+
+
+class TestMissingDiskScan:
+    @pytest.mark.parametrize("degraded", [True, False])
+    async def test_the_recheck_reads_the_same_drives_a_scan_does(self, degraded: bool) -> None:
+        domain = _domain()
+        domain["storageController"] = [_controller(_BLADE)]
+        domain["storageVirtualDrive"] = [
+            _vd(_BLADE, drive_state="degraded" if degraded else "optimal")
+        ]
+        domain["storageLocalDisk"] = [_disk(_BLADE, 1, "online"), _missing_disk(_BLADE, 2)]
+        [scanned] = await _collect(_provider(FakeUcsClient(responses=domain)))
+
+        client = FakeUcsClientWithDn(responses=domain, server_dn=_BLADE)
+        fetched = await _provider(client).get_one(ServerIdentity(external_id=_BLADE))
+
+        assert fetched is not None
+        assert fetched.storage_drives == scanned.storage_drives
+        assert scanned.storage_drives is not None
+        assert len(scanned.storage_drives) == (2 if degraded else 1)
+        assert scanned.storage_controllers is not None
+        controller = scanned.storage_controllers[0]
+        [volume] = cast("tuple[dict[str, Any]]", controller["volumes"])
+        assert volume["health"] == ("WARNING" if degraded else "HEALTHY")

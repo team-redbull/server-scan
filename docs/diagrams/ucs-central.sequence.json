@@ -6,7 +6,7 @@
     "output": "frontend/public/architecture/ucs-central.html",
     "viewBox": [
       1040,
-      780
+      840
     ],
     "quality_profile": "showcase",
     "column_fit": "spread",
@@ -81,12 +81,12 @@
     },
     {
       "from": 330,
-      "to": 520,
-      "label": "Per domain, N at once (semaphore)"
+      "to": 560,
+      "label": "Per domain, 4 at once (domainConcurrency semaphore)"
     },
     {
-      "from": 540,
-      "to": 700,
+      "from": 580,
+      "to": 760,
       "label": "Stream into ingest as each domain finishes"
     }
   ],
@@ -144,14 +144,22 @@
       "from": "cronjob",
       "to": "manager",
       "y": 427,
-      "label": "mgmtIf, vnicIpV4*, adaptor*EthIf, processorUnit, storageLocalDisk, equipmentPsu, graphicsCard",
+      "label": "mgmtIf, vnicIpV4*, adaptor*EthIf, processorUnit, graphicsCard",
+      "variant": "emphasis"
+    },
+    {
+      "id": "query-storage",
+      "from": "cronjob",
+      "to": "manager",
+      "y": 463,
+      "label": "storageLocalDisk, storageController, storageVirtualDrive, equipmentPsu, equipmentRackUnitPsuStats",
       "variant": "emphasis"
     },
     {
       "id": "query-top",
       "from": "cronjob",
       "to": "manager",
-      "y": 463,
+      "y": 499,
       "label": "networkElement, topSystem",
       "variant": "default"
     },
@@ -159,23 +167,23 @@
       "id": "domain-mos",
       "from": "manager",
       "to": "cronjob",
-      "y": 499,
-      "label": "managed objects, joined by DN; logout",
+      "y": 535,
+      "label": "17 domain-wide queries, joined by DN; logout",
       "variant": "return"
     },
     {
       "id": "normalize",
       "from": "cronjob",
       "to": "ingest",
-      "y": 575,
-      "label": "ProviderServer per server (domain-qualified external_id)",
+      "y": 611,
+      "label": "ProviderServer per server (domain-qualified id; a failed mapping becomes a stub)",
       "variant": "emphasis"
     },
     {
       "id": "find",
       "from": "ingest",
       "to": "mongo",
-      "y": 611,
+      "y": 647,
       "label": "find by (vendor, serial_normalized)",
       "variant": "default"
     },
@@ -183,16 +191,16 @@
       "id": "upsert",
       "from": "ingest",
       "to": "mongo",
-      "y": 647,
-      "label": "upsert: classify, health, search_tokens, audit",
+      "y": 683,
+      "label": "classify + health; changed: write with revision CAS",
       "variant": "emphasis"
     },
     {
       "id": "ack",
       "from": "mongo",
       "to": "ingest",
-      "y": 683,
-      "label": "revision written",
+      "y": 719,
+      "label": "written, or unchanged: touch_seen only",
       "variant": "return"
     }
   ],
@@ -200,7 +208,7 @@
     {
       "participant": "cronjob",
       "from": 178,
-      "to": 692,
+      "to": 728,
       "type": "backend"
     },
     {
@@ -212,19 +220,19 @@
     {
       "participant": "manager",
       "from": 350,
-      "to": 506,
+      "to": 542,
       "type": "external"
     },
     {
       "participant": "ingest",
-      "from": 570,
-      "to": 690,
+      "from": 606,
+      "to": 726,
       "type": "backend"
     },
     {
       "participant": "mongo",
-      "from": 606,
-      "to": 688,
+      "from": 642,
+      "to": 724,
       "type": "database"
     }
   ],
@@ -234,7 +242,7 @@
       "title": "Central discovers, UCS Manager collects",
       "items": [
         "Central answers two questions only: which domains are registered (computeSystem) and which profiles exist (lsServer) \u2014 ADR-0014",
-        "Every domain is its own login with INVENTORY_UCS_MANAGER_*; Central reports each domain's address itself",
+        "A domain Central lists no profiles for is always collected; a domain with no address is a fault, exit 3 \u2014 docs/cisco-collectors.md, The pruning rules",
         "Live run 2026-08-18: 152 registered domains, ~3,346 servers, every profile global-controlled \u2014 ADR-0014"
       ]
     },
@@ -244,16 +252,24 @@
       "items": [
         "A blade's own mgmtIf reports access='unspecified'; the out-of-band filter matched only fabric interconnects, so BMC selection is by DN position \u2014 ADR-0009",
         "UCSPE reports 00:00:00:00:00:00 for blade CIMC MACs; normalize_mac drops it \u2014 ADR-0009",
-        "A name with no site token falls back to the profile's org DN \u2014 CLAUDE.md, name-derived sites"
+        "Site is the BMC IP prefix first, then the name, then the profile's org DN \u2014 ADR-0057"
       ]
     },
     {
       "dot": "emerald",
-      "title": "Failure is contained per domain",
+      "title": "Failure is contained per domain and per server",
       "items": [
-        "One unreachable or slow domain is logged and skipped; the fleet run continues",
-        "Domains stream with asyncio.as_completed, so a run killed by activeDeadlineSeconds keeps what finished \u2014 ADR-0014, 2026-09-02",
-        "Cancel and drain on early close so every domain still logs out \u2014 docs/cisco-collectors.md, Sessions",
+        "A failed domain keeps the servers read before it and records a collection error; a server that fails to map becomes a reachable=False COLLECTION_ERROR stub (needs a real serial, else only logged) \u2014 ADR-0062",
+        "Domains stream with asyncio.as_completed, so a killed run keeps what finished; early close drains so every domain logs out \u2014 ADR-0014, docs/cisco-collectors.md, Sessions",
+        "Exit 0 complete, 1 systemic (5+ servers and over 20% failed), 2 not configured, 3 partial \u2014 tools/run_collector.py"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "RAID, cadence, BMCs",
+      "items": [
+        "storageController + storageVirtualDrive feed the RAID verdict (ADR-0048); a degraded virtual drive raises raid.volume_degraded (MAJOR) or raid.volume_failed (CRITICAL), and its missing disk shows as a CRITICAL drive \u2014 ADR-0068, UCS only",
+        "Runs at 0 */3 * * * (collectors chart values)",
         "Cisco BMCs sit behind fabric interconnects and are not probed; Central and each domain report their own state (ADR-0037)"
       ]
     }

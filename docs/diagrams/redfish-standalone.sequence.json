@@ -22,22 +22,22 @@
       },
       {
         "id": "resource-walk",
-        "label": "The ~25-GET walk per BMC",
+        "label": "The 25-plus-GET walk per BMC",
         "focus": [
           "cronjob",
           "bmc"
         ],
-        "note": "Systems first, then every sub-collection; a 404 becomes None, never zero."
+        "note": "Systems first, then every sub-collection; one that cannot be read becomes None, never zero."
       },
       {
         "id": "ingest",
-        "label": "One write per server",
+        "label": "One write per changed server",
         "focus": [
           "cronjob",
           "ingest",
           "mongo"
         ],
-        "note": "Classify, evaluate health, audit and upsert in the same write."
+        "note": "Classify, evaluate health, audit; a changed server is written with a revision CAS, an identical one only touch_seen'd (ADR-0044)."
       }
     ]
   },
@@ -46,7 +46,7 @@
       "id": "cronjob",
       "type": "backend",
       "label": "Redfish CronJob",
-      "sublabel": "RedfishStandaloneProvider"
+      "sublabel": "every 3 h, suspended by default"
     },
     {
       "id": "inventory",
@@ -104,7 +104,7 @@
       "from": "inventory",
       "to": "cronjob",
       "y": 240,
-      "label": "hosts + per-host credential, or exit 1",
+      "label": "hosts + per-host credential, or a bad file: exit 1",
       "variant": "return"
     },
     {
@@ -121,7 +121,8 @@
       "to": "bmc",
       "y": 350,
       "label": "POST SessionService/Sessions \u2192 auth token header",
-      "variant": "security"
+      "variant": "security",
+      "note": "mid-run 401 re-login, at most 3 a client"
     },
     {
       "id": "systems",
@@ -136,7 +137,7 @@
       "from": "cronjob",
       "to": "bmc",
       "y": 440,
-      "label": "GET Processors, Memory, EthernetInterfaces, Storage/\u2026/Drives",
+      "label": "GET Processors, Memory, EthernetInterfaces, Storage, Volumes, Drives, HPE SmartStorage",
       "variant": "emphasis"
     },
     {
@@ -144,7 +145,7 @@
       "from": "cronjob",
       "to": "bmc",
       "y": 485,
-      "label": "GET Links.Chassis \u2192 PowerSubsystem/PowerSupplies, Managers \u2192 BMC MAC",
+      "label": "GET Chassis PSUs + PowerSupplyMetrics, GPU metrics, optional PCIe devices, Managers",
       "variant": "default"
     },
     {
@@ -152,16 +153,18 @@
       "from": "bmc",
       "to": "cronjob",
       "y": 530,
-      "label": "404 / 403 on a sub-collection \u2192 None + unread_fields",
-      "variant": "dashed"
+      "label": "Forbidden, protocol error or unreachable on a sub-collection \u2192 None + unread_fields",
+      "variant": "dashed",
+      "note": "Storage tree absent (404/501/503) \u2192 RAID UNKNOWN; failed \u2192 unread"
     },
     {
       "id": "unreachable",
       "from": "bmc",
       "to": "cronjob",
       "y": 575,
-      "label": "any failure \u2192 serial-less stub; unreachable/rejected login exit 0, TLS/budget/protocol exit 3",
-      "variant": "dashed"
+      "label": "whole host fails \u2192 serial-less stub; unreachable/rejected exit 0, TLS/budget/protocol exit 3",
+      "variant": "dashed",
+      "note": "unexpected error: COLLECTION_ERROR; a bad ComputerSystem on a multi-system BMC keeps its own identity"
     },
     {
       "id": "logout",
@@ -184,7 +187,7 @@
       "from": "ingest",
       "to": "mongo",
       "y": 740,
-      "label": "classify + evaluate health + audit, replace_one(upsert=True)",
+      "label": "classify + health + audit; changed: revision CAS, else touch_seen",
       "variant": "emphasis"
     },
     {
@@ -241,9 +244,9 @@
       "dot": "amber",
       "title": "Cost is per server, not per manager",
       "items": [
-        "Each host costs ~25 GETs; a UCS domain costs ~11 whether it holds 10 servers or 500 (ADR-0016, Context)",
+        "Each host costs about 25 GETs or more (Volumes, metrics, optional PCIe); a UCS domain costs ~11 whether it holds 10 servers or 500 (ADR-0016, Context)",
         "Hosts run in parallel under INVENTORY_REDFISH_FLEET_CONCURRENCY, shuffled so a truncated sweep never starves the same slow hosts",
-        "Supported range is ~400\u20131,000 hosts per CronJob; shard beyond that (arc42 \u00a711)"
+        "Supported range is ~400\u20131,000 hosts per CronJob; run budget via redfish.run_budget_exceeded, exit 3 (arc42 \u00a711)"
       ]
     },
     {
@@ -251,8 +254,8 @@
       "title": "None means could not read, never zero",
       "items": [
         "A Storage 404 once wrote zeros over good data and flipped a server with a failed disk from CRITICAL to HEALTHY (ADR-0016, 'A partial read silently heals a real fault')",
-        "Now a 404/403 sub-collection is None; IngestService carries the stored value forward and lists the path in Server.unread_fields",
-        "A host that gives nothing still yields a serial-less stub named by inventory name or host, matched at ingest by (source_provider, BMC host). Unreachable or rejected login exits 0; TLS, budget or protocol error makes the run PARTIAL (exit 3) (ADR-0037)"
+        "Now a Forbidden, protocol or unreachable sub-collection is None; IngestService carries the stored value forward and lists the path in Server.unread_fields",
+        "A host that gives nothing still yields a serial-less stub named by inventory name or host, matched by (source_provider, BMC host). Unreachable or rejected login exits 0; anything else makes the run PARTIAL, exit 3 (ADR-0037, ADR-0062)"
       ]
     },
     {
@@ -262,6 +265,15 @@
         "The fleet and per-host logins come from inventory.toml and credentials.toml mounted into the CronJob pod (redfish-standalone-collector-cronjob.yaml)",
         "Unlike the manager collectors' Secret, these files are never mounted into the Route-exposed API pod (ADR-0032 \u00a76)",
         "A session is opened per BMC and deleted on exit; Basic auth would cost an LDAP round trip per GET (ADR-0016)"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Deployment and exits",
+      "items": [
+        "The CronJob is suspend: true by default, in the server-scan-collectors chart (ADR-0060); the type is exempt from the global name pattern",
+        "A bad inventory file exits 1 and missing credentials exit 2; POST /servers/{id}/refresh answers 409 SERVER_REFRESH_UNSUPPORTED (ADR-0064)",
+        "A mid-run 401 re-logs in, capped at 3 per client (ADR-0016, 2026-09-17)"
       ]
     }
   ]

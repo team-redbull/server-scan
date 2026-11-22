@@ -16,7 +16,7 @@ of a technical explanation is a second copy to keep true:
 | Verified Cisco implementation facts | `docs/cisco-collectors.md` |
 | Working in this repo | `CLAUDE.md` |
 | Air-gapped mirroring | `docs/air-gap.md` |
-| A picture of the runtime, and one per collector | the in-app **Architecture** page (`/architecture`), or open `frontend/public/architecture/*.html` directly — sources are `docs/diagrams/*.json`, regenerated with the archify skill. The seven diagrams (full flow, five collectors, `nodes-status`; none yet for KubeVirt, ADR-0058) are listed under "Diagrams" in §5 |
+| A picture of the runtime, and one per collector | the in-app **Architecture** page (`/architecture`), or open `frontend/public/architecture/*.html` directly — sources are `docs/diagrams/*.json`, regenerated with the archify skill. The eight diagrams (full flow, six collectors, `nodes-status`) are listed under "Diagrams" in §5 |
 
 Sections 4–8 therefore read as maps with pointers, not as prose
 duplicates. Where this document is the only place a fact is written
@@ -274,7 +274,7 @@ after those copies silently drifted.
 Interactive archify HTML served by the in-app Architecture page from
 `frontend/public/architecture/`; specs are `docs/diagrams/*.json` (a sequence
 diagram per collector and `nodes-status`, plus the full-flow architecture
-diagram). Refreshed 2026-10-01 for ADR-0037.
+diagram). Refreshed 2026-11-22.
 
 | Diagram | What it shows |
 |---|---|
@@ -284,6 +284,7 @@ diagram). Refreshed 2026-10-01 for ADR-0037.
 | [openmanage.html](../frontend/public/architecture/openmanage.html) | OME identity plus per-iDRAC Redfish hardware; failed iDRAC becomes a stub |
 | [oneview.html](../frontend/public/architecture/oneview.html) | OneView bulk calls plus the unauthenticated iLO reachability probe |
 | [redfish-standalone.html](../frontend/public/architecture/redfish-standalone.html) | Inventory TOML to direct BMC Redfish; failures become serial-less stubs |
+| [kubevirt.html](../frontend/public/architecture/kubevirt.html) | One collector per KubeVirt cluster, VMs read as Redfish Systems through the kubevirt-redfish facade |
 | [nodes-status.html](../frontend/public/architecture/nodes-status.html) | Cluster read, hostname then serial match, reconcile with protected ids |
 
 ## 6. Runtime View
@@ -613,6 +614,7 @@ of it.
 | 0065 | `DELETE /servers/{id}` (admin) removes one server; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`) while it is installed/in use by OpenShift, reserved or in maintenance, unless `?force=true`; `SERVER_DELETED` audited (with what was overridden); the detail page's "Remove" with a type-the-name dialog |
 | 0066 | A failed OME profile deployment (`LastRunStatus` 2070) makes a Dell server CRITICAL: new `profile` health category and `profile.deployment_failed` policy (OPENMANAGE), `Server.profile_deployment`; only a finished run (2060/2070) is a verdict, the rest is UNKNOWN |
 | 0067 | `GET /openshift/clusters` lists membership jobs by recency (silent after `INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`, 7 days); `POST /openshift/clusters/{kind}/{name}/decommission` (admin) frees a destroyed cluster's servers and drops its run record (gauges and alerts clear); `CLUSTER_DECOMMISSIONED` audited; the Clusters page and "not reporting" banners |
+| 0068 | A degraded UCS virtual drive is a finding: `raid.volume_degraded` (MAJOR) and `raid.volume_failed` (CRITICAL), UCS collectors only, from new facts `raid.degraded_volume_count`/`raid.failed_volume_count`; a `presence=missing` disk beside a non-optimal virtual drive is reported as a CRITICAL drive instead of dropped |
 
 ---
 

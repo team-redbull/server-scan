@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="generator" content="archify 2.16.0-dev.0">
+  <meta name="generator" content="archify 2.17.0-dev.1">
   <title>Nodes Status: nodes and agents jobs reconcile Server.openshift Diagram</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
@@ -5066,19 +5066,19 @@
         </g>
         </g>
 
-        <g data-edge-from="nodes_job" data-edge-to="kube" data-edge-label="GET /api/v1/nodes?labelSelector=node-role.kubernetes.io/worker" data-edge-key="1" data-edge-id="n-list">
+        <g data-edge-from="nodes_job" data-edge-to="kube" data-edge-label="GET /api/v1/nodes (no label selector)" data-edge-key="1" data-edge-id="n-list">
           <path data-composition-edge-from="nodes_job" data-composition-edge-to="kube" data-composition-edge-id="n-list" data-composition-points="152.5,204;544,204" d="M 152.5 204 L 544 204" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="181.04999999999998" y="184" width="334.40000000000003" height="16" rx="3" class="c-mask"/>
-          <text x="348.25" y="194" class="t-backend" font-size="9" text-anchor="middle">GET /api/v1/nodes?labelSelector=node-role.kubernetes.io/worker</text>
+          <rect x="246.05" y="184" width="204.4" height="16" rx="3" class="c-mask"/>
+          <text x="348.25" y="194" class="t-backend" font-size="9" text-anchor="middle">GET /api/v1/nodes (no label selector)</text>
         </g>
         </g>
 
-        <g data-edge-from="kube" data-edge-to="nodes_job" data-edge-label="worker nodes, paged by metadata.continue" data-edge-key="2" data-edge-id="n-nodes">
+        <g data-edge-from="kube" data-edge-to="nodes_job" data-edge-label="every Node, paged by metadata.continue; infra/control-plane/master dropped by name after the read" data-edge-key="2" data-edge-id="n-nodes">
           <path data-composition-edge-from="kube" data-composition-edge-to="nodes_job" data-composition-edge-id="n-nodes" data-composition-points="544,232;152.5,232" d="M 544 232 L 152.5 232" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="238.25" y="212" width="220" height="16" rx="3" class="c-mask"/>
-          <text x="348.25" y="222" class="t-muted" font-size="9" text-anchor="middle">worker nodes, paged by metadata.continue</text>
+          <rect x="90.04999999999995" y="212" width="516.4000000000001" height="16" rx="3" class="c-mask"/>
+          <text x="348.25" y="222" class="t-muted" font-size="9" text-anchor="middle">every Node, paged by metadata.continue; infra/control-plane/master dropped by name after the read</text>
         </g>
         </g>
 
@@ -5219,8 +5219,8 @@
           <text data-detail="context" x="551" y="111" class="t-muted" font-size="7" text-anchor="middle">in-cluster API</text>
         </g>
 
-        <g id="node-mongo" data-node-id="mongo" data-node-label="MongoDB" tabindex="0" role="button" aria-label="Focus MongoDB, Server.openshift only, Sequence participant" aria-pressed="false" data-node-kind="database" data-node-sublabel="Server.openshift only" data-node-context="Sequence participant">
-          <title>MongoDB · Server.openshift only · Sequence participant</title>
+        <g id="node-mongo" data-node-id="mongo" data-node-label="MongoDB" tabindex="0" role="button" aria-label="Focus MongoDB, Server.openshift + membership_runs, Sequence participant" aria-pressed="false" data-node-kind="database" data-node-sublabel="Server.openshift + membership_runs" data-node-context="Sequence participant">
+          <title>MongoDB · Server.openshift + membership_runs · Sequence participant</title>
           <rect x="670.25" y="72" width="167" height="54" rx="6" class="c-mask"/>
           <rect x="670.25" y="72" width="167" height="54" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(676.25 78) scale(0.6875)">
@@ -5228,7 +5228,7 @@
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="753.75" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">MongoDB</text>
-          <text data-detail="context" x="753.75" y="111" class="t-muted" font-size="7" text-anchor="middle">Server.openshift only</text>
+          <text data-detail="context" x="753.75" y="111" class="t-muted" font-size="7" text-anchor="middle">Server.openshift + membership_runs</text>
         </g>
 
         <g id="node-audit" data-node-id="audit" data-node-label="Audit trail" tabindex="0" role="button" aria-label="Focus Audit trail, OPENSHIFT_STATE_CHANGED, Sequence participant" aria-pressed="false" data-node-kind="database" data-node-sublabel="OPENSHIFT_STATE_CHANGED" data-node-context="Sequence participant">
@@ -5462,6 +5462,7 @@
           <li>&bull; Kubernetes never reports a removal</li>
           <li>&bull; A run claims what it sees, frees what it doesn&#39;t</li>
           <li>&bull; AVAILABLE is the default; there is no UNKNOWN</li>
+          <li>&bull; A cluster silent for 7 days is flagged CLUSTER_NOT_REPORTING; an admin decommissions it (ADR-0067)</li>
         </ul>
       </div>
 
@@ -5473,8 +5474,8 @@
         <ul>
           <li>&bull; A job frees only servers naming its own cluster/MCE</li>
           <li>&bull; Failed read: exit 1 before any write</li>
-          <li>&bull; Empty read: also refuses (RBAC, not an empty cluster)</li>
-          <li>&bull; An unreadable serial holds back only its own duplicate candidates, never the whole run (ADR-0036)</li>
+          <li>&bull; Empty read: also refuses (RBAC, not an empty cluster); both exit 1</li>
+          <li>&bull; An unreadable serial holds back only its own duplicate candidates, never the whole run (ADR-0036); unmatched hostnames exit 3 (partial)</li>
         </ul>
       </div>
 
@@ -5484,9 +5485,9 @@
           <h3>Kept apart on purpose</h3>
         </div>
         <ul>
-          <li>&bull; Writes Server.openshift only, never via IngestService</li>
+          <li>&bull; Writes Server.openshift (and its own membership_runs record), never via IngestService</li>
           <li>&bull; Name verdict vs cluster fact: a mismatch is the signal (reported_name)</li>
-          <li>&bull; httpx to kubernetes.default.svc, no SDK, two GETs</li>
+          <li>&bull; httpx to kubernetes.default.svc, no SDK: nodes is one paged list, agents is discovery + list</li>
         </ul>
       </div>
     </div>

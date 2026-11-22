@@ -471,13 +471,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-19 — Retire a destroyed cluster: `GET /openshift/clusters`, `POST .../decommission`, the Clusters page (ADR-0067).**
-Moved to `docs/notes/session-log.md`: the delete-a-server unit.
+**2026-11-22 — A degraded Cisco virtual drive is a finding, and its missing disk is reported (ADR-0068).**
+Moved to `docs/notes/session-log.md`: the cluster-decommission unit.
 
-**Shipped (branch `feat/cluster-decommission`):** a membership job dies with its cluster, leaving servers `INSTALLED`, a
-`membership_runs` record and two firing alerts. Jobs are listed with `silent` (no run for 7 days,
-`INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`) and a timer in the API (`INVENTORY_OPENSHIFT_SILENT_CHECK_SECONDS`) records
-`CLUSTER_NOT_REPORTING` once per silent stretch; an admin decommissions one (frees its servers, drops its record, audits
-`CLUSTER_DECOMMISSIONED`); the Clusters page, a banner on Sites and on a silent cluster's server detail.
+**Shipped (branch `fix/cisco-missing-disk-degraded-vd`):** rack-unit-21 showed HEALTHY with `vd-1000` degraded and
+`disk-2` `presence=missing`: `_storage_drives` dropped the disk and no fact read the volume's health. Now a `missing`
+disk beside a non-optimal virtual drive on its controller is a CRITICAL drive (`health_detail=missing`), and new
+facts `raid.degraded_volume_count`/`raid.failed_volume_count` drive `raid.volume_degraded` (MAJOR) and
+`raid.volume_failed` (CRITICAL), UCS collectors only. The RAID verdict stays `PRESENT`; Dell/HPE are unchanged.
 
-**Open:** no automatic release (deliberate); a cluster no job ever wrote a record for is not listed; the threshold is not a Helm value.
+**Open:** one live capture only (other `presence` values of a lost disk, blades, a rebuild in progress, unverified);
+Intersight does not read virtual drives; the missing leg is kept out of the OS/data disk buckets (`_LOST_LEG` in `facts.py`).

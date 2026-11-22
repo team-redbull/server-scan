@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="generator" content="archify 2.16.0-dev.0">
+  <meta name="generator" content="archify 2.17.0-dev.1">
   <title>Dell OpenManage Collector Run Diagram</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
@@ -4959,7 +4959,7 @@
       </div>
     </div>
 
-    <script id="archify-guided-views-data" type="application/json">[{"id":"identity","label":"Identity from OME","focus":["cronjob","ome"],"note":"Two bulk OData calls name every server; namePattern is applied before any BMC is contacted."},{"id":"hardware","label":"Hardware from each iDRAC","focus":["cronjob","idrac"],"note":"The Redfish collector reads measured values; Oem.Dell NodeID is the Service Tag. A dead iDRAC still yields a stub."},{"id":"ingest","label":"Join and ingest","focus":["cronjob","ingest","mongo"],"note":"One write per server: classify, health-evaluate, audit, upsert on (vendor, serial)."}]</script>
+    <script id="archify-guided-views-data" type="application/json">[{"id":"identity","label":"Identity from OME","focus":["cronjob","ome"],"note":"Two bulk OData calls name every server and carry its profile deployment status; namePattern is applied before any BMC is contacted."},{"id":"hardware","label":"Hardware from each iDRAC","focus":["cronjob","idrac"],"note":"The Redfish collector reads measured values; Oem.Dell NodeID is the Service Tag. A dead iDRAC still yields a stub."},{"id":"ingest","label":"Join and ingest","focus":["cronjob","ingest","mongo"],"note":"A content-identical server is only touch_seen'd; a changed one is written with a revision CAS (ADR-0044)."},{"id":"reset","label":"iDRAC reset","focus":["ingest","idrac","mongo"],"note":"The only collector path that writes to a BMC: report-only by default, 12 h cooldown read from the audit trail (ADR-0050)."}]</script>
 
     <script id="archify-i18n-data" type="application/json">{"locale":"en","messages":{"viewer.kind.frontend":"Frontend","viewer.kind.backend":"Backend","viewer.kind.database":"Database","viewer.kind.cloud":"Cloud","viewer.kind.security":"Security","viewer.kind.messagebus":"Message bus","viewer.kind.external":"External","viewer.kind.neutral":"Neutral","viewer.kind.node":"Node","viewer.kind.start":"Start","viewer.kind.active":"Active","viewer.kind.waiting":"Waiting","viewer.kind.decision":"Decision","viewer.kind.success":"Success","viewer.kind.failure":"Failure","viewer.toolbar.actions":"Diagram actions","viewer.theme.toggle.title":"Toggle theme (T)","viewer.theme.toggle":"Toggle color theme","viewer.theme.dark":"Dark","viewer.theme.light":"Light","viewer.preset.choose.title":"Choose visual style (S cycles)","viewer.preset.choose":"Choose visual style","viewer.preset.style":"Style","viewer.preset.menu":"Visual style","viewer.preset.identity":"Visual identity","viewer.preset.cycles":"S cycles","viewer.preset.classic":"Classic","viewer.preset.classic.short":"Classic","viewer.preset.classic.hint":"Stable technical default","viewer.preset.flow":"Signal Flow","viewer.preset.flow.short":"Flow","viewer.preset.flow.hint":"Motion-forward presentation","viewer.preset.blueprint":"Blueprint","viewer.preset.blueprint.hint":"Engineering review","viewer.preset.editorial":"Editorial","viewer.preset.editorial.hint":"Publication and launch notes","viewer.preset.badge.signalFlow":"SIGNAL FLOW","viewer.preset.badge.blueprint":"BLUEPRINT / REV 01","viewer.preset.badge.editorial":"EDITORIAL / FIELD NOTE","viewer.preset.badge.editorialPlate":"ARCHIFY / PLATE 04","viewer.preset.current":"Visual style: {style}. Choose visual style","viewer.motion.live":"Live","viewer.motion.still":"Still","viewer.motion.pause":"Pause motion","viewer.motion.resume":"Resume motion","viewer.motion.reduced":"Motion paused by reduced-motion preference","viewer.motion.hidden":"Motion paused while this page is hidden","viewer.motion.yielding":"Pause motion; currently yielding to {owner}","viewer.motion.yielding.title":"Live preview enabled · yielding to {owner}","viewer.owner.story":"the guided story","viewer.owner.chapter":"the active chapter","viewer.owner.chapterPreview":"the chapter delta preview","viewer.owner.handoff":"the chapter handoff","viewer.owner.route":"Route Probe","viewer.owner.lens":"Semantic Lens","viewer.owner.relationship":"Relationship Preview","viewer.owner.intent":"Intent Trace","viewer.owner.focus":"semantic focus","viewer.owner.legend":"legend preview","viewer.owner.reader":"reader interaction","viewer.present.enter":"Enter presentation stage","viewer.present.enter.title":"Presentation stage (F)","viewer.present.exit":"Exit presentation stage","viewer.present.exit.title":"Exit presentation stage (F or Escape)","viewer.present.present":"Present","viewer.present.exit.label":"Exit","viewer.export.button":"Export","viewer.export.button.title":"Export diagram (E)","viewer.export.diagram":"Export diagram","viewer.export.menu":"Export","viewer.export.subtitle":"Portable, clean outputs","viewer.export.share":"Share","viewer.export.shareCard":"Share Card","viewer.export.routeShareCard":"Route Share Card","viewer.export.reachShareCard":"Reach Share Card","viewer.export.copyShareCard":"Copy Share Card","viewer.export.copyDiagram":"Copy diagram","viewer.export.clipboardPng":"PNG to clipboard","viewer.export.raster":"Raster images","viewer.export.image":"Image","viewer.export.lossless":"Lossless image","viewer.export.compact":"Compact image","viewer.export.modern":"Modern image","viewer.export.vectorMotion":"Vector and motion","viewer.export.vectorMotion.heading":"Vector \u0026 motion","viewer.export.editable":"Editable vector","viewer.export.motion6s":"6s motion","viewer.export.unsupported":"Not supported by this browser","viewer.export.clipboardUnsupported":"Clipboard image write not supported by this browser","viewer.export.clipboardUnsupported.period":"Clipboard image write not supported by this browser.","viewer.export.clipboardUnsupported.short":"Clipboard image write not supported in this browser.","viewer.export.motionUnavailable":"Motion capture unavailable in this browser","viewer.export.webmUnavailable":"WebM unavailable in this browser","viewer.export.failed":"Export failed: {message}","viewer.export.unknownVariant":"Unknown Share Card variant: {variant}","viewer.export.routeRequired":"Trace a route before exporting a Route Share Card","viewer.export.reachRequired":"Trace authored reach before exporting a Reach Share Card","viewer.export.unknown":"unknown","viewer.export.routeFailed":"Route Share Card export failed: {message}","viewer.export.reachFailed":"Reach Share Card export failed: {message}","viewer.export.copyFailed":"Copy failed: {message}","viewer.export.copiedPng":"Copied PNG to clipboard","viewer.export.copiedShare":"Copied Share Card","viewer.export.downloadedShare":"Downloaded Share Card","viewer.export.downloadedRoute":"Downloaded Route Share Card","viewer.export.downloadedReach":"Downloaded Reach Share Card","viewer.export.downloadedWebm":"Downloaded WebM","viewer.export.recording":"Recording 6 seconds of motion…","viewer.export.card.routeSummary.one":"Route: {source} → {target} · {count} directed hop","viewer.export.card.routeSummary.other":"Route: {source} → {target} · {count} directed hops","viewer.export.card.reachSummary":"Authored {direction} from {origin} · {nodes} · {links} · max {hops}","viewer.export.card.node.one":"{count} node","viewer.export.card.node.other":"{count} nodes","viewer.export.card.link.one":"{count} link","viewer.export.card.link.other":"{count} links","viewer.export.card.hop.one":"{count} hop","viewer.export.card.hop.other":"{count} hops","viewer.export.card.routeBadge":"ARCHIFY · ROUTE · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction} REACH","viewer.export.card.defaultBadge":"ARCHIFY · {preset} · {theme}","viewer.export.direction.upstream":"Upstream","viewer.export.direction.downstream":"Downstream","viewer.export.error.canvasUnavailable":"Canvas unavailable for {label}","viewer.export.error.contextUnavailable":"2D canvas context unavailable for {label}","viewer.export.error.toBlobUnavailable":"canvas.toBlob unavailable for {label}","viewer.export.error.toBlobNull":"canvas.toBlob returned no data for {label}","viewer.export.error.variantsCombined":"Share Card variants cannot be combined","viewer.export.error.viewerState":"Share Card export could not remove temporary viewer state","viewer.export.error.routeState":"Route Card export could not preserve the resolved route safely","viewer.export.error.reachState":"Reach Card export could not preserve authored reach safely","viewer.export.error.webmRequirements":"WebM motion export requires a trace animation and browser MediaRecorder support","viewer.export.error.mediaRecorder":"MediaRecorder failed","viewer.export.error.emptyWebm":"MediaRecorder produced an empty WebM","viewer.export.error.webmBackground":"SVG background could not be loaded for WebM export","viewer.guided.region":"Guided diagram views","viewer.guided.previous":"Previous guided view","viewer.guided.previous.title":"Previous guided view ([)","viewer.guided.next":"Next guided view","viewer.guided.next.title":"Next guided view (])","viewer.guided.views":"Guided views","viewer.guided.explore":"Explore this system","viewer.guided.intro":"Step through curated paths without changing the source diagram.","viewer.guided.trail":"Story trail","viewer.guided.beat":"Beat","viewer.guided.nextBeat":"Next","viewer.guided.play":"Play guided story","viewer.guided.play.title":"Play guided story (P)","viewer.guided.pause":"Pause guided story","viewer.guided.pause.title":"Pause guided story (P)","viewer.guided.replay":"Replay guided story","viewer.guided.replay.title":"Replay guided story (P)","viewer.guided.playStory":"Play story","viewer.guided.pauseStory":"Pause","viewer.guided.replayStory":"Replay story","viewer.guided.motionUnavailable":"Story playback unavailable while motion is Still","viewer.guided.enableMotion":"Switch motion to Live to play the guided story","viewer.guided.selectBeatLink":"Select a Story Beat to copy its exact link","viewer.guided.copyMoment":"Copy moment","viewer.guided.momentCopied":"Moment link copied","viewer.guided.momentCopyFailed":"Could not copy story moment link","viewer.guided.copied":"Copied","viewer.guided.copyFailed":"Copy failed","viewer.guided.showAll":"Show all","viewer.guided.showAll.aria":"Show entire diagram","viewer.guided.chapters":"Story chapters","viewer.guided.storyTrail":"Story trail for {label}: {count} beats","viewer.guided.chapter.open":"Open chapter {index} of {total}: {label}, {count} stops","viewer.guided.chapter.current":"Current chapter {index} of {total}: {label}, {count} stops","viewer.guided.chapter.selectedNodes":"{count} selected nodes","viewer.guided.chapter.stops":"{count} stops","viewer.guided.chapter.stop.one":"{count} stop","viewer.guided.chapter.stop.other":"{count} stops","viewer.guided.chapter.current.title":"{label} — current chapter, {count} stops","viewer.guided.chapter.delta.expanded":"{stay} stay, {enter} enter, {leave} leave","viewer.guided.chapter.delta.aria":"Open chapter {index} of {total}: {label}. Chapter focus delta: {delta}","viewer.guided.chapter.delta.title":"{label} — {delta} chapter focus","viewer.guided.handoff":"{from} → {to} · via {label}","viewer.guided.share.chapter":"Chapter {index} / {total}","viewer.guided.share.initial":"Chapter 01 / 01","viewer.guided.share.default":"Guided chapter","viewer.guided.state.ready":"Ready","viewer.guided.state.playing":"Playing","viewer.guided.state.settled":"Settled","viewer.guided.state.paused":"Paused","viewer.guided.state.pinned":"Pinned","viewer.guided.state.still":"Still","viewer.guided.share.step":"Step {index} / {total} · {label}","viewer.guided.share.staticMoment":"{step} · Static moment","viewer.guided.share.complete":"{count} steps complete · {note}","viewer.guided.share.settled":"Path settled for reading.","viewer.guided.share.staticPath":"{count} steps · Static path","viewer.guided.share.ready":"{count} steps · Ready","viewer.guided.share.aria":"{state} chapter {index} of {total}: {label}. {beat}. {route}","viewer.guided.beat.start":"Beat {index} / {total} · {label} · starting point","viewer.guided.beat.forward":"Beat {index} / {total} · {from} → {to}","viewer.guided.beat.reverse":"Beat {index} / {total} · {from} → {to} · reverse authored link","viewer.guided.beat.multiple":"Beat {index} / {total} · {from} ⇄ {to} · {count} authored links","viewer.guided.beat.group":"Beat {index} / {total} · {from} · {to} · grouped · no direct link","viewer.guided.beat.aria.prefix":"Story beat {index} of {total}: {label}. ","viewer.guided.beat.aria.start":"Starting point.","viewer.guided.beat.aria.forward":"From {from} through one authored forward relationship.","viewer.guided.beat.aria.reverse":"From {from}; the authored relationship points from {to} to {from}.","viewer.guided.beat.aria.multiple":"From {from} through {count} authored relationships; shown without arbitrary motion.","viewer.guided.beat.aria.group":"Grouped from {from} with no direct authored relationship.","viewer.guided.caption.start":"Starting point","viewer.guided.caption.grouped":"Grouped transition · no direct authored link","viewer.guided.caption.more":" +{count} more","viewer.guided.caption.reverse":"Reverse authored relationship","viewer.guided.caption.relationships":"{count} authored relationships","viewer.guided.caption.relationship":"Authored relationship","viewer.guided.caption.direction":"authored direction: {from} → {to}","viewer.guided.caption.starting":"Authored starting point","viewer.guided.beatLink":"Copy link to current story moment: Beat {index} of {total}: {label}","viewer.guided.noStory":"This diagram has no authored guided story.","viewer.guide.eyebrow":"Diagram guide","viewer.guide.close":"Close diagram guide","viewer.guide.inspecting":"Inspecting compiled semantics","viewer.guide.actions":"Diagram exploration actions","viewer.guide.find":"Find any node","viewer.guide.find.hint":"Search labels, responsibilities, kinds, and stable IDs.","viewer.guide.route":"Trace a route","viewer.guide.route.aria":"Trace a directed route","viewer.guide.route.hint":"Ask how two semantic nodes connect in authored direction.","viewer.guide.map":"See the whole system","viewer.guide.map.hint":"Open Semantic Radar with a live viewport and stable nodes.","viewer.guide.lens":"Compare semantic kinds","viewer.guide.lens.hint":"Count roles, reveal their traffic, and compare direct authored links.","viewer.guide.story":"Play the guided story","viewer.guide.story.hint":"Walk the authored chapters and real relationships.","viewer.guide.present":"Enter Presentation Stage","viewer.guide.present.hint":"Give the live diagram the viewport without changing export.","viewer.guide.shortcuts":"Additional keyboard shortcuts","viewer.guide.shortcut.export":"Export","viewer.guide.shortcut.theme":"Theme","viewer.guide.shortcut.style":"Style","viewer.guide.shortcut.reset":"Reset","viewer.guide.shortcut.zoomIn":"Zoom in","viewer.guide.shortcut.zoomOut":"Zoom out","viewer.guide.shortcut.close":"Close","viewer.guide.facts":"{nodes} · {relationships} · {views}","viewer.guide.fact.node.one":"{count} semantic node","viewer.guide.fact.node.other":"{count} semantic nodes","viewer.guide.fact.relationship.one":"{count} relationship","viewer.guide.fact.relationship.other":"{count} relationships","viewer.guide.fact.view.one":"{count} guided view","viewer.guide.fact.view.other":"{count} guided views","viewer.guide.story.available.one":"Walk {count} authored chapter and its real relationships.","viewer.guide.story.available.other":"Walk {count} authored chapters and their real relationships.","viewer.guide.story.unavailable":"No authored guided story in this diagram.","viewer.guide.open":"Open diagram guide","viewer.guide.noStory":"This diagram has no authored guided story.","viewer.finder.title":"Find a node","viewer.finder.close":"Close node finder","viewer.finder.placeholder":"Search labels or IDs","viewer.finder.search":"Search diagram nodes","viewer.finder.results":"Diagram nodes","viewer.finder.empty":"No matching nodes","viewer.finder.result.focus":"Focus {label}","viewer.finder.result.routeStart":"Choose {label} as route start","viewer.finder.result.routeTarget":"Choose {label} as route destination, {links}","viewer.finder.status.empty":"No matching nodes","viewer.finder.status.count.one":"{count} matching node","viewer.finder.status.count.other":"{count} matching nodes","viewer.finder.noun.nodes":"nodes","viewer.finder.link.one":"{count} link","viewer.finder.link.other":"{count} links","viewer.finder.result.focus.one":"Focus {label}, {count} related connection","viewer.finder.result.focus.other":"Focus {label}, {count} related connections","viewer.finder.status.filtered":"{visible} of {available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"Semantic passport","viewer.passport.metadata":"Node metadata","viewer.passport.evidence":"Verified source evidence","viewer.passport.verified":"Verified source","viewer.passport.reach":"Authored reach","viewer.passport.reach.trace":"Trace authored reachability","viewer.passport.upstream":"Upstream","viewer.passport.downstream":"Downstream","viewer.passport.upstream.trace":"Trace upstream authored reachability","viewer.passport.downstream.trace":"Trace downstream authored reachability","viewer.passport.close":"Close semantic passport","viewer.passport.copy":"Copy link","viewer.passport.copy.focus":"Copy link to focused node","viewer.passport.relations":"Relations","viewer.passport.relations.show":"Show connected relationships","viewer.passport.relations.hide":"Hide connected relationships","viewer.passport.relations.list":"Connected relationships","viewer.passport.copyRelation":"Copy relation","viewer.passport.copyNode":"Copy node","viewer.passport.copyPinned":"Copy link to pinned relationship","viewer.passport.copySource":"Copy link to source node","viewer.passport.copy.focused.success":"Focused node link copied","viewer.passport.copy.pinned.success":"Pinned relationship link copied","viewer.passport.copy.focused.failed":"Could not copy focused node link","viewer.passport.copy.pinned.failed":"Could not copy pinned relationship link","viewer.passport.relationship.none":"No connected relationships","viewer.passport.relationship.count.one":"{count} relation","viewer.passport.relationship.count.other":"{count} relations","viewer.passport.relationship.show.one":"Show {count} connected relationship","viewer.passport.relationship.show.other":"Show {count} connected relationships","viewer.passport.relationship.summary":"{out} outgoing · {in} incoming{loops}","viewer.passport.relationship.loops":" · {count} loop","viewer.passport.relationship.explorer":"Direct relationship explorer","viewer.passport.relationship.help":"Use arrow keys to explore relationships. Press Enter or Space to pin details; Escape clears.","viewer.passport.relationship.loopsBack":"loops back","viewer.passport.relationship.connectsTo":"connects to","viewer.passport.relationship.connectsFrom":"connects from","viewer.passport.relationship.pinned":"Pinned relationship · {from} → {to} · {label}","viewer.passport.relationship.inspect":"Inspect relationship {index} of {total}: {from} to {to}, {label}. Press Enter for details.","viewer.passport.relationship.group.out":"Outgoing","viewer.passport.relationship.group.in":"Incoming","viewer.passport.relationship.group.loop":"Self loops","viewer.passport.relationship.row":"{group}: {relationship}, {neighbor}","viewer.passport.relationship.direction.out":"OUT →","viewer.passport.relationship.direction.in":"← IN","viewer.passport.relationship.direction.loop":"LOOP","viewer.passport.sourceCount.one":"{count} verified source reference","viewer.passport.sourceCount.other":"{count} verified source references","viewer.passport.sourceMarker":"SRC","viewer.passport.beacon.one":"{count} verified source; focus this node to inspect","viewer.passport.beacon.other":"{count} verified sources; focus this node to inspect","viewer.passport.repository.open":"Open verified repository revision {revision}","viewer.passport.source.open":"Open verified source {path} at revision {revision}","viewer.passport.source.openLink":"Open ↗","viewer.passport.reach.upstream.one":"Trace {count} upstream authored node","viewer.passport.reach.upstream.other":"Trace {count} upstream authored nodes","viewer.passport.reach.downstream.one":"Trace {count} downstream authored node","viewer.passport.reach.downstream.other":"Trace {count} downstream authored nodes","viewer.passport.reach.noUpstream":"No upstream authored nodes","viewer.passport.reach.noDownstream":"No downstream authored nodes","viewer.passport.reach.status":"{direction} · {nodes} nodes · {links} links · max {hops} hops","viewer.route.eyebrow":"Route probe","viewer.route.start":"Choose a start node","viewer.route.start.find":"Find start","viewer.route.start.find.aria":"Find a route start","viewer.route.copy":"Copy link","viewer.route.copy.aria":"Copy link to traced route","viewer.route.clear":"Clear","viewer.route.clear.aria":"Clear route probe","viewer.route.traced":"Traced route","viewer.route.pickTwo":"Pick two semantic nodes on the diagram","viewer.route.pickOne":"Pick a semantic node on the diagram","viewer.route.controls":"Route journey controls","viewer.route.previous":"Previous route position","viewer.route.play":"Play route journey","viewer.route.pause":"Pause route journey","viewer.route.replay":"Replay route journey","viewer.route.next":"Next route position","viewer.route.journey":"Journey","viewer.route.pause.label":"Pause","viewer.route.replay.label":"Replay","viewer.route.overview":"Overview","viewer.route.overview.aria":"Show complete route overview","viewer.route.instructions":"Choose the source, then the destination. Direction matters.","viewer.route.destination":"Choose a destination from {label}","viewer.route.destination.find":"Find target","viewer.route.destination.find.aria":"Find a reachable route destination","viewer.route.differentDestination":"Choose a different destination","viewer.route.distinct":"A route needs two distinct semantic nodes.","viewer.route.unreachable":"No directed route to {label}","viewer.route.unreachable.detail":"{target} is not reachable from {source}. Pick a highlighted destination.","viewer.route.start.instructions":"Select the source. The next step will reveal only directed destinations.","viewer.route.copy.success":"Traced route link copied","viewer.route.copy.failed":"Could not copy traced route link","viewer.route.position":"Route position {index} of {total}: {label}","viewer.route.step":"Step {index} of {total} · {phase} · {label}","viewer.route.motionRequired":"Automatic journey requires Live motion","viewer.route.trigger.clear":"Clear traced route","viewer.route.overview.status":"{nodes} · {hops} · shortest authored route","viewer.route.overview.node.one":"{count} node","viewer.route.overview.node.other":"{count} nodes","viewer.route.overview.hop.one":"{count} directed hop","viewer.route.overview.hop.other":"{count} directed hops","viewer.route.phase.playing":"Playing","viewer.route.phase.complete":"Complete","viewer.route.phase.inspecting":"Inspecting","viewer.route.destination.count.one":"{count} directed destination available. Pick a highlighted node.","viewer.route.destination.count.other":"{count} directed destinations available. Pick a highlighted node.","viewer.route.noOutgoing":"No outgoing route starts here. Clear and choose another source.","viewer.route.result.title":"{source} to {target}","viewer.route.finder.source.title":"Choose route start","viewer.route.finder.source.placeholder":"Search route sources","viewer.route.finder.source.empty":"No matching route sources","viewer.route.finder.source.results":"Nodes that can start a route","viewer.route.finder.source.noun":"route sources","viewer.route.finder.source.badge":"start","viewer.route.finder.target.title":"Destination from {label}","viewer.route.finder.target.placeholder":"Search reachable destinations","viewer.route.finder.target.empty":"No matching reachable destinations","viewer.route.finder.target.results":"Reachable route destinations","viewer.route.finder.target.noun":"reachable destinations","viewer.route.hop.one":"{count} hop","viewer.route.hop.other":"{count} hops","viewer.lens.eyebrow":"Semantic lens","viewer.lens.title":"Compare system roles","viewer.lens.close":"Close semantic lens","viewer.lens.instruction":"Choose up to two semantic kinds. One reveals its real traffic; two compare only direct authored relationships.","viewer.lens.kinds":"Semantic kinds","viewer.lens.choose":"Choose a kind to inspect its nodes and touching relationships.","viewer.lens.copy":"Copy link to semantic lens","viewer.lens.clear":"Clear semantic lens","viewer.lens.open":"Open semantic lens","viewer.lens.openActive":"Open active semantic lens","viewer.lens.legend":"Semantic legend","viewer.lens.legend.inspect.one":"Inspect {label}, {count} node","viewer.lens.legend.inspect.other":"Inspect {label}, {count} nodes","viewer.lens.kind.count.one":"{label}, {count} node","viewer.lens.kind.count.other":"{label}, {count} nodes","viewer.lens.compare.one":"{first} → {second}: {forward} · {second} → {first}: {reverse} · {count} direct relationship","viewer.lens.compare.other":"{first} → {second}: {forward} · {second} → {first}: {reverse} · {count} direct relationships","viewer.lens.single":"{nodes} · {relationships} · connected peers remain visible","viewer.lens.node.one":"{count} {label} node","viewer.lens.node.other":"{count} {label} nodes","viewer.lens.relationship.one":"{count} touching relationship","viewer.lens.relationship.other":"{count} touching relationships","viewer.radar.title":"Semantic radar","viewer.radar.building":"Building overview","viewer.radar.openFull":"Open full semantic radar","viewer.radar.open":"Open radar","viewer.radar.close":"Close semantic radar","viewer.radar.surface":"Diagram overview. Click a node to focus it, or use arrow keys to pan.","viewer.radar.click":"Click node","viewer.radar.drag":"Drag to pan","viewer.radar.space":"Semantic radar needs more MAP space.","viewer.radar.nodes":"Semantic diagram radar nodes","viewer.radar.focus":"Focus {label} from Semantic Radar","viewer.radar.status":"{count} nodes · {viewport}","viewer.radar.fullMap":"{count} nodes · full map","viewer.radar.compacted":"Radar compacted to avoid covering the Semantic Passport or MAP controls.","viewer.radar.cancelWaiting":"Cancel semantic radar waiting for more MAP space","viewer.radar.needsSpace":"Semantic radar needs more visible MAP space","viewer.radar.viewport.full":"full map","viewer.radar.viewport.width":"{percent}% width","viewer.radar.viewport.scale":"{percent}% viewport","viewer.nav.controls":"Diagram view controls","viewer.nav.route":"Trace a directed route","viewer.nav.route.title":"Trace route (R)","viewer.nav.route.short":"PATH","viewer.nav.radar":"Open semantic radar","viewer.nav.radar.title":"Semantic radar (M)","viewer.nav.radar.short":"MAP","viewer.nav.lens":"Open semantic lens","viewer.nav.lens.title":"Semantic lens (L)","viewer.nav.lens.short":"LENS","viewer.nav.find":"Find a node","viewer.nav.find.title":"Find a node (/)","viewer.nav.guide":"Open diagram guide","viewer.nav.guide.title":"Diagram guide (?)","viewer.nav.zoomOut":"Zoom out","viewer.nav.zoomOut.title":"Zoom out (-)","viewer.nav.reset":"Reset diagram view","viewer.nav.reset.title":"Reset view (0)","viewer.nav.read":"READ","viewer.nav.zoomIn":"Zoom in","viewer.nav.zoomIn.title":"Zoom in (+)","viewer.nav.camera":"{hint}. Reset diagram view","viewer.nav.camera.title":"{semantic}{hint} · reset view (0)","viewer.nav.camera.semantic":"Semantic camera active · ","viewer.nav.level.map":"MAP","viewer.nav.level.read":"READ","viewer.nav.level.full":"FULL","viewer.nav.level.auto":"AUTO","viewer.nav.detail.map":"Zoom in to reveal relationship labels and node context","viewer.nav.detail.read":"Zoom in again to reveal tags and annotations","viewer.nav.detail.full":"Full diagram detail","viewer.intent.summary":"{label}. {out} outgoing, {in} incoming{loops}. {total} connections. Press Enter for details.","viewer.intent.loops":", {count} self loop","viewer.common.copied":"Copied","viewer.common.copyFailed":"Copy failed","viewer.common.copyLink":"Copy link","viewer.common.clear":"Clear","viewer.common.close":"Close"}}</script>
     <div class="guided-views no-print" id="guided-views" hidden aria-label="Guided diagram views">
@@ -5004,7 +5004,7 @@
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / PLATE 04">
-      <svg viewBox="0 0 1060 735" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1060 900" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">Dell OpenManage Collector Run</title>
         <desc id="archify-diagram-description">A sequence diagram generated by Archify.</desc>
         <!-- Definitions -->
@@ -5034,26 +5034,32 @@
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="360" width="964" height="166" rx="10" class="c-lane" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="538" width="964" height="108" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="538" width="964" height="138" rx="10" class="c-lane" stroke-width="1"/>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="3" x="48" y="688" width="964" height="112" rx="10" class="c-lane" stroke-width="1"/>
 
         <!-- Lifelines -->
-        <path d="M 143.5 142 L 143.5 670" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 342.25 142 L 342.25 670" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 541 142 L 541 670" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 739.75 142 L 739.75 670" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
-        <path d="M 938.5 142 L 938.5 670" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 143.5 142 L 143.5 835" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 342.25 142 L 342.25 835" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 541 142 L 541 835" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 739.75 142 L 739.75 835" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 938.5 142 L 938.5 835" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
 
         <!-- Activations -->
-        <rect x="138.5" y="168" width="10" height="470" rx="3" class="c-mask"/>
-        <rect x="138.5" y="168" width="10" height="470" rx="3" class="c-backend" stroke-width="1"/>
+        <rect x="138.5" y="168" width="10" height="628" rx="3" class="c-mask"/>
+        <rect x="138.5" y="168" width="10" height="628" rx="3" class="c-backend" stroke-width="1"/>
         <rect x="337.25" y="168" width="10" height="172" rx="3" class="c-mask"/>
         <rect x="337.25" y="168" width="10" height="172" rx="3" class="c-external" stroke-width="1"/>
         <rect x="536" y="376" width="10" height="142" rx="3" class="c-mask"/>
         <rect x="536" y="376" width="10" height="142" rx="3" class="c-external" stroke-width="1"/>
-        <rect x="734.75" y="556" width="10" height="80" rx="3" class="c-mask"/>
-        <rect x="734.75" y="556" width="10" height="80" rx="3" class="c-backend" stroke-width="1"/>
-        <rect x="933.5" y="590" width="10" height="44" rx="3" class="c-mask"/>
-        <rect x="933.5" y="590" width="10" height="44" rx="3" class="c-database" stroke-width="1"/>
+        <rect x="536" y="710" width="10" height="50" rx="3" class="c-mask"/>
+        <rect x="536" y="710" width="10" height="50" rx="3" class="c-external" stroke-width="1"/>
+        <rect x="734.75" y="556" width="10" height="240" rx="3" class="c-mask"/>
+        <rect x="734.75" y="556" width="10" height="240" rx="3" class="c-backend" stroke-width="1"/>
+        <rect x="933.5" y="620" width="10" height="46" rx="3" class="c-mask"/>
+        <rect x="933.5" y="620" width="10" height="46" rx="3" class="c-database" stroke-width="1"/>
+        <rect x="933.5" y="780" width="10" height="16" rx="3" class="c-mask"/>
+        <rect x="933.5" y="780" width="10" height="16" rx="3" class="c-database" stroke-width="1"/>
 
         <!-- Messages -->
         <g data-edge-from="cronjob" data-edge-to="ome" data-edge-label="POST /SessionService/Sessions" data-edge-key="0" data-edge-id="ome-login">
@@ -5073,11 +5079,11 @@
         </g>
         </g>
 
-        <g data-edge-from="cronjob" data-edge-to="ome" data-edge-label="GET /ProfileService/Profiles (paged)" data-edge-key="2" data-edge-id="profiles">
+        <g data-edge-from="cronjob" data-edge-to="ome" data-edge-label="GET /ProfileService/Profiles (paged, with LastRunStatus)" data-edge-key="2" data-edge-id="profiles">
           <path data-composition-edge-from="cronjob" data-composition-edge-to="ome" data-composition-edge-id="profiles" data-composition-points="150.5,236;335.25,236" d="M 150.5 236 L 335.25 236" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="143.27499999999998" y="216" width="199.20000000000002" height="16" rx="3" class="c-mask"/>
-          <text x="242.875" y="226" class="t-backend" font-size="9" text-anchor="middle">GET /ProfileService/Profiles (paged)</text>
+          <rect x="91.275" y="216" width="303.2" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="226" class="t-backend" font-size="9" text-anchor="middle">GET /ProfileService/Profiles (paged, with LastRunStatus)</text>
         </g>
         </g>
 
@@ -5089,11 +5095,11 @@
         </g>
         </g>
 
-        <g data-edge-from="ome" data-edge-to="cronjob" data-edge-label="ProfileName, DeviceServiceTag, DeviceManagement[0].NetworkAddress" data-edge-key="4" data-edge-id="identities">
+        <g data-edge-from="ome" data-edge-to="cronjob" data-edge-label="ProfileName, ServiceTag, BMC address, LastRunStatus" data-edge-key="4" data-edge-id="identities">
           <path data-composition-edge-from="ome" data-composition-edge-to="cronjob" data-composition-edge-id="identities" data-composition-points="335.25,300;150.5,300" d="M 335.25 300 L 150.5 300" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="67.875" y="280" width="350" height="16" rx="3" class="c-mask"/>
-          <text x="242.875" y="290" class="t-muted" font-size="9" text-anchor="middle">ProfileName, DeviceServiceTag, DeviceManagement[0].NetworkAddress</text>
+          <rect x="104.275" y="280" width="277.2" height="16" rx="3" class="c-mask"/>
+          <text x="242.875" y="290" class="t-muted" font-size="9" text-anchor="middle">ProfileName, ServiceTag, BMC address, LastRunStatus</text>
         </g>
         </g>
 
@@ -5115,19 +5121,19 @@
         <text data-detail="fine" x="162.5" y="400" class="t-dim" font-size="7">INVENTORY_OME_BMC_USERNAME/_PASSWORD, one account fleet-wide</text>
         </g>
 
-        <g data-edge-from="cronjob" data-edge-to="idrac" data-edge-label="GET Systems, Processors, Memory, EthernetInterfaces, Storage" data-edge-key="7" data-edge-id="rf-systems">
+        <g data-edge-from="cronjob" data-edge-to="idrac" data-edge-label="GET Systems, Processors, Memory, EthernetInterfaces, Storage, Volumes, Drives" data-edge-key="7" data-edge-id="rf-systems">
           <path data-composition-edge-from="cronjob" data-composition-edge-to="idrac" data-composition-edge-id="rf-systems" data-composition-points="150.5,414;534,414" d="M 150.5 414 L 534 414" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="180.25" y="394" width="324" height="16" rx="3" class="c-mask"/>
-          <text x="342.25" y="404" class="t-backend" font-size="9" text-anchor="middle">GET Systems, Processors, Memory, EthernetInterfaces, Storage</text>
+          <rect x="136.04999999999998" y="394" width="412.40000000000003" height="16" rx="3" class="c-mask"/>
+          <text x="342.25" y="404" class="t-backend" font-size="9" text-anchor="middle">GET Systems, Processors, Memory, EthernetInterfaces, Storage, Volumes, Drives</text>
         </g>
         </g>
 
-        <g data-edge-from="cronjob" data-edge-to="idrac" data-edge-label="GET Links.Chassis PowerSubsystem/PowerSupplies, Managers EthernetInterfaces" data-edge-key="8" data-edge-id="rf-chassis">
+        <g data-edge-from="cronjob" data-edge-to="idrac" data-edge-label="GET Chassis PSUs + PowerSupplyMetrics, Managers EthernetInterfaces, optional PCIe GPUs" data-edge-key="8" data-edge-id="rf-chassis">
           <path data-composition-edge-from="cronjob" data-composition-edge-to="idrac" data-composition-edge-id="rf-chassis" data-composition-points="150.5,446;534,446" d="M 150.5 446 L 534 446" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="141.25" y="426" width="402" height="16" rx="3" class="c-mask"/>
-          <text x="342.25" y="436" class="t-backend" font-size="9" text-anchor="middle">GET Links.Chassis PowerSubsystem/PowerSupplies, Managers EthernetInterfaces</text>
+          <rect x="112.65" y="426" width="459.2" height="16" rx="3" class="c-mask"/>
+          <text x="342.25" y="436" class="t-backend" font-size="9" text-anchor="middle">GET Chassis PSUs + PowerSupplyMetrics, Managers EthernetInterfaces, optional PCIe GPUs</text>
         </g>
         </g>
 
@@ -5139,35 +5145,70 @@
         </g>
         </g>
 
-        <g data-edge-from="idrac" data-edge-to="cronjob" data-edge-label="any failure → reachable=False stub + reason; unreachable/rejected login exit 0, TLS/budget/protocol exit 3" data-edge-key="10" data-edge-id="rf-unreachable">
+        <g data-edge-from="idrac" data-edge-to="cronjob" data-edge-label="failure → reachable=False stub; unreachable/rejected exit 0, mapping error COLLECTION_ERROR exit 3" data-edge-key="10" data-edge-id="rf-unreachable">
           <path data-composition-edge-from="idrac" data-composition-edge-to="cronjob" data-composition-edge-id="rf-unreachable" data-composition-points="534,510;150.5,510" d="M 534 510 L 150.5 510" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <g data-detail="context">
-          <rect x="60.64999999999998" y="490" width="563.2" height="16" rx="3" class="c-mask"/>
-          <text x="342.25" y="500" class="t-messagebus" font-size="9" text-anchor="middle">any failure → reachable=False stub + reason; unreachable/rejected login exit 0, TLS/budget/protocol exit 3</text>
+          <rect x="81.44999999999999" y="490" width="521.6" height="16" rx="3" class="c-mask"/>
+          <text x="342.25" y="500" class="t-messagebus" font-size="9" text-anchor="middle">failure → reachable=False stub; unreachable/rejected exit 0, mapping error COLLECTION_ERROR exit 3</text>
         </g>
+        <text data-detail="fine" x="162.5" y="528" class="t-dim" font-size="7">exit 1 when 5+ servers and over 20% failed (ADR-0062)</text>
         </g>
 
-        <g data-edge-from="cronjob" data-edge-to="ingest" data-edge-label="ProviderServer: OME identity + iDRAC hardware, joined on BMC host" data-edge-key="11" data-edge-id="merge">
+        <g data-edge-from="cronjob" data-edge-to="ingest" data-edge-label="per server as it arrives: OME identity + iDRAC hardware, joined on BMC host" data-edge-key="11" data-edge-id="merge">
           <path data-composition-edge-from="cronjob" data-composition-edge-to="ingest" data-composition-edge-id="merge" data-composition-points="150.5,562;732.75,562" d="M 150.5 562 L 732.75 562" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="266.625" y="542" width="350" height="16" rx="3" class="c-mask"/>
-          <text x="441.625" y="552" class="t-backend" font-size="9" text-anchor="middle">ProviderServer: OME identity + iDRAC hardware, joined on BMC host</text>
+          <rect x="240.625" y="542" width="402" height="16" rx="3" class="c-mask"/>
+          <text x="441.625" y="552" class="t-backend" font-size="9" text-anchor="middle">per server as it arrives: OME identity + iDRAC hardware, joined on BMC host</text>
         </g>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="classify + health + audit + upsert on (vendor, serial_normalized)" data-edge-key="12" data-edge-id="upsert">
-          <path data-composition-edge-from="ingest" data-composition-edge-to="mongo" data-composition-edge-id="upsert" data-composition-points="746.75,596;931.5,596" d="M 746.75 596 L 931.5 596" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-edge-from="cronjob" data-edge-to="ingest" data-edge-label="stubs: not_an_idrac, unusable address first; dead hosts after the pass" data-edge-key="12" data-edge-id="stubs">
+          <path data-composition-edge-from="cronjob" data-composition-edge-to="ingest" data-composition-edge-id="stubs" data-composition-points="150.5,594;732.75,594" d="M 150.5 594 L 732.75 594" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <g data-detail="context">
-          <rect x="664.125" y="576" width="350" height="16" rx="3" class="c-mask"/>
-          <text x="839.125" y="586" class="t-backend" font-size="9" text-anchor="middle">classify + health + audit + upsert on (vendor, serial_normalized)</text>
+          <rect x="253.625" y="574" width="376" height="16" rx="3" class="c-mask"/>
+          <text x="441.625" y="584" class="t-messagebus" font-size="9" text-anchor="middle">stubs: not_an_idrac, unusable address first; dead hosts after the pass</text>
         </g>
         </g>
 
-        <g data-edge-from="mongo" data-edge-to="ingest" data-edge-label="one write per server" data-edge-key="13" data-edge-id="ack">
-          <path data-composition-edge-from="mongo" data-composition-edge-to="ingest" data-composition-edge-id="ack" data-composition-points="931.5,628;746.75,628" d="M 931.5 628 L 746.75 628" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="classify + health + audit; changed: revision CAS, else touch_seen" data-edge-key="13" data-edge-id="upsert">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="mongo" data-composition-edge-id="upsert" data-composition-points="746.75,626;931.5,626" d="M 746.75 626 L 931.5 626" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="781.125" y="608" width="116" height="16" rx="3" class="c-mask"/>
-          <text x="839.125" y="618" class="t-muted" font-size="9" text-anchor="middle">one write per server</text>
+          <rect x="664.125" y="606" width="350" height="16" rx="3" class="c-mask"/>
+          <text x="839.125" y="616" class="t-backend" font-size="9" text-anchor="middle">classify + health + audit; changed: revision CAS, else touch_seen</text>
+        </g>
+        </g>
+
+        <g data-edge-from="mongo" data-edge-to="ingest" data-edge-label="written / unchanged" data-edge-key="14" data-edge-id="ack">
+          <path data-composition-edge-from="mongo" data-composition-edge-to="ingest" data-composition-edge-id="ack" data-composition-points="931.5,658;746.75,658" d="M 931.5 658 L 746.75 658" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="783.725" y="638" width="110.8" height="16" rx="3" class="c-mask"/>
+          <text x="839.125" y="648" class="t-muted" font-size="9" text-anchor="middle">written / unchanged</text>
+        </g>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="idrac" data-edge-label="all disks or all NICs UNKNOWN → GET JobService/Jobs" data-edge-key="15" data-edge-id="reset-jobs">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="idrac" data-composition-edge-id="reset-jobs" data-composition-points="732.75,716;548,716" d="M 732.75 716 L 548 716" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-detail="context">
+          <rect x="501.775" y="696" width="277.2" height="16" rx="3" class="c-mask"/>
+          <text x="640.375" y="706" class="t-backend" font-size="9" text-anchor="middle">all disks or all NICs UNKNOWN → GET JobService/Jobs</text>
+        </g>
+        <text data-detail="fine" x="560" y="734" class="t-dim" font-size="7">queued per server, 5 workers, max 10 a run</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="idrac" data-edge-label="idle: power on if Off, POST Manager.Reset GracefulRestart" data-edge-key="16" data-edge-id="reset-post">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="idrac" data-composition-edge-id="reset-post" data-composition-points="732.75,752;548,752" d="M 732.75 752 L 548 752" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <g data-detail="context">
+          <rect x="486.17499999999995" y="732" width="308.40000000000003" height="16" rx="3" class="c-mask"/>
+          <text x="640.375" y="742" class="t-security" font-size="9" text-anchor="middle">idle: power on if Off, POST Manager.Reset GracefulRestart</text>
+        </g>
+        <text data-detail="fine" x="560" y="770" class="t-dim" font-size="7">report-only by default</text>
+        </g>
+
+        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="IDRAC_RESET audit event; 12 h cooldown read from it" data-edge-key="17" data-edge-id="reset-audit">
+          <path data-composition-edge-from="ingest" data-composition-edge-to="mongo" data-composition-edge-id="reset-audit" data-composition-points="746.75,788;931.5,788" d="M 746.75 788 L 931.5 788" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <g data-detail="context">
+          <rect x="700.525" y="768" width="277.2" height="16" rx="3" class="c-mask"/>
+          <text x="839.125" y="778" class="t-messagebus" font-size="9" text-anchor="middle">IDRAC_RESET audit event; 12 h cooldown read from it</text>
         </g>
         </g>
 
@@ -5184,17 +5225,21 @@
           <rect x="56" y="516" width="92" height="18" rx="3" class="c-mask"/>
           <text x="62" y="529" class="t-dim" font-size="9" font-weight="600">Join and ingest</text>
         </g>
+        <g data-graph-role="segment-label" data-segment-id="3">
+          <rect x="56" y="666" width="128.4" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="679" class="t-dim" font-size="9" font-weight="600">iDRAC reset (ADR-0050)</text>
+        </g>
 
         <!-- Participants -->
-        <g id="node-cronjob" data-node-id="cronjob" data-node-label="OpenManage CronJob" tabindex="0" role="button" aria-label="Focus OpenManage CronJob, every 6 h, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="every 6 h" data-node-context="Sequence participant">
-          <title>OpenManage CronJob · every 6 h · Sequence participant</title>
+        <g id="node-cronjob" data-node-id="cronjob" data-node-label="OpenManage CronJob" tabindex="0" role="button" aria-label="Focus OpenManage CronJob, every 3 h, deadline 5400 s, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="every 3 h, deadline 5400 s" data-node-context="Sequence participant">
+          <title>OpenManage CronJob · every 3 h, deadline 5400 s · Sequence participant</title>
           <rect x="62" y="72" width="163" height="54" rx="6" class="c-mask"/>
           <rect x="62" y="72" width="163" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(68 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="143.5" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">OpenManage CronJob</text>
-          <text data-detail="context" x="143.5" y="111" class="t-muted" font-size="7" text-anchor="middle">every 6 h</text>
+          <text data-detail="context" x="143.5" y="111" class="t-muted" font-size="7" text-anchor="middle">every 3 h, deadline 5400 s</text>
         </g>
 
         <g id="node-ome" data-node-id="ome" data-node-label="OpenManage Enterprise" tabindex="0" role="button" aria-label="Focus OpenManage Enterprise, https://&lt;appliance&gt;/api, Sequence participant" aria-pressed="false" data-node-kind="external" data-node-sublabel="https://&lt;appliance&gt;/api" data-node-context="Sequence participant">
@@ -5221,15 +5266,15 @@
           <text data-detail="context" x="541" y="111" class="t-muted" font-size="7" text-anchor="middle">one per matched server</text>
         </g>
 
-        <g id="node-ingest" data-node-id="ingest" data-node-label="IngestService" tabindex="0" role="button" aria-label="Focus IngestService, in the same pod, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="in the same pod" data-node-context="Sequence participant">
-          <title>IngestService · in the same pod · Sequence participant</title>
+        <g id="node-ingest" data-node-id="ingest" data-node-label="IngestService" tabindex="0" role="button" aria-label="Focus IngestService, in the same pod, ingest(), Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="in the same pod, ingest()" data-node-context="Sequence participant">
+          <title>IngestService · in the same pod, ingest() · Sequence participant</title>
           <rect x="658.25" y="72" width="163" height="54" rx="6" class="c-mask"/>
           <rect x="658.25" y="72" width="163" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(664.25 78) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="739.75" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">IngestService</text>
-          <text data-detail="context" x="739.75" y="111" class="t-muted" font-size="7" text-anchor="middle">in the same pod</text>
+          <text data-detail="context" x="739.75" y="111" class="t-muted" font-size="7" text-anchor="middle">in the same pod, ingest()</text>
         </g>
 
         <g id="node-mongo" data-node-id="mongo" data-node-label="MongoDB" tabindex="0" role="button" aria-label="Focus MongoDB, servers collection, Sequence participant" aria-pressed="false" data-node-kind="database" data-node-sublabel="servers collection" data-node-context="Sequence participant">
@@ -5246,26 +5291,26 @@
 
         <!-- Legend -->
         <g data-legend="">
-          <text x="40" y="661" class="t-primary" font-size="12" font-weight="650">Legend</text>
-          <g data-legend-semantic-kind="emphasis" data-legend-x="40" data-legend-baseline="681" data-legend-width="78">
-            <path d="M 40 678 L 74 678" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-            <text x="83" y="681" class="t-muted" font-size="10" font-weight="500">request</text>
+          <text x="40" y="826" class="t-primary" font-size="12" font-weight="650">Legend</text>
+          <g data-legend-semantic-kind="emphasis" data-legend-x="40" data-legend-baseline="846" data-legend-width="78">
+            <path d="M 40 843 L 74 843" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+            <text x="83" y="846" class="t-muted" font-size="10" font-weight="500">request</text>
           </g>
-          <g data-legend-semantic-kind="return" data-legend-x="140" data-legend-baseline="681" data-legend-width="73">
-            <path d="M 140 678 L 174 678" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
-            <text x="183" y="681" class="t-muted" font-size="10" font-weight="500">return</text>
+          <g data-legend-semantic-kind="return" data-legend-x="140" data-legend-baseline="846" data-legend-width="73">
+            <path d="M 140 843 L 174 843" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+            <text x="183" y="846" class="t-muted" font-size="10" font-weight="500">return</text>
           </g>
-          <g data-legend-semantic-kind="security" data-legend-x="235" data-legend-baseline="681" data-legend-width="83">
-            <path d="M 235 678 L 269 678" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-            <text x="278" y="681" class="t-muted" font-size="10" font-weight="500">security</text>
+          <g data-legend-semantic-kind="security" data-legend-x="235" data-legend-baseline="846" data-legend-width="83">
+            <path d="M 235 843 L 269 843" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+            <text x="278" y="846" class="t-muted" font-size="10" font-weight="500">security</text>
           </g>
-          <g data-legend-semantic-kind="dashed" data-legend-x="340" data-legend-baseline="681" data-legend-width="98">
-            <path d="M 340 678 L 374 678" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-            <text x="383" y="681" class="t-muted" font-size="10" font-weight="500">async trace</text>
+          <g data-legend-semantic-kind="dashed" data-legend-x="340" data-legend-baseline="846" data-legend-width="98">
+            <path d="M 340 843 L 374 843" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+            <text x="383" y="846" class="t-muted" font-size="10" font-weight="500">async trace</text>
           </g>
-          <g data-legend-semantic-kind="default" data-legend-x="460" data-legend-baseline="681" data-legend-width="118">
-            <path d="M 460 678 L 494 678" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-            <text x="503" y="681" class="t-muted" font-size="10" font-weight="500">default message</text>
+          <g data-legend-semantic-kind="default" data-legend-x="460" data-legend-baseline="846" data-legend-width="118">
+            <path d="M 460 843 L 494 843" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+            <text x="503" y="846" class="t-muted" font-size="10" font-weight="500">default message</text>
           </g>
         </g>
       </svg>
@@ -5483,7 +5528,31 @@
         </div>
         <ul>
           <li>&bull; The iDRAC GPU VRAM check (docs/field-test-checklist.md part 3) has not run on real hardware</li>
-          <li>&bull; One fleet-wide read-only iDRAC account: the auth guard disables it after 3 rejections, aborts after 10; a rejected login is a stub with exit 0, not PARTIAL (ADR-0037)</li>
+          <li>&bull; One fleet-wide iDRAC account, every iDRAC tried every run: the auth guard was deleted 2026-09-12 and the operator accepts the lockout risk; a rejected login is an AUTH_REJECTED stub, exit 0 (ADR-0016, ADR-0037)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>iDRAC reset, the only BMC write (ADR-0050)</h3>
+        </div>
+        <ul>
+          <li>&bull; Only a reachable Dell with every disk or every NIC UNKNOWN, inside IngestService.ingest(), never ingest_one, --dry-run or the API pod</li>
+          <li>&bull; collectors.ome.idracReset.reportOnly is true by default; sending needs the Configure Manager privilege on the iDRAC account</li>
+          <li>&bull; An unfinished or unknown-state iDRAC job blocks it; a host that is Off is powered on first unless in maintenance</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot slate"></div>
+          <h3>Run bounds and exit codes</h3>
+        </div>
+        <ul>
+          <li>&bull; Schedule 0 */3 * * *, activeDeadlineSeconds 5400, 180 s per iDRAC, 3600 s for the pass (settings, Helm bmcHostBudgetSeconds / bmcRunBudgetSeconds)</li>
+          <li>&bull; Exit 0 only for NETWORK_UNREACHABLE or AUTH_REJECTED stubs; OME login or bulk failure exit 1; missing credentials exit 2 before any call</li>
+          <li>&bull; A profile&#39;s LastRunStatus 2070 is CRITICAL profile.deployment_failed, 2060 healthy, else UNKNOWN (ADR-0066)</li>
         </ul>
       </div>
     </div>

@@ -4,7 +4,7 @@
 
 ## Context
 
-Fresh data for one server meant waiting for its collector (every 6 h) or running the whole collector by hand
+Fresh data for one server meant waiting for its collector (every 3 h) or running the whole collector by hand
 from the Jobs page (ADR-0055), which reads every server of that manager. The operator wants a button on the
 server page, and an API route, that reads only that server.
 

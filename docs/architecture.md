@@ -700,9 +700,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
     useless signal; "nothing is up" is the one that means something, and
     it needs `links_known_count` beside it (ADR-0027).
 - **The system-default policies** (`app.domain.services.health.
-  health_policy_defaults`, eighteen as of 2026-10-13) are built, never
+  health_policy_defaults`, twenty-three as of 2026-11-22) are built, never
   persisted, by that module; `bootstrap` seeds and re-syncs them.
-  Everything except the two fabric policies and the RAID one (scoped to the two Redfish collectors) is vendor-neutral by
+  Everything except the fabric, RAID and profile policies (each scoped to the collectors that read its fact) is vendor-neutral by
   construction — each reads a fact off the normalized `Server`, never a
   vendor payload. What each one is, and why it is the severity it is:
 
@@ -727,6 +727,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   | `gpu.uncorrectable_errors` | any uncorrectable ECC error | WARNING |
   | `profile.deployment_failed` | **OPENMANAGE**: the OME profile's last deployment run is Failed (`LastRunStatus` 2070); Completed (2060) is healthy and every other status is `UNKNOWN`, never a verdict (ADR-0066) | CRITICAL |
   | `raid.os_mirror_missing` | **OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER**: the collector's RAID verdict is `ABSENT` (authoritative vendor tree read, no mirror); `UNKNOWN` (DGX, old BMCs) never fires (ADR-0048) | CRITICAL |
+  | `raid.volume_degraded` | **UCS_CENTRAL, UCS_MANAGER**: a virtual drive reads WARNING (`degraded`, `partially-degraded`, `cache-degraded`, `rebuilding`); the verdict stays `PRESENT` (ADR-0068) | MAJOR |
+  | `raid.volume_failed` | **UCS_CENTRAL, UCS_MANAGER**: a virtual drive is `offline` (ADR-0068) | CRITICAL |
 
   - **Two uplinks are a platform requirement, not a preference
     (2026-09-26, operator's call).** Hosts join the fabric over an 802.3ad
@@ -2115,15 +2117,15 @@ row say "by <who>" from `maintenance.created_by`.
 
 ## Architecture diagrams (interactive)
 
-The `/architecture` page (nav, after Rules & Policies) is seven
+The `/architecture` page (nav, after Rules & Policies) is eight
 self-contained, pan/zoom/search HTML diagrams generated with the
 `archify` Claude Code skill: one full-flow overview
 (`runtime-architecture`, now including the prune CronJob, Prometheus and AD
 login) and one sequence diagram per collector (UCS Central, Intersight,
-OpenManage, OneView, standalone Redfish; none yet for KubeVirt, ADR-0058) and the `nodes-status` jobs. Every
+OpenManage, OneView, standalone Redfish, KubeVirt) and the `nodes-status` jobs. Every
 message and card fact is sourced from an ADR or the provider file it
 names — see each diagram's own cards for the pointer. Data refreshed
-2026-10-01 for ADR-0037 (stubs with reasons, the OneView iLO probe).
+2026-11-22: ADR-0044 (unchanged servers are touched), 0048/0050/0066/0068 (RAID reads, the iDRAC reset, profile status, degraded virtual drives), 0058-0060 (KubeVirt, the collectors chart), 0062 (per-server stubs) and 0067; a runtime-diagram node needs a viewBox no wider than about 1390 or its text drops below the readable size.
 
 **Source of truth is `docs/diagrams/*.json`**, not the rendered HTML: a
 spec regenerates deterministically via
@@ -2155,6 +2157,8 @@ page order matches this list):
   per-server fallbacks and the unauthenticated iLO probe (`BmcProbedProvider`).
 - [redfish-standalone.html](../frontend/public/architecture/redfish-standalone.html) —
   inventory TOML to direct BMC reads; failures become serial-less stubs.
+- [kubevirt.html](../frontend/public/architecture/kubevirt.html) — one collector per
+  KubeVirt cluster, VMs read as Redfish Systems through the kubevirt-redfish facade.
 - [nodes-status.html](../frontend/public/architecture/nodes-status.html) — cluster read,
   hostname then serial match, reconcile with protected ids.
 

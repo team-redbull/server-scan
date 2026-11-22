@@ -193,7 +193,9 @@ Loaded only when a `frontend/` file is open.
   --quality showcase`). Adding a collector's diagram means a new spec, a
   new entry in `features/architecture/diagrams.ts`, and delivering the
   HTML into `public/architecture/` — nothing in this repo's own build
-  regenerates them. `docs/architecture.md`, "Architecture diagrams" has
+  regenerates them. An `architecture`-type spec needs `--repo-root <checkout>` on `validate`/`deliver`, and its
+  viewBox must stay at about 1390 wide or node text drops under the readable size (a wider one failed
+  `desktop-readability`). `docs/architecture.md`, "Architecture diagrams" has
   the full contract.
 - The gate for any frontend change is
   `cd frontend && npm run lint && npm run typecheck && npm run test -- --run && npm run build`

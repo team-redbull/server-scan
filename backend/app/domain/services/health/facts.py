@@ -34,6 +34,10 @@ _BMC_CHECKED = frozenset({"REDFISH_STANDALONE", "OPENMANAGE", "ONEVIEW"})
 _PROFILE_FAILED = 2070
 _PROFILE_JUDGED = frozenset({2060, _PROFILE_FAILED})
 
+# A UCS disk that is gone but whose virtual drive is not (ADR-0068): the volume policy judges it,
+# so it is in neither the OS nor the data bucket.
+_LOST_LEG = "missing"
+
 _NOT_GOOD = frozenset({"CRITICAL", "WARNING", "DOWN"})
 
 # Storage builds only the server's name records; one boolean fact each.
@@ -131,9 +135,10 @@ def extract_facts(server: Server) -> dict[str, Any]:
     psu_healths = [p.health for p in server.hardware.power.psus if p.health is not None]
     dimms = server.hardware.memory.modules
     drives = server.hardware.storage.drives
-    os_capacities = _os_disk_capacities(drives)
-    os_disks = [d for d in drives if d.capacity_bytes in os_capacities]
-    data_disks = [d for d in drives if d.capacity_bytes not in os_capacities]
+    judged = [d for d in drives if d.health_detail != _LOST_LEG]
+    os_capacities = _os_disk_capacities(judged)
+    os_disks = [d for d in judged if d.capacity_bytes in os_capacities]
+    data_disks = [d for d in judged if d.capacity_bytes not in os_capacities]
     gpus = server.hardware.gpus
     gpu_healths = [g.health for g in gpus if g.health is not None]
     uncorrectable = [
@@ -143,6 +148,7 @@ def extract_facts(server: Server) -> dict[str, Any]:
     controllers = server.hardware.storage.controllers
     raid = server.hardware.storage.raid
     volumes = [v for c in controllers for v in c.volumes if v.raid_type is not None]
+    volume_healths = [v.health for c in controllers for v in c.volumes]
     profile_status = server.profile_deployment.last_run_status
 
     return {
@@ -185,6 +191,8 @@ def extract_facts(server: Server) -> dict[str, Any]:
         "raid.raid1_volume_count": sum(
             1 for v in volumes if (v.raid_type or "").upper() == "RAID1"
         ),
+        "raid.degraded_volume_count": volume_healths.count(HealthSeverity.WARNING.value),
+        "raid.failed_volume_count": volume_healths.count(HealthSeverity.CRITICAL.value),
         "memory.has_data": server.hardware.memory.total_bytes > 0 or bool(dimms),
         "storage.has_data": bool(drives) or server.hardware.storage.total_bytes > 0,
         # A readable state, not merely an interface: a collector listing NICs

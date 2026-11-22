@@ -239,7 +239,7 @@ collectors:
     password: ""
 
     # How many domains to collect concurrently. Each domain costs a login
-    # plus 13 queries no matter how many servers it holds
+    # plus 17 queries no matter how many servers it holds
     # (docs/adr/0014-ucs-central-multi-domain-collector.md), and domains
     # are independent, so this bounds wall-clock time without bounding
     # what gets collected.
@@ -304,7 +304,8 @@ collectors:
     # 1, not 0: a ConfigMap mount can lag at pod start and read as
     # "inventory absent", and with no retry that loses a whole collection
     # cycle. The retry-sprays-credentials risk that argues for 0 is
-    # already covered by the credential breaker and the failure budget.
+    # small: a rejected login is a stub with exit 0, so it is not retried
+    # (the credential breaker is gone, ADR-0016 2026-09-12).
     #
     # NOTE: exit 3 (PARTIAL) is the NORMAL outcome for a fleet of
     # independent BMCs, so this Job will be red routinely and by design.

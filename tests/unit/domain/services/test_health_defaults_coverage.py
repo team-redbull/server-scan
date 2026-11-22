@@ -360,6 +360,8 @@ class TestManagerScopedDefaults:
             "No RAID 1 configured for the OS",
             "Only one network link up",
             "Profile deployment failed",
+            "Virtual drive degraded",
+            "Virtual drive offline",
         }
 
     def test_single_link_up_covers_every_physical_collector_and_no_vm(self) -> None:
@@ -594,6 +596,147 @@ class TestOsMirrorRaid:
             1 for s in states if s.categories["raid"].severity == HealthSeverity.CRITICAL
         )
         assert critical == sum(1 for i in range(5000) if i % 7 == 0)
+
+
+class TestDegradedVolume:
+    """A degraded or offline virtual drive is a finding on UCS servers (ADR-0068)."""
+
+    @staticmethod
+    def _state(volume_health: str | None, source_provider: str = "UCS_CENTRAL") -> Any:
+        now = utcnow()
+        controller = StorageController(
+            id="storage-SAS-1",
+            kind="RAID",
+            volumes=[
+                StorageVolume(
+                    id="vd-1000", raid_type="RAID1", volume_type="mirror", health=volume_health
+                )
+            ],
+        )
+        server = Server(
+            id="srv_vd",
+            name="ocp4-prod-tlv-compute-01",
+            identity=Identity(vendor=Vendor.CISCO),
+            source_provider=source_provider,
+            hardware=Hardware(
+                storage=Storage(
+                    controllers=[controller], raid=RaidCheck(state="PRESENT", method="x")
+                )
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        return service.evaluate_with_policies(server, default_system_policies()), server
+
+    def test_the_facts_count_warning_and_critical_volumes_apart(self) -> None:
+        _, warning = self._state("WARNING")
+        _, critical = self._state("CRITICAL")
+        _, unread = self._state(None)
+
+        assert extract_facts(warning)["raid.degraded_volume_count"] == 1
+        assert extract_facts(warning)["raid.failed_volume_count"] == 0
+        assert extract_facts(critical)["raid.degraded_volume_count"] == 0
+        assert extract_facts(critical)["raid.failed_volume_count"] == 1
+        assert extract_facts(unread)["raid.degraded_volume_count"] == 0
+        assert extract_facts(unread)["raid.failed_volume_count"] == 0
+
+    @pytest.mark.parametrize("provider", ["UCS_CENTRAL", "UCS_MANAGER"])
+    def test_a_degraded_mirror_is_major_and_names_the_drive_count(self, provider: str) -> None:
+        state, _ = self._state("WARNING", provider)
+
+        assert state.categories["raid"].severity == HealthSeverity.MAJOR
+        assert state.overall == HealthSeverity.MAJOR
+        assert any(e.policy_key == "raid.volume_degraded" and e.active for e in state.evaluations)
+        message = health_from_state(state).reasons[0].message
+        assert message == "1 virtual drive(s) degraded"
+
+    def test_an_offline_volume_is_critical(self) -> None:
+        state, _ = self._state("CRITICAL")
+
+        assert state.categories["raid"].severity == HealthSeverity.CRITICAL
+        assert any(e.policy_key == "raid.volume_failed" and e.active for e in state.evaluations)
+
+    @pytest.mark.parametrize("health", ["HEALTHY", None])
+    def test_an_optimal_or_unread_volume_is_healthy(self, health: str | None) -> None:
+        state, _ = self._state(health)
+
+        assert state.categories["raid"].severity == HealthSeverity.HEALTHY
+
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE", "ONEVIEW"])
+    def test_other_collectors_volume_health_is_not_judged(self, provider: str) -> None:
+        state, _ = self._state("WARNING", provider)
+
+        assert state.categories["raid"].severity != HealthSeverity.MAJOR
+
+
+class TestMissingLegIsNotADataDisk:
+    """A lost mirror leg is judged by the volume policy, not the data-disk ones (ADR-0068)."""
+
+    @staticmethod
+    def _server(name: str, drives: list[StorageDrive]) -> Server:
+        now = utcnow()
+        return Server(
+            id="srv_missing",
+            name=name,
+            identity=Identity(vendor=Vendor.CISCO),
+            source_provider="UCS_CENTRAL",
+            hardware=Hardware(
+                storage=Storage(
+                    drives=drives,
+                    controllers=[
+                        StorageController(
+                            id="storage-SAS-1",
+                            kind="RAID",
+                            volumes=[
+                                StorageVolume(id="vd-1000", raid_type="RAID1", health="WARNING")
+                            ],
+                        )
+                    ],
+                    raid=RaidCheck(state="PRESENT", method="x"),
+                )
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+
+    @staticmethod
+    def _missing() -> StorageDrive:
+        return StorageDrive(id="disk-2", health="CRITICAL", health_detail="missing")
+
+    def test_it_counts_in_no_os_or_data_bucket(self) -> None:
+        good = StorageDrive(id="disk-1", capacity_bytes=480 * 10**9, health="HEALTHY")
+        facts = extract_facts(self._server("ocp4-prod-tlv-compute-01", [good, self._missing()]))
+
+        assert facts["storage.data_bad_disk_count"] == 0
+        assert facts["storage.data_failed_disk_count"] == 0
+        assert facts["storage.os_bad_disk_count"] == 0
+        assert facts["storage.failed_drive_count"] == 1
+
+    def test_a_degraded_mirror_alone_is_major_not_a_data_disk_warning(self) -> None:
+        good = StorageDrive(id="disk-1", capacity_bytes=480 * 10**9, health="HEALTHY")
+        server = self._server("ocp4-prod-tlv-compute-01", [good, self._missing()])
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        state = service.evaluate_with_policies(server, default_system_policies())
+
+        assert state.overall == HealthSeverity.MAJOR
+        assert state.categories["storage"].severity == HealthSeverity.HEALTHY
+
+    def test_a_10tb_server_with_one_bad_data_disk_is_not_escalated_by_it(self) -> None:
+        os_disk = StorageDrive(id="disk-1", capacity_bytes=480 * 10**9, health="HEALTHY")
+        bad = StorageDrive(id="disk-5", capacity_bytes=10 * 10**12, health="WARNING")
+        big = StorageDrive(id="disk-6", capacity_bytes=10 * 10**12, health="HEALTHY")
+        server = self._server("ocp4-prod-tlv-10tb-01", [os_disk, bad, big, self._missing()])
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        state = service.evaluate_with_policies(server, default_system_policies())
+
+        assert state.categories["storage"].severity != HealthSeverity.CRITICAL
 
 
 class TestProfileDeployment:

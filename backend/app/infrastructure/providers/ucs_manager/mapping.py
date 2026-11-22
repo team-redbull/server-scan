@@ -18,7 +18,7 @@ from app.infrastructure.providers.ucs_common import (
     normalize_admin_state,
     normalize_oper_state,
 )
-from app.infrastructure.providers.ucs_manager.raid import assess_ucs_raid
+from app.infrastructure.providers.ucs_manager.raid import assess_ucs_raid, degraded_controller_dns
 
 _BYTES_PER_MB = 1024 * 1024
 _NOT_APPLICABLE = "not-applicable"
@@ -423,25 +423,55 @@ def _disk_capacity_bytes(mo: Any) -> int | None:
     return size_mb * _BYTES_PER_MB if size_mb else None
 
 
-def _storage_drives(disk_units: list[Any]) -> tuple[tuple[dict[str, object], ...], int]:
+def _missing_drive(mo: Any) -> dict[str, object]:
+    """
+    A disk UCS lists as `missing` as a failed drive.
+
+    Args:
+        mo (Any): A `storageLocalDisk` MO with `presence == "missing"`.
+
+    Returns:
+        dict[str, object]: A `CRITICAL` drive with no model, serial or capacity.
+    """
+    return {
+        "id": str(mo.dn),
+        "model": None,
+        "serial": None,
+        "media_type": "UNKNOWN",
+        "capacity_bytes": None,
+        "health": "CRITICAL",
+        "health_detail": "missing",
+    }
+
+
+def _storage_drives(
+    disk_units: list[Any], virtual_drives: Iterable[Any] = ()
+) -> tuple[tuple[dict[str, object], ...], int]:
     """
     Summarize one server's local disks.
 
     Args:
         disk_units (list[Any]): `storageLocalDisk` MOs owned by one server.
+        virtual_drives (Iterable[Any]): Its `storageVirtualDrive` MOs; a `missing` disk beside a
+            non-optimal one is a lost leg and is reported (ADR-0068).
 
     Returns:
         tuple[tuple[dict[str, object], ...], int]: `(drives, total_bytes)`
-            over every equipped disk. A disk whose capacity could not be
+            over every equipped disk, plus each lost leg. A disk whose capacity could not be
             read still contributes a drive entry, with
             `capacity_bytes=None`, and adds nothing to the total rather
             than counting as zero.
 
     See docs/cisco-collectors.md, "CPU, memory and storage".
     """
+    degraded = degraded_controller_dns(virtual_drives)
     drives: list[dict[str, object]] = []
     total_bytes = 0
     for mo in disk_units:
+        if str(getattr(mo, "presence", "")) == "missing":
+            if str(mo.dn).rsplit("/", 1)[0] in degraded:
+                drives.append(_missing_drive(mo))
+            continue
         if not is_equipped(mo):
             continue
         capacity_bytes = _disk_capacity_bytes(mo)
@@ -738,9 +768,10 @@ def compute_unit_to_provider_server(
     )
 
     total_memory_mb = _as_int(getattr(server_mo, "total_memory", None))
-    storage_drives, storage_total_bytes = _storage_drives(disk_units)
+    virtual_drive_mos = list(virtual_drives)
+    storage_drives, storage_total_bytes = _storage_drives(disk_units, virtual_drive_mos)
     controller_entries, raid_check = assess_ucs_raid(
-        list(storage_controllers), list(virtual_drives), disk_units
+        list(storage_controllers), virtual_drive_mos, disk_units
     )
 
     return ProviderServer(

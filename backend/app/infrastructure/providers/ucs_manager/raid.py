@@ -42,6 +42,29 @@ _VD_HEALTH = {
 _NOT_RAID_TYPES = frozenset({"FCH", "FLASH", "HBA", "PCH", "PT"})
 
 
+def degraded_controller_dns(virtual_drives: Iterable[Any]) -> frozenset[str]:
+    """
+    The controllers that own a virtual drive UCS Manager does not call optimal.
+
+    A disk UCS lists as `missing` is a lost leg only beside one of these (ADR-0068).
+    `cache-degraded` is a cache or battery condition, not a lost leg, so it does not count.
+
+    Args:
+        virtual_drives (Iterable[Any]): A server's `storageVirtualDrive` MOs.
+
+    Returns:
+        frozenset[str]: The parent DN of every virtual drive whose `drive_state` maps to
+            `WARNING` or `CRITICAL`; `unknown`, unmapped and `optimal` never count.
+    """
+    return frozenset(
+        str(vd.dn).rsplit("/", 1)[0]
+        for vd in virtual_drives
+        if str(getattr(vd, "drive_state", "") or "").lower() != "cache-degraded"
+        and _VD_HEALTH.get(str(getattr(vd, "drive_state", "") or "").lower())
+        in ("WARNING", "CRITICAL")
+    )
+
+
 def raid_type(virtual_drive: Any) -> str | None:
     """
     Spell a virtual drive's `type` the DMTF way.
