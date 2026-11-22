@@ -7,7 +7,7 @@
     "column_fit": "spread",
     "viewBox": [
       1060,
-      735
+      900
     ],
     "views": [
       {
@@ -17,7 +17,7 @@
           "cronjob",
           "ome"
         ],
-        "note": "Two bulk OData calls name every server; namePattern is applied before any BMC is contacted."
+        "note": "Two bulk OData calls name every server and carry its profile deployment status; namePattern is applied before any BMC is contacted."
       },
       {
         "id": "hardware",
@@ -36,7 +36,17 @@
           "ingest",
           "mongo"
         ],
-        "note": "One write per server: classify, health-evaluate, audit, upsert on (vendor, serial)."
+        "note": "A content-identical server is only touch_seen'd; a changed one is written with a revision CAS (ADR-0044)."
+      },
+      {
+        "id": "reset",
+        "label": "iDRAC reset",
+        "focus": [
+          "ingest",
+          "idrac",
+          "mongo"
+        ],
+        "note": "The only collector path that writes to a BMC: report-only by default, 12 h cooldown read from the audit trail (ADR-0050)."
       }
     ]
   },
@@ -45,7 +55,7 @@
       "id": "cronjob",
       "type": "backend",
       "label": "OpenManage CronJob",
-      "sublabel": "every 6 h"
+      "sublabel": "every 3 h, deadline 5400 s"
     },
     {
       "id": "ome",
@@ -63,7 +73,7 @@
       "id": "ingest",
       "type": "backend",
       "label": "IngestService",
-      "sublabel": "in the same pod"
+      "sublabel": "in the same pod, ingest()"
     },
     {
       "id": "mongo",
@@ -85,8 +95,13 @@
     },
     {
       "from": 538,
-      "to": 646,
+      "to": 676,
       "label": "Join and ingest"
+    },
+    {
+      "from": 688,
+      "to": 800,
+      "label": "iDRAC reset (ADR-0050)"
     }
   ],
   "messages": [
@@ -112,7 +127,7 @@
       "from": "cronjob",
       "to": "ome",
       "y": 236,
-      "label": "GET /ProfileService/Profiles (paged)",
+      "label": "GET /ProfileService/Profiles (paged, with LastRunStatus)",
       "variant": "emphasis"
     },
     {
@@ -128,7 +143,7 @@
       "from": "ome",
       "to": "cronjob",
       "y": 300,
-      "label": "ProfileName, DeviceServiceTag, DeviceManagement[0].NetworkAddress",
+      "label": "ProfileName, ServiceTag, BMC address, LastRunStatus",
       "variant": "return"
     },
     {
@@ -154,7 +169,7 @@
       "from": "cronjob",
       "to": "idrac",
       "y": 414,
-      "label": "GET Systems, Processors, Memory, EthernetInterfaces, Storage",
+      "label": "GET Systems, Processors, Memory, EthernetInterfaces, Storage, Volumes, Drives",
       "variant": "emphasis"
     },
     {
@@ -162,7 +177,7 @@
       "from": "cronjob",
       "to": "idrac",
       "y": 446,
-      "label": "GET Links.Chassis PowerSubsystem/PowerSupplies, Managers EthernetInterfaces",
+      "label": "GET Chassis PSUs + PowerSupplyMetrics, Managers EthernetInterfaces, optional PCIe GPUs",
       "variant": "default"
     },
     {
@@ -178,39 +193,74 @@
       "from": "idrac",
       "to": "cronjob",
       "y": 510,
-      "label": "any failure \u2192 reachable=False stub + reason; unreachable/rejected login exit 0, TLS/budget/protocol exit 3",
-      "variant": "dashed"
+      "label": "failure \u2192 reachable=False stub; unreachable/rejected exit 0, mapping error COLLECTION_ERROR exit 3",
+      "variant": "dashed",
+      "note": "exit 1 when 5+ servers and over 20% failed (ADR-0062)"
     },
     {
       "id": "merge",
       "from": "cronjob",
       "to": "ingest",
       "y": 562,
-      "label": "ProviderServer: OME identity + iDRAC hardware, joined on BMC host",
+      "label": "per server as it arrives: OME identity + iDRAC hardware, joined on BMC host",
       "variant": "emphasis"
+    },
+    {
+      "id": "stubs",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 594,
+      "label": "stubs: not_an_idrac, unusable address first; dead hosts after the pass",
+      "variant": "dashed"
     },
     {
       "id": "upsert",
       "from": "ingest",
       "to": "mongo",
-      "y": 596,
-      "label": "classify + health + audit + upsert on (vendor, serial_normalized)",
+      "y": 626,
+      "label": "classify + health + audit; changed: revision CAS, else touch_seen",
       "variant": "emphasis"
     },
     {
       "id": "ack",
       "from": "mongo",
       "to": "ingest",
-      "y": 628,
-      "label": "one write per server",
+      "y": 658,
+      "label": "written / unchanged",
       "variant": "return"
+    },
+    {
+      "id": "reset-jobs",
+      "from": "ingest",
+      "to": "idrac",
+      "y": 716,
+      "label": "all disks or all NICs UNKNOWN \u2192 GET JobService/Jobs",
+      "variant": "emphasis",
+      "note": "queued per server, 5 workers, max 10 a run"
+    },
+    {
+      "id": "reset-post",
+      "from": "ingest",
+      "to": "idrac",
+      "y": 752,
+      "label": "idle: power on if Off, POST Manager.Reset GracefulRestart",
+      "variant": "security",
+      "note": "report-only by default"
+    },
+    {
+      "id": "reset-audit",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 788,
+      "label": "IDRAC_RESET audit event; 12 h cooldown read from it",
+      "variant": "dashed"
     }
   ],
   "activations": [
     {
       "participant": "cronjob",
       "from": 168,
-      "to": 638,
+      "to": 796,
       "type": "backend"
     },
     {
@@ -226,15 +276,27 @@
       "type": "external"
     },
     {
+      "participant": "idrac",
+      "from": 710,
+      "to": 760,
+      "type": "external"
+    },
+    {
       "participant": "ingest",
       "from": 556,
-      "to": 636,
+      "to": 796,
       "type": "backend"
     },
     {
       "participant": "mongo",
-      "from": 590,
-      "to": 634,
+      "from": 620,
+      "to": 666,
+      "type": "database"
+    },
+    {
+      "participant": "mongo",
+      "from": 780,
+      "to": 796,
       "type": "database"
     }
   ],
@@ -260,7 +322,25 @@
       "title": "Still open",
       "items": [
         "The iDRAC GPU VRAM check (docs/field-test-checklist.md part 3) has not run on real hardware",
-        "One fleet-wide read-only iDRAC account: the auth guard disables it after 3 rejections, aborts after 10; a rejected login is a stub with exit 0, not PARTIAL (ADR-0037)"
+        "One fleet-wide iDRAC account, every iDRAC tried every run: the auth guard was deleted 2026-09-12 and the operator accepts the lockout risk; a rejected login is an AUTH_REJECTED stub, exit 0 (ADR-0016, ADR-0037)"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "iDRAC reset, the only BMC write (ADR-0050)",
+      "items": [
+        "Only a reachable Dell with every disk or every NIC UNKNOWN, inside IngestService.ingest(), never ingest_one, --dry-run or the API pod",
+        "collectors.ome.idracReset.reportOnly is true by default; sending needs the Configure Manager privilege on the iDRAC account",
+        "An unfinished or unknown-state iDRAC job blocks it; a host that is Off is powered on first unless in maintenance"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Run bounds and exit codes",
+      "items": [
+        "Schedule 0 */3 * * *, activeDeadlineSeconds 5400, 180 s per iDRAC, 3600 s for the pass (settings, Helm bmcHostBudgetSeconds / bmcRunBudgetSeconds)",
+        "Exit 0 only for NETWORK_UNREACHABLE or AUTH_REJECTED stubs; OME login or bulk failure exit 1; missing credentials exit 2 before any call",
+        "A profile's LastRunStatus 2070 is CRITICAL profile.deployment_failed, 2060 healthy, else UNKNOWN (ADR-0066)"
       ]
     }
   ]

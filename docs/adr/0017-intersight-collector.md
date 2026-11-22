@@ -1022,7 +1022,7 @@ that gated this" above.
 | `..providers.intersight.mapping` | Managed objects -> `ProviderServer`, pure |
 | `..providers.intersight.provider` | The fleet-wide join and the streamed run |
 | `tools/verify_intersight.py` | Read-only pre-flight; GOOD / PARTIAL / BAD |
-| `deploy/.../intersight-collector-cronjob.yaml` | One CronJob, every 6 hours (2026-09-10, was hourly — see `deploy/README.md`), values-only config |
+| `deploy/.../intersight-collector-cronjob.yaml` | One CronJob, every 3 hours (operator, 2026-10-04; 6 hours from 2026-09-10, hourly before — see `deploy/README.md`), values-only config |
 
 `INTERSIGHT` is registered in `_PROVIDER_FACTORIES` and is in **neither**
 `_ENDPOINTLESS_TYPES` nor `_UNFILTERED_TYPES`.

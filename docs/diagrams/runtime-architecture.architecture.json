@@ -7,7 +7,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/team-redbull/server-scan",
-      "revision": "445d9ec5745dea455cd9b1c4e1784c77ffcf39f9"
+      "revision": "b2d4ba5462711f203d6f84279ea106991f44566c"
     },
     "views": [
       {
@@ -31,9 +31,10 @@
           "openmanage",
           "oneview",
           "bmcs",
+          "kubevirt",
           "collectors"
         ],
-        "note": "Five read-only collectors, one CronJob per manager type."
+        "note": "Six collectors, one CronJob per manager type (KubeVirt: one per cluster); only OpenManage ever writes to a BMC."
       },
       {
         "id": "engines",
@@ -59,7 +60,7 @@
     ],
     "viewBox": [
       1370,
-      640
+      720
     ]
   },
   "components": [
@@ -137,14 +138,14 @@
       "id": "collectors",
       "type": "backend",
       "label": "Collector CronJobs",
-      "sublabel": "one per manager type",
+      "sublabel": "own Helm chart",
       "pos": [
         380,
-        223
+        238
       ],
       "size": [
         160,
-        140
+        220
       ],
       "sources": [
         {
@@ -312,8 +313,8 @@
     {
       "id": "prune",
       "type": "backend",
-      "label": "Prune CronJob",
-      "sublabel": "off by default",
+      "label": "Prune CronJobs",
+      "sublabel": "servers + audit events",
       "pos": [
         880,
         390
@@ -350,24 +351,39 @@
         160,
         66
       ]
+    },
+    {
+      "id": "kubevirt",
+      "type": "external",
+      "label": "KubeVirt VMs",
+      "sublabel": "kubevirt-redfish facade",
+      "pos": [
+        70,
+        590
+      ],
+      "size": [
+        160,
+        66
+      ]
     }
   ],
   "boundaries": [
     {
       "kind": "security-group",
-      "label": "Vendor management plane (read-only)",
+      "label": "Vendor management plane",
       "wraps": [
         "ucscentral",
         "intersight",
         "openmanage",
         "oneview",
-        "bmcs"
+        "bmcs",
+        "kubevirt"
       ],
       "pad": 30
     },
     {
       "kind": "region",
-      "label": "Air-gapped OpenShift namespace",
+      "label": "Air-gapped OpenShift: server-scan + collectors releases",
       "wraps": [
         "collectors",
         "classify",
@@ -389,7 +405,8 @@
       "to": "collectors",
       "label": "XML API",
       "variant": "security",
-      "labelDx": -30
+      "labelDx": -55,
+      "labelDy": -8
     },
     {
       "id": "isight-read",
@@ -397,7 +414,8 @@
       "to": "collectors",
       "label": "OData",
       "variant": "security",
-      "labelDx": 30
+      "labelDx": 50,
+      "labelDy": -4
     },
     {
       "id": "ome-read",
@@ -413,7 +431,7 @@
       "to": "collectors",
       "label": "REST",
       "variant": "security",
-      "labelDx": 30
+      "labelSegment": 0
     },
     {
       "id": "bmc-read",
@@ -421,8 +439,7 @@
       "to": "collectors",
       "label": "Redfish",
       "variant": "security",
-      "labelDx": -30,
-      "labelDy": 20
+      "labelSegment": 0
     },
     {
       "id": "normalize",
@@ -515,6 +532,14 @@
       "variant": "dashed",
       "fromSide": "right",
       "toSide": "top"
+    },
+    {
+      "id": "kubevirt-read",
+      "from": "kubevirt",
+      "to": "collectors",
+      "label": "Redfish",
+      "variant": "security",
+      "labelSegment": 0
     }
   ],
   "cards": [
@@ -523,24 +548,25 @@
       "title": "Primary path",
       "items": [
         "Vendor \u2192 collector \u2192 ingest \u2192 MongoDB \u2192 API \u2192 UI.",
-        "Classify and health-evaluate happen inside that one upsert.",
-        "A second write path bypasses ingest entirely: per-cluster nodes-status jobs reconcile OpenShift membership straight into MongoDB (ADR-0024, ADR-0036)"
+        "Classify and health-evaluate happen inside that one upsert; an unchanged server is only touched (ADR-0044).",
+        "Other writers bypass ingest: nodes-status jobs (ADR-0024, ADR-0036), the prune jobs, and admin actions in the API."
       ]
     },
     {
       "dot": "rose",
       "title": "Trust boundaries",
       "items": [
-        "Collectors initiate every vendor call and are strictly read-only.",
-        "Optional AD login (sessions, API tokens for machines), off by default (ADR-0034)"
+        "Collectors start every scheduled vendor call and only read, except one: the OpenManage run can restart an iDRAC (report-only by default, 12 h cooldown, ADR-0050)",
+        "Optional AD login (off by default): admin, auditor and viewer roles, static and personal API tokens; the audit trail is admin and auditor only (ADR-0034, ADR-0043, ADR-0053)"
       ]
     },
     {
       "dot": "emerald",
       "title": "Collectors",
       "items": [
-        "One CronJob per manager type; every type has a collector except UCS_MANAGER, reached through UCS_CENTRAL.",
-        "Intersight ~120 requests per fleet; Redfish ~25 per BMC."
+        "Six collectors, one CronJob per manager type (KubeVirt: one per cluster); UCS_MANAGER is reached through UCS_CENTRAL.",
+        "They are their own Helm chart, tag bumped by hand after server-scan (ADR-0060).",
+        "Intersight ~120 requests per fleet; Redfish ~25 or more per BMC."
       ]
     },
     {
@@ -548,7 +574,8 @@
       "title": "Failure behaviour",
       "items": [
         "An unread field is None, never 0 \u2014 the stored value survives.",
-        "A partial run exits 3; Redis loss degrades latency only."
+        "One bad server becomes a COLLECTION_ERROR stub and never aborts the run (ADR-0062).",
+        "A partial run exits 3, a systemic one exits 1; Redis loss degrades latency only."
       ]
     },
     {
@@ -556,16 +583,26 @@
       "title": "Serving the UI (ADR-0033)",
       "items": [
         "The browser loads the whole fleet once, as flat rows, and filters/sorts/searches locally.",
-        "Polled every 30s; an unchanged fleet is a 304, not a re-download."
+        "Polled every 30s; an unchanged fleet is a 304, not a re-download.",
+        "The MCP server (off by default) is a thin REST client holding no credentials (ADR-0054)."
       ]
     },
     {
       "dot": "cyan",
       "title": "Pruning and observability",
       "items": [
-        "The prune CronJob is report-only by default; it deletes servers a manager stopped listing for 24h, each audited SERVER_PRUNED (ADR-0037)",
+        "Prune CronJobs, report-only by default: servers a manager stopped listing for 24h (SERVER_PRUNED, ADR-0037) and audit events older than 180 days, weekly (ADR-0045)",
         "Fleet gauges, incl. server_scan_servers_pruned_24h, are derived from MongoDB on each scrape (ADR-0029)",
         "The bmc health category marks a dead BMC; Cisco BMCs are not probed"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Admin actions in the API",
+      "items": [
+        "Run job creates a Job from a labelled CronJob through the Kubernetes API (ADR-0055)",
+        "A cluster silent for 7 days is flagged CLUSTER_NOT_REPORTING; an admin decommissions it (ADR-0067)",
+        "Deleting a server is admin-only and audited (ADR-0065)"
       ]
     }
   ]

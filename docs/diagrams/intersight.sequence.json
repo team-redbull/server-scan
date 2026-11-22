@@ -51,7 +51,7 @@
     {
       "from": 272,
       "to": 496,
-      "label": "Fleet-wide tables, joined client-side"
+      "label": "Fleet-wide tables (1800s budget), joined client-side"
     },
     {
       "from": 514,
@@ -137,7 +137,7 @@
       "from": "intersight",
       "to": "cron",
       "y": 480,
-      "label": "Results pages, joined by inverse owner Moid",
+      "label": "Results pages, joined by inverse owner Moid; a failed table stays unread",
       "variant": "return"
     },
     {
@@ -145,7 +145,7 @@
       "from": "cron",
       "to": "ingest",
       "y": 530,
-      "label": "ProviderServer per summary (TotalMemory in MiB)",
+      "label": "ProviderServer per summary (a failed mapping becomes a stub)",
       "variant": "emphasis"
     },
     {
@@ -153,7 +153,7 @@
       "from": "ingest",
       "to": "mongo",
       "y": 562,
-      "label": "classify + health + audit + upsert, one write per server",
+      "label": "classify + health + audit; changed: revision CAS, else touch_seen",
       "variant": "emphasis"
     },
     {
@@ -161,7 +161,7 @@
       "from": "ingest",
       "to": "cron",
       "y": 604,
-      "label": "IngestSummary: created, updated, errors",
+      "label": "IngestSummary: fetched, created, updated, unchanged, errors",
       "variant": "return"
     }
   ],
@@ -218,12 +218,30 @@
       ]
     },
     {
+      "dot": "rose",
+      "title": "Failure is contained, reads can be partial",
+      "items": [
+        "A failed table returns None: the stored value is carried forward and the path listed in Server.unread_fields; a failed parent skips its children (compute/Boards: Controllers, PhysicalDisks, Cards, Units) \u2014 ADR-0016, ADR-0017",
+        "A server that fails to map becomes a reachable=False COLLECTION_ERROR stub (event intersight.server_failed); a summary row with no Moid is skipped and recorded \u2014 ADR-0062",
+        "runBudgetSeconds 1800 (activeDeadlineSeconds 2100): running out is a collection error. Exit 0 complete, 1 systemic, 2 not configured, 3 partial \u2014 tools/run_collector.py"
+      ]
+    },
+    {
       "dot": "amber",
       "title": "Still contract-only",
       "items": [
         "No PSU, GPU or drive on the tenant has failed yet: DOWN/CRITICAL vocabulary unconfirmed",
         "A blade reports no PSUs: equipment/Psus joins only to a rack unit; the chassis owns them",
         "get_one()'s owner-relation $filters (ADR-0032) have never run against a live tenant"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Scope: what Intersight does not do",
+      "items": [
+        "ManagementMode UCSM is excluded: UCS_CENTRAL owns those servers \u2014 ADR-0017, Decision 3",
+        "No virtual-drive read, so RAID is not judged and the raid.volume_* policies do not apply (UCS only) \u2014 ADR-0048, ADR-0068",
+        "Opt-in (collectors.intersight.enabled, off by default); runs at 0 */3 * * *"
       ]
     }
   ]

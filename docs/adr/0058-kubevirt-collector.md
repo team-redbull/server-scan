@@ -75,7 +75,7 @@ Three facts about the facade shaped the design:
 - `GET /sites`' `by_vendor` lists every `Vendor`, so it gains a `kubevirt` entry (zero where there are none).
 - **Lockout:** the collector and the API pod's rechecks may share an egress IP; a misconfigured API pod
   could lock the collector out for 15 minutes.
-- The Architecture page has no KubeVirt diagram yet.
+- The Architecture page has a KubeVirt diagram (added 2026-11-22).
 
 ## Amended by ADR-0059 (2026-11-08)
 

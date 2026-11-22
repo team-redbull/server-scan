@@ -48,4 +48,18 @@ describe("ArchitecturePage", () => {
       "true",
     );
   });
+
+  it("has a delivered HTML file for every listed diagram", () => {
+    const delivered = Object.keys(import.meta.glob("../../../public/architecture/*.html"));
+    for (const diagram of DIAGRAMS) {
+      expect(
+        delivered.some((path) => path.endsWith(`/${diagram.slug}.html`)),
+        diagram.slug,
+      ).toBe(true);
+    }
+  });
+
+  it("lists a KubeVirt diagram", () => {
+    expect(DIAGRAMS.map((d) => d.slug)).toContain("kubevirt");
+  });
 });

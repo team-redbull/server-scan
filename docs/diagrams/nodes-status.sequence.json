@@ -33,7 +33,7 @@
       "id": "mongo",
       "type": "database",
       "label": "MongoDB",
-      "sublabel": "Server.openshift only"
+      "sublabel": "Server.openshift + membership_runs"
     },
     {
       "id": "audit",
@@ -73,7 +73,7 @@
       "from": "nodes_job",
       "to": "kube",
       "y": 204,
-      "label": "GET /api/v1/nodes?labelSelector=node-role.kubernetes.io/worker",
+      "label": "GET /api/v1/nodes (no label selector)",
       "variant": "emphasis"
     },
     {
@@ -81,7 +81,7 @@
       "from": "kube",
       "to": "nodes_job",
       "y": 232,
-      "label": "worker nodes, paged by metadata.continue",
+      "label": "every Node, paged by metadata.continue; infra/control-plane/master dropped by name after the read",
       "variant": "return"
     },
     {
@@ -218,7 +218,8 @@
       "items": [
         "Kubernetes never reports a removal",
         "A run claims what it sees, frees what it doesn't",
-        "AVAILABLE is the default; there is no UNKNOWN"
+        "AVAILABLE is the default; there is no UNKNOWN",
+        "A cluster silent for 7 days is flagged CLUSTER_NOT_REPORTING; an admin decommissions it (ADR-0067)"
       ]
     },
     {
@@ -227,17 +228,17 @@
       "items": [
         "A job frees only servers naming its own cluster/MCE",
         "Failed read: exit 1 before any write",
-        "Empty read: also refuses (RBAC, not an empty cluster)",
-        "An unreadable serial holds back only its own duplicate candidates, never the whole run (ADR-0036)"
+        "Empty read: also refuses (RBAC, not an empty cluster); both exit 1",
+        "An unreadable serial holds back only its own duplicate candidates, never the whole run (ADR-0036); unmatched hostnames exit 3 (partial)"
       ]
     },
     {
       "dot": "amber",
       "title": "Kept apart on purpose",
       "items": [
-        "Writes Server.openshift only, never via IngestService",
+        "Writes Server.openshift (and its own membership_runs record), never via IngestService",
         "Name verdict vs cluster fact: a mismatch is the signal (reported_name)",
-        "httpx to kubernetes.default.svc, no SDK, two GETs"
+        "httpx to kubernetes.default.svc, no SDK: nodes is one paged list, agents is discovery + list"
       ]
     }
   ]

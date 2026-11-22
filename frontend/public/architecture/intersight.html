@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="generator" content="archify 2.16.0-dev.0">
+  <meta name="generator" content="archify 2.17.0-dev.1">
   <title>Cisco Intersight Collector Run Diagram</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
@@ -5128,35 +5128,35 @@
         </g>
         </g>
 
-        <g data-edge-from="intersight" data-edge-to="cron" data-edge-label="Results pages, joined by inverse owner Moid" data-edge-key="9" data-edge-id="rows">
+        <g data-edge-from="intersight" data-edge-to="cron" data-edge-label="Results pages, joined by inverse owner Moid; a failed table stays unread" data-edge-key="9" data-edge-id="rows">
           <path data-composition-edge-from="intersight" data-composition-edge-to="cron" data-composition-edge-id="rows" data-composition-points="534,480;150.5,480" d="M 534 480 L 150.5 480" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="224.45" y="460" width="235.6" height="16" rx="3" class="c-mask"/>
-          <text x="342.25" y="470" class="t-muted" font-size="9" text-anchor="middle">Results pages, joined by inverse owner Moid</text>
+          <rect x="149.04999999999998" y="460" width="386.40000000000003" height="16" rx="3" class="c-mask"/>
+          <text x="342.25" y="470" class="t-muted" font-size="9" text-anchor="middle">Results pages, joined by inverse owner Moid; a failed table stays unread</text>
         </g>
         </g>
 
-        <g data-edge-from="cron" data-edge-to="ingest" data-edge-label="ProviderServer per summary (TotalMemory in MiB)" data-edge-key="10" data-edge-id="normalize">
+        <g data-edge-from="cron" data-edge-to="ingest" data-edge-label="ProviderServer per summary (a failed mapping becomes a stub)" data-edge-key="10" data-edge-id="normalize">
           <path data-composition-edge-from="cron" data-composition-edge-to="ingest" data-composition-edge-id="normalize" data-composition-points="150.5,530;732.75,530" d="M 150.5 530 L 732.75 530" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="313.425" y="510" width="256.4" height="16" rx="3" class="c-mask"/>
-          <text x="441.625" y="520" class="t-backend" font-size="9" text-anchor="middle">ProviderServer per summary (TotalMemory in MiB)</text>
+          <rect x="279.625" y="510" width="324" height="16" rx="3" class="c-mask"/>
+          <text x="441.625" y="520" class="t-backend" font-size="9" text-anchor="middle">ProviderServer per summary (a failed mapping becomes a stub)</text>
         </g>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="classify + health + audit + upsert, one write per server" data-edge-key="11" data-edge-id="upsert">
+        <g data-edge-from="ingest" data-edge-to="mongo" data-edge-label="classify + health + audit; changed: revision CAS, else touch_seen" data-edge-key="11" data-edge-id="upsert">
           <path data-composition-edge-from="ingest" data-composition-edge-to="mongo" data-composition-edge-id="upsert" data-composition-points="746.75,562;931.5,562" d="M 746.75 562 L 931.5 562" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <g data-detail="context">
-          <rect x="687.525" y="542" width="303.2" height="16" rx="3" class="c-mask"/>
-          <text x="839.125" y="552" class="t-backend" font-size="9" text-anchor="middle">classify + health + audit + upsert, one write per server</text>
+          <rect x="664.125" y="542" width="350" height="16" rx="3" class="c-mask"/>
+          <text x="839.125" y="552" class="t-backend" font-size="9" text-anchor="middle">classify + health + audit; changed: revision CAS, else touch_seen</text>
         </g>
         </g>
 
-        <g data-edge-from="ingest" data-edge-to="cron" data-edge-label="IngestSummary: created, updated, errors" data-edge-key="12" data-edge-id="summary">
+        <g data-edge-from="ingest" data-edge-to="cron" data-edge-label="IngestSummary: fetched, created, updated, unchanged, errors" data-edge-key="12" data-edge-id="summary">
           <path data-composition-edge-from="ingest" data-composition-edge-to="cron" data-composition-edge-id="summary" data-composition-points="732.75,604;150.5,604" d="M 732.75 604 L 150.5 604" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
         <g data-detail="context">
-          <rect x="334.225" y="584" width="214.8" height="16" rx="3" class="c-mask"/>
-          <text x="441.625" y="594" class="t-muted" font-size="9" text-anchor="middle">IngestSummary: created, updated, errors</text>
+          <rect x="282.225" y="584" width="318.8" height="16" rx="3" class="c-mask"/>
+          <text x="441.625" y="594" class="t-muted" font-size="9" text-anchor="middle">IngestSummary: fetched, created, updated, unchanged, errors</text>
         </g>
         </g>
 
@@ -5166,8 +5166,8 @@
           <text x="62" y="141" class="t-dim" font-size="9" font-weight="600">Sign + probe</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="1">
-          <rect x="56" y="250" width="206.4" height="18" rx="3" class="c-mask"/>
-          <text x="62" y="263" class="t-dim" font-size="9" font-weight="600">Fleet-wide tables, joined client-side</text>
+          <rect x="56" y="250" width="284.40000000000003" height="18" rx="3" class="c-mask"/>
+          <text x="62" y="263" class="t-dim" font-size="9" font-weight="600">Fleet-wide tables (1800s budget), joined client-side</text>
         </g>
         <g data-graph-role="segment-label" data-segment-id="2">
           <rect x="56" y="492" width="164.8" height="18" rx="3" class="c-mask"/>
@@ -5466,6 +5466,18 @@
 
       <div class="card">
         <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>Failure is contained, reads can be partial</h3>
+        </div>
+        <ul>
+          <li>&bull; A failed table returns None: the stored value is carried forward and the path listed in Server.unread_fields; a failed parent skips its children (compute/Boards: Controllers, PhysicalDisks, Cards, Units) — ADR-0016, ADR-0017</li>
+          <li>&bull; A server that fails to map becomes a reachable=False COLLECTION_ERROR stub (event intersight.server_failed); a summary row with no Moid is skipped and recorded — ADR-0062</li>
+          <li>&bull; runBudgetSeconds 1800 (activeDeadlineSeconds 2100): running out is a collection error. Exit 0 complete, 1 systemic, 2 not configured, 3 partial — tools/run_collector.py</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
           <div class="card-dot amber"></div>
           <h3>Still contract-only</h3>
         </div>
@@ -5473,6 +5485,18 @@
           <li>&bull; No PSU, GPU or drive on the tenant has failed yet: DOWN/CRITICAL vocabulary unconfirmed</li>
           <li>&bull; A blade reports no PSUs: equipment/Psus joins only to a rack unit; the chassis owns them</li>
           <li>&bull; get_one()&#39;s owner-relation $filters (ADR-0032) have never run against a live tenant</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>Scope: what Intersight does not do</h3>
+        </div>
+        <ul>
+          <li>&bull; ManagementMode UCSM is excluded: UCS_CENTRAL owns those servers — ADR-0017, Decision 3</li>
+          <li>&bull; No virtual-drive read, so RAID is not judged and the raid.volume_* policies do not apply (UCS only) — ADR-0048, ADR-0068</li>
+          <li>&bull; Opt-in (collectors.intersight.enabled, off by default); runs at 0 */3 * * *</li>
         </ul>
       </div>
     </div>

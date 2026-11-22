@@ -1130,12 +1130,13 @@ are global in Central and already correct.
 
 ### Cost, and the shape this deliberately is not
 
-Two Central queries, then per collected domain one login plus the 14
+Two Central queries, then per collected domain one login plus the 17
 domain-wide queries `UcsManagerProvider` issues (pinned by
-`test_scales_query_count_independently_of_fleet_size`; 14 as of
-`equipmentRackUnitPsuStats`'s addition ("Power supplies (PSUs)" above) —
-was 13 after `graphicsCard`, 12 after `equipmentPsu`, 11 before that, 10
-at earlier points in this file's own history). **That per-domain cost
+`test_scales_query_count_independently_of_fleet_size`; 17 as of
+`storageController` and `storageVirtualDrive` (ADR-0048) — was 14 after
+`equipmentRackUnitPsuStats` ("Power supplies (PSUs)" above), 13 after
+`graphicsCard`, 12 after `equipmentPsu`, 11 before that, 10 at earlier
+points in this file's own history). **That per-domain cost
 is flat in server count** — a domain holding 500 servers costs the same
 as one holding 10 — so the only levers are how many domains get
 contacted (pruning) and how many at once (`concurrency`, from

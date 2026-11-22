@@ -2117,15 +2117,15 @@ row say "by <who>" from `maintenance.created_by`.
 
 ## Architecture diagrams (interactive)
 
-The `/architecture` page (nav, after Rules & Policies) is seven
+The `/architecture` page (nav, after Rules & Policies) is eight
 self-contained, pan/zoom/search HTML diagrams generated with the
 `archify` Claude Code skill: one full-flow overview
 (`runtime-architecture`, now including the prune CronJob, Prometheus and AD
 login) and one sequence diagram per collector (UCS Central, Intersight,
-OpenManage, OneView, standalone Redfish; none yet for KubeVirt, ADR-0058) and the `nodes-status` jobs. Every
+OpenManage, OneView, standalone Redfish, KubeVirt) and the `nodes-status` jobs. Every
 message and card fact is sourced from an ADR or the provider file it
 names — see each diagram's own cards for the pointer. Data refreshed
-2026-10-01 for ADR-0037 (stubs with reasons, the OneView iLO probe).
+2026-11-22: ADR-0044 (unchanged servers are touched), 0048/0050/0066/0068 (RAID reads, the iDRAC reset, profile status, degraded virtual drives), 0058-0060 (KubeVirt, the collectors chart), 0062 (per-server stubs) and 0067; a runtime-diagram node needs a viewBox no wider than about 1390 or its text drops below the readable size.
 
 **Source of truth is `docs/diagrams/*.json`**, not the rendered HTML: a
 spec regenerates deterministically via
@@ -2157,6 +2157,8 @@ page order matches this list):
   per-server fallbacks and the unauthenticated iLO probe (`BmcProbedProvider`).
 - [redfish-standalone.html](../frontend/public/architecture/redfish-standalone.html) —
   inventory TOML to direct BMC reads; failures become serial-less stubs.
+- [kubevirt.html](../frontend/public/architecture/kubevirt.html) — one collector per
+  KubeVirt cluster, VMs read as Redfish Systems through the kubevirt-redfish facade.
 - [nodes-status.html](../frontend/public/architecture/nodes-status.html) — cluster read,
   hostname then serial match, reconcile with protected ids.
 

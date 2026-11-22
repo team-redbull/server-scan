@@ -7,7 +7,7 @@
     "column_fit": "spread",
     "viewBox": [
       1060,
-      836
+      850
     ],
     "views": [
       {
@@ -17,7 +17,7 @@
           "cronjob",
           "oneview"
         ],
-        "note": "Version discovery, then a login whose sessionID rides the Auth header."
+        "note": "Version discovery, then a login whose sessionID rides the Auth header; a login or bulk failure is exit 1."
       },
       {
         "id": "bulk",
@@ -26,7 +26,7 @@
           "cronjob",
           "oneview"
         ],
-        "note": "Profiles, templates and expand=all hardware cover the whole appliance."
+        "note": "Profiles, templates and expand=all hardware cover the whole appliance; then the session is closed."
       },
       {
         "id": "bmc-probe",
@@ -45,7 +45,7 @@
           "ingest",
           "mongo"
         ],
-        "note": "One upsert per server: classify, health, audit, write."
+        "note": "A changed server is written with a revision CAS, an identical one only touch_seen'd (ADR-0044)."
       }
     ]
   },
@@ -54,7 +54,7 @@
       "id": "cronjob",
       "type": "backend",
       "label": "OneView CronJob",
-      "sublabel": "tools.run_collector"
+      "sublabel": "every 3 h, tools.run_collector"
     },
     {
       "id": "oneview",
@@ -89,18 +89,18 @@
     },
     {
       "from": 314,
-      "to": 536,
-      "label": "Bulk enumeration + bounded fan-out"
+      "to": 574,
+      "label": "Bulk enumeration + bounded fan-out + logout"
     },
     {
-      "from": 542,
-      "to": 612,
+      "from": 580,
+      "to": 650,
       "label": "BMC probe"
     },
     {
-      "from": 618,
-      "to": 764,
-      "label": "Ingest + logout"
+      "from": 656,
+      "to": 766,
+      "label": "Ingest"
     }
   ],
   "messages": [
@@ -141,7 +141,7 @@
       "from": "cronjob",
       "to": "oneview",
       "y": 332,
-      "label": "GET /rest/server-profiles, paged via nextPageUri",
+      "label": "GET /rest/server-profiles, 256 a page via nextPageUri",
       "variant": "emphasis"
     },
     {
@@ -157,7 +157,7 @@
       "from": "cronjob",
       "to": "oneview",
       "y": 408,
-      "label": "GET /rest/server-hardware?expand=all (DIMMs, drives, PCI inline)",
+      "label": "GET /rest/server-hardware?expand=all, 25 a page (DIMMs, drives, PCI inline)",
       "variant": "emphasis"
     },
     {
@@ -181,31 +181,39 @@
       "from": "cronjob",
       "to": "oneview",
       "y": 522,
-      "label": "GET {hardware}/processors \u2014 the one source of cpu_threads",
+      "label": "GET {hardware}/processors \u2014 only where expand=all lacked them; the source of cpu_threads",
       "variant": "dashed"
+    },
+    {
+      "id": "logout",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 560,
+      "label": "DELETE /rest/login-sessions, before any iLO probe or ingest (failure logged)",
+      "variant": "security"
     },
     {
       "id": "probe",
       "from": "cronjob",
       "to": "ilo",
-      "y": 560,
+      "y": 598,
       "label": "GET https://<iLO>/redfish/v1, unauthenticated (BmcProbedProvider)",
       "variant": "emphasis",
-      "note": "one shared httpx client, 64 at once, 5 s"
+      "note": "one shared httpx client, batches of 64, 5 s; interleaved with ingest"
     },
     {
       "id": "probe-ok",
       "from": "ilo",
       "to": "cronjob",
-      "y": 598,
-      "label": "any HTTP response or TLS failure = reachable; refused/timeout = unreachable + reason",
+      "y": 636,
+      "label": "HTTP or TLS error = reachable; refused/timeout = unreachable, not PARTIAL",
       "variant": "return"
     },
     {
       "id": "normalise",
       "from": "cronjob",
       "to": "ingest",
-      "y": 636,
+      "y": 674,
       "label": "ProviderServer per matched profile (server_from)",
       "variant": "emphasis"
     },
@@ -213,25 +221,17 @@
       "id": "upsert",
       "from": "ingest",
       "to": "mongo",
-      "y": 674,
-      "label": "classify + evaluate health + audit event + upsert, one write",
+      "y": 712,
+      "label": "classify + health + audit; changed: revision CAS, else touch_seen",
       "variant": "emphasis"
     },
     {
       "id": "upsert-ok",
       "from": "mongo",
       "to": "ingest",
-      "y": 712,
+      "y": 750,
       "label": "IngestSummary (created / updated / errors)",
       "variant": "return"
-    },
-    {
-      "id": "logout",
-      "from": "cronjob",
-      "to": "oneview",
-      "y": 750,
-      "label": "DELETE /rest/login-sessions (failure logged, never raised)",
-      "variant": "security"
     }
   ],
   "activations": [
@@ -244,25 +244,25 @@
     {
       "participant": "oneview",
       "from": 252,
-      "to": 528,
+      "to": 568,
       "type": "external"
     },
     {
       "participant": "ilo",
-      "from": 554,
-      "to": 604,
+      "from": 592,
+      "to": 642,
       "type": "external"
     },
     {
       "participant": "ingest",
-      "from": 630,
-      "to": 718,
+      "from": 668,
+      "to": 756,
       "type": "backend"
     },
     {
       "participant": "mongo",
-      "from": 668,
-      "to": 716,
+      "from": 706,
+      "to": 754,
       "type": "database"
     }
   ],
@@ -273,7 +273,7 @@
       "items": [
         "OneView is the only HPE source whatever the iLO generation (4, 5 or 6): no BMC login, no per-generation branch; iLO is only probed for reachability (ADR-0022, ADR-0037)",
         "What that costs on Gen10/Gen11 is written down, not worked around: cpu_threads only via /processors, GPU VRAM from the catalog",
-        "One appliance, ~15 requests for the whole estate; the 2500-server ceiling is documented, not coded"
+        "One appliance: for 821 servers about 33 hardware pages (25 each) and 3 profile pages (256 each), plus templates; the 2500-server ceiling is documented, not coded"
       ]
     },
     {
@@ -292,6 +292,15 @@
         "GPU mapping is unverified: no GPU-bearing HPE host exists in the estate, so no Devices entry has ever reported DeviceType GPU",
         "Whether AMS was running was not established; the profile name stays the only field trusted for ProviderServer.name",
         "count=-1 means 64 on /rest/server-profiles \u2014 an explicit count is always sent and truncation is reported as a PARTIAL run"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Exit codes",
+      "items": [
+        "Login or bulk-call failure is OneViewConnectionError, exit 1; a truncated list is a recorded error, exit 3; schedule 0 */3 * * *",
+        "An unreachable iLO is a reachable=False stub and does not make the run PARTIAL (ADR-0037)",
+        "A mapping failure is a COLLECTION_ERROR stub, exit 3, or 1 when 5+ servers and over 20% failed (ADR-0062)"
       ]
     }
   ]

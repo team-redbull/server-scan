@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "KubeVirt Collector Run",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1080,
+      900
+    ],
+    "views": [
+      {
+        "id": "listing",
+        "label": "One login, one listing",
+        "focus": [
+          "cronjob",
+          "facade"
+        ],
+        "note": "Open service root first; the Systems GET is the only login attempt, and a 401 is never retried."
+      },
+      {
+        "id": "vm-walk",
+        "label": "Per-VM walk",
+        "focus": [
+          "cronjob",
+          "facade"
+        ],
+        "note": "Four VMs at a time; a stopped VM's links are UNKNOWN, never DOWN."
+      },
+      {
+        "id": "ingest",
+        "label": "One write per server",
+        "focus": [
+          "cronjob",
+          "ingest",
+          "mongo"
+        ],
+        "note": "Classify, evaluate health, audit and upsert in the same write."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "cronjob",
+      "type": "backend",
+      "label": "KubeVirt CronJob",
+      "sublabel": "KubeVirtProvider (one per cluster)"
+    },
+    {
+      "id": "facade",
+      "type": "external",
+      "label": "kubevirt-redfish facade",
+      "sublabel": "VMs as Redfish Systems (HTTP Basic)"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "IngestService",
+      "sublabel": "classify + health + audit"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "servers collection"
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 300,
+      "label": "Listing"
+    },
+    {
+      "from": 320,
+      "to": 470,
+      "label": "Per VM (4 at a time)"
+    },
+    {
+      "from": 490,
+      "to": 800,
+      "label": "Per server"
+    }
+  ],
+  "messages": [
+    {
+      "id": "service-root",
+      "from": "cronjob",
+      "to": "facade",
+      "y": 190,
+      "label": "health_check: GET /redfish/v1 (open service root, no login)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "list",
+      "from": "cronjob",
+      "to": "facade",
+      "y": 235,
+      "label": "GET /redfish/v1/Systems (the one login attempt)",
+      "variant": "security"
+    },
+    {
+      "id": "rejected",
+      "from": "facade",
+      "to": "cronjob",
+      "y": 280,
+      "label": "401 \u2192 never retried, run exits 1",
+      "variant": "dashed"
+    },
+    {
+      "id": "system",
+      "from": "cronjob",
+      "to": "facade",
+      "y": 355,
+      "label": "GET each System (serial, UUID, PowerState, Oem.KubeVirt.NodeName)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "subresources",
+      "from": "cronjob",
+      "to": "facade",
+      "y": 400,
+      "label": "GET Memory, Storage \u2192 Drives, EthernetInterfaces",
+      "variant": "emphasis"
+    },
+    {
+      "id": "vanished",
+      "from": "facade",
+      "to": "cronjob",
+      "y": 445,
+      "label": "404 \u2192 vanished, skipped; timeout or error \u2192 recorded, no stub",
+      "variant": "dashed"
+    },
+    {
+      "id": "normalise",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 520,
+      "label": "system_to_provider_server(...) \u2192 ProviderServer",
+      "variant": "emphasis"
+    },
+    {
+      "id": "stub",
+      "from": "cronjob",
+      "to": "ingest",
+      "y": 565,
+      "label": "System read but map failed \u2192 COLLECTION_ERROR stub",
+      "variant": "dashed"
+    },
+    {
+      "id": "upsert",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 625,
+      "label": "classify + evaluate health + audit, revision CAS write",
+      "variant": "emphasis"
+    },
+    {
+      "id": "stored",
+      "from": "mongo",
+      "to": "ingest",
+      "y": 680,
+      "label": "changed \u2192 written; identical \u2192 touch_seen only",
+      "variant": "return"
+    },
+    {
+      "id": "yielded",
+      "from": "ingest",
+      "to": "cronjob",
+      "y": 735,
+      "label": "next server",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "cronjob",
+      "from": 185,
+      "to": 745,
+      "type": "backend"
+    },
+    {
+      "participant": "facade",
+      "from": 185,
+      "to": 452,
+      "type": "external"
+    },
+    {
+      "participant": "ingest",
+      "from": 515,
+      "to": 742,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 620,
+      "to": 687,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One collector per KubeVirt cluster",
+      "items": [
+        "Manager id is mgr_kubevirt_<cluster slug>; INVENTORY_KUBEVIRT_CLUSTER_NAME is required and the chart fails without clusterName (ADR-0060)",
+        "Schedule is collectors.kubevirt.schedule, default every 3 hours (server-scan-collectors values.yaml)",
+        "HTTP Basic, no sessions, so not RedfishClient; a login is never retried because the facade blocks an IP after 10 failures in 5 minutes (ADR-0058)"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What a VM is stored as",
+      "items": [
+        "Serial is the firmware serial, else the System Id; recreating a VM without its firmware block mints a new document (ADR-0058)",
+        "Vendor kubevirt, server_type vm derived; vm_host holds cluster and node, and host-model/host-passthrough are stored as no model (ADR-0059)",
+        "A stopped VM's links are UNKNOWN, never DOWN, and network.single_link_up does not apply to VMs (ADR-0058)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Failure containment and live pass",
+      "items": [
+        "Only a VM whose System was read then failed to map becomes a stub; a vanished VM, a timeout or a rejected login never does (ADR-0062)",
+        "get_one reads one System by its external_id path and raises NotThisManagersServerError for another facade's VM (ADR-0032)",
+        "Live pass 2026-11-08: a stopped VM updated in place with links UNKNOWN; a deleted VM was one fewer server, no error (kubevirt-collectors.md)"
+      ]
+    }
+  ]
+}
