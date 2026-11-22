@@ -596,6 +596,52 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    volume_degraded = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Virtual drive degraded",
+        description=(
+            "Fires when UCS Manager reports a virtual drive degraded, partially degraded or "
+            "rebuilding: the mirror has lost a leg or is resyncing (ADR-0068). UCS collectors only."
+        ),
+        policy_key="raid.volume_degraded",
+        category="raid",
+        severity=HealthSeverity.MAJOR,
+        condition=Condition(metric="raid.degraded_volume_count", operator="GTE", value=1),
+        evidence=[EvidenceField(key="degraded", metric="raid.degraded_volume_count")],
+        message_template="{degraded} virtual drive(s) degraded",
+        scope=PolicyScope(
+            manager_types=[ManagerType.UCS_CENTRAL.value, ManagerType.UCS_MANAGER.value]
+        ),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    volume_failed = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Virtual drive offline",
+        description=(
+            "Fires when UCS Manager reports a virtual drive offline: its data is unavailable "
+            "(ADR-0068). UCS collectors only."
+        ),
+        policy_key="raid.volume_failed",
+        category="raid",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="raid.failed_volume_count", operator="GTE", value=1),
+        evidence=[EvidenceField(key="failed", metric="raid.failed_volume_count")],
+        message_template="{failed} virtual drive(s) offline",
+        scope=PolicyScope(
+            manager_types=[ManagerType.UCS_CENTRAL.value, ManagerType.UCS_MANAGER.value]
+        ),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     profile_failed = HealthPolicy(
         id=new_id("health_policy"),
         name="Profile deployment failed",
@@ -639,5 +685,7 @@ def default_system_policies() -> list[HealthPolicy]:
         gpu_ecc,
         bmc_unreachable,
         raid_missing,
+        volume_degraded,
+        volume_failed,
         profile_failed,
     ]

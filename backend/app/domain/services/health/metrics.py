@@ -440,6 +440,24 @@ def build_default_registry() -> MetricRegistry:
     )
     registry.register(
         MetricDef(
+            name="raid.degraded_volume_count",
+            type=MetricType.INT,
+            category="raid",
+            description="Virtual disks reading WARNING (degraded, partially degraded, rebuilding)",
+            resolver=lambda f: _get(f, "raid.degraded_volume_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
+            name="raid.failed_volume_count",
+            type=MetricType.INT,
+            category="raid",
+            description="Virtual disks reading CRITICAL (offline)",
+            resolver=lambda f: _get(f, "raid.failed_volume_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
             name="profile.last_run_failed_count",
             type=MetricType.INT,
             category="profile",

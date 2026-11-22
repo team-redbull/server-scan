@@ -113,10 +113,15 @@ def apply_epoch(server: ProviderServer, *, seed: int, index: int, epoch: int) ->
         return dataclasses.replace(server, memory_modules=modules)
     if kind == "drive":
         drives = server.storage_drives or ()
+        # A lost mirror leg (ADR-0068) is the volume's fault, not an epoch's: it stays as drawn.
+        lost = tuple(d for d in drives if d.get("health_detail") == "missing")
+        present = tuple(d for d in drives if d.get("health_detail") != "missing")
         # Every drive failing includes the OS disk, which is what turns it CRITICAL.
         first = {_RECOVERED: 0, _DEGRADED: 1, _CRITICAL: None}[level]
         health = "HEALTHY" if level == _RECOVERED else "CRITICAL"
-        return dataclasses.replace(server, storage_drives=_with_health(drives, health, first=first))
+        return dataclasses.replace(
+            server, storage_drives=(*_with_health(present, health, first=first), *lost)
+        )
     if kind == "psu":
         down = {_RECOVERED: 0, _DEGRADED: 1, _CRITICAL: 2}[level]
         psus = tuple(

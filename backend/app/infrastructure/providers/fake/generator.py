@@ -1055,6 +1055,7 @@ def _controller(
     *,
     drives: int,
     volume: tuple[str, str] | None = None,
+    volume_health: str = "HEALTHY",
     name: str | None = None,
 ) -> dict[str, object]:
     """
@@ -1066,6 +1067,7 @@ def _controller(
         drives (int): Drives behind the controller.
         volume (tuple[str, str] | None): `(raid_type, volume_type)` of its one
             virtual disk, or None for a controller with none configured.
+        volume_health (str): That virtual disk's health.
         name (str | None): The display name; defaults to the Id.
 
     Returns:
@@ -1079,7 +1081,7 @@ def _controller(
                 "raid_type": volume[0],
                 "volume_type": volume[1],
                 "capacity_bytes": 480_000_000_000,
-                "health": "HEALTHY",
+                "health": volume_health,
             },
         )
     return {
@@ -1175,10 +1177,16 @@ def _ucs_raid(
         roll (int): 0-99, the server's deterministic draw.
 
     Returns:
-        tuple[tuple[dict[str, object], ...], dict[str, object]]: About 85% a mirrored boot
-            volume (PRESENT), 8% a RAID controller with none (ABSENT), 7% no RAID controller
-            at all (UNKNOWN).
+        tuple[tuple[dict[str, object], ...], dict[str, object]]: About 80% a mirrored boot
+            volume (PRESENT), 5% a mirror that lost a leg (PRESENT, volume WARNING, and
+            `_with_missing_leg` adds the drive), 8% a RAID controller with none (ABSENT),
+            7% no RAID controller at all (UNKNOWN).
     """
+    if 80 <= roll < 85:
+        degraded = _controller(
+            "storage-SATA-3", "RAID", drives=2, volume=("RAID1", "mirror"), volume_health="WARNING"
+        )
+        return (degraded,), _raid("PRESENT", "ucs_virtual_drive", "UCS Manager", None)
     if roll < 85:
         mirror = _controller("storage-SATA-3", "RAID", drives=2, volume=("RAID1", "mirror"))
         return (mirror,), _raid("PRESENT", "ucs_virtual_drive", "UCS Manager", None)
@@ -1191,6 +1199,38 @@ def _ucs_raid(
     return (_controller("storage-PCH-1", "OTHER", drives=2),), _raid(
         "UNKNOWN", "ucs_virtual_drive", "UCS Manager", reason
     )
+
+
+def _with_missing_leg(
+    drives: tuple[dict[str, object], ...], controllers: tuple[dict[str, object], ...] | None
+) -> tuple[dict[str, object], ...]:
+    """
+    Add the lost leg UCS lists as `missing` when a controller's virtual drive is degraded.
+
+    Args:
+        drives (tuple[dict[str, object], ...]): The server's drives.
+        controllers (tuple[dict[str, object], ...] | None): Its controllers.
+
+    Returns:
+        tuple[dict[str, object], ...]: `drives`, plus a CRITICAL `missing` one
+            when a volume is degraded.
+    """
+    for controller in controllers or ():
+        volumes = controller.get("volumes")
+        if isinstance(volumes, tuple) and any(v.get("health") == "WARNING" for v in volumes):
+            return (
+                *drives,
+                {
+                    "id": f"{controller['id']}/disk-2",
+                    "model": None,
+                    "serial": None,
+                    "media_type": "UNKNOWN",
+                    "capacity_bytes": None,
+                    "health": "CRITICAL",
+                    "health_detail": "missing",
+                },
+            )
+    return drives
 
 
 def _build_storage_controllers(
@@ -1415,6 +1455,7 @@ def generate_servers(
         drive_count = rng.randint(2, 8)
         storage_drives, storage_total_bytes = _build_storage_drives(rng, drive_count)
         storage_controllers, raid_check = _build_storage_controllers(seed, index, collector)
+        storage_drives = _with_missing_leg(storage_drives, storage_controllers)
         gpus = _build_gpus(rng, collector)
         psus = _build_psus(rng, collector, index=index)
 

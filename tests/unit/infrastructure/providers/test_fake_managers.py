@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 
@@ -53,3 +53,50 @@ def test_every_other_environment_ignores_it(environment: Environment) -> None:
 @pytest.mark.parametrize("spec", ["", "42", "forty:two", "42:60:x"])
 def test_unset_or_malformed_means_the_real_manager(spec: str) -> None:
     assert fake_manager_provider(ManagerType.ONEVIEW, _settings(spec)) is None
+
+
+def test_a_degraded_ucs_mirror_carries_its_missing_leg() -> None:
+    """The seeded fleet has UCS servers whose mirror lost a leg (ADR-0068)."""
+    servers = [
+        s
+        for s in generate_servers(count=1000, seed=42)
+        if provider_type_for(s) == ManagerType.UCS_CENTRAL.value and s.storage_controllers
+    ]
+    degraded = [
+        s
+        for s in servers
+        if s.storage_controllers is not None
+        and any(
+            v.get("health") == "WARNING"
+            for c in s.storage_controllers
+            for v in cast("tuple[dict[str, object], ...]", c.get("volumes", ()))
+        )
+    ]
+
+    assert degraded
+    for server in degraded:
+        assert server.storage_drives is not None
+        assert any(d.get("health_detail") == "missing" for d in server.storage_drives)
+
+
+@pytest.mark.parametrize("epoch", [1])
+def test_an_epoch_never_heals_the_missing_leg_of_a_degraded_mirror(epoch: int) -> None:
+    """An epoch's drive mutation leaves the lost leg CRITICAL, as its volume is still WARNING.
+
+    Count 50000 is deliberate: index 8439 of seed 42 is a degraded UCS server the epoch mutates.
+    """
+    checked = 0
+    for server in generate_servers(count=50000, seed=42, epoch=epoch):
+        if not server.storage_controllers or provider_type_for(server) != "UCS_CENTRAL":
+            continue
+        degraded = any(
+            v.get("health") == "WARNING"
+            for c in server.storage_controllers
+            for v in cast("tuple[dict[str, object], ...]", c.get("volumes", ()))
+        )
+        if not degraded:
+            continue
+        checked += 1
+        legs = [d for d in server.storage_drives or () if str(d["id"]).endswith("/disk-2")]
+        assert [(d["health"], d["health_detail"]) for d in legs] == [("CRITICAL", "missing")]
+    assert checked

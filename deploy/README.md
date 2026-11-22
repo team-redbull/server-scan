@@ -541,7 +541,8 @@ never ingested — the newest pod's log lists which ones.
 `ServerScanServersWithoutRaid` fires (warning, for 1h) while any OpenManage, standalone Redfish or Cisco UCS
 server whose BMC can report RAID has no RAID 1 volume for the OS (health policy `raid.os_mirror_missing`,
 CRITICAL). A server whose BMC cannot tell (NVIDIA DGX software RAID, old Supermicro) is Unknown and not counted.
-It reads `server_scan:policy_active:max`, so it needs no extra value.
+It reads `server_scan:policy_active:max`, so it needs no extra value. A degraded or offline Cisco virtual drive is
+its own policy (`raid.volume_degraded` MAJOR, `raid.volume_failed` CRITICAL, ADR-0068) and is not counted there.
 
 **A ready-made Grafana dashboard** for all of the above lives at
 `deploy/grafana/server-scan-dashboard.json` — import it directly (Grafana

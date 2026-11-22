@@ -544,6 +544,12 @@ state optimal). It returned 23 virtual drives, all `type="mirror"`, e.g. dn
   whether or not it is `bootable`. `ABSENT` only when the server has a RAID-capable controller and no mirror:
   type not in FCH/FLASH/HBA/PCH/PT and `raid_support` or `device_raid_support` names a RAID level, or it owns a
   virtual drive. No such controller visible (or none at all) is `UNKNOWN`.
+- **A degraded virtual drive and its missing disk** (2026-11-22, ADR-0068; capture of `rack-unit-21`): `vd-1000`
+  `drive_state=degraded`, `operability=degraded`, `oper_qualifier_reason="Drive state degraded"`, `presence=mismatch`;
+  `disk-2` `presence=missing`, `disk_state=unknown`, empty model/serial/size; its `storageLocalDiskSlotEp` is gone
+  while the `storageLocalDisk` stays. `drive_state` feeds `StorageVolume.health` and the `raid.volume_degraded` /
+  `raid.volume_failed` policies. A `missing` disk is reported (CRITICAL, detail `missing`) only beside a non-optimal
+  virtual drive on the same controller; `empty` is still dropped. `operability` and `oper_qualifier_reason` are not read.
 - **`adminState` is ignored:** many healthy drives carry a stale `delete` while `configState=applied` and
   `driveState=optimal`.
 - **Not verified:** the content format of `raid_support` (the rule only looks for the word "raid"), an old

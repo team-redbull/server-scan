@@ -8,6 +8,16 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-19 — Retire a destroyed cluster: `GET /openshift/clusters`, `POST .../decommission`, the Clusters page (ADR-0067).**
+**Shipped (branch `feat/cluster-decommission`):** a membership job dies with its cluster, leaving servers `INSTALLED`, a
+`membership_runs` record and two firing alerts. Jobs are listed with `silent` (no run for 7 days,
+`INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`) and a timer in the API (`INVENTORY_OPENSHIFT_SILENT_CHECK_SECONDS`) records
+`CLUSTER_NOT_REPORTING` once per silent stretch; an admin decommissions one (frees its servers, drops its record, audits
+`CLUSTER_DECOMMISSIONED`); the Clusters page, a banner on Sites and on a silent cluster's server detail.
+
+**Open:** no automatic release (deliberate); a cluster no job ever wrote a record for is not listed; the threshold is not a Helm value.
+
+
 **2026-11-19 — Delete a server: `DELETE /api/v1/servers/{id}[?force=true]` (ADR-0065).**
 **Shipped (branch `feat/delete-server`):** admin-only delete; 409 `SERVER_DELETE_BLOCKED` (reasons in `details.blockers`)
 while the server is in use by OpenShift, holds a live reservation or is in maintenance, unless `force=true`;
