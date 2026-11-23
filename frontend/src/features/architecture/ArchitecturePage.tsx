@@ -1,8 +1,16 @@
 import { useSearchParams } from "react-router";
 
 import { DIAGRAMS } from "@/features/architecture/diagrams";
+import { HowItWorks } from "@/features/architecture/HowItWorks";
 
-const DEFAULT_SLUG = DIAGRAMS[0]!.slug;
+export const HOW_IT_WORKS_SLUG = "how-it-works";
+const DEFAULT_SLUG = HOW_IT_WORKS_SLUG;
+
+const TAB_BASE =
+  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
+const TAB_ON = "bg-[var(--tint-info)] text-[var(--text-on-info)]";
+const TAB_OFF =
+  "bg-[var(--surface-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]";
 
 /** How the platform is actually built, one interactive diagram per
  * collector plus the full flow — generated ahead of time (archify) from
@@ -11,9 +19,15 @@ const DEFAULT_SLUG = DIAGRAMS[0]!.slug;
 export function ArchitecturePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("diagram") ?? DEFAULT_SLUG;
-  const active = DIAGRAMS.find((d) => d.slug === requested) ?? DIAGRAMS[0]!;
+  const active = DIAGRAMS.find((d) => d.slug === requested);
+  const showGuide = active === undefined;
 
   function select(slug: string) {
+    if (
+      slug === (active?.slug ?? HOW_IT_WORKS_SLUG) &&
+      searchParams.get("diagram") === slug
+    )
+      return;
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set("diagram", slug);
@@ -26,14 +40,25 @@ export function ArchitecturePage() {
       <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)]">
         Architecture
       </h1>
-      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-        How data moves through the platform — pan, zoom, search and trace each
-        diagram; every fact is sourced from an ADR or the provider it names.
-      </p>
 
-      <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label="Diagram">
+      <div
+        className="mt-6 flex flex-wrap gap-2"
+        role="tablist"
+        aria-label="Diagram"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={showGuide}
+          onClick={() => {
+            select(HOW_IT_WORKS_SLUG);
+          }}
+          className={`${TAB_BASE} ${showGuide ? TAB_ON : TAB_OFF}`}
+        >
+          How it works
+        </button>
         {DIAGRAMS.map((diagram) => {
-          const isActive = diagram.slug === active.slug;
+          const isActive = diagram.slug === active?.slug;
           return (
             <button
               key={diagram.slug}
@@ -43,11 +68,7 @@ export function ArchitecturePage() {
               onClick={() => {
                 select(diagram.slug);
               }}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)] ${
-                isActive
-                  ? "bg-[var(--tint-info)] text-[var(--text-on-info)]"
-                  : "bg-[var(--surface-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              }`}
+              className={`${TAB_BASE} ${isActive ? TAB_ON : TAB_OFF}`}
             >
               {diagram.label}
             </button>
@@ -55,14 +76,22 @@ export function ArchitecturePage() {
         })}
       </div>
 
-      <p className="mt-3 text-sm text-[var(--text-secondary)]">{active.description}</p>
+      {active === undefined ? (
+        <HowItWorks />
+      ) : (
+        <>
+          <p className="mt-3 text-sm text-[var(--text-secondary)]">
+            {active.description}
+          </p>
 
-      <iframe
-        key={active.slug}
-        title={`${active.label} architecture diagram`}
-        src={`/architecture/${active.slug}.html?theme=dark`}
-        className="mt-4 h-[85vh] w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
-      />
+          <iframe
+            key={active.slug}
+            title={`${active.label} architecture diagram`}
+            src={`/architecture/${active.slug}.html?theme=dark`}
+            className="mt-4 h-[85vh] w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
+          />
+        </>
+      )}
     </main>
   );
 }

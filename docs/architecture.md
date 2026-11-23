@@ -2119,7 +2119,10 @@ row say "by <who>" from `maintenance.created_by`.
 
 ## Architecture diagrams (interactive)
 
-The `/architecture` page (nav, after Rules & Policies) is eight
+The `/architecture` page (nav, after Rules & Policies) opens on **How it works**, a
+plain-language tour for someone new (`features/architecture/HowItWorks.tsx`: the problem, the five steps, health
+policies, stale, pruning, events, what else talks to the API). It holds no counts the diagrams own, embeds two small
+diagrams of its own (`how-it-works-flow`, `server-lifecycle`; they are not tabs) and links on to the diagram tabs, which are eight
 self-contained, pan/zoom/search HTML diagrams generated with the
 `archify` Claude Code skill: one full-flow overview
 (`runtime-architecture`, now including the prune CronJob, Prometheus and AD
@@ -2163,6 +2166,9 @@ page order matches this list):
   KubeVirt cluster, VMs read as Redfish Systems through the kubevirt-redfish facade.
 - [nodes-status.html](../frontend/public/architecture/nodes-status.html) — cluster read,
   hostname then serial match, reconcile with protected ids.
+- [how-it-works-flow.html](../frontend/public/architecture/how-it-works-flow.html) and
+  [server-lifecycle.html](../frontend/public/architecture/server-lifecycle.html) — not tabs: the two small diagrams
+  embedded in the How it works tab (collect to serve; a server going degraded, Stale, pruned).
 
 ## Further reading
 

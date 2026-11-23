@@ -274,7 +274,9 @@ after those copies silently drifted.
 Interactive archify HTML served by the in-app Architecture page from
 `frontend/public/architecture/`; specs are `docs/diagrams/*.json` (a sequence
 diagram per collector and `nodes-status`, plus the full-flow architecture
-diagram). Refreshed 2026-11-22.
+diagram). Refreshed 2026-11-22. The page's first tab, **How it works**, is plain text for a new reader and embeds two more
+sequence diagrams that are not tabs: `how-it-works-flow` (collect, store, judge, serve) and `server-lifecycle` (healthy,
+degraded, stale, pruned, events age out).
 
 | Diagram | What it shows |
 |---|---|
@@ -286,6 +288,8 @@ diagram). Refreshed 2026-11-22.
 | [redfish-standalone.html](../frontend/public/architecture/redfish-standalone.html) | Inventory TOML to direct BMC Redfish; failures become serial-less stubs |
 | [kubevirt.html](../frontend/public/architecture/kubevirt.html) | One collector per KubeVirt cluster, VMs read as Redfish Systems through the kubevirt-redfish facade |
 | [nodes-status.html](../frontend/public/architecture/nodes-status.html) | Cluster read, hostname then serial match, reconcile with protected ids |
+| [how-it-works-flow.html](../frontend/public/architecture/how-it-works-flow.html) | Embedded in the How it works tab: vendor managers, collector, ingest, MongoDB, rules and health, API and UI |
+| [server-lifecycle.html](../frontend/public/architecture/server-lifecycle.html) | Embedded in the How it works tab: a server going degraded, Stale, pruned, with the audit events each step leaves |
 
 ## 6. Runtime View
 

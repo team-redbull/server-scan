@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "How Server Scan works: collect, store, judge, serve",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1060,
+      560
+    ]
+  },
+  "participants": [
+    {
+      "id": "vendors",
+      "type": "external",
+      "label": "Vendor managers",
+      "sublabel": "UCS, Intersight, OME, OneView"
+    },
+    {
+      "id": "collector",
+      "type": "backend",
+      "label": "Collector job",
+      "sublabel": "one per vendor, scheduled"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "Ingest",
+      "sublabel": "common server shape"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "source of truth"
+    },
+    {
+      "id": "health",
+      "type": "backend",
+      "label": "Rules + health",
+      "sublabel": "role, site, verdict"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API + UI",
+      "sublabel": "REST, Redis cache"
+    }
+  ],
+  "segments": [
+    {
+      "from": 156,
+      "to": 226,
+      "label": "Collect"
+    },
+    {
+      "from": 236,
+      "to": 356,
+      "label": "Store and judge"
+    },
+    {
+      "from": 366,
+      "to": 456,
+      "label": "Serve"
+    }
+  ],
+  "messages": [
+    {
+      "id": "c1",
+      "from": "collector",
+      "to": "vendors",
+      "y": 176,
+      "label": "log in, list the servers, read their hardware",
+      "variant": "default"
+    },
+    {
+      "id": "c2",
+      "from": "vendors",
+      "to": "collector",
+      "y": 204,
+      "label": "vendor-specific records",
+      "variant": "return"
+    },
+    {
+      "id": "s1",
+      "from": "collector",
+      "to": "ingest",
+      "y": 256,
+      "label": "map to one common server shape; an unread part stays unread",
+      "variant": "emphasis"
+    },
+    {
+      "id": "s2",
+      "from": "ingest",
+      "to": "mongo",
+      "y": 284,
+      "label": "write with a revision check; an unchanged server is only touched",
+      "variant": "emphasis"
+    },
+    {
+      "id": "s3",
+      "from": "ingest",
+      "to": "health",
+      "y": 312,
+      "label": "classify role and site, apply the health policies",
+      "variant": "default"
+    },
+    {
+      "id": "s4",
+      "from": "health",
+      "to": "mongo",
+      "y": 340,
+      "label": "verdict and reasons stored on the server",
+      "variant": "default"
+    },
+    {
+      "id": "v1",
+      "from": "api",
+      "to": "mongo",
+      "y": 384,
+      "label": "read servers, events and policies",
+      "variant": "default"
+    },
+    {
+      "id": "v2",
+      "from": "mongo",
+      "to": "api",
+      "y": 412,
+      "label": "rows for the fleet table and detail page",
+      "variant": "return"
+    },
+    {
+      "id": "v3",
+      "from": "api",
+      "to": "vendors",
+      "y": 440,
+      "label": "/servers/available only: live re-read of one server",
+      "variant": "dashed"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "collector",
+      "from": 171,
+      "to": 262,
+      "type": "backend"
+    },
+    {
+      "participant": "ingest",
+      "from": 251,
+      "to": 318,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 279,
+      "to": 346,
+      "type": "database"
+    },
+    {
+      "participant": "api",
+      "from": 371,
+      "to": 438,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Read, normalize, store",
+      "items": [
+        "Vendors differ; the stored server does not",
+        "A failed read is never turned into zero",
+        "An unchanged server is not rewritten (ADR-0044)"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Judge",
+      "items": [
+        "Rules give each server a role and site",
+        "Policies turn facts into HEALTHY, WARNING, MAJOR or CRITICAL",
+        "The reasons are stored next to the verdict"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Read-mostly",
+      "items": [
+        "The UI and API read MongoDB, never a vendor",
+        "Only /servers/available and refresh reach a manager",
+        "Only the OpenManage run may restart an iDRAC"
+      ]
+    }
+  ]
+}
