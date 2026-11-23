@@ -2034,7 +2034,9 @@ the label `server-scan.io/triggerable: "true"` and only in the API pod's namespa
 of a `server-scan-collectors` release in that namespace, ADR-0060); a running Job gives 409.
 `JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
 `useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane
-that refreshes every 3 s while the Job is active.
+that refreshes every 3 s while the Job is active. A collector's Job is retried under `backoffLimit` by a second pod of
+the *same* Job, so the Job's own start and end span every attempt: each pod button shows its attempt's own start, end and
+length (`PodInfo.finished_at`, read from the terminated container), and a Job with several pods says so (ADR-0055 update).
 
 ## Fetching one server now (ADR-0064)
 

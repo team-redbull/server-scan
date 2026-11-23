@@ -21,6 +21,33 @@ export function formatTimestamp(iso: string): string {
   });
 }
 
+/** `10:20`: the Israel wall-clock time of an instant, for a run's start and end. */
+export function formatClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString(DISPLAY_LOCALE, {
+    timeZone: DISPLAY_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+}
+
+/** `45 s` / `20 min` / `1 h 5 min` / `2 h`: how long from one instant to another, never negative. */
+export function formatDuration(fromIso: string, toIso: string): string {
+  const seconds = Math.max(
+    0,
+    Math.round(
+      (new Date(toIso).getTime() - new Date(fromIso).getTime()) / 1000,
+    ),
+  );
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  return rest === 0
+    ? `${Math.floor(minutes / 60)} h`
+    : `${Math.floor(minutes / 60)} h ${rest} min`;
+}
+
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
 /**
@@ -39,7 +66,10 @@ export function formatRelative(iso: string, now: Date = new Date()): string {
 
 /** `45m` / `20h` / `3d` — the age of an instant, for a chip with no room for words. */
 export function formatAge(iso: string, now: Date = new Date()): string {
-  const seconds = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 1000));
+  const seconds = Math.max(
+    0,
+    Math.round((now.getTime() - new Date(iso).getTime()) / 1000),
+  );
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
   return `${Math.round(seconds / 86400)}d`;

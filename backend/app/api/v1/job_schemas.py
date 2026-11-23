@@ -15,6 +15,7 @@ class PodOut(BaseModel):
     name: str
     phase: str
     started_at: str | None
+    finished_at: str | None
 
 
 class JobOut(BaseModel):

@@ -2,10 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { getJobs, getPodLogs, runJob } from "@/api/jobs";
-import type { CronJob, JobRun, JobState } from "@/api/jobs";
+import type { CronJob, JobPod, JobRun, JobState } from "@/api/jobs";
 import { ApiError } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
-import { formatRelative, formatTimestamp } from "@/lib/datetime";
+import {
+  formatClock,
+  formatDuration,
+  formatRelative,
+  formatTimestamp,
+} from "@/lib/datetime";
 
 const TAIL = 500;
 const LIST_POLL_MS = 5000;
@@ -211,6 +216,15 @@ function LogPane({
   );
 }
 
+/** ` · 10:00 → 10:20 (20 min)` for one attempt, `→ running` while it runs, `→ end not recorded` for a finished pod with no end, empty if it never started. */
+function attemptSpan(pod: JobPod): string {
+  if (!pod.started_at) return "";
+  const start = formatClock(pod.started_at);
+  if (!pod.finished_at)
+    return ` · ${start} → ${pod.phase === "Succeeded" || pod.phase === "Failed" ? "end not recorded" : "running"}`;
+  return ` · ${start} → ${formatClock(pod.finished_at)} (${formatDuration(pod.started_at, pod.finished_at)})`;
+}
+
 function JobRow({
   cronjob,
   job,
@@ -241,6 +255,14 @@ function JobRow({
           {formatRelative(job.created_at)}
         </span>
       )}
+      {job.pods.length > 1 && (
+        <span className="text-xs text-[var(--text-muted)]">
+          {job.pods.length} attempts
+          {job.started_at && job.finished_at
+            ? `, ${formatDuration(job.started_at, job.finished_at)} in total`
+            : ""}
+        </span>
+      )}
       <span className="ml-auto flex flex-wrap gap-2">
         {job.pods.map((pod) => (
           <button
@@ -256,7 +278,7 @@ function JobRow({
                 : "border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            Logs · {pod.name.slice(-5)} · {pod.phase}
+            {`Logs · ${pod.name.slice(-5)} · ${pod.phase}${attemptSpan(pod)}`}
           </button>
         ))}
       </span>

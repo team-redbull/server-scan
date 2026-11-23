@@ -6,6 +6,7 @@ export interface JobPod {
   name: string;
   phase: string;
   started_at: string | null;
+  finished_at: string | null;
 }
 
 export interface JobRun {

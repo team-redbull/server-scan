@@ -19,11 +19,15 @@ class PodInfo:
         name (str): The pod name.
         phase (str): Kubernetes pod phase (`Pending`, `Running`, `Succeeded`, `Failed`).
         started_at (str | None): ISO start time, `None` before the pod started.
+        finished_at (str | None): ISO time its last container terminated, `None` while it runs
+            or when no container ever started. A Job retried under `backoffLimit` has one pod per
+            attempt, and the Job's own times span all of them.
     """
 
     name: str
     phase: str
     started_at: str | None = None
+    finished_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
