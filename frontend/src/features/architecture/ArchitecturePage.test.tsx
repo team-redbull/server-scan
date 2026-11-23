@@ -109,4 +109,67 @@ describe("ArchitecturePage", () => {
   it("lists a KubeVirt diagram", () => {
     expect(DIAGRAMS.map((d) => d.slug)).toContain("kubevirt");
   });
+
+  it("is a complete tab pattern: one Tab stop and a panel labelled by the active tab", () => {
+    renderArchitecturePage();
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.getAttribute("tabindex"))).toEqual(
+      tabs.map((_, i) => (i === 0 ? "0" : "-1")),
+    );
+    const panel = screen.getByRole("tabpanel");
+    expect(panel).toHaveAttribute("aria-labelledby", tabs[0]!.id);
+    expect(tabs[0]).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveTextContent("inventory of our physical servers");
+  });
+
+  it("moves between tabs with the arrow keys, Home and End, wrapping at the ends", () => {
+    const { router } = renderArchitecturePage();
+    const tabs = () => screen.getAllByRole("tab");
+
+    fireEvent.keyDown(tabs()[0]!, { key: "ArrowRight" });
+    expect(tabs()[1]).toHaveAttribute("aria-selected", "true");
+    expect(tabs()[1]).toHaveFocus();
+    expect(router.state.location.search).toContain(
+      `diagram=${DIAGRAMS[0]!.slug}`,
+    );
+    expect(screen.getByRole("tabpanel")).toHaveAttribute(
+      "aria-labelledby",
+      tabs()[1]!.id,
+    );
+
+    fireEvent.keyDown(tabs()[1]!, { key: "ArrowLeft" });
+    fireEvent.keyDown(tabs()[0]!, { key: "ArrowLeft" });
+    expect(tabs().at(-1)).toHaveAttribute("aria-selected", "true");
+    expect(tabs().at(-1)).toHaveFocus();
+
+    fireEvent.keyDown(tabs().at(-1)!, { key: "ArrowRight" });
+    expect(tabs()[0]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(tabs()[0]!, { key: "End" });
+    expect(tabs().at(-1)).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(tabs().at(-1)!, { key: "Home" });
+    expect(tabs()[0]).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("ignores other keys", () => {
+    renderArchitecturePage();
+    const first = screen.getAllByRole("tab")[0]!;
+
+    fireEvent.keyDown(first, { key: "a" });
+
+    expect(first).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("steps from the focused tab, not from the last committed selection", () => {
+    renderArchitecturePage();
+    const tabs = screen.getAllByRole("tab");
+
+    fireEvent.keyDown(tabs[2]!, { key: "ArrowRight" });
+
+    expect(screen.getAllByRole("tab")[3]).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
 });
