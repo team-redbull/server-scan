@@ -38,7 +38,7 @@ changes, not on every collector run; `last_seen_at` is the per-run "confirmed" s
 `GET /api/v1/servers/rows` - whole fleet as flat rows, `{items: [ServerRow], generated_at}` (`generated_at` = newest `updated_at` or `last_seen_at`).
 Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, server_type (physical|vm; vm = a KubeVirt VM), model, site_id, source_provider, installation_type, health,
-health_reasons[] ({severity, message}: each fired policy, its policy name when it has no message; empty for HEALTHY),
+health_reasons[] ({severity, message, policy_key, policy_name}: each fired policy, message = its policy name when it has none; empty for HEALTHY),
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
 contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
 Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.

@@ -27,6 +27,8 @@ interface MultiSelectProps {
   /** Button text while nothing is ticked, e.g. `All (2,504)`. */
   allLabel: string;
   className: string;
+  /** Open the checklist leftwards from the button's right edge (the row's last dropdown). */
+  alignRight?: boolean;
 }
 
 /** The button's text for the current choice. */
@@ -51,6 +53,7 @@ export function MultiSelect({
   onClear,
   allLabel,
   className,
+  alignRight = false,
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -100,7 +103,7 @@ export function MultiSelect({
         <div
           role="group"
           aria-label={`${label} options`}
-          className="absolute top-full left-0 z-20 mt-1 max-h-72 w-max max-w-[22rem] min-w-full overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-1 shadow-lg"
+          className={`absolute top-full ${alignRight ? "right-0" : "left-0"} z-20 mt-1 max-h-72 w-max max-w-[22rem] min-w-full overflow-y-auto rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] p-1 shadow-lg`}
         >
           {selected.length > 0 && (
             <button

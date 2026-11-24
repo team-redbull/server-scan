@@ -161,8 +161,18 @@ describe("StateBadge health reasons", () => {
       <StateBadge
         severity="CRITICAL"
         reasons={[
-          { severity: "WARNING", message: "1 UCS fabric path is down" },
-          { severity: "CRITICAL", message: "2 of 8 GPUs failed" },
+          {
+            severity: "WARNING",
+            message: "1 UCS fabric path is down",
+            policy_key: "connectivity.fabric_paths_down_warning",
+            policy_name: "UCS fabric path down (warning)",
+          },
+          {
+            severity: "CRITICAL",
+            message: "2 of 8 GPUs failed",
+            policy_key: "gpu.failed",
+            policy_name: "GPU failed",
+          },
         ]}
         maintenance={NOT_IN_MAINTENANCE}
       />,

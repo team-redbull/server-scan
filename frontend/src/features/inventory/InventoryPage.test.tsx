@@ -747,6 +747,78 @@ describe("InventoryPage", () => {
     });
   });
 
+  it("filters by a fired policy from the Reason dropdown, listing only policies some row fired", async () => {
+    const gpu = {
+      severity: "CRITICAL" as const,
+      message: "2 of 8 GPUs failed",
+      policy_key: "gpu.failed",
+      policy_name: "GPU failed",
+    };
+    const disk = {
+      severity: "WARNING" as const,
+      message: "1 data disk(s) degraded or failed",
+      policy_key: "storage.data_disk_bad_warning",
+      policy_name: "Data disk degraded",
+    };
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ health: "CRITICAL", health_reasons: [gpu, disk] }),
+          makeServer({
+            id: "srv_2",
+            name: "ucs-cisco-worker-002",
+            health: "WARNING",
+            health_reasons: [disk],
+          }),
+          makeServer({ id: "srv_3", name: "healthy-003" }),
+        ]),
+      ),
+    );
+    const { router } = renderInventoryPage("/");
+    await screen.findByText("healthy-003");
+    window.history.replaceState(null, "", "/");
+
+    fireEvent.click(screen.getByLabelText("Reason"));
+    const options = within(
+      screen.getByRole("group", { name: "Reason options" }),
+    ).getAllByRole("checkbox");
+    expect(options.map((o) => o.closest("label")?.textContent)).toEqual([
+      "GPU failed 1",
+      "Data disk degraded 2",
+    ]);
+
+    pick("Reason", /^GPU failed/);
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?reason=gpu.failed");
+    });
+    expect(screen.queryByText("ucs-cisco-worker-002")).not.toBeInTheDocument();
+    expect(screen.queryByText("healthy-003")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Reason GPU failed/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("has no Type dropdown, but a server_type link still filters and shows a removable chip", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer(),
+          makeServer({
+            id: "srv_vm",
+            name: "kv-vm-001",
+            vendor: "kubevirt",
+            server_type: "vm",
+          }),
+        ]),
+      ),
+    );
+    renderInventoryPage("/?server_type=vm");
+    await screen.findByText("kv-vm-001");
+    expect(screen.queryByLabelText("Type")).not.toBeInTheDocument();
+    expect(screen.queryByText("ocp-dell-worker-001")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Type VM/ })).toBeInTheDocument();
+  });
+
   it("shows only the servers in maintenance when Maintenance alone is ticked", async () => {
     mockRows(() =>
       jsonResponse(
