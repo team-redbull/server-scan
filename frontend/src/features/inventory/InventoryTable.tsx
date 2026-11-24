@@ -172,6 +172,8 @@ function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow
       return (
         <StateBadge
           severity={row.health}
+          reasons={row.health_reasons}
+          reachable={row.reachable}
           maintenance={row.maintenance}
           stale={row.stale}
           lastSeenAt={row.last_seen_at}

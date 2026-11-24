@@ -471,18 +471,12 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-22 — A degraded Cisco virtual drive is a finding, and its missing disk is reported (ADR-0068).**
-Moved to `docs/notes/session-log.md`: the cluster-decommission unit.
+**2026-11-24 — Hovering a non-Healthy State badge lists its health reasons (ADR-0033 update).**
+Moved to `docs/notes/session-log.md`: the degraded Cisco virtual drive unit (ADR-0068).
 
-**Shipped (branch `fix/cisco-missing-disk-degraded-vd`):** rack-unit-21 showed HEALTHY with `vd-1000` degraded and
-`disk-2` `presence=missing`: `_storage_drives` dropped the disk and no fact read the volume's health. Now a `missing`
-disk beside a non-optimal virtual drive on its controller is a CRITICAL drive (`health_detail=missing`), and new
-facts `raid.degraded_volume_count`/`raid.failed_volume_count` drive `raid.volume_degraded` (MAJOR) and
-`raid.volume_failed` (CRITICAL), UCS collectors only. The RAID verdict stays `PRESENT`; Dell/HPE are unchanged.
+**Shipped (branch `feat/health-reason-hover`):** `ServerRow.health_reasons` (`{severity, message}` per fired policy,
+projected from `health.reasons`) and a native `title` on `StateBadge`'s severity pill, most severe first, like the Maint
+chip's reason. Healthy has none; an Unknown with no fired policy shows a generic line (unreachable, or no definite reading).
 
-**Also on this branch (2026-11-23):** the Architecture page opens on a hand-written **How it works** tab with two embedded
-diagrams (`how-it-works-flow`, `server-lifecycle`); and `/jobs` shows each attempt of a retried collector Job with its own
-start, end and length (`PodInfo.finished_at`, ADR-0055 update), because `backoffLimit: 1` retries inside the same Job.
-
-**Open:** one live capture only (other `presence` values of a lost disk, blades, a rebuild in progress, unverified);
-Intersight does not read virtual drives; the missing leg is kept out of the OS/data disk buckets (`_LOST_LEG` in `facts.py`).
+**Open:** an Unknown's cause is not on the row (`network.all_unknown` records no reason), so its hover cannot name it; the
+detail page's Overview still has the per-category breakdown.

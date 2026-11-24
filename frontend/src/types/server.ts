@@ -117,6 +117,12 @@ export type ServerType = "physical" | "vm";
  * response, filtered and sorted in the browser (ADR-0033). `serial`,
  * `bmc_host`, `macs` and `profile_template_name` exist for search/CSV
  * export parity and are not columns in the table itself. */
+/** One fired health policy on an inventory row: its severity and message (or policy name). */
+export interface RowHealthReason {
+  severity: HealthSeverity;
+  message: string;
+}
+
 export interface ServerRow {
   id: string;
   name: string;
@@ -127,6 +133,8 @@ export interface ServerRow {
   source_provider: string | null;
   installation_type: InstallationType;
   health: HealthSeverity;
+  /** The policies behind `health`, in stored order; empty when none fired. */
+  health_reasons: RowHealthReason[];
   maintenance: MaintenanceState;
   reservation: ReservationState;
   openshift_state: OpenShiftState;

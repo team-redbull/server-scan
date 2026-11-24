@@ -23,7 +23,8 @@ Loaded only when a `frontend/` file is open.
   request or a server-side page — a client-side filter over a server-side
   page silently filters only the loaded rows (the TanStack guide's one
   hard rule). A new row field goes in `ServerRow` on both sides and in
-  `_ROW_PROJECTION`; the row must stay small (~520 B) and the body
+  `_ROW_PROJECTION`; the row must stay small (~520 B, more for an unhealthy server since
+  `health_reasons`, 2026-11-24, ADR-0033) and the body
   byte-stable for an unchanged fleet, or the ETag/304 stops working.
 - **Maintenance is switched only from the inventory list** (per-row
   switch); the detail page shows it read-only. One place, on purpose.
