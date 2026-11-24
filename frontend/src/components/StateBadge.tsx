@@ -1,8 +1,12 @@
-import { SEVERITY_GLYPH } from "@/components/severity";
+import { SEVERITY_GLYPH, SEVERITY_ORDER } from "@/components/severity";
 import { actorIdLabel } from "@/lib/actor";
 import { formatAge, formatTimestamp } from "@/lib/datetime";
 import { isDonor } from "@/lib/donor";
-import type { HealthSeverity, MaintenanceState } from "@/types/server";
+import type {
+  HealthSeverity,
+  MaintenanceState,
+  RowHealthReason,
+} from "@/types/server";
 
 /**
  * Health severity plus chips shown alongside rather than replacing it:
@@ -48,14 +52,42 @@ const SEVERITIES: Record<HealthSeverity, SeverityStyle> = {
   },
 };
 
+/** The severity pill's hover text: each fired policy, most severe first; none for Healthy. */
+function healthTooltip(
+  severity: HealthSeverity,
+  reasons: readonly RowHealthReason[],
+  reachable: boolean,
+): string | undefined {
+  if (severity === "HEALTHY") return undefined;
+  if (reasons.length === 0) {
+    if (severity !== "UNKNOWN") return undefined;
+    return reachable
+      ? "No definite health reading"
+      : "Not reachable at the last collection";
+  }
+  return [...reasons]
+    .sort(
+      (a, b) =>
+        SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
+    )
+    .map((r) => `${SEVERITIES[r.severity].label}: ${r.message}`)
+    .join("\n");
+}
+
 export function StateBadge({
   severity,
+  reasons = [],
+  reachable = true,
   maintenance,
   stale = false,
   lastSeenAt = null,
   reportedName = null,
 }: {
   severity: HealthSeverity;
+  /** `ServerRow.health_reasons`; the severity pill's hover text. */
+  reasons?: readonly RowHealthReason[];
+  /** `ServerRow.reachable`; words the hover of an Unknown with no reasons. */
+  reachable?: boolean;
   maintenance: MaintenanceState;
   /** `ServerRow.stale`; renders the chip. */
   stale?: boolean;
@@ -69,6 +101,7 @@ export function StateBadge({
   return (
     <span className="inline-flex flex-wrap items-center justify-center gap-1.5">
       <span
+        title={healthTooltip(severity, reasons, reachable)}
         className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${style.className}`}
       >
         <span aria-hidden="true" className="text-[0.7em] leading-none">

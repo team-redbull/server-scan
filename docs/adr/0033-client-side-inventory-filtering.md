@@ -347,3 +347,12 @@ value. Frontend only: `GET /servers` keeps its single-value filter keys.
 Type (Physical / VM) joins the dropdowns, between Source and Site, as the repeated param `server_type`. The value is
 `ServerRow.server_type`, derived from the vendor server-side (only `kubevirt` is a VM), so the row grows by a few bytes and
 stays byte-stable. Frontend filter only: `GET /servers` has no `server_type` key.
+
+### 2026-11-24 update: the State badge's hover lists the health reasons
+
+`ServerRow.health_reasons` is each fired policy of `health.reasons` as `{severity, message}` (the policy name when the
+policy has no message), projected as `health.reasons.{severity,message,policy_name}`, in stored order so the body stays
+byte-stable. `StateBadge` puts them, most severe first, in the severity pill's native `title`, the same mechanism as the
+Maint chip's reason; Healthy has none, and an Unknown with no fired policy says "Not reachable at the last collection" or
+"No definite health reading". The row is no longer ~520 B for an unhealthy server: on the seeded 1,003-server fleet (83 %
+not healthy, far more than the real estate) the body grew 748 -> 895 KB raw and ~79 -> 90 KB gzip; a 304 still answers.

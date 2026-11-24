@@ -16,7 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import Settings, get_settings
 from app.domain.enums import HealthSeverity, InstallationType, Vendor
 from app.domain.models.classification import Classification
-from app.domain.models.health import Health
+from app.domain.models.health import Health, HealthReason
 from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import BmcInfo, NetworkInfo, NetworkInterface
 from app.domain.models.server import Identity, Server
@@ -617,6 +617,7 @@ async def test_rows_returns_every_server_as_a_flat_row(
         "source_provider",
         "installation_type",
         "health",
+        "health_reasons",
         "maintenance",
         "reservation",
         "openshift_state",
@@ -651,6 +652,37 @@ async def test_rows_returns_every_server_as_a_flat_row(
     assert rows[seen.id]["stale"] is False
     assert rows[never.id]["stale"] is True
     assert rows[never.id]["last_seen_at"] is None
+    assert rows[seen.id]["health_reasons"] == []
+
+
+async def test_rows_carry_each_fired_policy_for_the_state_hover(
+    app_context: tuple[AsyncClient, MongoServerRepository],
+) -> None:
+    client, repo = app_context
+    server = _make_server(1, health=HealthSeverity.CRITICAL)
+    server.health.reasons = [
+        HealthReason(
+            policy_key="gpu.failed",
+            policy_name="GPU failed",
+            category="gpu",
+            severity=HealthSeverity.CRITICAL,
+            message="2 of 8 GPUs failed",
+        ),
+        HealthReason(
+            policy_key="psu.redundancy_lost",
+            policy_name="PSU redundancy lost",
+            category="power",
+            severity=HealthSeverity.WARNING,
+        ),
+    ]
+    await repo.upsert(server)
+
+    (row,) = (await client.get("/api/v1/servers/rows")).json()["items"]
+
+    assert row["health_reasons"] == [
+        {"severity": "CRITICAL", "message": "2 of 8 GPUs failed"},
+        {"severity": "WARNING", "message": "PSU redundancy lost"},
+    ]
 
 
 async def test_rows_etag_is_stable_across_the_cache_and_answers_304(

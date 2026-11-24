@@ -23,6 +23,7 @@ function makeServer(overrides: Partial<ServerRow> = {}): ServerRow {
     source_provider: "OPENMANAGE",
     installation_type: "UPI",
     health: "HEALTHY",
+    health_reasons: [],
     maintenance: { enabled: false, reason: null },
     reservation: {
       held: false,

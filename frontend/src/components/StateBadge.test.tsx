@@ -154,3 +154,53 @@ describe("StateBadge stale chip", () => {
     expect(screen.queryByText(/Stale/)).not.toBeInTheDocument();
   });
 });
+
+describe("StateBadge health reasons", () => {
+  it("lists every reason on hover, most severe first", () => {
+    render(
+      <StateBadge
+        severity="CRITICAL"
+        reasons={[
+          { severity: "WARNING", message: "1 UCS fabric path is down" },
+          { severity: "CRITICAL", message: "2 of 8 GPUs failed" },
+        ]}
+        maintenance={NOT_IN_MAINTENANCE}
+      />,
+    );
+    expect(screen.getByText("Critical")).toHaveAttribute(
+      "title",
+      "Critical: 2 of 8 GPUs failed\nWarning: 1 UCS fabric path is down",
+    );
+  });
+
+  it("gives a Healthy badge no hover text", () => {
+    render(
+      <StateBadge
+        severity="HEALTHY"
+        reasons={[]}
+        maintenance={NOT_IN_MAINTENANCE}
+      />,
+    );
+    expect(screen.getByText("Healthy")).not.toHaveAttribute("title");
+  });
+
+  it("says why an Unknown with no fired policy has no verdict", () => {
+    const { unmount } = render(
+      <StateBadge
+        severity="UNKNOWN"
+        reachable={false}
+        maintenance={NOT_IN_MAINTENANCE}
+      />,
+    );
+    expect(screen.getByText("Unknown")).toHaveAttribute(
+      "title",
+      "Not reachable at the last collection",
+    );
+    unmount();
+    render(<StateBadge severity="UNKNOWN" maintenance={NOT_IN_MAINTENANCE} />);
+    expect(screen.getByText("Unknown")).toHaveAttribute(
+      "title",
+      "No definite health reading",
+    );
+  });
+});

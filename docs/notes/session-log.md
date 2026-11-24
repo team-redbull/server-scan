@@ -8,6 +8,21 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-22 — A degraded Cisco virtual drive is a finding, and its missing disk is reported (ADR-0068).**
+
+**Shipped (branch `fix/cisco-missing-disk-degraded-vd`):** rack-unit-21 showed HEALTHY with `vd-1000` degraded and
+`disk-2` `presence=missing`: `_storage_drives` dropped the disk and no fact read the volume's health. Now a `missing`
+disk beside a non-optimal virtual drive on its controller is a CRITICAL drive (`health_detail=missing`), and new
+facts `raid.degraded_volume_count`/`raid.failed_volume_count` drive `raid.volume_degraded` (MAJOR) and
+`raid.volume_failed` (CRITICAL), UCS collectors only. The RAID verdict stays `PRESENT`; Dell/HPE are unchanged.
+
+**Also on this branch (2026-11-23):** the Architecture page opens on a hand-written **How it works** tab with two embedded
+diagrams (`how-it-works-flow`, `server-lifecycle`); and `/jobs` shows each attempt of a retried collector Job with its own
+start, end and length (`PodInfo.finished_at`, ADR-0055 update), because `backoffLimit: 1` retries inside the same Job.
+
+**Open:** one live capture only (other `presence` values of a lost disk, blades, a rebuild in progress, unverified);
+Intersight does not read virtual drives; the missing leg is kept out of the OS/data disk buckets (`_LOST_LEG` in `facts.py`).
+
 **2026-11-19 — Retire a destroyed cluster: `GET /openshift/clusters`, `POST .../decommission`, the Clusters page (ADR-0067).**
 **Shipped (branch `feat/cluster-decommission`):** a membership job dies with its cluster, leaving servers `INSTALLED`, a
 `membership_runs` record and two firing alerts. Jobs are listed with `silent` (no run for 7 days,
