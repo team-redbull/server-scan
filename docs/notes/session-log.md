@@ -8,6 +8,15 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-24 — Hovering a non-Healthy State badge lists its health reasons (ADR-0033 update).**
+
+**Shipped (branch `feat/health-reason-hover`):** `ServerRow.health_reasons` (`{severity, message}` per fired policy,
+projected from `health.reasons`) and a native `title` on `StateBadge`'s severity pill, most severe first, like the Maint
+chip's reason. Healthy has none; an Unknown with no fired policy shows a generic line (unreachable, or no definite reading).
+
+**Open:** an Unknown's cause is not on the row (`network.all_unknown` records no reason), so its hover cannot name it; the
+detail page's Overview still has the per-category breakdown.
+
 **2026-11-22 — A degraded Cisco virtual drive is a finding, and its missing disk is reported (ADR-0068).**
 
 **Shipped (branch `fix/cisco-missing-disk-degraded-vd`):** rack-unit-21 showed HEALTHY with `vd-1000` degraded and

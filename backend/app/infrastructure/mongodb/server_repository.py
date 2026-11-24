@@ -103,6 +103,7 @@ _ROW_PROJECTION: dict[str, int] = {
     "health.reasons.severity": 1,
     "health.reasons.message": 1,
     "health.reasons.policy_name": 1,
+    "health.reasons.policy_key": 1,
     "maintenance.enabled": 1,
     "maintenance.reason": 1,
     "maintenance.created_by": 1,

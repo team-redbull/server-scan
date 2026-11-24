@@ -121,6 +121,10 @@ export type ServerType = "physical" | "vm";
 export interface RowHealthReason {
   severity: HealthSeverity;
   message: string;
+  /** The Reason filter's value: a site override shares its default's key (ADR-0005). */
+  policy_key: string;
+  /** The Reason filter's label. */
+  policy_name: string;
 }
 
 export interface ServerRow {

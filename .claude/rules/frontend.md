@@ -70,7 +70,8 @@ Loaded only when a `frontend/` file is open.
   then Dell/Cisco/HPE/Standalone** (no KubeVirt row: VM is the `kubevirt` count, Physical the total minus it), and every
   nonzero row is a `CountLink` into `/servers` with `server_type=` or `vendor=` added to the card's own filters.
 - **`server_type` (`physical`|`vm`) is derived from the vendor** (`server_type_of`, only `KUBEVIRT` is `vm`), never stored:
-  on `ServerRow`/`ServerDetail`, shown under the model on the detail page, and the **Type** filter sits between Source and Site.
+  on `ServerRow`/`ServerDetail` and shown under the model on the detail page. It has **no dropdown** since 2026-11-24 (operator's call):
+  `?server_type=` still filters (the Sites cards' Physical/VM links) and shows a removable chip.
 - **The inventory table scrolls inside its own box and the page does not** (2026-11-18, `InventoryTable`): the wrapper is
   `relative overflow-auto overscroll-contain` with a `maxHeight` of `innerHeight` minus its absolute top minus everything under it
   (the rest of its column, `main`'s bottom padding, the footer), re-measured on resize and by a `ResizeObserver` on the column, never from
@@ -125,8 +126,8 @@ Loaded only when a `frontend/` file is open.
   URL's `?search=` went through an async router round trip per key, so deleting mid-text threw the caret to
   the end and fast typing lost characters (`1.2.3.4` became `?search=4`). The URL only flows back into the box
   when something else changed it (chip, Clear filters, a pasted link). jsdom cannot reproduce the caret jump
-  (a unit test passed on the broken code), so the guard is the `inventory.spec.ts` e2e. **The seven filters (Vendor, Source, Type,
-  Site, Classification, Installation, Health) are `MultiSelect` dropdowns** taking several values (repeated URL
+  (a unit test passed on the broken code), so the guard is the `inventory.spec.ts` e2e. **The seven filters (Vendor, Source,
+  Site, Classification, Installation, Health, Reason) are `MultiSelect` dropdowns** taking several values (repeated URL
   params, OR within, AND across; ADR-0033 2026-10-12): a tick is applied to the live URL via `toggleMulti`, never
   to the rendered list, and an E2E clicks `#filter-<name>` then a checkbox in the group named `"<Label> options"`
   (not `selectOption`; the group's name differs from the button's so `getByLabel` stays unique). **Maintenance
@@ -142,8 +143,12 @@ Loaded only when a `frontend/` file is open.
   (one-row result). `ClusterSidebar` caps its height at `innerHeight - own top`, not `100vh`. Its list scroller has `scrollbar-gutter: stable`: Firefox sizes a `w-max` box without a classic
   scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with
   headed Playwright Firefox + `GTK_OVERLAY_SCROLLING=0`; headless Firefox always uses overlay scrollbars).
+- **The Reason dropdown filters on fired policies by `policy_key`** (`?reason=`, ADR-0033 2026-11-24 update), never
+  on the message (per-server text). Options come from the rows (`reasonOptions`), worst severity first; a ticked reason
+  follows `matchesHealth`'s in-service rule like a severity. It is the row's last field, so its panel opens right-aligned
+  (`MultiSelect alignRight`): measured at 1440 the panel spans 1056-1408 px with no page overflow.
 - **The inventory's filter block is one unit in the table's column**
-  (2026-09-21): Search and the six selects on one row, the toggles
+  (2026-09-21): Search and the seven dropdowns on one row, the toggles
   beneath, then the "Filtered by" chips — left and right edges equal to
   the table's (measured 240/1408 px at 1440), with the sidebar beside it.
   It is not above the sidebar; do not move Search back into a separate

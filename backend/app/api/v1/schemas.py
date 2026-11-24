@@ -236,10 +236,12 @@ class MaintenanceFlag(BaseModel):
 
 
 class RowHealthReason(BaseModel):
-    """One fired health policy as an inventory row shows it on hover."""
+    """One fired health policy on an inventory row: the State hover and the Reason filter."""
 
     severity: HealthSeverity
     message: str
+    policy_key: str = ""
+    policy_name: str = ""
 
 
 def _row_reasons(health: dict[str, Any]) -> list[RowHealthReason]:
@@ -250,12 +252,15 @@ def _row_reasons(health: dict[str, Any]) -> list[RowHealthReason]:
         health (dict[str, Any]): The projected `health` subdocument.
 
     Returns:
-        list[RowHealthReason]: Each reason's severity and message (else its policy name).
+        list[RowHealthReason]: Each reason's severity, message (else its policy name), and the
+            policy's key and name.
     """
     return [
         RowHealthReason(
             severity=decode_retired_severity(r.get("severity", HealthSeverity.UNKNOWN)),
             message=r.get("message") or r.get("policy_name") or "",
+            policy_key=r.get("policy_key") or "",
+            policy_name=r.get("policy_name") or "",
         )
         for r in health.get("reasons") or []
     ]

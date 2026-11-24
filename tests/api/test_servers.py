@@ -680,8 +680,18 @@ async def test_rows_carry_each_fired_policy_for_the_state_hover(
     (row,) = (await client.get("/api/v1/servers/rows")).json()["items"]
 
     assert row["health_reasons"] == [
-        {"severity": "CRITICAL", "message": "2 of 8 GPUs failed"},
-        {"severity": "WARNING", "message": "PSU redundancy lost"},
+        {
+            "severity": "CRITICAL",
+            "message": "2 of 8 GPUs failed",
+            "policy_key": "gpu.failed",
+            "policy_name": "GPU failed",
+        },
+        {
+            "severity": "WARNING",
+            "message": "PSU redundancy lost",
+            "policy_key": "psu.redundancy_lost",
+            "policy_name": "PSU redundancy lost",
+        },
     ]
 
 
