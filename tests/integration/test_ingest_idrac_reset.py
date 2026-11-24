@@ -89,11 +89,12 @@ async def test_the_run_cap_bounds_the_resets_and_the_cooldown_stops_the_next_run
     provider = _Provider(*(_unknown_dell(i) for i in (1, 2, 3)))
 
     await service.ingest(provider)
-    assert resetter.hosts == ["10.0.0.1", "10.0.0.2"]
+    # Five workers reset at once: the queue and the cap fix which hosts, not the order they finish.
+    assert sorted(resetter.hosts, key=str) == ["10.0.0.1", "10.0.0.2"]
 
     # The third server is next in line; the first two are inside the cooldown.
     await service.ingest(provider)
-    assert resetter.hosts == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
+    assert sorted(resetter.hosts, key=str) == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
 
     await service.ingest(provider)
     assert len(resetter.hosts) == 3
