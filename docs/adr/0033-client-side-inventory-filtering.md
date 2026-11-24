@@ -355,4 +355,4 @@ policy has no message), projected as `health.reasons.{severity,message,policy_na
 byte-stable. `StateBadge` puts them, most severe first, in the severity pill's native `title`, the same mechanism as the
 Maint chip's reason; Healthy has none, and an Unknown with no fired policy says "Not reachable at the last collection" or
 "No definite health reading". The row is no longer ~520 B for an unhealthy server: on the seeded 1,003-server fleet (83 %
-not healthy, far more than the real estate) the body grew 748 -> 895 KB raw and ~79 -> 90 KB gzip; a 304 still answers.
+not healthy, far more than the real estate) the body grew 756 -> 895 KB raw and ~79 -> 90 KB gzip; a 304 still answers.
