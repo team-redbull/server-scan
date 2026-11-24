@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "The life of a server: healthy, degraded, stale, pruned",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [
+      1060,
+      620
+    ]
+  },
+  "participants": [
+    {
+      "id": "collector",
+      "type": "backend",
+      "label": "Collector job",
+      "sublabel": "every few hours"
+    },
+    {
+      "id": "health",
+      "type": "backend",
+      "label": "Health policies",
+      "sublabel": "facts to verdict"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "the server document"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API + UI",
+      "sublabel": "table, chip, /metrics"
+    },
+    {
+      "id": "prune",
+      "type": "backend",
+      "label": "Prune jobs",
+      "sublabel": "servers, then events"
+    },
+    {
+      "id": "events",
+      "type": "database",
+      "label": "Audit trail",
+      "sublabel": "who, what, when"
+    }
+  ],
+  "segments": [
+    {
+      "from": 156,
+      "to": 268,
+      "label": "1 Healthy, then degraded"
+    },
+    {
+      "from": 278,
+      "to": 330,
+      "label": "2 Stale"
+    },
+    {
+      "from": 342,
+      "to": 468,
+      "label": "3 Pruned"
+    },
+    {
+      "from": 478,
+      "to": 542,
+      "label": "4 Events age out"
+    }
+  ],
+  "messages": [
+    {
+      "id": "a1",
+      "from": "collector",
+      "to": "mongo",
+      "y": 176,
+      "label": "listed and read: last_seen_at and listed_at stamped",
+      "variant": "default"
+    },
+    {
+      "id": "a2",
+      "from": "collector",
+      "to": "health",
+      "y": 204,
+      "label": "a mirror lost a disk: virtual drive degraded",
+      "variant": "emphasis"
+    },
+    {
+      "id": "a3",
+      "from": "health",
+      "to": "mongo",
+      "y": 232,
+      "label": "verdict MAJOR, reason stored on the server",
+      "variant": "emphasis"
+    },
+    {
+      "id": "a4",
+      "from": "mongo",
+      "to": "events",
+      "y": 260,
+      "label": "health change recorded",
+      "variant": "dashed"
+    },
+    {
+      "id": "b1",
+      "from": "mongo",
+      "to": "api",
+      "y": 306,
+      "label": "no successful read for the stale window: Stale chip, age and a gauge",
+      "variant": "emphasis"
+    },
+    {
+      "id": "c1",
+      "from": "prune",
+      "to": "mongo",
+      "y": 372,
+      "label": "not listed by any manager for the prune window",
+      "variant": "default"
+    },
+    {
+      "id": "c2",
+      "from": "prune",
+      "to": "collector",
+      "y": 400,
+      "label": "guard: every manager of that type had a clean, recent run",
+      "variant": "security"
+    },
+    {
+      "id": "c3",
+      "from": "prune",
+      "to": "mongo",
+      "y": 428,
+      "label": "guard: at most a fifth of one collector's servers; then delete",
+      "variant": "emphasis"
+    },
+    {
+      "id": "c4",
+      "from": "prune",
+      "to": "events",
+      "y": 456,
+      "label": "SERVER_PRUNED, actor SYSTEM",
+      "variant": "dashed"
+    },
+    {
+      "id": "d1",
+      "from": "prune",
+      "to": "events",
+      "y": 502,
+      "label": "weekly: delete events older than the retention period",
+      "variant": "default"
+    },
+    {
+      "id": "d2",
+      "from": "prune",
+      "to": "events",
+      "y": 530,
+      "label": "AUDIT_PURGED records the purge itself",
+      "variant": "dashed"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "collector",
+      "from": 171,
+      "to": 210,
+      "type": "backend"
+    },
+    {
+      "participant": "mongo",
+      "from": 171,
+      "to": 238,
+      "type": "database"
+    },
+    {
+      "participant": "prune",
+      "from": 367,
+      "to": 462,
+      "type": "backend"
+    },
+    {
+      "participant": "prune",
+      "from": 497,
+      "to": 536,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Stale is about the data",
+      "items": [
+        "It says: do not trust this row until a collector sees it again",
+        "The server stays in the inventory"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Pruning is the only automatic delete",
+      "items": [
+        "A manager that stopped listing a server for the prune window",
+        "Held back by any dead or half-failed collector",
+        "An admin can also delete one server by hand (ADR-0065)"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Events are the memory",
+      "items": [
+        "Every deletion leaves SERVER_PRUNED",
+        "Events are kept for the retention period, then purged"
+      ]
+    }
+  ]
+}

@@ -113,6 +113,27 @@ def _condition(status: dict[str, Any], kind: str) -> dict[str, Any] | None:
     return None
 
 
+def _pod_finished(pod: dict[str, Any]) -> str | None:
+    """
+    When a finished pod's last container (init containers included) terminated.
+
+    Args:
+        pod (dict[str, Any]): The pod object.
+
+    Returns:
+        str | None: ISO time, or `None` while it runs or when no container terminated.
+    """
+    status = pod.get("status") or {}
+    if status.get("phase") not in ("Succeeded", "Failed"):
+        return None
+    ended = [
+        ((c.get("state") or {}).get("terminated") or {}).get("finishedAt")
+        for c in (status.get("initContainerStatuses") or [])
+        + (status.get("containerStatuses") or [])
+    ]
+    return max((t for t in ended if t), default=None)
+
+
 def job_info(job: dict[str, Any], pods: list[dict[str, Any]]) -> JobInfo:
     """
     Reduce a Job and its pods to what the UI shows.
@@ -139,7 +160,13 @@ def job_info(job: dict[str, Any], pods: list[dict[str, Any]]) -> JobInfo:
         state = "pending"
     finished = (done_cond or failed_cond or {}).get("lastTransitionTime")
     annotations = meta.get("annotations") or {}
-    ordered = sorted(pods, key=lambda p: (p.get("metadata") or {}).get("creationTimestamp") or "")
+    ordered = sorted(
+        pods,
+        key=lambda p: (
+            (p.get("metadata") or {}).get("creationTimestamp") or "",
+            (p.get("metadata") or {}).get("name") or "",
+        ),
+    )
     return JobInfo(
         name=meta["name"],
         created_at=meta.get("creationTimestamp"),
@@ -156,6 +183,7 @@ def job_info(job: dict[str, Any], pods: list[dict[str, Any]]) -> JobInfo:
                 name=p["metadata"]["name"],
                 phase=(p.get("status") or {}).get("phase") or "Unknown",
                 started_at=(p.get("status") or {}).get("startTime"),
+                finished_at=_pod_finished(p),
             )
             for p in ordered
         ),

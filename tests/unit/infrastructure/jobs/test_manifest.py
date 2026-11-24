@@ -76,3 +76,122 @@ def test_a_cronjob_is_active_when_any_job_is_and_lists_newest_first() -> None:
 
     assert info.active is True
     assert [j.name for j in info.jobs] == ["new", "old"]
+
+
+def _pod(name: str, created: str, started: str | None, finished: str | None, phase: str) -> dict:
+    status: dict[str, Any] = {"phase": phase}
+    if started:
+        status["startTime"] = started
+    if finished:
+        status["containerStatuses"] = [
+            {"name": "c", "state": {"terminated": {"finishedAt": finished}}}
+        ]
+    return {
+        "metadata": {"name": name, "creationTimestamp": created},
+        "status": status,
+    }
+
+
+def test_a_pod_reports_when_it_finished_from_its_terminated_container() -> None:
+    info = job_info(
+        {"metadata": {"name": "j"}, "status": {}},
+        [
+            _pod(
+                "p-done",
+                "2026-01-01T10:00:00Z",
+                "2026-01-01T10:00:05Z",
+                "2026-01-01T10:20:00Z",
+                "Failed",
+            ),
+            _pod("p-live", "2026-01-01T10:21:00Z", "2026-01-01T10:21:05Z", None, "Running"),
+        ],
+    )
+
+    assert [(p.started_at, p.finished_at) for p in info.pods] == [
+        ("2026-01-01T10:00:05Z", "2026-01-01T10:20:00Z"),
+        ("2026-01-01T10:21:05Z", None),
+    ]
+
+
+def test_a_retry_pod_keeps_its_own_times_apart_from_the_jobs() -> None:
+    """backoffLimit retries run in the same Job, so the Job's own times span both attempts."""
+    job = {
+        "metadata": {"name": "j", "creationTimestamp": "2026-01-01T10:00:00Z"},
+        "status": {
+            "startTime": "2026-01-01T10:00:00Z",
+            "completionTime": "2026-01-01T10:40:00Z",
+            "failed": 1,
+            "succeeded": 1,
+            "conditions": [{"type": "Complete", "status": "True"}],
+        },
+    }
+    info = job_info(
+        job,
+        [
+            _pod(
+                "second",
+                "2026-01-01T10:20:30Z",
+                "2026-01-01T10:20:35Z",
+                "2026-01-01T10:40:00Z",
+                "Succeeded",
+            ),
+            _pod(
+                "first",
+                "2026-01-01T10:00:00Z",
+                "2026-01-01T10:00:05Z",
+                "2026-01-01T10:20:00Z",
+                "Failed",
+            ),
+        ],
+    )
+
+    assert info.state == "succeeded"
+    assert [p.name for p in info.pods] == ["first", "second"]
+    assert info.pods[0].finished_at == "2026-01-01T10:20:00Z"
+    assert info.pods[1].started_at == "2026-01-01T10:20:35Z"
+
+
+def test_a_pod_whose_init_container_failed_still_has_a_finish_time() -> None:
+    pod = {
+        "metadata": {"name": "p", "creationTimestamp": "2026-01-01T10:00:00Z"},
+        "status": {
+            "phase": "Failed",
+            "startTime": "2026-01-01T10:00:05Z",
+            "initContainerStatuses": [
+                {"name": "init", "state": {"terminated": {"finishedAt": "2026-01-01T10:00:30Z"}}}
+            ],
+        },
+    }
+
+    assert job_info({"metadata": {"name": "j"}, "status": {}}, [pod]).pods[0].finished_at == (
+        "2026-01-01T10:00:30Z"
+    )
+
+
+def test_the_pod_finish_is_its_latest_termination_across_all_containers() -> None:
+    pod = {
+        "metadata": {"name": "p"},
+        "status": {
+            "phase": "Succeeded",
+            "initContainerStatuses": [
+                {"name": "sidecar", "state": {"terminated": {"finishedAt": "2026-01-01T10:25:00Z"}}}
+            ],
+            "containerStatuses": [
+                {"name": "app", "state": {"terminated": {"finishedAt": "2026-01-01T10:20:00Z"}}}
+            ],
+        },
+    }
+
+    assert job_info({"metadata": {"name": "j"}, "status": {}}, [pod]).pods[0].finished_at == (
+        "2026-01-01T10:25:00Z"
+    )
+
+
+def test_pods_created_in_the_same_second_are_ordered_by_name() -> None:
+    same = "2026-01-01T10:00:00Z"
+    info = job_info(
+        {"metadata": {"name": "j"}, "status": {}},
+        [_pod("b", same, None, None, "Pending"), _pod("a", same, None, None, "Pending")],
+    )
+
+    assert [p.name for p in info.pods] == ["a", "b"]

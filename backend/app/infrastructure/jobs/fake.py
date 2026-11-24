@@ -12,6 +12,7 @@ from app.errors import ConflictError, NotFoundError
 from app.infrastructure.jobs.manifest import manual_job_name
 
 RUN_SECONDS = 20.0
+_ATTEMPT = timedelta(minutes=20)
 _OPENMANAGE_WARNING = (
     "This run can restart an iDRAC (ADR-0050) when a Dell has every disk or NIC UNKNOWN."
 )
@@ -38,7 +39,10 @@ _DISABLED = frozenset(
 
 @dataclass
 class _FakeJob:
-    """A fake Job: when it started and how it ends once `RUN_SECONDS` have passed."""
+    """A fake Job: when it started and how it ends once `RUN_SECONDS` have passed.
+
+    A `first_pod` marks a Job retried under `backoffLimit`: that pod failed, then `pod` succeeded.
+    """
 
     name: str
     cronjob: str
@@ -47,6 +51,7 @@ class _FakeJob:
     manual: bool
     triggered_by: str | None = None
     pod: str = ""
+    first_pod: str = ""
 
 
 @dataclass
@@ -66,9 +71,13 @@ class FakeJobRunner:
             ]
             if name.endswith("intersight"):
                 history.append(self._past(name, now - timedelta(hours=14), ok=False))
+            if name.endswith("ucs-central"):
+                history.append(self._past(name, now - timedelta(hours=11), ok=True, retried=True))
             self._jobs[name] = history
 
-    def _past(self, cronjob: str, started: datetime, *, ok: bool) -> _FakeJob:
+    def _past(
+        self, cronjob: str, started: datetime, *, ok: bool, retried: bool = False
+    ) -> _FakeJob:
         """
         A finished scheduled Job.
 
@@ -76,13 +85,15 @@ class FakeJobRunner:
             cronjob (str): Its CronJob.
             started (datetime): When it started.
             ok (bool): Whether it succeeded.
+            retried (bool): Whether a first pod failed and a second one then succeeded.
 
         Returns:
             _FakeJob: The Job.
         """
         stamp = int(started.timestamp()) // 60
         name = f"{cronjob}-{stamp}"
-        return _FakeJob(name, cronjob, started, ok, False, pod=f"{name}-x7k2p")
+        first = f"{name}-q3m9d" if retried else ""
+        return _FakeJob(name, cronjob, started, ok, False, pod=f"{name}-x7k2p", first_pod=first)
 
     @property
     def backend(self) -> str:
@@ -109,7 +120,13 @@ class FakeJobRunner:
         running = job.manual and (now - started).total_seconds() < RUN_SECONDS
         state = "active" if running else ("succeeded" if job.ok else "failed")
         stamp = started.isoformat()
-        end = None if running else (started + timedelta(seconds=RUN_SECONDS)).isoformat()
+        attempt = _ATTEMPT if job.first_pod else timedelta(seconds=RUN_SECONDS)
+        last_start = started + attempt if job.first_pod else started
+        end = None if running else (last_start + attempt).isoformat()
+        phase = "Running" if running else ("Succeeded" if job.ok else "Failed")
+        pods = (PodInfo(job.pod, phase, last_start.isoformat(), end),)
+        if job.first_pod:
+            pods = (PodInfo(job.first_pod, "Failed", stamp, last_start.isoformat()), *pods)
         return JobInfo(
             name=job.name,
             created_at=stamp,
@@ -117,15 +134,11 @@ class FakeJobRunner:
             finished_at=end,
             active=1 if running else 0,
             succeeded=1 if state == "succeeded" else 0,
-            failed=0 if state != "failed" else 1,
+            failed=(1 if state == "failed" or job.first_pod else 0),
             state=state,
             manual=job.manual,
             triggered_by=job.triggered_by,
-            pods=(
-                PodInfo(
-                    job.pod, "Running" if running else ("Succeeded" if job.ok else "Failed"), stamp
-                ),
-            ),
+            pods=pods,
         )
 
     async def list_cronjobs(self) -> list[CronJobInfo]:
@@ -223,7 +236,12 @@ class FakeJobRunner:
             NotFoundError: The CronJob, Job or pod is not a fake one of the chain.
         """
         found = next(
-            (j for j in self._jobs.get(cronjob, []) if j.name == job and j.pod == pod), None
+            (
+                j
+                for j in self._jobs.get(cronjob, [])
+                if j.name == job and pod in (j.pod, j.first_pod)
+            ),
+            None,
         )
         if found is None:
             raise NotFoundError("No such Job or pod for that CronJob.")
@@ -236,7 +254,7 @@ class FakeJobRunner:
             "INFO ingest.progress done=2000",
             "INFO ingest.progress done=2504",
         ]
-        if info.state == "failed":
+        if info.state == "failed" or pod == found.first_pod:
             steps = [
                 *steps[:2],
                 "ERROR collector.fetch timeout after 240s",

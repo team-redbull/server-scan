@@ -81,3 +81,13 @@ under that release's names (`server-scan-collectors-collector-<type>`). The cata
 two prunes, because it cannot read the collectors release's values: a collector switched off there is absent from
 the page rather than shown as "not deployed". A KubeVirt cluster's own release sets `triggerable: false`; the API
 could not reach it anyway, for the reason `nodes-status` is excluded above.
+
+## Update (2026-11-23): each attempt of a retried Job shows its own times
+
+A collector Job runs with `backoffLimit: 1` and `restartPolicy: Never`, so a failed first pod is retried by a second
+pod of the same Job, not by a new Job. The Job's `startTime` and `completionTime` therefore span both attempts, and the
+page, which showed only the Job's creation time, hid when the retry began and how long either attempt took (a 10:00
+failure and a 10:20 to 10:40 retry read as one 40-minute run). `PodInfo` gained `finished_at` (the latest
+`state.terminated.finishedAt` over the init and app containers of a Succeeded or Failed pod), `PodOut` and the SPA carry it, and each
+pod button reads `Logs · <suffix> · <phase> · 10:00 → 10:20 (20 min)`; a Job with more than one pod adds
+"N attempts, <total> in total". A running pod reads `→ running`; a finished one with no recorded end reads `→ end not recorded`. The fake runner seeds one retried UCS Central Job.

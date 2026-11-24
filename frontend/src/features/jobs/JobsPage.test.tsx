@@ -8,6 +8,7 @@ const POD = {
   name: "r-collector-oneview-123-abcde",
   phase: "Succeeded",
   started_at: null,
+  finished_at: null,
 };
 const JOB = {
   name: "r-collector-oneview-123",
@@ -114,6 +115,95 @@ describe("JobsPage", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+  });
+
+  it("shows each attempt of a retried Job with its own start, end and length", async () => {
+    const retried = {
+      ...JOB,
+      name: "r-collector-ucs-central-1",
+      started_at: "2026-01-01T08:00:00Z",
+      finished_at: "2026-01-01T08:40:00Z",
+      failed: 1,
+      pods: [
+        {
+          name: "r-collector-ucs-central-1-aaaaa",
+          phase: "Failed",
+          started_at: "2026-01-01T08:00:05Z",
+          finished_at: "2026-01-01T08:20:00Z",
+        },
+        {
+          name: "r-collector-ucs-central-1-bbbbb",
+          phase: "Succeeded",
+          started_at: "2026-01-01T08:20:00Z",
+          finished_at: "2026-01-01T08:40:00Z",
+        },
+      ],
+    };
+    stubFetch([cronjob("r-collector-ucs-central", { jobs: [retried] })]);
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Logs · aaaaa · Failed · 10:00 → 10:20 (20 min)",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Logs · bbbbb · Succeeded · 10:20 → 10:40 (20 min)",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 attempts, 40 min in total")).toBeInTheDocument();
+  });
+
+  it("shows a running attempt as still running and a one-pod Job as a single run", async () => {
+    const running = {
+      ...JOB,
+      name: "r-collector-oneview-2",
+      state: "active",
+      active: 1,
+      started_at: "2026-01-01T08:00:00Z",
+      pods: [
+        {
+          name: "r-collector-oneview-2-ccccc",
+          phase: "Running",
+          started_at: "2026-01-01T08:00:05Z",
+          finished_at: null,
+        },
+      ],
+    };
+    stubFetch([cronjob("r-collector-oneview", { jobs: [running] })]);
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Logs · ccccc · Running · 10:00 → running",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/attempts/)).not.toBeInTheDocument();
+  });
+
+  it("does not call a finished pod with no recorded end still running", async () => {
+    const lost = {
+      ...JOB,
+      name: "r-collector-oneview-3",
+      state: "failed",
+      pods: [
+        {
+          name: "r-collector-oneview-3-ddddd",
+          phase: "Failed",
+          started_at: "2026-01-01T08:00:05Z",
+          finished_at: null,
+        },
+      ],
+    };
+    stubFetch([cronjob("r-collector-oneview", { jobs: [lost] })]);
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Logs · ddddd · Failed · 10:00 → end not recorded",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("shows a pod's logs", async () => {

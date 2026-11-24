@@ -195,7 +195,9 @@ Loaded only when a `frontend/` file is open.
   HTML into `public/architecture/` — nothing in this repo's own build
   regenerates them. An `architecture`-type spec needs `--repo-root <checkout>` on `validate`/`deliver`, and its
   viewBox must stay at about 1390 wide or node text drops under the readable size (a wider one failed
-  `desktop-readability`). `docs/architecture.md`, "Architecture diagrams" has
+  `desktop-readability`). **The first tab, "How it works" (`HowItWorks.tsx`), is hand-written text**, not a diagram: it embeds
+  `how-it-works-flow` and `server-lifecycle` by slug (they are deliberately not in `DIAGRAMS`, so not tabs, but the
+  file-exists test lists them) and must not quote counts or intervals a diagram owns. **The tab bar is a full tab pattern**: one Tab stop (roving `tabIndex`), arrow keys/Home/End move and wrap, and `#architecture-panel` is the `tabpanel` labelled by the active tab; keep that when adding a tab. `docs/architecture.md`, "Architecture diagrams" has
   the full contract.
 - The gate for any frontend change is
   `cd frontend && npm run lint && npm run typecheck && npm run test -- --run && npm run build`
