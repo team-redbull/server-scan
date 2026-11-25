@@ -449,6 +449,15 @@ def build_default_registry() -> MetricRegistry:
     )
     registry.register(
         MetricDef(
+            name="raid.missing_drive_count",
+            type=MetricType.INT,
+            category="raid",
+            description="Disks UCS expects but cannot see, beside a non-optimal virtual drive",
+            resolver=lambda f: _get(f, "raid.missing_drive_count", 0),
+        )
+    )
+    registry.register(
+        MetricDef(
             name="raid.failed_volume_count",
             type=MetricType.INT,
             category="raid",

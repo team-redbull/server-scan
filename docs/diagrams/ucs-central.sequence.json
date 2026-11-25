@@ -268,7 +268,7 @@
       "dot": "violet",
       "title": "RAID, cadence, BMCs",
       "items": [
-        "storageController + storageVirtualDrive feed the RAID verdict (ADR-0048); a degraded virtual drive raises raid.volume_degraded (MAJOR) or raid.volume_failed (CRITICAL), and its missing disk shows as a CRITICAL drive \u2014 ADR-0068, UCS only",
+        "storageController + storageVirtualDrive feed the RAID verdict (ADR-0048); a degraded virtual drive raises raid.volume_degraded (MAJOR) or raid.volume_failed (CRITICAL); a missing disk (a lost mirror leg) raises raid.drive_missing (CRITICAL) \u2014 ADR-0068, UCS only",
         "Runs at 0 */3 * * * (collectors chart values)",
         "Cisco BMCs sit behind fabric interconnects and are not probed; Central and each domain report their own state (ADR-0037)"
       ]

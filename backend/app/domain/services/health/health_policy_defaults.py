@@ -619,6 +619,30 @@ def default_system_policies() -> list[HealthPolicy]:
         updated_at=now,
     )
 
+    drive_missing = HealthPolicy(
+        id=new_id("health_policy"),
+        name="Drive missing",
+        description=(
+            "Fires when UCS Manager lists a disk it cannot see, beside a non-optimal virtual "
+            "drive: the mirror has lost a leg (ADR-0068). A disk still present but degraded "
+            "stays MAJOR. UCS collectors only."
+        ),
+        policy_key="raid.drive_missing",
+        category="raid",
+        severity=HealthSeverity.CRITICAL,
+        condition=Condition(metric="raid.missing_drive_count", operator="GTE", value=1),
+        evidence=[EvidenceField(key="missing", metric="raid.missing_drive_count")],
+        message_template="{missing} drive(s) missing",
+        scope=PolicyScope(
+            manager_types=[ManagerType.UCS_CENTRAL.value, ManagerType.UCS_MANAGER.value]
+        ),
+        source="SYSTEM_DEFAULT",
+        priority=100,
+        system=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     volume_failed = HealthPolicy(
         id=new_id("health_policy"),
         name="Virtual drive offline",
@@ -686,6 +710,7 @@ def default_system_policies() -> list[HealthPolicy]:
         bmc_unreachable,
         raid_missing,
         volume_degraded,
+        drive_missing,
         volume_failed,
         profile_failed,
     ]

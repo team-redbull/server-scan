@@ -193,6 +193,7 @@ def extract_facts(server: Server) -> dict[str, Any]:
         ),
         "raid.degraded_volume_count": volume_healths.count(HealthSeverity.WARNING.value),
         "raid.failed_volume_count": volume_healths.count(HealthSeverity.CRITICAL.value),
+        "raid.missing_drive_count": sum(1 for d in drives if d.health_detail == _LOST_LEG),
         "memory.has_data": server.hardware.memory.total_bytes > 0 or bool(dimms),
         "storage.has_data": bool(drives) or server.hardware.storage.total_bytes > 0,
         # A readable state, not merely an interface: a collector listing NICs
