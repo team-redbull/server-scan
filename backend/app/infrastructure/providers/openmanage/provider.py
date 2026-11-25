@@ -69,6 +69,70 @@ def _odata_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
+class _AmbiguousMatchError(Exception):
+    """An exact OME lookup still matched more than one record, so nothing may be guessed."""
+
+
+def _exact(
+    rows: list[dict[str, Any]], field: str, wanted: str, *, fold: bool = False
+) -> list[dict[str, Any]]:
+    """
+    Keep only the rows whose `field` equals `wanted` exactly.
+
+    OME treats `$filter=<name> eq 'x'` as a prefix match and returns the rows unsorted, so a
+    filtered result is only a candidate list (docs/adr/0069-ome-live-lookup-matches-exactly.md).
+
+    Args:
+        rows (list[dict[str, Any]]): What OME returned for the filter.
+        field (str): The field that was filtered on.
+        wanted (str): The value that was asked for.
+        fold (bool): Compare case-insensitively (a service tag, which OME may store in any case).
+
+    Returns:
+        list[dict[str, Any]]: The rows that are really that value, in OME's order.
+    """
+    want = wanted.casefold() if fold else wanted
+    return [
+        r
+        for r in rows
+        if (str(r.get(field) or "").casefold() if fold else str(r.get(field) or "")) == want
+    ]
+
+
+def _targets_other(profile: dict[str, Any], device: dict[str, Any]) -> bool:
+    """
+    Whether a profile is bound to another device (a non-zero `TargetId` that is not this `Id`).
+
+    Args:
+        profile (dict[str, Any]): An OME profile.
+        device (dict[str, Any]): The device being resolved.
+
+    Returns:
+        bool: True when the profile is bound to a different device.
+    """
+    target = profile.get("TargetId")
+    if target is None or str(target).strip() in ("", "0") or device.get("Id") is None:
+        return False
+    return not _same_id(target, device.get("Id"))
+
+
+def _same_id(a: object, b: object) -> bool:
+    """
+    Whether two OME numeric ids name the same record; an absent id or `0` (no device) never does.
+
+    Args:
+        a (object): One id, as OME sent it.
+        b (object): The other.
+
+    Returns:
+        bool: True when both are present, non-zero and equal.
+    """
+    if a is None or b is None:
+        return False
+    left, right = str(a).strip(), str(b).strip()
+    return left == right and left not in ("", "0")
+
+
 # A dead host or a rejected login is routine; the rest stay PARTIAL (ADR-0037).
 _BENIGN_REASONS = frozenset(
     {UnreachableReason.NETWORK_UNREACHABLE, UnreachableReason.AUTH_REJECTED}
@@ -308,23 +372,47 @@ class OpenManageProvider(ServerInventoryProvider):
         self, client: OmeClient, identity: ServerIdentity
     ) -> OmeIdentity | None:
         """
-        Resolve one profile+device pair by service tag, falling back to profile name.
+        Resolve one profile+device pair, or `None` when none or more than one record fits.
 
         Args:
             client (OmeClient): The logged-in OME client.
             identity (ServerIdentity): `serial`/`name` to search by.
 
         Returns:
-            OmeIdentity | None: The joined identity, or `None` when
-                neither field resolves a profile.
+            OmeIdentity | None: The joined identity, `None` when not found or ambiguous.
+        """
+        try:
+            return await self._resolve_one(client, identity)
+        except _AmbiguousMatchError:
+            return None
+
+    async def _resolve_one(self, client: OmeClient, identity: ServerIdentity) -> OmeIdentity | None:
+        """
+        Resolve one profile+device pair by service tag, falling back to profile name.
+
+        OME's `eq` is a prefix match, so every result is re-checked for equality (ADR-0069).
+
+        Args:
+            client (OmeClient): The logged-in OME client.
+            identity (ServerIdentity): `serial`/`name` to search by.
+
+        Returns:
+            OmeIdentity | None: The joined identity, or `None` when neither field resolves one
+                profile.
+
+        Raises:
+            _AmbiguousMatchError: An exact lookup matched more than one record, or only a
+                record bound to another device.
         """
         device: dict[str, Any] = {}
         if identity.serial:
-            tag = _odata_literal(identity.serial)
+            tag = identity.serial
             devices = await client.get_all(
-                f"/DeviceService/Devices?$filter=DeviceServiceTag eq '{tag}'"
+                f"/DeviceService/Devices?$filter=DeviceServiceTag eq '{_odata_literal(tag)}'"
             )
-            device = devices[0] if devices else {}
+            device = (
+                self._only(_exact(devices, "DeviceServiceTag", tag, fold=True), "device", tag) or {}
+            )
 
         profile: dict[str, Any] | None = None
         display_name = str(device.get("DeviceName") or "")
@@ -332,25 +420,129 @@ class OpenManageProvider(ServerInventoryProvider):
             profiles = await client.get_all(
                 f"/ProfileService/Profiles?$filter=TargetName eq '{_odata_literal(display_name)}'"
             )
-            profile = profiles[0] if profiles else None
+            profile = self._profile_of_device(profiles, device, display_name)
 
         if profile is None and identity.name:
             profiles = await client.get_all(
                 f"/ProfileService/Profiles?$filter=ProfileName eq '{_odata_literal(identity.name)}'"
             )
-            profile = profiles[0] if profiles else None
+            profile = self._only(
+                _exact(profiles, "ProfileName", identity.name), "profile", identity.name
+            )
+            if profile is not None and device and not self._belongs_to(profile, device):
+                logger.warning(
+                    "ome.profile_of_another_device",
+                    profile=identity.name,
+                    profile_target=profile.get("TargetName"),
+                    device=device.get("DeviceName"),
+                )
+                profile = None
             if profile is not None and not device:
-                display_name = str(profile.get("TargetName") or "")
-                if display_name:
-                    devices = await client.get_all(
-                        "/DeviceService/Devices?$filter="
-                        f"DeviceName eq '{_odata_literal(display_name)}'"
-                    )
-                    device = devices[0] if devices else {}
+                device = await self._device_of_profile(client, profile)
 
         if profile is None:
             return None
         return identity_from_profile(profile=profile, device=device)
+
+    @staticmethod
+    def _belongs_to(profile: dict[str, Any], device: dict[str, Any]) -> bool:
+        """
+        Whether a profile targets this device: same id, else the same display name.
+
+        Args:
+            profile (dict[str, Any]): An OME profile.
+            device (dict[str, Any]): An OME device.
+
+        Returns:
+            bool: True when `TargetId` equals the device `Id`, or both carry the same name.
+        """
+        if _same_id(profile.get("TargetId"), device.get("Id")):
+            return True
+        if _targets_other(profile, device):
+            return False
+        target = str(profile.get("TargetName") or "")
+        return bool(target) and target == str(device.get("DeviceName") or "")
+
+    @staticmethod
+    def _only(rows: list[dict[str, Any]], kind: str, wanted: str) -> dict[str, Any] | None:
+        """
+        The one record of an exact match, or `None` when there is none or it is ambiguous.
+
+        Args:
+            rows (list[dict[str, Any]]): Records already reduced to the exact value.
+            kind (str): `device` or `profile`, for the log.
+            wanted (str): The value searched, for the log.
+
+        Returns:
+            dict[str, Any] | None: The record when exactly one remains.
+        """
+        if len(rows) > 1:
+            logger.warning("ome.ambiguous_match", kind=kind, wanted=wanted, matches=len(rows))
+            raise _AmbiguousMatchError
+        return rows[0] if rows else None
+
+    def _profile_of_device(
+        self, rows: list[dict[str, Any]], device: dict[str, Any], display_name: str
+    ) -> dict[str, Any] | None:
+        """
+        Pick the device's own profile out of a prefix-filtered candidate list.
+
+        Args:
+            rows (list[dict[str, Any]]): What `TargetName eq '<name>'` returned.
+            device (dict[str, Any]): The device found by service tag.
+            display_name (str): Its `DeviceName`.
+
+        Returns:
+            dict[str, Any] | None: The profile whose `TargetId` is the device's `Id`; failing that,
+                the single profile whose `TargetName` is exactly the device's name; else `None`.
+        """
+        named = _exact(rows, "TargetName", display_name)
+        by_id = [r for r in named if _same_id(r.get("TargetId"), device.get("Id"))]
+        if by_id:
+            return self._only(by_id, "profile", display_name)
+        exact = [r for r in named if not _targets_other(r, device)]
+        if exact and device.get("Id") is not None:
+            logger.warning(
+                "ome.profile_id_mismatch", device=display_name, device_id=device.get("Id")
+            )
+        return self._only(exact, "profile", display_name)
+
+    async def _device_of_profile(
+        self, client: OmeClient, profile: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        The device a profile targets, for a lookup that started from the profile name.
+
+        Args:
+            client (OmeClient): The logged-in OME client.
+            profile (dict[str, Any]): The profile already resolved.
+
+        Returns:
+            dict[str, Any]: The device whose `Id` is the profile's `TargetId`; failing that, the
+                single device named exactly the profile's `TargetName`; `{}` when neither.
+
+        Raises:
+            _AmbiguousMatchError: The only device of that name is bound to another profile.
+        """
+        display_name = str(profile.get("TargetName") or "")
+        if not display_name:
+            return {}
+        devices = await client.get_all(
+            f"/DeviceService/Devices?$filter=DeviceName eq '{_odata_literal(display_name)}'"
+        )
+        by_id = [d for d in devices if _same_id(d.get("Id"), profile.get("TargetId"))]
+        if by_id:
+            return self._only(by_id, "device", display_name) or {}
+        named = _exact(devices, "DeviceName", display_name)
+        exact = [d for d in named if not _targets_other(profile, d)]
+        if named and not exact:
+            logger.warning(
+                "ome.profile_of_another_device",
+                profile=profile.get("ProfileName"),
+                device=display_name,
+            )
+            raise _AmbiguousMatchError
+        return self._only(exact, "device", display_name) or {}
 
     async def _list_servers(self) -> AsyncGenerator[ProviderServer, None]:
         """

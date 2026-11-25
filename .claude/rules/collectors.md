@@ -241,4 +241,7 @@ order — two of four vendors had no test target at all. Any new vendor gets
   persisted server to `BmcResetService`, which may `POST Manager.Reset` to a Dell iDRAC whose server's disks or NICs are all
   UNKNOWN. Report-only by default, job-queue check first, cooldown read from the audit trail. A new write to a BMC from a
   collector needs the same four things: report-only, a cap, a cooldown and an audit event.
-
+- **A vendor `$filter ... eq` on a name is a candidate list, never an answer** (ADR-0069, 2026-11-25): OME matches it by prefix and
+  returns rows unsorted (`TargetName eq '10.0.0.1'` also returns `.10`-`.18`), so every lookup must re-check equality on the field it
+  searched and refuse an ambiguous match; never `rows[0]`. A new `get_one` lookup needs a test fake that prefix-matches with the wrong
+  row first (`tests/unit/infrastructure/providers/test_openmanage_exact_match.py`).

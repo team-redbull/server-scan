@@ -62,6 +62,31 @@ more remain, an `@odata.nextLink` (an absolute `/api/...` path). The
 client follows that link rather than managing `$skip`/`$top` itself, so
 the appliance stays authoritative on page size.
 
+### `$filter ... eq` on a name is a prefix match (2026-11-25, ADR-0069)
+
+**Measured on the operator's OME 2026-11-25** (live curls, `-u user:password`): `ProfileService/Profiles?$filter=TargetName eq '10.0.0.1'`
+returned ten profiles, `10.0.0.1` and `10.0.0.10` to `10.0.0.18` (`@odata.count` 10, ten rows, no
+`@odata.nextLink`): `eq` on a name is a **prefix match** and the rows come back in no useful order. Exactly one
+returned row had a `TargetName` equal to the asked value, byte for byte (no case or space difference). Dell
+documents nothing about it; a user reports the same on `NetworkAddress` in
+[`dell/OpenManage-Enterprise#87`](https://github.com/dell/OpenManage-Enterprise/issues/87) (still open when
+checked, so the older note's "closed invalid" is wrong), and Dell's own Ansible modules re-check equality in
+client code (`docs/notes/2026-11-25-ome-profile-filter-semantics.md`).
+
+- `DeviceService/Devices?$filter=DeviceServiceTag eq '<tag>'` returned one exact row (a tag has a fixed length,
+  so a prefix is the whole tag).
+- **`$filter=TargetId eq <id>` is not supported**: HTTP 501, code `CGEN1006` ("resource URI does not exist or is
+  not implemented"), not a 400. Never try a server-side id filter.
+- A profile's **`TargetId` is the device's `Id`**: selecting `TargetId == Device.Id` from the prefix-filtered list
+  returned exactly the profile found by exact name (one server checked).
+
+So the scheduled collector, which downloads every profile and device and joins in Python by exact name, was
+never affected; `get_one()` (`POST /servers/{id}/refresh`, the `/servers/available` live recheck) was: it took
+`profiles[0]` and so named `10.0.0.1` after `10.0.0.11`. `_discover_one` now treats every filtered result as a
+candidate list: exact equality on the searched field is mandatory, the profile is chosen by `TargetId ==
+Device.Id` (a profile bound to another device is refused; else, when none names a device, the single exact `TargetName`, with `ome.profile_id_mismatch`), and an ambiguous match is
+refused with `ome.ambiguous_match`, never guessed.
+
 ## Session lifecycle
 
 `OmeClient` is an async `httpx.AsyncClient` used as an async context
