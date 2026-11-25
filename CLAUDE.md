@@ -471,14 +471,19 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-24 — A Reason dropdown filters the inventory by fired health policy; the Type dropdown is gone (ADR-0033 update).**
-Moved to `docs/notes/session-log.md`: the State badge's health-reason hover.
+**2026-11-25 — The live OME lookup matches exactly and joins on `TargetId` (ADR-0069).**
+Moved to `docs/notes/session-log.md`: the Reason-filter unit (ADR-0033 update), the State badge's health-reason hover, and the Cisco degraded-drive unit (ADR-0068).
 
-**Shipped (branch `feat/health-reason-filter`):** each `ServerRow.health_reasons` entry carries `policy_key`/`policy_name`;
-the inventory's last dropdown, **Reason** (`?reason=<policy_key>`, repeated), lists every policy fired in the fleet
-(`rows.ts` `reasonOptions`, no endpoint) with counts, and keeps a row carrying any ticked one, ANDed with Health and
-following its in-service rule. The Type dropdown was removed; `?server_type=` still filters via the Sites links.
+**Shipped (branch `fix/ome-exact-profile-match`):** on the operator's OME, `$filter=TargetName eq '10.0.0.1'` is a **prefix match** returning
+`10.0.0.1` and `10.0.0.10`-`.18` unsorted, and `OpenManageProvider._discover_one` (the `get_one` behind "Fetch now" and the
+`/servers/available` recheck) took `profiles[0]`, so a refresh could name a server after its neighbour. Now every filtered result is
+re-checked for equality (`_exact`), the profile joins its device by `TargetId == Device.Id` (OME cannot filter on `TargetId`: 501
+`CGEN1006`), and an ambiguous match is refused. The scheduled collector joins in Python and was never affected. **A vendor
+`$filter eq` result is a candidate list, never `[0]`.**
 
-**Open:** a reason option shows no severity marker (the list is only ordered worst first); an Unknown still has no reason
-to filter on (`network.all_unknown` records none).
+**Also on this branch:** /servers sorts by BMC (`bmc_host`; an address search defaults to it) and the inventory and Clusters tables use fixed column widths so a long name no longer resizes them (`.claude/rules/frontend.md`); the Clusters page got a cluster count, a type filter (cluster nodes / MCE agents), a status filter, a name search and the order most servers held first (ties alphabetical), all client-side.
 
+**Cisco:** a `missing` UCS disk is now CRITICAL (`raid.drive_missing`, ADR-0068 update) and leads the reasons; a degraded-but-present disk stays MAJOR; a present disk that is itself failed is still MAJOR (open question for the operator).
+
+**Open:** the id equivalence was checked on one server; the audit left the UCS Central name fallback, Redfish `servers[0]`, the UCSM serial
+check and Intersight `Serial eq` first-wins (ADR-0069, "Other lookups audited"), each its own decision.

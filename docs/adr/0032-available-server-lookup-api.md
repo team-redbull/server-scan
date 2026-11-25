@@ -211,6 +211,7 @@ own single-host/single-domain lookups rather than re-running
   `/DeviceService/Devices` for the one device, then a single-target
   `RedfishStandaloneProvider` (via the same `redfish_provider_factory`
   seam `_list_servers` already uses) against just that one iDRAC.
+  The device and profile lookups re-check equality and join on `TargetId` (ADR-0069).
 - **Redfish standalone.** Already single-host in shape: `get_one` looks up
   `identity.host` in `self._targets` and reuses `_collect_systems` for
   that one target only.

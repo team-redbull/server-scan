@@ -361,6 +361,7 @@ class TestManagerScopedDefaults:
             "Only one network link up",
             "Profile deployment failed",
             "Virtual drive degraded",
+            "Drive missing",
             "Virtual drive offline",
         }
 
@@ -715,7 +716,7 @@ class TestMissingLegIsNotADataDisk:
         assert facts["storage.os_bad_disk_count"] == 0
         assert facts["storage.failed_drive_count"] == 1
 
-    def test_a_degraded_mirror_alone_is_major_not_a_data_disk_warning(self) -> None:
+    def test_a_lost_leg_is_not_a_data_disk_warning_it_is_judged_by_the_raid_policies(self) -> None:
         good = StorageDrive(id="disk-1", capacity_bytes=480 * 10**9, health="HEALTHY")
         server = self._server("ocp4-prod-tlv-compute-01", [good, self._missing()])
         service = HealthPolicyService(
@@ -723,8 +724,9 @@ class TestMissingLegIsNotADataDisk:
         )
         state = service.evaluate_with_policies(server, default_system_policies())
 
-        assert state.overall == HealthSeverity.MAJOR
+        assert state.overall == HealthSeverity.CRITICAL
         assert state.categories["storage"].severity == HealthSeverity.HEALTHY
+        assert state.categories["raid"].severity == HealthSeverity.CRITICAL
 
     def test_a_10tb_server_with_one_bad_data_disk_is_not_escalated_by_it(self) -> None:
         os_disk = StorageDrive(id="disk-1", capacity_bytes=480 * 10**9, health="HEALTHY")
@@ -737,6 +739,57 @@ class TestMissingLegIsNotADataDisk:
         state = service.evaluate_with_policies(server, default_system_policies())
 
         assert state.categories["storage"].severity != HealthSeverity.CRITICAL
+
+
+class TestMissingDriveIsCritical:
+    """A disk UCS lost is CRITICAL; a degraded one stays MAJOR (ADR-0068)."""
+
+    @staticmethod
+    def _state(drives: list[StorageDrive], provider: str = "UCS_CENTRAL") -> Any:
+        server = TestMissingLegIsNotADataDisk._server("ocp4-prod-tlv-compute-01", drives)
+        server.source_provider = provider
+        service = HealthPolicyService(
+            policy_repo=cast(Any, None), registry=build_default_registry()
+        )
+        return service.evaluate_with_policies(server, default_system_policies()), server
+
+    @staticmethod
+    def _good() -> StorageDrive:
+        return StorageDrive(id="disk-1", capacity_bytes=480 * 10**9, health="HEALTHY")
+
+    def test_the_fact_counts_only_missing_drives(self) -> None:
+        _, lost = self._state([self._good(), TestMissingLegIsNotADataDisk._missing()])
+        _, warned = self._state(
+            [self._good(), StorageDrive(id="disk-2", capacity_bytes=480 * 10**9, health="WARNING")]
+        )
+
+        assert extract_facts(lost)["raid.missing_drive_count"] == 1
+        assert extract_facts(warned)["raid.missing_drive_count"] == 0
+
+    @pytest.mark.parametrize("provider", ["UCS_CENTRAL", "UCS_MANAGER"])
+    def test_a_missing_disk_makes_the_server_critical_and_leads_the_reasons(
+        self, provider: str
+    ) -> None:
+        state, _ = self._state([self._good(), TestMissingLegIsNotADataDisk._missing()], provider)
+
+        assert state.overall == HealthSeverity.CRITICAL
+        first = health_from_state(state).reasons[0]
+        assert first.policy_key == "raid.drive_missing"
+        assert first.severity == HealthSeverity.CRITICAL
+        assert first.message == "1 drive(s) missing"
+
+    def test_a_degraded_disk_that_is_still_there_stays_major(self) -> None:
+        degraded = StorageDrive(id="disk-2", capacity_bytes=480 * 10**9, health="WARNING")
+        state, _ = self._state([self._good(), degraded])
+
+        assert state.overall == HealthSeverity.MAJOR
+        assert not any(e.policy_key == "raid.drive_missing" and e.active for e in state.evaluations)
+
+    @pytest.mark.parametrize("provider", ["OPENMANAGE", "REDFISH_STANDALONE", "ONEVIEW"])
+    def test_other_collectors_are_not_judged(self, provider: str) -> None:
+        state, _ = self._state([self._good(), TestMissingLegIsNotADataDisk._missing()], provider)
+
+        assert not any(e.policy_key == "raid.drive_missing" for e in state.evaluations)
 
 
 class TestProfileDeployment:

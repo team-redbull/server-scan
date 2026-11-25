@@ -8,6 +8,16 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-24 — A Reason dropdown filters the inventory by fired health policy; the Type dropdown is gone (ADR-0033 update).**
+
+**Shipped (branch `feat/health-reason-filter`):** each `ServerRow.health_reasons` entry carries `policy_key`/`policy_name`;
+the inventory's last dropdown, **Reason** (`?reason=<policy_key>`, repeated), lists every policy fired in the fleet
+(`rows.ts` `reasonOptions`, no endpoint) with counts, and keeps a row carrying any ticked one, ANDed with Health and
+following its in-service rule. The Type dropdown was removed; `?server_type=` still filters via the Sites links.
+
+**Open:** a reason option shows no severity marker (the list is only ordered worst first); an Unknown still has no reason
+to filter on (`network.all_unknown` records none).
+
 **2026-11-24 — Hovering a non-Healthy State badge lists its health reasons (ADR-0033 update).**
 
 **Shipped (branch `feat/health-reason-hover`):** `ServerRow.health_reasons` (`{severity, message}` per fired policy,
@@ -24,6 +34,9 @@ detail page's Overview still has the per-category breakdown.
 disk beside a non-optimal virtual drive on its controller is a CRITICAL drive (`health_detail=missing`), and new
 facts `raid.degraded_volume_count`/`raid.failed_volume_count` drive `raid.volume_degraded` (MAJOR) and
 `raid.volume_failed` (CRITICAL), UCS collectors only. The RAID verdict stays `PRESENT`; Dell/HPE are unchanged.
+
+**Updated 2026-11-25:** a `missing` disk is now CRITICAL via `raid.drive_missing` (fact `raid.missing_drive_count`), leading the
+reasons; a degraded-but-present disk stays MAJOR; a present disk that is itself failed is still MAJOR (open). ADR-0068 update.
 
 **Also on this branch (2026-11-23):** the Architecture page opens on a hand-written **How it works** tab with two embedded
 diagrams (`how-it-works-flow`, `server-lifecycle`); and `/jobs` shows each attempt of a retried collector Job with its own

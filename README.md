@@ -93,7 +93,8 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
 | Page | Shows |
 |---|---|
 | **Sites** (`/`) | Per-site cards: totals, a health bar, physical/VM and vendor mix (each row links into the inventory), installation types, available vs installed. |
-| **Servers** (`/servers`) | The whole fleet, filtered, sorted and searched in the browser; maintenance switch; sidebar filters by MCE and cluster. Click a row for the detail page: hardware, NICs, BMC link, health reasons, history. |
+| **Servers** (`/servers`) | The whole fleet, filtered, sorted (by name, model, BMC address and more; a search for an address lists in address order) and searched in the browser; fixed column widths; maintenance switch; sidebar filters by MCE and cluster. Click a row for the detail page: hardware, NICs, BMC link, health reasons, history. |
+| **Clusters** (`/clusters`) | Admin only. The OpenShift and MCE membership jobs: count, type and status filters, name search, most servers held first; decommission a destroyed cluster ([ADR-0067](docs/adr/0067-decommission-a-destroyed-cluster.md)). |
 | **Confs** (`/confs`) | Server configurations (specs), read from the `confs` collection; search, expand a row for the full spec. Read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | **Events** (`/events`) | The audit trail, filterable by type, server, user and time range. |
 | **Rules & Policies** (`/rules`) | The read-only classification rules and health policies. |

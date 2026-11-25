@@ -4,7 +4,10 @@ import type { SortingState } from "@tanstack/react-table";
 // v9's `/legacy` entry point keeps the v8 hook shape (`useReactTable` /
 // `createColumnHelper`) — the officially supported migration path, not a
 // workaround, so this builds on it rather than the `useTable` + `features` API.
-import { legacyCreateColumnHelper, useLegacyTable } from "@tanstack/react-table/legacy";
+import {
+  legacyCreateColumnHelper,
+  useLegacyTable,
+} from "@tanstack/react-table/legacy";
 import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { Link, useLocation, useNavigate } from "react-router";
 
@@ -44,11 +47,32 @@ const ROW_ACCENT: Record<HealthSeverity, string> = {
   UNKNOWN: "border-l-2 border-l-transparent",
 };
 
+/** Fixed column widths: with `table-fixed` the layout never depends on which rows are showing, so
+ * sorting does not make the columns jump. Name takes the remaining width and truncates. */
+const COLUMN_WIDTH: Record<string, string> = {
+  refresh: "w-11",
+  bmc_host: "w-[5.5rem]",
+  openshift_state: "w-28",
+  mce_name: "w-28",
+  cluster_name: "w-32",
+  model: "w-32",
+  health: "w-40",
+  maintenance: "w-28",
+};
+const TRUNCATED_COLUMNS = new Set([
+  "name",
+  "mce_name",
+  "cluster_name",
+  "model",
+]);
+
 interface InventoryTableProps {
   servers: ServerRow[];
   sortField: SortableField;
   sortDesc: boolean;
   onSortChange: (field: SortableField, desc: boolean) => void;
+  /** Whether any server in the whole filtered set has an MCE; decided there, not from this page, so paging never adds or drops the column. */
+  withMce?: boolean;
   /** Names the active filters in the empty state. */
   emptyMessage?: string;
 }
@@ -60,136 +84,157 @@ const columnHelper = legacyCreateColumnHelper<ServerRow>();
 // Columns have heterogeneous `TValue`; TanStack's docs recommend
 // `ColumnDef<TData, any>` for exactly this case — a `TValue=unknown` array
 // is rejected by `exactOptionalPropertyTypes` on every column.
-function buildColumns(withMce: boolean, from: string): LegacyColumnDef<ServerRow, any>[] {
+function buildColumns(
+  withMce: boolean,
+  from: string,
+): LegacyColumnDef<ServerRow, any>[] {
   return [
-  columnHelper.accessor((row) => row, {
-    id: "refresh",
-    header: () => <span className="sr-only">Fetch now</span>,
-    cell: (info) => <RowRefreshButton row={info.getValue<ServerRow>()} />,
-    enableSorting: false,
-  }),
-  columnHelper.accessor("name", {
-    id: "name",
-    header: "Name",
-    cell: (info) => (
-      // A real anchor; the row's `onClick` is a convenience on top of it.
-      // `state.from` is this page's own URL (filters included), so the
-      // detail page's "Back to inventory" returns to the same filtered view.
-      <span className="inline-flex items-center gap-1">
-        <Link
-          to={`/servers/${info.row.original.id}`}
-          state={{ from }}
-          className="font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
-        >
-          {info.getValue()}
-        </Link>
-        <CopyButton
-          text={info.getValue()}
-          label={`Copy name of ${info.getValue()}`}
-          revealOnRowHover
-          compact
-        />
-      </span>
-    ),
-    enableSorting: true,
-  }),
-  columnHelper.accessor((row) => row, {
-    id: "bmc",
-    header: "BMC",
-    cell: (info) => {
-      const row = info.getValue<ServerRow>();
-      if (!row.bmc_host) return null;
-      return (
-        <span className="inline-flex items-center gap-1">
-          <BmcLink host={row.bmc_host} serverName={row.name} />
-          <CopyButton
-            text={row.bmc_host}
-            label={`Copy BMC address of ${row.name}`}
-            title={`${row.bmc_host} — copy`}
-          />
-        </span>
-      );
-    },
-    enableSorting: false,
-  }),
-  // Accessor stays on the FIELD: returning the row would sort by object
-  // identity. The reservation is read from `row.original` instead, so what is
-  // rendered changes without changing what is sorted.
-  columnHelper.accessor("openshift_state", {
-    id: "openshift_state",
-    header: "Installation",
-    // UNDER the state badge, not replacing it — a mid-install server is still
-    // AVAILABLE to the collectors. ReservationBadge renders nothing when no
-    // lock is held, so unaffected rows cost no height. ADR-0035, decision 6.
-    cell: (info) => (
-      <div className="inline-flex flex-col items-center gap-1">
-        <InstallationBadge state={info.getValue<OpenShiftState>()} />
-        <ReservationBadge reservation={info.row.original.reservation} />
-      </div>
-    ),
-    enableSorting: true,
-  }),
-  ...(withMce
-    ? [
-        columnHelper.accessor("mce_name", {
-          id: "mce_name",
-          header: "MCE",
-          cell: (info) => (
-            <span className="text-[var(--text-secondary)]">{info.getValue() || "—"}</span>
-          ),
-          enableSorting: true,
-        }),
-      ]
-    : []),
-  columnHelper.accessor("cluster_name", {
-    id: "cluster_name",
-    header: "Cluster",
-    cell: (info) => (
-      <span className="inline-flex flex-wrap items-center gap-1.5 text-[var(--text-secondary)]">
-        {info.getValue() || "—"}
-        {info.row.original.contested_with && (
-          <span className="inline-flex items-center rounded-full bg-[var(--tint-warning)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-warning)]">
-            Contested with {info.row.original.contested_with}
+    columnHelper.accessor((row) => row, {
+      id: "refresh",
+      header: () => <span className="sr-only">Fetch now</span>,
+      cell: (info) => <RowRefreshButton row={info.getValue<ServerRow>()} />,
+      enableSorting: false,
+    }),
+    columnHelper.accessor("name", {
+      id: "name",
+      header: "Name",
+      cell: (info) => (
+        // A real anchor; the row's `onClick` is a convenience on top of it.
+        // `state.from` is this page's own URL (filters included), so the
+        // detail page's "Back to inventory" returns to the same filtered view.
+        <span className="flex min-w-0 items-center gap-1">
+          <Link
+            to={`/servers/${info.row.original.id}`}
+            state={{ from }}
+            title={info.getValue()}
+            className="min-w-0 truncate font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
+          >
+            {info.getValue()}
+          </Link>
+          <span className="shrink-0">
+            <CopyButton
+              text={info.getValue()}
+              label={`Copy name of ${info.getValue()}`}
+              revealOnRowHover
+              compact
+            />
           </span>
-        )}
-      </span>
-    ),
-    enableSorting: true,
-  }),
-  columnHelper.accessor("model", {
-    id: "model",
-    header: "Model",
-    cell: (info) => (
-      <span className="text-[var(--text-secondary)]">{info.getValue() || "—"}</span>
-    ),
-    enableSorting: true,
-  }),
-  columnHelper.accessor((row) => row, {
-    id: "health",
-    header: "State",
-    cell: (info) => {
-      const row = info.getValue<ServerRow>();
-      return (
-        <StateBadge
-          severity={row.health}
-          reasons={row.health_reasons}
-          reachable={row.reachable}
-          maintenance={row.maintenance}
-          stale={row.stale}
-          lastSeenAt={row.last_seen_at}
-          reportedName={row.openshift_reported_name}
-        />
-      );
-    },
-    enableSorting: true,
-  }),
-  // The other cell (besides BMC) whose click does not open the server.
-  columnHelper.accessor((row) => row, {
-    id: "maintenance",
-    header: "Maintenance",
-    cell: (info) => <MaintenanceToggle server={info.getValue<ServerRow>()} />,
-    enableSorting: false,
-  }),
+        </span>
+      ),
+      enableSorting: true,
+    }),
+    columnHelper.accessor("bmc_host", {
+      id: "bmc_host",
+      header: "BMC",
+      cell: (info) => {
+        const row = info.row.original;
+        if (!row.bmc_host) return null;
+        return (
+          <span className="inline-flex items-center gap-1">
+            <BmcLink host={row.bmc_host} serverName={row.name} />
+            <CopyButton
+              text={row.bmc_host}
+              label={`Copy BMC address of ${row.name}`}
+              title={`${row.bmc_host} — copy`}
+            />
+          </span>
+        );
+      },
+      enableSorting: true,
+    }),
+    // Accessor stays on the FIELD: returning the row would sort by object
+    // identity. The reservation is read from `row.original` instead, so what is
+    // rendered changes without changing what is sorted.
+    columnHelper.accessor("openshift_state", {
+      id: "openshift_state",
+      header: "Installation",
+      // UNDER the state badge, not replacing it — a mid-install server is still
+      // AVAILABLE to the collectors. ReservationBadge renders nothing when no
+      // lock is held, so unaffected rows cost no height. ADR-0035, decision 6.
+      cell: (info) => (
+        <div className="inline-flex flex-col items-center gap-1">
+          <InstallationBadge state={info.getValue<OpenShiftState>()} />
+          <ReservationBadge reservation={info.row.original.reservation} />
+        </div>
+      ),
+      enableSorting: true,
+    }),
+    ...(withMce
+      ? [
+          columnHelper.accessor("mce_name", {
+            id: "mce_name",
+            header: "MCE",
+            cell: (info) => (
+              <span
+                className="text-[var(--text-secondary)]"
+                title={info.getValue() || undefined}
+              >
+                {info.getValue() || "—"}
+              </span>
+            ),
+            enableSorting: true,
+          }),
+        ]
+      : []),
+    columnHelper.accessor("cluster_name", {
+      id: "cluster_name",
+      header: "Cluster",
+      cell: (info) => (
+        <span className="inline-flex max-w-full flex-wrap items-center gap-1.5 text-[var(--text-secondary)]">
+          <span
+            className="min-w-0 truncate"
+            title={info.getValue() || undefined}
+          >
+            {info.getValue() || "—"}
+          </span>
+          {info.row.original.contested_with && (
+            <span className="inline-flex items-center rounded-full bg-[var(--tint-warning)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-warning)]">
+              Contested with {info.row.original.contested_with}
+            </span>
+          )}
+        </span>
+      ),
+      enableSorting: true,
+    }),
+    columnHelper.accessor("model", {
+      id: "model",
+      header: "Model",
+      cell: (info) => (
+        <span
+          className="text-[var(--text-secondary)]"
+          title={info.getValue() || undefined}
+        >
+          {info.getValue() || "—"}
+        </span>
+      ),
+      enableSorting: true,
+    }),
+    columnHelper.accessor((row) => row, {
+      id: "health",
+      header: "State",
+      cell: (info) => {
+        const row = info.getValue<ServerRow>();
+        return (
+          <StateBadge
+            severity={row.health}
+            reasons={row.health_reasons}
+            reachable={row.reachable}
+            maintenance={row.maintenance}
+            stale={row.stale}
+            lastSeenAt={row.last_seen_at}
+            reportedName={row.openshift_reported_name}
+          />
+        );
+      },
+      enableSorting: true,
+    }),
+    // The other cell (besides BMC) whose click does not open the server.
+    columnHelper.accessor((row) => row, {
+      id: "maintenance",
+      header: "Maintenance",
+      cell: (info) => <MaintenanceToggle server={info.getValue<ServerRow>()} />,
+      enableSorting: false,
+    }),
   ];
 }
 
@@ -199,12 +244,13 @@ export function InventoryTable({
   sortDesc,
   onSortChange,
   emptyMessage,
+  withMce: withMceProp,
 }: InventoryTableProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const from = `${location.pathname}${location.search}`;
   const sorting: SortingState = [{ id: sortField, desc: sortDesc }];
-  const withMce = servers.some((server) => server.mce_name);
+  const withMce = withMceProp ?? servers.some((server) => server.mce_name);
   const columns = useMemo(() => buildColumns(withMce, from), [withMce, from]);
 
   const fill = useFillViewport<HTMLDivElement>(servers.length);
@@ -235,7 +281,9 @@ export function InventoryTable({
       style={fill.style}
       className="relative overflow-auto overscroll-contain rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
     >
-      <table className="min-w-full text-sm">
+      <table
+        className={`w-full ${withMce ? "min-w-[67.5rem]" : "min-w-[61rem]"} table-fixed text-sm`}
+      >
         <thead className="sticky top-0 z-10 bg-[var(--surface-sunken)]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
@@ -243,7 +291,7 @@ export function InventoryTable({
                 <th
                   key={header.id}
                   scope="col"
-                  className={`border-b border-[var(--border-subtle)] px-2 py-2.5 text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase ${header.column.id === "name" ? "text-left" : "text-center"} ${index === 0 ? "rounded-tl-[var(--radius-card)]" : ""} ${index === headerGroup.headers.length - 1 ? "rounded-tr-[var(--radius-card)]" : ""}`}
+                  className={`${COLUMN_WIDTH[header.column.id] ?? ""} border-b border-[var(--border-subtle)] px-2 py-2.5 text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase ${header.column.id === "name" ? "text-left" : "text-center"} ${index === 0 ? "rounded-tl-[var(--radius-card)]" : ""} ${index === headerGroup.headers.length - 1 ? "rounded-tr-[var(--radius-card)]" : ""}`}
                 >
                   {header.column.getCanSort() ? (
                     <button
@@ -253,14 +301,20 @@ export function InventoryTable({
                       // `text-transform` on <button>.
                       className="inline-flex items-center gap-1 rounded-sm uppercase hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
                     >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
                       <span aria-hidden="true" className="text-[0.65rem]">
                         {header.column.getIsSorted() === "asc" && "▲"}
                         {header.column.getIsSorted() === "desc" && "▼"}
                       </span>
                     </button>
                   ) : (
-                    flexRender(header.column.columnDef.header, header.getContext())
+                    flexRender(
+                      header.column.columnDef.header,
+                      header.getContext(),
+                    )
                   )}
                 </th>
               ))}
@@ -273,20 +327,27 @@ export function InventoryTable({
               key={row.id}
               onClick={(event) => {
                 // Never hijack the anchor's own click or a modified one.
-                if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey) {
+                if (
+                  event.defaultPrevented ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey
+                ) {
                   return;
                 }
                 if ((event.target as HTMLElement).closest("a")) {
                   return;
                 }
-                void navigate(`/servers/${row.original.id}`, { state: { from } });
+                void navigate(`/servers/${row.original.id}`, {
+                  state: { from },
+                });
               }}
               className={`group cursor-pointer border-b border-[var(--border-subtle)] transition-colors duration-[var(--duration-instant)] ease-[var(--ease-out-strong)] last:border-b-0 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-status-info)] ${ROW_ACCENT[row.original.health]}`}
             >
               {row.getVisibleCells().map((cell) => (
                 <td
                   key={cell.id}
-                  className={`px-2 py-2.5 whitespace-nowrap ${cell.column.id === "name" ? "text-left" : "text-center"}`}
+                  className={`px-2 py-2.5 whitespace-nowrap ${TRUNCATED_COLUMNS.has(cell.column.id) ? "overflow-hidden text-ellipsis" : ""} ${cell.column.id === "name" ? "text-left" : "text-center"}`}
                 >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>

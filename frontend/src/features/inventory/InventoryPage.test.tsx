@@ -288,6 +288,101 @@ describe("InventoryPage", () => {
     ).toHaveLength(1);
   });
 
+  it("sorts by BMC address, naturally, with servers that have none last", async () => {
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse([
+          makeServer({ id: "srv_a", name: "srv-a", bmc_host: "10.0.0.10" }),
+          makeServer({ id: "srv_b", name: "srv-b", bmc_host: "10.0.0.2" }),
+          makeServer({ id: "srv_c", name: "srv-c", bmc_host: null }),
+        ]),
+      ),
+    );
+    const { router } = renderInventoryPage();
+    const header = await screen.findByRole("columnheader", { name: /^bmc/i });
+
+    fireEvent.click(within(header).getByRole("button"));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain("sort=bmc_host");
+    });
+    expect(rowNames()).toEqual(["srv-b", "srv-a", "srv-c"]);
+
+    fireEvent.click(within(header).getByRole("button"));
+
+    await waitFor(() => {
+      expect(rowNames()).toEqual(["srv-a", "srv-b", "srv-c"]);
+    });
+  });
+
+  it("lists a BMC address search in address order, unless a sort is chosen", async () => {
+    const hosts = [
+      ["srv-a", "10.0.0.11"],
+      ["srv-b", "10.0.0.1"],
+      ["srv-c", "10.0.0.10"],
+    ] as const;
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse(
+          hosts.map(([name, bmc_host]) =>
+            makeServer({ id: name, name, bmc_host }),
+          ),
+        ),
+      ),
+    );
+    const first = renderInventoryPage("/?search=10.0.0.1");
+    await screen.findByRole("columnheader", { name: /^bmc/i });
+    await waitFor(() => {
+      expect(rowNames()).toEqual(["srv-b", "srv-c", "srv-a"]);
+    });
+    expect(first.router.state.location.search).not.toContain("sort=");
+  });
+
+  it("keeps an explicit sort over the address default", async () => {
+    const hosts = [
+      ["srv-a", "10.0.0.11"],
+      ["srv-b", "10.0.0.1"],
+      ["srv-c", "10.0.0.10"],
+    ] as const;
+    mockRows(() =>
+      jsonResponse(
+        rowsResponse(
+          hosts.map(([name, bmc_host]) =>
+            makeServer({ id: name, name, bmc_host }),
+          ),
+        ),
+      ),
+    );
+    // The page rebuilds the URL from window.location, which a memory router does not move.
+    window.history.replaceState(null, "", "/?search=10.0.0.1&sort=name");
+    renderInventoryPage("/?search=10.0.0.1&sort=name");
+    await screen.findByRole("columnheader", { name: /^bmc/i });
+    await waitFor(() => {
+      expect(rowNames()).toEqual(["srv-a", "srv-b", "srv-c"]);
+    });
+  });
+
+  it("keeps the MCE column when the only MCE server is on another page", async () => {
+    const many = Array.from({ length: 60 }, (_, i) =>
+      makeServer({
+        id: `srv_${String(i).padStart(2, "0")}`,
+        name: `srv-${String(i).padStart(2, "0")}`,
+        mce_name: i === 59 ? "mce-tlv" : null,
+      }),
+    );
+    mockRows(() => jsonResponse(rowsResponse(many)));
+    renderInventoryPage();
+
+    await screen.findByRole("columnheader", { name: /^bmc/i });
+
+    expect(
+      screen.getByRole("columnheader", { name: /^mce$/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("table")).queryByText("mce-tlv"),
+    ).not.toBeInTheDocument();
+  });
+
   it("filters in the browser and updates the URL when a filter changes", async () => {
     mockRows(() => jsonResponse(rowsResponse(TWO_VENDORS)));
 

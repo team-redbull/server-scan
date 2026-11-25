@@ -548,7 +548,7 @@ state optimal). It returned 23 virtual drives, all `type="mirror"`, e.g. dn
   `drive_state=degraded`, `operability=degraded`, `oper_qualifier_reason="Drive state degraded"`, `presence=mismatch`;
   `disk-2` `presence=missing`, `disk_state=unknown`, empty model/serial/size; its `storageLocalDiskSlotEp` is gone
   while the `storageLocalDisk` stays. `drive_state` feeds `StorageVolume.health` and the `raid.volume_degraded` /
-  `raid.volume_failed` policies. A `missing` disk is reported (CRITICAL, detail `missing`) only beside a non-optimal
+  `raid.volume_failed` policies. A `missing` disk is reported (CRITICAL, detail `missing`; it also fires `raid.drive_missing`, CRITICAL) only beside a non-optimal
   virtual drive on the same controller; `empty` is still dropped. `operability` and `oper_qualifier_reason` are not read.
 - **`adminState` is ignored:** many healthy drives carry a stale `delete` while `configState=applied` and
   `driveState=optimal`.

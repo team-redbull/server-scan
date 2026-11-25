@@ -223,8 +223,9 @@ working"](https://github.com/dell/OpenManage-Enterprise/issues/87)) is a
 user reporting that the *server-side* OData filter
 `DeviceManagement/any(d:d/NetworkAddress eq '...')` does not reliably work
 because `NetworkAddress` is a nested property OData does not filter well —
-Dell closed it "invalid" rather than fixing the endpoint, i.e. **this is
-a known, acknowledged rough edge in querying by this field server-side**,
+Dell did not fix it (corrected 2026-11-25: the issue is still open, not closed "invalid"; see
+`2026-11-25-ome-profile-filter-semantics.md`), i.e. **this is
+a known rough edge in querying by this field server-side**,
 but it does not cast doubt on the field's meaning or its presence once you
 have the full device object (as this repo's collector already fetches
 unfiltered — see "Current code" below). The four scripts above all

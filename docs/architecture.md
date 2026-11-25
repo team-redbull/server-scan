@@ -298,6 +298,10 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
 
 ## Search, pagination, and caching (slice 1)
 
+- **The inventory table is sorted and laid out in the browser** (2026-11-25): BMC is a sortable column (`bmc_host`, natural order,
+  none last), a search that is an IPv4 address or the start of one sorts by it when the URL names no `sort`
+  (`defaultSortField`), and the table is `table-fixed` with set column widths so a long name never resizes it; none of it
+  reaches the API's `SORT_FIELDS`.
 - **The inventory UI no longer uses any of this per interaction** (ADR-0033,
   2026-09-14): it loads the whole fleet as flat rows from
   `GET /servers/rows` — a Mongo projection through `ServerRow.from_doc`,
@@ -728,6 +732,7 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   | `profile.deployment_failed` | **OPENMANAGE**: the OME profile's last deployment run is Failed (`LastRunStatus` 2070); Completed (2060) is healthy and every other status is `UNKNOWN`, never a verdict (ADR-0066) | CRITICAL |
   | `raid.os_mirror_missing` | **OPENMANAGE, REDFISH_STANDALONE, UCS_CENTRAL and UCS_MANAGER**: the collector's RAID verdict is `ABSENT` (authoritative vendor tree read, no mirror); `UNKNOWN` (DGX, old BMCs) never fires (ADR-0048) | CRITICAL |
   | `raid.volume_degraded` | **UCS_CENTRAL, UCS_MANAGER**: a virtual drive reads WARNING (`degraded`, `partially-degraded`, `cache-degraded`, `rebuilding`); the verdict stays `PRESENT` (ADR-0068) | MAJOR |
+  | `raid.drive_missing` | **UCS_CENTRAL, UCS_MANAGER**: a disk UCS lists as `missing` beside a non-optimal virtual drive (the mirror lost a leg); a disk still present but degraded stays under `raid.volume_degraded` (ADR-0068, 2026-11-25) | CRITICAL |
   | `raid.volume_failed` | **UCS_CENTRAL, UCS_MANAGER**: a virtual drive is `offline` (ADR-0068) | CRITICAL |
 
   - **Two uplinks are a platform requirement, not a preference
@@ -2065,7 +2070,7 @@ held servers and `silent` (no run for `INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`
 (`require_admin`) calls `OpenShiftMembershipService.release(scope)` (the job's own `_free`), deletes the run record
 (`MongoMembershipRunRepository.delete`) and records `CLUSTER_DECOMMISSIONED`. A timer in the API process
 (`INVENTORY_OPENSHIFT_SILENT_CHECK_SECONDS`, `notify_silent`) records `CLUSTER_NOT_REPORTING` once when a job first passes the threshold (an atomic
-mark on the run record, cleared by the next real run). The UI is the Clusters page plus a banner on
+mark on the run record, cleared by the next real run). The UI is the Clusters page (count, type and status filters, name search, most servers held first) plus a banner on
 Sites and on the detail page of a server whose cluster is silent.
 
 ## Audit trail UI

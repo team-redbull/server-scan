@@ -455,6 +455,24 @@ describe("sortRows", () => {
     expect(FLEET[0]?.name).toBe("srv-10");
   });
 
+  it("sorts BMC addresses naturally with servers that have none last", () => {
+    const fleet = [
+      row({ name: "a", bmc_host: "10.0.0.10" }),
+      row({ name: "b", bmc_host: null }),
+      row({ name: "c", bmc_host: "10.0.0.2" }),
+    ];
+    expect(sortRows(fleet, "bmc_host", false).map((r) => r.bmc_host)).toEqual([
+      "10.0.0.2",
+      "10.0.0.10",
+      null,
+    ]);
+    expect(sortRows(fleet, "bmc_host", true).map((r) => r.bmc_host)).toEqual([
+      "10.0.0.10",
+      "10.0.0.2",
+      null,
+    ]);
+  });
+
   it("keeps nulls last in both directions", () => {
     expect(
       sortRows(FLEET, "cluster_name", false).map((r) => r.cluster_name),
