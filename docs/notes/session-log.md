@@ -8,6 +8,25 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-24 — A Reason dropdown filters the inventory by fired health policy; the Type dropdown is gone (ADR-0033 update).**
+
+**Shipped (branch `feat/health-reason-filter`):** each `ServerRow.health_reasons` entry carries `policy_key`/`policy_name`;
+the inventory's last dropdown, **Reason** (`?reason=<policy_key>`, repeated), lists every policy fired in the fleet
+(`rows.ts` `reasonOptions`, no endpoint) with counts, and keeps a row carrying any ticked one, ANDed with Health and
+following its in-service rule. The Type dropdown was removed; `?server_type=` still filters via the Sites links.
+
+**Open:** a reason option shows no severity marker (the list is only ordered worst first); an Unknown still has no reason
+to filter on (`network.all_unknown` records none).
+
+**2026-11-24 — Hovering a non-Healthy State badge lists its health reasons (ADR-0033 update).**
+
+**Shipped (branch `feat/health-reason-hover`):** `ServerRow.health_reasons` (`{severity, message}` per fired policy,
+projected from `health.reasons`) and a native `title` on `StateBadge`'s severity pill, most severe first, like the Maint
+chip's reason. Healthy has none; an Unknown with no fired policy shows a generic line (unreachable, or no definite reading).
+
+**Open:** an Unknown's cause is not on the row (`network.all_unknown` records no reason), so its hover cannot name it; the
+detail page's Overview still has the per-category breakdown.
+
 **2026-11-22 — A degraded Cisco virtual drive is a finding, and its missing disk is reported (ADR-0068).**
 
 **Shipped (branch `fix/cisco-missing-disk-degraded-vd`):** rack-unit-21 showed HEALTHY with `vd-1000` degraded and

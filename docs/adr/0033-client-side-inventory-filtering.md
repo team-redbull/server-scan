@@ -347,3 +347,31 @@ value. Frontend only: `GET /servers` keeps its single-value filter keys.
 Type (Physical / VM) joins the dropdowns, between Source and Site, as the repeated param `server_type`. The value is
 `ServerRow.server_type`, derived from the vendor server-side (only `kubevirt` is a VM), so the row grows by a few bytes and
 stays byte-stable. Frontend filter only: `GET /servers` has no `server_type` key.
+
+### 2026-11-24 update: the State badge's hover lists the health reasons
+
+`ServerRow.health_reasons` is each fired policy of `health.reasons` as `{severity, message}` (plus `policy_key`/`policy_name`
+since the Reason dropdown, below) (the policy name when the
+policy has no message), projected as `health.reasons.{severity,message,policy_name}`, in stored order so the body stays
+byte-stable. `StateBadge` puts them, most severe first, in the severity pill's native `title`, the same mechanism as the
+Maint chip's reason; Healthy has none, and an Unknown with no fired policy says "Not reachable at the last collection" or
+"No definite health reading". The row is no longer ~520 B for an unhealthy server: on the seeded 1,003-server fleet (83 %
+not healthy, far more than the real estate) the body grew 756 -> 895 KB raw and ~79 -> 90 KB gzip; a 304 still answers.
+
+### 2026-11-24 update: a Reason dropdown; the Type dropdown is gone
+
+Each `health_reasons` entry also carries `policy_key` and `policy_name` (projected as `health.reasons.policy_key`), and a
+**Reason** dropdown, the row's last, filters on them as the repeated param `reason=<policy_key>`: a row matches when any
+fired policy is ticked, whatever its overall severity (a CRITICAL server with a WARNING disk policy matches "Data disk
+degraded"); ANDed with Health. The key, not the name, is the value because a site override shares its default's key
+under its own name (ADR-0005), and a renamed policy keeps its links; the label is the key's most common name. Messages
+are per-server text ("2 of 4 ...", 75 distinct on the seeded fleet against 18 policies), so they cannot be options.
+The options are read off the fleet (`reasonOptions`, like the cluster sidebar): a new or edited policy appears with the
+next poll, nothing is configured. Only options some row under the other filters carries are listed, plus any ticked one.
+Like a ticked severity, a ticked reason shows servers in maintenance only with Maintenance ticked, and its counts follow
+that rule. A server evaluated before `health.reasons` existed matches no reason until it is next collected; reasons are
+capped at 10 per server (`MAX_HEALTH_REASONS`), far above what the default policies can fire at once. Seeded fleet:
+895 -> 1,033 KB raw, ~90 -> 95 KB gzip (the API's own gzip).
+
+The Type dropdown (2026-11-17) is removed from the filter row at the operator's request; `server_type=` still filters
+(the Sites cards' Physical/VM links use it) and shows a removable "Type ..." chip.

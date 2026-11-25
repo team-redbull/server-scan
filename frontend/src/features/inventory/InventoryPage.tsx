@@ -24,6 +24,7 @@ import {
   filterRows,
   paginate,
   parseSearch,
+  reasonOptions,
   sortRows,
 } from "@/features/inventory/rows";
 import type { RowFilters } from "@/features/inventory/rows";
@@ -142,6 +143,10 @@ export function InventoryPage() {
     () => searchParams.getAll("health_overall"),
     [searchParams],
   );
+  const reasonKeys = useMemo(
+    () => searchParams.getAll("reason"),
+    [searchParams],
+  );
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
   const contestedOnly = searchParams.get("contested") === "true";
@@ -171,6 +176,7 @@ export function InventoryPage() {
     if (installationTypes.length) next.installation_type = installationTypes;
     if (openshiftStates.length) next.openshift_state = openshiftStates;
     if (healthSeverities.length) next.health = healthSeverities;
+    if (reasonKeys.length) next.reason = reasonKeys;
     if (maintenanceMode !== "include") next.maintenance = maintenanceMode;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
@@ -189,6 +195,7 @@ export function InventoryPage() {
     installationTypes,
     openshiftStates,
     healthSeverities,
+    reasonKeys,
     maintenanceMode,
     staleOnly,
     duplicateOnly,
@@ -213,6 +220,31 @@ export function InventoryPage() {
     () => (data ? dropdownFacetCounts(data.items, filters) : undefined),
     [data, filters],
   );
+  const reasonCatalog = useMemo(() => reasonOptions(data?.items ?? []), [data]);
+  const reasonName = (key: string) =>
+    reasonCatalog.find((r) => r.key === key)?.name ?? key;
+  /* Only reasons the other filters leave a row for, plus any ticked one, so it can be unticked. */
+  const reasonChoices = [
+    ...reasonCatalog
+      .filter(
+        (r) =>
+          !facets ||
+          (facets.reason[r.key] ?? 0) > 0 ||
+          reasonKeys.includes(r.key),
+      )
+      .map((r) => ({
+        value: r.key,
+        label: r.name,
+        count: facets ? (facets.reason[r.key] ?? 0) : undefined,
+      })),
+    ...reasonKeys
+      .filter((key) => !reasonCatalog.some((r) => r.key === key))
+      .map((key) => ({
+        value: key,
+        label: key,
+        count: facets ? 0 : undefined,
+      })),
+  ];
   const clusterOptions = useMemo(
     () => (data ? clusterFacets(data.items, filters) : undefined),
     [data, filters],
@@ -339,6 +371,12 @@ export function InventoryPage() {
       label: `Health ${h}`,
       value: h,
     });
+  for (const key of reasonKeys)
+    activeFilters.push({
+      key: "reason",
+      label: `Reason ${reasonName(key)}`,
+      value: key,
+    });
   if (maintenanceMode !== "include")
     activeFilters.push({
       key: "maintenance",
@@ -374,6 +412,7 @@ export function InventoryPage() {
       installation_type: null,
       openshift_state: null,
       health_overall: null,
+      reason: null,
       maintenance: null,
       stale: null,
       duplicate: null,
@@ -489,29 +528,6 @@ export function InventoryPage() {
                   />
                 </FilterField>
 
-                <FilterField id="filter-server-type" label="Type">
-                  <MultiSelect
-                    id="filter-server-type"
-                    label="Type"
-                    className={FIELD_CLASS}
-                    allLabel={allLabel()}
-                    selected={serverTypes}
-                    options={SERVER_TYPES.map((s) => ({
-                      value: s.value,
-                      label: s.label,
-                      count:
-                        facets?.server_type[s.value] ??
-                        (facets ? 0 : undefined),
-                    }))}
-                    onToggle={(value) => {
-                      toggleMulti("server_type", value);
-                    }}
-                    onClear={() => {
-                      updateFilters({ server_type: null });
-                    }}
-                  />
-                </FilterField>
-
                 <FilterField id="filter-site" label="Site">
                   <MultiSelect
                     id="filter-site"
@@ -614,6 +630,24 @@ export function InventoryPage() {
                         health_overall: null,
                         maintenance: null,
                       });
+                    }}
+                  />
+                </FilterField>
+
+                <FilterField id="filter-reason" label="Reason">
+                  <MultiSelect
+                    id="filter-reason"
+                    label="Reason"
+                    className={FIELD_CLASS}
+                    allLabel={allLabel("Any")}
+                    selected={reasonKeys}
+                    options={reasonChoices}
+                    alignRight
+                    onToggle={(value) => {
+                      toggleMulti("reason", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ reason: null });
                     }}
                   />
                 </FilterField>

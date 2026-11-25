@@ -1,6 +1,6 @@
 import { UNASSIGNED_SITE_ID } from "@/api/sites";
 import type { SortableField } from "@/features/inventory/sorting";
-import type { ServerRow } from "@/types/server";
+import type { HealthSeverity, ServerRow } from "@/types/server";
 import { SEVERITY_ORDER } from "@/components/severity";
 import { isDonor } from "@/lib/donor";
 
@@ -11,7 +11,7 @@ import { isDonor } from "@/lib/donor";
 
 export interface RowFilters {
   search?: string;
-  /** Each of these seven takes several values (OR within, AND across); empty or unset is "any". */
+  /** Each of these eight takes several values (OR within, AND across); empty or unset is "any". */
   vendor?: string[];
   server_type?: string[];
   site_id?: string[];
@@ -19,6 +19,8 @@ export interface RowFilters {
   installation_type?: string[];
   openshift_state?: string[];
   health?: string[];
+  /** Fired policies by `policy_key`: a row matches when any of its health reasons is one of them. */
+  reason?: string[];
   /** Unset shows servers in maintenance with the rest; "only" keeps just them, "exclude" hides them.
    * Healthy servers in maintenance are the exception: Healthy shows them only with "only". */
   maintenance?: "only" | "exclude";
@@ -62,6 +64,8 @@ export interface FacetCounts {
   site_id: Record<string, number>;
   openshift_state: Record<string, number>;
   health: Record<string, number>;
+  /** Rows per fired `policy_key`; a row counts once per policy. */
+  reason: Record<string, number>;
   maintenance: Record<string, number>;
   stale: Record<string, number>;
 }
@@ -95,21 +99,28 @@ function nameCounts(rows: ServerRow[]): Map<string, number> {
 }
 
 /**
- * Whether a row passes the Health dropdown. Any ticked severity means that severity and in
- * service: a server in maintenance shows only when Maintenance is ticked too
+ * Whether a row passes the Health and Reason dropdowns. Any ticked severity or reason also means
+ * in service: a server in maintenance shows only when Maintenance is ticked too
  * (`maintenance: "only"`), whatever other filters (site, installation, ...) are set.
  *
  * Args:
  *   row (ServerRow): The row to test.
- *   filters (RowFilters): The active filters; only `health` and `maintenance` are read.
+ *   filters (RowFilters): The active filters; only `health`, `reason` and `maintenance` are read.
  *
  * Returns:
- *   boolean: True when no severity is ticked, or the row's health is among them and it is in
- *   service (or Maintenance is ticked).
+ *   boolean: True when nothing is ticked, or the row's health is among the ticked severities
+ *   (if any), it carries a ticked reason (if any), and it is in service (or Maintenance is ticked).
  */
 function matchesHealth(row: ServerRow, filters: RowFilters): boolean {
-  if (!filters.health?.length) return true;
-  if (!filters.health.includes(row.health)) return false;
+  const severities = filters.health ?? [];
+  const reasons = filters.reason ?? [];
+  if (!severities.length && !reasons.length) return true;
+  if (severities.length && !severities.includes(row.health)) return false;
+  if (
+    reasons.length &&
+    !row.health_reasons.some((r) => reasons.includes(r.policy_key))
+  )
+    return false;
   return !row.maintenance.enabled || filters.maintenance === "only";
 }
 
@@ -323,6 +334,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     site_id: {},
     openshift_state: {},
     health: {},
+    reason: {},
     maintenance: {},
     stale: {},
   };
@@ -334,13 +346,15 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     count(facets.site_id, row.site_id ?? UNASSIGNED_SITE_ID);
     count(facets.openshift_state, row.openshift_state);
     count(facets.health, row.health);
+    for (const key of new Set(row.health_reasons.map((r) => r.policy_key)))
+      if (key) count(facets.reason, key);
     count(facets.maintenance, String(row.maintenance.enabled));
     count(facets.stale, String(row.stale));
   }
   return facets;
 }
 
-/** The filter keys the seven multi-select dropdowns own, with the facet each one counts. */
+/** The filter keys the multi-select dropdowns own, with the facet each one counts. */
 const DIMENSIONS = [
   ["vendor", "vendor"],
   ["server_type", "server_type"],
@@ -349,6 +363,7 @@ const DIMENSIONS = [
   ["installation_type", "installation_type"],
   ["openshift_state", "openshift_state"],
   ["health", "health"],
+  ["reason", "reason"],
 ] as const;
 
 /**
@@ -362,9 +377,9 @@ const DIMENSIONS = [
  *
  * Returns:
  *   FacetCounts: `total` and the toggles' counts over the fully filtered rows (as `facetCounts`);
- *   the seven dropdown dimensions replaced by their own-filter-excluded counts. `maintenance` is
- *   counted without the maintenance filter, so the Include/Hide/Only control always shows all
- *   three numbers; every other count respects it.
+ *   the dropdown dimensions replaced by their own-filter-excluded counts. `maintenance` is
+ *   counted without the maintenance filter, so its option always shows a number; every other
+ *   count respects it, and Health's and Reason's count in-service rows only (`matchesHealth`).
  */
 export function dropdownFacetCounts(
   rows: ServerRow[],
@@ -376,22 +391,78 @@ export function dropdownFacetCounts(
       filterRows(rows, without(filters, filterKey)),
     )[facetKey];
   }
-  const ignoringBoth = filterRows(
+  const healthOnly: RowFilters = {};
+  if (filters.health) healthOnly.health = filters.health;
+  if (filters.reason) healthOnly.reason = filters.reason;
+  healthOnly.maintenance = "only";
+  const ignoringHealth = filterRows(
     rows,
-    without(without(filters, "maintenance"), "health"),
+    without(without(without(filters, "maintenance"), "health"), "reason"),
   );
-  const severities = filters.health ?? [];
   facets.maintenance = facetCounts(
-    severities.length
-      ? ignoringBoth.filter((row) => severities.includes(row.health))
-      : ignoringBoth,
+    ignoringHealth.filter((row) => matchesHealth(row, healthOnly)),
   ).maintenance;
-  const healthBase = filterRows(rows, without(filters, "health"));
-  const inService = (row: ServerRow) => !row.maintenance.enabled;
+  const inService = (row: ServerRow) =>
+    filters.maintenance === "only" || !row.maintenance.enabled;
   facets.health = facetCounts(
-    filters.maintenance === "only" ? healthBase : healthBase.filter(inService),
+    filterRows(rows, without(filters, "health")).filter(inService),
   ).health;
+  facets.reason = facetCounts(
+    filterRows(rows, without(filters, "reason")).filter(inService),
+  ).reason;
   return facets;
+}
+
+/** One fired policy as a Reason option: its key, the name it shows, and its worst severity. */
+export interface ReasonOption {
+  key: string;
+  name: string;
+  severity: HealthSeverity;
+}
+
+/**
+ * Every policy fired anywhere in the fleet, read off the rows like the cluster sidebar, so a new
+ * or renamed policy appears with the next poll. A key fired under several names (a site
+ * override, ADR-0005) shows its most common one.
+ *
+ * Args:
+ *   rows (ServerRow[]): The whole fleet.
+ *
+ * Returns:
+ *   ReasonOption[]: Worst severity first, then by name.
+ */
+export function reasonOptions(rows: ServerRow[]): ReasonOption[] {
+  const byKey = new Map<
+    string,
+    { names: Map<string, number>; severity: HealthSeverity }
+  >();
+  for (const row of rows) {
+    for (const r of row.health_reasons) {
+      if (!r.policy_key) continue;
+      const entry = byKey.get(r.policy_key) ?? {
+        names: new Map<string, number>(),
+        severity: r.severity,
+      };
+      const name = r.policy_name || r.policy_key;
+      entry.names.set(name, (entry.names.get(name) ?? 0) + 1);
+      if (
+        SEVERITY_ORDER.indexOf(r.severity) <
+        SEVERITY_ORDER.indexOf(entry.severity)
+      )
+        entry.severity = r.severity;
+      byKey.set(r.policy_key, entry);
+    }
+  }
+  const options = [...byKey].map(([key, { names, severity }]) => ({
+    key,
+    severity,
+    name: [...names].sort((a, b) => b[1] - a[1])[0]?.[0] ?? key,
+  }));
+  return options.sort(
+    (a, b) =>
+      SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity) ||
+      COLLATOR.compare(a.name, b.name),
+  );
 }
 
 /**

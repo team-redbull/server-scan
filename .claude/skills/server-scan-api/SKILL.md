@@ -93,7 +93,8 @@ api /api/v1/sites | jq '.items[] | {site_id, total, by_health}'
 ```
 
 `/servers/rows` returns the whole fleet (~190 KB gzipped) in one response with flat fields
-(`name, vendor, server_type (physical|vm), model, site_id, health, installation_type, openshift_state, cluster_name,
+(`name, vendor, server_type (physical|vm), model, site_id, health, health_reasons[] ({severity, message, policy_key,
+policy_name}: the fired policies), installation_type, openshift_state, cluster_name,
 mce_name, bmc_host, serial, macs, maintenance, reservation, stale, reachable`). Prefer it for
 grouping, counting or filtering on a field the list endpoint lacks.
 

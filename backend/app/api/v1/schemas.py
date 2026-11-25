@@ -235,6 +235,37 @@ class MaintenanceFlag(BaseModel):
     created_by: str | None
 
 
+class RowHealthReason(BaseModel):
+    """One fired health policy on an inventory row: the State hover and the Reason filter."""
+
+    severity: HealthSeverity
+    message: str
+    policy_key: str = ""
+    policy_name: str = ""
+
+
+def _row_reasons(health: dict[str, Any]) -> list[RowHealthReason]:
+    """
+    The fired policies of a stored health rollup, in their stored order.
+
+    Args:
+        health (dict[str, Any]): The projected `health` subdocument.
+
+    Returns:
+        list[RowHealthReason]: Each reason's severity, message (else its policy name), and the
+            policy's key and name.
+    """
+    return [
+        RowHealthReason(
+            severity=decode_retired_severity(r.get("severity", HealthSeverity.UNKNOWN)),
+            message=r.get("message") or r.get("policy_name") or "",
+            policy_key=r.get("policy_key") or "",
+            policy_name=r.get("policy_name") or "",
+        )
+        for r in health.get("reasons") or []
+    ]
+
+
 class ReservationFlag(BaseModel):
     """One inventory row's view of the install lock.
 
@@ -285,6 +316,7 @@ class ServerRow(BaseModel):
     source_provider: str | None
     installation_type: InstallationType
     health: HealthSeverity
+    health_reasons: list[RowHealthReason] = Field(default_factory=list)
     maintenance: MaintenanceFlag
     reservation: ReservationFlag = Field(default_factory=ReservationFlag)
     openshift_state: OpenShiftState
@@ -328,6 +360,7 @@ class ServerRow(BaseModel):
             health=decode_retired_severity(
                 (doc.get("health") or {}).get("overall", HealthSeverity.UNKNOWN)
             ),
+            health_reasons=_row_reasons(doc.get("health") or {}),
             maintenance=MaintenanceFlag(
                 enabled=(doc.get("maintenance") or {}).get("enabled", False),
                 reason=(doc.get("maintenance") or {}).get("reason"),

@@ -472,7 +472,7 @@ When you finish yours, move this entry to the top of
 handoff.
 
 **2026-11-25 — The live OME lookup matches exactly and joins on `TargetId` (ADR-0069).**
-Moved to `docs/notes/session-log.md`: the Cisco degraded-drive unit (ADR-0068, with the Jobs per-attempt times, the "How it works" Architecture tab and its tab-bar accessibility, all merged).
+Moved to `docs/notes/session-log.md`: the Reason-filter unit (ADR-0033 update), the State badge's health-reason hover, and the Cisco degraded-drive unit (ADR-0068).
 
 **Shipped (branch `fix/ome-exact-profile-match`):** on the operator's OME, `$filter=TargetName eq '10.0.0.1'` is a **prefix match** returning
 `10.0.0.1` and `10.0.0.10`-`.18` unsorted, and `OpenManageProvider._discover_one` (the `get_one` behind "Fetch now" and the

@@ -7,10 +7,11 @@ import {
   filterRows,
   paginate,
   parseSearch,
+  reasonOptions,
   searchRows,
   sortRows,
 } from "@/features/inventory/rows";
-import type { ServerRow } from "@/types/server";
+import type { HealthSeverity, RowHealthReason, ServerRow } from "@/types/server";
 
 function row(overrides: Partial<ServerRow> = {}): ServerRow {
   return {
@@ -23,6 +24,7 @@ function row(overrides: Partial<ServerRow> = {}): ServerRow {
     source_provider: "OPENMANAGE",
     installation_type: "UPI",
     health: "HEALTHY",
+    health_reasons: [],
     maintenance: { enabled: false, reason: null },
     reservation: {
       held: false,
@@ -478,6 +480,123 @@ describe("sortRows", () => {
     expect(
       sortRows(FLEET, "cluster_name", true).map((r) => r.cluster_name),
     ).toEqual(["b", "a", null]);
+  });
+});
+
+function reason(
+  policy_key: string,
+  severity: HealthSeverity,
+  policy_name = policy_key,
+): RowHealthReason {
+  return { policy_key, policy_name, severity, message: `${policy_key} fired` };
+}
+
+describe("the Reason filter", () => {
+  const gpu = reason("gpu.failed", "CRITICAL", "GPU failed");
+  const disk = reason("storage.data_disk_bad_warning", "WARNING", "Data disk degraded");
+  const fleet = [
+    row({ name: "both", health: "CRITICAL", health_reasons: [gpu, disk] }),
+    row({ name: "disk", health: "WARNING", health_reasons: [disk] }),
+    row({
+      name: "gpu-paused",
+      health: "CRITICAL",
+      health_reasons: [gpu],
+      maintenance: { enabled: true, reason: "rma" },
+    }),
+    row({ name: "ok" }),
+  ];
+  const names = (filters: Parameters<typeof filterRows>[1]) =>
+    filterRows(fleet, filters).map((r) => r.name);
+
+  it("keeps a row carrying any ticked policy, whatever its overall severity", () => {
+    expect(names({ reason: ["storage.data_disk_bad_warning"] })).toEqual([
+      "both",
+      "disk",
+    ]);
+    expect(
+      names({ reason: ["gpu.failed", "storage.data_disk_bad_warning"] }),
+    ).toEqual(["both", "disk"]);
+  });
+
+  it("is ANDed with a ticked severity", () => {
+    expect(
+      names({ reason: ["storage.data_disk_bad_warning"], health: ["WARNING"] }),
+    ).toEqual(["disk"]);
+  });
+
+  it("hides servers in maintenance unless Maintenance is ticked, like a severity", () => {
+    expect(names({ reason: ["gpu.failed"] })).toEqual(["both"]);
+    expect(names({ reason: ["gpu.failed"], maintenance: "only" })).toEqual([
+      "gpu-paused",
+    ]);
+  });
+
+  it("counts each option over the other filters, in service, so the number matches the rows", () => {
+    expect(dropdownFacetCounts(fleet, {}).reason).toEqual({
+      "gpu.failed": 1,
+      "storage.data_disk_bad_warning": 2,
+    });
+    const ticked = dropdownFacetCounts(fleet, { reason: ["gpu.failed"] });
+    expect(ticked.reason["storage.data_disk_bad_warning"]).toBe(2);
+    expect(ticked.total).toBe(names({ reason: ["gpu.failed"] }).length);
+    expect(
+      dropdownFacetCounts(fleet, { health: ["WARNING"] }).reason,
+    ).toEqual({ "storage.data_disk_bad_warning": 1 });
+    expect(
+      dropdownFacetCounts(fleet, { maintenance: "only" }).reason,
+    ).toEqual({ "gpu.failed": 1 });
+  });
+
+  it("counts Maintenance and Health under a ticked reason the way the list shows them", () => {
+    const counts = dropdownFacetCounts(fleet, { reason: ["gpu.failed"] });
+    expect(counts.maintenance["true"]).toBe(
+      names({ reason: ["gpu.failed"], maintenance: "only" }).length,
+    );
+    expect(counts.health).toEqual({ CRITICAL: 1 });
+  });
+
+  it("counts a row once per policy and ignores a reason with no key", () => {
+    const twice = row({
+      health: "MAJOR",
+      health_reasons: [gpu, gpu, reason("", "MAJOR")],
+    });
+    expect(facetCounts([twice]).reason).toEqual({ "gpu.failed": 1 });
+  });
+});
+
+describe("reasonOptions", () => {
+  it("lists each fired policy once, worst first, then by name", () => {
+    const fleet = [
+      row({
+        health_reasons: [
+          reason("storage.data_disk_bad_warning", "WARNING", "Data disk degraded"),
+          reason("raid.volume_degraded", "MAJOR", "Virtual drive degraded"),
+        ],
+      }),
+      row({
+        health_reasons: [
+          reason("bmc.unreachable", "CRITICAL", "BMC unreachable"),
+          reason("gpu.failed", "CRITICAL", "GPU failed"),
+        ],
+      }),
+    ];
+    expect(reasonOptions(fleet).map((o) => o.name)).toEqual([
+      "BMC unreachable",
+      "GPU failed",
+      "Virtual drive degraded",
+      "Data disk degraded",
+    ]);
+  });
+
+  it("names a key shared by a site override after its most common name (ADR-0005)", () => {
+    const fleet = [
+      row({ health_reasons: [reason("fabric.down", "WARNING", "Fabric down (lab)")] }),
+      row({ health_reasons: [reason("fabric.down", "CRITICAL", "Fabric down")] }),
+      row({ health_reasons: [reason("fabric.down", "CRITICAL", "Fabric down")] }),
+    ];
+    expect(reasonOptions(fleet)).toEqual([
+      { key: "fabric.down", name: "Fabric down", severity: "CRITICAL" },
+    ]);
   });
 });
 
