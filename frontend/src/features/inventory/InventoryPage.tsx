@@ -2,13 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { ApiError } from "@/api/client";
-import { SORTABLE_FIELDS } from "@/features/inventory/sorting";
+import {
+  SORTABLE_FIELDS,
+  defaultSortField,
+} from "@/features/inventory/sorting";
 import type { SortableField } from "@/features/inventory/sorting";
 import { ClusterSidebar } from "@/features/inventory/ClusterSidebar";
 import { downloadXlsx, rowsToXlsx } from "@/features/inventory/xlsxExport";
 import { InventoryTable } from "@/features/inventory/InventoryTable";
 import { MultiSelect } from "@/features/inventory/MultiSelect";
-import { SERVER_TYPES, siteOptions, SOURCE_PROVIDERS, VENDORS } from "@/api/sites";
+import {
+  SERVER_TYPES,
+  siteOptions,
+  SOURCE_PROVIDERS,
+  VENDORS,
+} from "@/api/sites";
 import { useServerRowsQuery } from "@/features/inventory/hooks";
 import {
   clusterFacets,
@@ -49,7 +57,6 @@ const MAINTENANCE_OPTION = "MAINTENANCE";
 const FIELD_CLASS =
   "mt-1 w-full min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-status-info)]";
 
-const DEFAULT_SORT: SortableField = "name";
 const PAGE_SIZE = 50;
 
 function isSortableField(value: string): value is SortableField {
@@ -143,7 +150,7 @@ export function InventoryPage() {
   const sortParam = searchParams.get("sort") ?? "";
   const sortField: SortableField = isSortableField(sortParam)
     ? sortParam
-    : DEFAULT_SORT;
+    : defaultSortField(urlSearch);
   const sortDesc = searchParams.get("sort_desc") === "true";
   const pageParam = Number(searchParams.get("page") ?? "1");
   const mceSel = useMemo(() => searchParams.getAll("mce"), [searchParams]);
@@ -493,7 +500,8 @@ export function InventoryPage() {
                       value: s.value,
                       label: s.label,
                       count:
-                        facets?.server_type[s.value] ?? (facets ? 0 : undefined),
+                        facets?.server_type[s.value] ??
+                        (facets ? 0 : undefined),
                     }))}
                     onToggle={(value) => {
                       toggleMulti("server_type", value);
@@ -753,6 +761,7 @@ export function InventoryPage() {
             <>
               <InventoryTable
                 servers={servers}
+                withMce={matched.some((row) => row.mce_name)}
                 sortField={sortField}
                 sortDesc={sortDesc}
                 onSortChange={handleSortChange}

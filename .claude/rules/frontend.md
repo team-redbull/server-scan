@@ -45,8 +45,14 @@ Loaded only when a `frontend/` file is open.
   visit with no router state. Both `InventoryTable`'s `<Link>` and its
   row `onClick`'s `navigate()` must pass it; either one bypassing it
   loses the filter for that click path only, silently.
+- **The inventory and Clusters tables are `table-fixed` with set column widths** (2026-11-25): with `table-layout: auto` a column is as wide as
+  its widest cell among the rows showing, so a sort that brought `ocp-eres-sfdf-q-rer-gs--ser-s` into view resized every column. Widths live in
+  `COLUMN_WIDTH` on the `th`; Name takes the rest and truncates, the full value in `title`. The MCE column is decided by the whole filtered set
+  (`withMce` prop), never the current page. Measured in Chromium: one width set across 12 sorts and 3 pages. A new column needs a width there. **BMC
+  is sortable** (`bmc_host`, natural order, servers with none last), and a search that is an IPv4 address or the start of one (`10.0.0.1`) sorts by it
+  when the URL names no `sort` (`defaultSortField`); an explicit `?sort=` wins.
 - **The inventory table has no width to spare at 1440px** — with the MCE
-  column showing it already overflows its wrapper by ~14px. A new column
+  column showing it overflowed its wrapper by ~14px (measured 2026-09, under `table-layout: auto`, before the fixed widths; re-measure). A new column
   pushes Maintenance off-screen (a `Seen` column was built, measured and
   removed for exactly that on 2026-09-13); put row-level signals in the
   State cell as a chip that wraps under the badge (`StateBadge`'s
@@ -81,7 +87,7 @@ Loaded only when a `frontend/` file is open.
   scrolls the box, not the page). The measuring is `lib/useFillViewport` (ref + `style`), shared with `/events` (`EventTimeline fill`,
   sticky `thead`; the per-server History tab does not pass `fill`). Spacing under the table is deliberately tight (`main` `pb-1`,
   pager `mt-2`, footer `pt-1 pb-3`): the operator asked for the table to run close to the copyright line.
-- **The Clusters page (`/clusters`, ADR-0067) is admin only** (nav link, `AdminGate title=`, and `useClusterJobsQuery` is `enabled` only for an admin, so a viewer's banner makes no request). It lists membership jobs from `GET /openshift/clusters`; a job silent past the API's
+- **The Clusters page (`/clusters`, ADR-0067) is admin only** (nav link, `AdminGate title=`, and `useClusterJobsQuery` is `enabled` only for an admin, so a viewer's banner makes no request). It lists membership jobs from `GET /openshift/clusters`, client-side: a count ("N clusters", "X of N" when filtered), a type filter (cluster nodes / MCE agents), a status filter (reporting / not reporting), a case-insensitive name search, and the order most servers held first, ties alphabetical; a job silent past the API's
   threshold (7 days) is flagged, and `SilentClustersBanner` shows on Sites (all silent jobs) and on a server's detail
   (`only` = that server's own cluster/MCE). Decommission is the same type-the-name dialog as "Remove";
   its success invalidates `openshift`, `servers`, `sites` and `events`.
