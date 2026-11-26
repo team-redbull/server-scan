@@ -841,11 +841,12 @@ each tried the cheap way first (most servers' bulk sweep already carries
 PSUs and processors), falling back to one request per server for whatever
 it doesn't. Every other collector reads them out of a response it already
 fetches for other reasons; OneView is the only one where any can cost
-something extra. `collectors.oneview.collectPsus: false`,
-`collectors.oneview.collectCpuThreads: false` and
-`collectors.oneview.collectNicLinks: false` turn each off independently
-(absent `collectNicLinks` = on) — the rest of the sweep is three bulk calls
-either way. With link reads off, each server keeps its stored link states.
+something extra. `collectors.oneview.collectPsus: false` and
+`collectors.oneview.collectCpuThreads: false` turn those two off
+independently — the rest of the sweep is three bulk calls either way. NIC
+link state has no switch: it is always read, 8 servers at a time (about
+25 rounds for ~200 HP servers). A failed read keeps each server's stored
+link states.
 
 Note that Intersight's three fields mean something different: it signs
 requests with an API key rather than logging in, so `username` is the API

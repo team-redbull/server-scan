@@ -24,10 +24,11 @@ before OneView shipped, while the health engine had carried
 the only source for `cpu_threads` — `server-hardware`'s own fields carry
 `processorCount`/`processorCoreCount` but no thread count — and
 `/networkAdapters` the only source for NIC link state. Each fan-out
-is bounded by its own semaphore and can be switched off independently
-(`INVENTORY_ONEVIEW_COLLECT_PSUS`, `_COLLECT_CPU_THREADS`, `_COLLECT_NIC_LINKS`),
-because any one is the difference between ~15 requests and ~2500 for
-whatever fraction of the estate its bulk sweep didn't already cover.
+is bounded by its own semaphore, because any one is the difference between
+~15 requests and ~2500 for whatever fraction of the estate its bulk sweep
+didn't already cover. The PSU and processor reads can be switched off
+(`INVENTORY_ONEVIEW_COLLECT_PSUS`, `_COLLECT_CPU_THREADS`); link state is
+always read, 8 servers at a time (operator's call, 2026-11-26).
 
 One appliance, one endpoint, exactly like every other vendor here — see
 docs/adr/0012. The 2500-server-per-appliance ceiling is documented in
@@ -222,8 +223,7 @@ class OneViewProvider(ServerInventoryProvider):
                 once.
             collect_nic_links (bool): Whether to make the per-server
                 `/networkAdapters` call, the only source of NIC link state.
-                Off sends every server's link states as unread, so ingest
-                keeps the stored ones.
+                Always on in production (no setting); tests turn it off.
             nic_links_concurrency (int): How many of those calls run at once.
             api_version (int): `X-Api-Version` override; `0` discovers
                 and clamps it.

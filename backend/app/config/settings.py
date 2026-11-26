@@ -135,8 +135,6 @@ class Settings(BaseSettings):
 
     oneview_collect_cpu_threads: bool = True
     oneview_cpu_threads_concurrency: int = 8
-    oneview_collect_nic_links: bool = True
-    oneview_nic_links_concurrency: int = 8
 
     ome_ip: str = ""
     ome_username: str = ""

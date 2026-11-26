@@ -67,8 +67,9 @@ whole appliance is a handful of requests:
   in both schemas, PCI devices including GPUs) inline.
 - `GET /rest/server-hardware/{id}/powerSupplies`, `/processors` and
   `/networkAdapters` — the per-server calls, each made only for servers the
-  expanded payload did not cover and gated by `INVENTORY_ONEVIEW_COLLECT_PSUS`,
-  `_COLLECT_CPU_THREADS` and `_COLLECT_NIC_LINKS`.
+  expanded payload did not cover; the first two are gated by
+  `INVENTORY_ONEVIEW_COLLECT_PSUS` and `_COLLECT_CPU_THREADS`, link state is
+  always read (8 servers at a time, no setting).
 
 With `N` servers on the appliance:
 
