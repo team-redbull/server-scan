@@ -711,3 +711,12 @@ collectors:
         # with the fleet — the one collector whose memory does. `$select`
         # keeps them to mapped fields only; 1Gi covers ~10,000 servers.
         memory: 1Gi
+
+# The warranty lookup for a server a collector creates (ADR-0070). The URI is set once, in the
+# server-scan release's `warranty.mongoUri`; this chart reads that release's Secret by name
+# (optional: absent = warranty off). A KubeVirt release needs nothing here: VMs have no warranty.
+warranty:
+  secretName: server-scan-warranty-db
+  secretKey: mongo-uri
+  database: MongoDB-Nitur
+  collection: warranty-excel-new

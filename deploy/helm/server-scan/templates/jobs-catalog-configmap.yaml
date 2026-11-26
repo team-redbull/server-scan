@@ -5,10 +5,14 @@
 {{- $c := .Values.collectors | default dict }}
 {{- $pr := $c.prune | default dict }}
 {{- $ar := $c.auditRetention | default dict }}
+{{- $w := .Values.warranty | default dict }}
+{{- $ws := $w.sync | default dict }}
+{{- $wsOn := not (not (and (ternary $ws.enabled true (hasKey $ws "enabled")) (or $w.mongoUri $w.existingSecret))) }}
 {{- $rel := .Release.Name }}
 {{- $jobs := list
   (dict "name" (printf "%s-prune-servers" $rel) "enabled" ($pr.enabled | default false))
   (dict "name" (printf "%s-prune-events" $rel) "enabled" (ternary $ar.enabled true (hasKey $ar "enabled")))
+  (dict "name" (printf "%s-warranty-sync" $rel) "enabled" $wsOn)
 }}
 apiVersion: v1
 kind: ConfigMap

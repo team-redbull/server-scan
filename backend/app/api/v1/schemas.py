@@ -58,6 +58,7 @@ from app.domain.models.server import (
     Server,
     VmHost,
 )
+from app.domain.models.warranty import Warranty
 from app.domain.value_objects.nic_names import NicNameCatalog, cisco_eno_names
 from app.utils.timeutil import utcnow
 
@@ -331,6 +332,9 @@ class ServerRow(BaseModel):
     serial: str | None
     bmc_host: str | None
     macs: list[str]
+    # ADR-0070: None = never looked up; found False = no record; expires None = date not read.
+    warranty_found: bool | None = None
+    warranty_expires_on: str | None = None
 
     @classmethod
     def from_doc(cls, doc: dict[str, Any], *, stale_before: datetime) -> ServerRow:
@@ -381,6 +385,8 @@ class ServerRow(BaseModel):
             serial=doc["identity"].get("serial"),
             bmc_host=(network.get("bmc") or {}).get("host"),
             macs=[mac for iface in network.get("interfaces") or [] if (mac := iface.get("mac"))],
+            warranty_found=(doc.get("warranty") or {}).get("found"),
+            warranty_expires_on=(doc.get("warranty") or {}).get("expires_on"),
         )
 
 
@@ -389,9 +395,17 @@ class ServerRowsResponse(BaseModel):
 
     items: list[ServerRow]
     generated_at: datetime | None
+    # How close an end date counts as "expiring soon" (INVENTORY_WARRANTY_EXPIRING_DAYS).
+    warranty_expiring_days: int = 90
 
     @classmethod
-    def from_docs(cls, docs: list[dict[str, Any]], *, stale_before: datetime) -> ServerRowsResponse:
+    def from_docs(
+        cls,
+        docs: list[dict[str, Any]],
+        *,
+        stale_before: datetime,
+        warranty_expiring_days: int = 90,
+    ) -> ServerRowsResponse:
         """
         Build the response.
 
@@ -400,6 +414,7 @@ class ServerRowsResponse(BaseModel):
         Args:
             docs (list[dict[str, Any]]): Projected documents from `list_rows`.
             stale_before (datetime): The staleness cutoff.
+            warranty_expiring_days (int): The "expiring soon" window, for the UI.
 
         Returns:
             ServerRowsResponse: The response.
@@ -411,6 +426,7 @@ class ServerRowsResponse(BaseModel):
         return cls(
             items=[ServerRow.from_doc(doc, stale_before=stale_before) for doc in docs],
             generated_at=_OPTIONAL_DATETIME.validate_python(newest),
+            warranty_expiring_days=warranty_expiring_days,
         )
 
 
@@ -440,6 +456,8 @@ class ServerDetail(BaseModel):
     reservation: Reservation
     openshift: OpenShiftLifecycle
     vm_host: VmHost | None = None
+    warranty: Warranty | None = None  # ADR-0070
+    warranty_expiring_days: int = 90
     site_id: str | None
     manager_id: str | None
     tags: list[str]
@@ -466,6 +484,7 @@ class ServerDetail(BaseModel):
         nic_names: NicNameCatalog = _NO_NIC_NAMES,
         *,
         stale_before: datetime,
+        warranty_expiring_days: int = 90,
     ) -> ServerDetail:
         """
         Build the detail response for one server.
@@ -477,6 +496,7 @@ class ServerDetail(BaseModel):
                 hardware names alone rather than inventing any.
             stale_before (datetime): A server last seen before this — or
                 never — is `stale`.
+            warranty_expiring_days (int): The "expiring soon" window, for the UI.
 
         Returns:
             ServerDetail: The response model.
@@ -504,6 +524,8 @@ class ServerDetail(BaseModel):
             reservation=server.reservation,
             openshift=server.openshift,
             vm_host=server.vm_host,
+            warranty=server.warranty,
+            warranty_expiring_days=warranty_expiring_days,
             site_id=server.site_id,
             manager_id=server.manager_id,
             tags=server.tags,

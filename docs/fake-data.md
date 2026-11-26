@@ -151,6 +151,15 @@ scripts/dev-up.sh down && scripts/dev-up.sh up
 uv run python -m tools.seed_inventory --count 1000 --seed 42
 ```
 
+## Warranty (ADR-0070)
+
+With `INVENTORY_WARRANTY_MONGO_URI` set to the same value as `INVENTORY_MONGO_URI` (e.g. `mongodb://localhost:27017`;
+`.env.example` leaves it empty, so warranty is off), `tools.seed_inventory`
+writes a warranty document per physical server into `MongoDB-Nitur.warranty-excel-new`, dated relative to
+the seed day, then runs the sync: about 15% expired, 12% expiring within 90 days, 4% with an empty date,
+4% with no document and 3% with an older duplicate (the later date wins). Seeded documents carry
+`_server_scan_seed: true`; a re-seed deletes only those. Unset, no warranty is seeded and the filter is empty.
+
 ## RAID (ADR-0048)
 
 Each collector draws its servers' RAID verdict from its own RNG (`raid/<seed>/<index>`), so the rest of the

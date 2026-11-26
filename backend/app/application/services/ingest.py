@@ -53,7 +53,14 @@ from app.application.services.pipeline import (
     health_change_data,
     health_from_state,
 )
-from app.domain.enums import LinkState, ManagerType, MediaType, Vendor
+from app.domain.enums import (
+    LinkState,
+    ManagerType,
+    MediaType,
+    ServerType,
+    Vendor,
+    server_type_of,
+)
 from app.domain.models.audit_event import EventType
 from app.domain.models.classification import Classification, classification_changed_data
 from app.domain.models.classification_rule import ClassificationRule
@@ -85,6 +92,7 @@ from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileDeployment, ProfileTemplate, Server, VmHost
 from app.domain.models.site import Site
+from app.domain.models.warranty import Warranty
 from app.domain.ports.provider import (
     ProviderNic,
     ProviderServer,
@@ -92,6 +100,7 @@ from app.domain.ports.provider import (
     redact_secrets,
 )
 from app.domain.ports.repository import ServerRepository
+from app.domain.ports.warranty import WarrantySource
 from app.domain.services.bmc_reset import reset_trigger
 from app.domain.services.classification import ClassifiableServer
 from app.domain.services.health.evaluate import HealthState
@@ -681,6 +690,7 @@ class IngestService:
         health_service: HealthPolicyService | None = None,
         audit: AuditService | None = None,
         bmc_reset: BmcResetService | None = None,
+        warranty: WarrantySource | None = None,
     ) -> None:
         """
         Initialize the service with its repositories and optional engines.
@@ -702,6 +712,8 @@ class IngestService:
                 creation/classification/health transition events.
             bmc_reset (BmcResetService | None): When given, `ingest()` restarts the iDRAC of a
                 server whose disks or NICs all read UNKNOWN (ADR-0050).
+            warranty (WarrantySource | None): When given, a new server's warranty is looked up
+                (and every server's on `ingest_one(refresh_warranty=True)`); ADR-0070.
         """
         self._server_repo = server_repo
         self._sites = sites
@@ -712,6 +724,7 @@ class IngestService:
         self._health_service = health_service
         self._audit = audit
         self._bmc_reset = bmc_reset
+        self._warranty = warranty
 
     async def ingest(
         self,
@@ -808,7 +821,9 @@ class IngestService:
         )
         return summary
 
-    async def ingest_one(self, ps: ProviderServer, *, provider_type: str) -> Server:
+    async def ingest_one(
+        self, ps: ProviderServer, *, provider_type: str, refresh_warranty: bool = False
+    ) -> Server:
         """
         Run one already-fetched provider record through the full ingest pipeline.
 
@@ -817,6 +832,7 @@ class IngestService:
         Args:
             ps (ProviderServer): The freshly fetched record for one server.
             provider_type (str): The collector's `ManagerType` value.
+            refresh_warranty (bool): Look the warranty up again ("Fetch now", ADR-0070).
 
         Returns:
             Server: The persisted, re-evaluated server.
@@ -830,9 +846,38 @@ class IngestService:
             await self._health_service.load_policies() if self._health_service is not None else []
         )
         server, _outcome = await self._ingest_one(
-            ps, provider_type=provider_type, ruleset=ruleset, policies=policies
+            ps,
+            provider_type=provider_type,
+            ruleset=ruleset,
+            policies=policies,
+            refresh_warranty=refresh_warranty,
         )
         return server
+
+    async def _warranty_for(
+        self, server: Server, existing: Server | None, *, lookup: bool
+    ) -> Warranty | None:
+        """
+        The warranty to store: looked up for a new server or on request, else the stored one.
+
+        A VM or a serial-less server has none; an unreadable collection keeps the stored one.
+
+        Args:
+            server (Server): The freshly built server.
+            existing (Server | None): The stored document, if any.
+            lookup (bool): Whether to query the warranty collection (ADR-0070).
+
+        Returns:
+            Warranty | None: What `Server.warranty` should hold.
+        """
+        stored = existing.warranty if existing is not None else None
+        serial = server.identity.serial
+        if server_type_of(server.identity.vendor) is not ServerType.PHYSICAL or not serial:
+            return None
+        if not lookup or self._warranty is None:
+            return stored
+        found = await self._warranty.one(serial)
+        return stored if found is None else found
 
     async def _find_by_vendor_serial(self, vendor: Vendor, serial_normalized: str) -> Server | None:
         page = await self._server_repo.list_page(
@@ -912,6 +957,7 @@ class IngestService:
         ruleset: list[ClassificationRule],
         policies: list[HealthPolicy],
         changed_paths: Counter[str] | None = None,
+        refresh_warranty: bool = False,
     ) -> tuple[Server, IngestOutcome]:
         """
         Normalize, correlate and upsert one provider record.
@@ -927,6 +973,7 @@ class IngestService:
                 load_policies`'s docstring for why.
             changed_paths (Counter[str] | None): Where to tally which fields made an existing
                 server count as changed (`_changed_paths`), for the `ingest.completed` log.
+            refresh_warranty (bool): Look the warranty up even for an existing server.
 
         Returns:
             tuple[Server, IngestOutcome]: The persisted server, and whether it was
@@ -968,6 +1015,11 @@ class IngestService:
                 provider_type=provider_type,
                 ruleset=ruleset,
                 policies=policies,
+            )
+            server.warranty = await self._warranty_for(
+                server,
+                existing,
+                lookup=existing is None or not existing.identity.serial or refresh_warranty,
             )
 
             new_view = _stable_view(server)

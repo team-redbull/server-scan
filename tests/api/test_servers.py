@@ -632,6 +632,8 @@ async def test_rows_returns_every_server_as_a_flat_row(
         "serial",
         "bmc_host",
         "macs",
+        "warranty_found",
+        "warranty_expires_on",
     }
     assert rows[seen.id]["vendor"] == "cisco"
     assert rows[seen.id]["site_id"] == "tlv"

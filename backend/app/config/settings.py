@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     mongo_max_pool_size: int = 100
     mongo_min_pool_size: int = 0
 
+    # The operator's warranty collection (ADR-0070); an empty URI turns warranty off.
+    warranty_mongo_uri: str = ""
+    warranty_database: str = "MongoDB-Nitur"
+    warranty_collection: str = "warranty-excel-new"
+    warranty_expiring_days: int = 90
+
     redis_uri: str = "redis://localhost:6379/0"
     redis_connect_timeout_seconds: float = 2.0
     redis_socket_timeout_seconds: float = 2.0

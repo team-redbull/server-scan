@@ -598,3 +598,24 @@ auth:
   # INVENTORY_* keys (see templates/backend-auth-secret.yaml). Set it and
   # the chart stops rendering its own Secret from the values above entirely.
   existingSecret: ""
+
+# The operator's warranty collection (ADR-0070): read-only, another database and possibly another
+# cluster. An empty mongoUri (and no existingSecret) turns warranty off. The URI is rendered into a
+# Secret (<release>-warranty-db); set existingSecret instead to keep it out of this file.
+warranty:
+  mongoUri: ""
+  existingSecret: ""
+  # The key holding the URI in existingSecret.
+  existingSecretKey: mongo-uri
+  database: MongoDB-Nitur
+  collection: warranty-excel-new
+  # How many days ahead an end date shows as "Expiring soon" in the UI.
+  expiringDays: 90
+  # The monthly sync over every physical server; a new server is also looked up when a
+  # collector creates it, and on "Fetch now".
+  sync:
+    enabled: true
+    schedule: "0 4 1 * *"
+    # A failed run otherwise waits a month; "Run job" on the Jobs page also recovers it.
+    backoffLimit: 2
+    activeDeadlineSeconds: 1800

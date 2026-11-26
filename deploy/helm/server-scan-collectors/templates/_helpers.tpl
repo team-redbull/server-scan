@@ -49,6 +49,7 @@
 - name: INVENTORY_MONGO_DB
   value: {{ $db.dbName | default "server-scan" | quote }}
 {{- end }}
+{{- include "collectors.warrantyEnv" . | nindent 0 }}
 {{- end -}}
 
 {{- /* Explicit env beats envFrom: a consumed server-scan ConfigMap may say INVENTORY_AUTH_ENABLED=true, which would demand the API's AD secrets, so it is pinned false unless the auth Secret is mounted too. */ -}}
@@ -94,4 +95,19 @@ readOnlyRootFilesystem: true
 runAsNonRoot: true
 seccompProfile:
   type: RuntimeDefault
+{{- end -}}
+
+{{- /* The warranty lookup for a server a collector creates (ADR-0070). The URI is set once, in the server-scan release's `warranty`; this chart only reads that release's Secret, optionally, so warranty off (no Secret) is no error. */ -}}
+{{- define "collectors.warrantyEnv" -}}
+{{- $w := .Values.warranty | default dict -}}
+- name: INVENTORY_WARRANTY_MONGO_URI
+  valueFrom:
+    secretKeyRef:
+      name: {{ $w.secretName | default "server-scan-warranty-db" }}
+      key: {{ $w.secretKey | default "mongo-uri" }}
+      optional: true
+- name: INVENTORY_WARRANTY_DATABASE
+  value: {{ $w.database | default "MongoDB-Nitur" | quote }}
+- name: INVENTORY_WARRANTY_COLLECTION
+  value: {{ $w.collection | default "warranty-excel-new" | quote }}
 {{- end -}}

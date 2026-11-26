@@ -85,6 +85,11 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
 - **Maintenance and reservation.** An operator can pause a server with a reason. A caller can take
   a time-limited install lock on it
   ([ADR-0035](docs/adr/0035-install-reservation-lock.md)).
+- **Warranty.** Each physical server's warranty end date is copied from the operator's warranty
+  collection (`INVENTORY_WARRANTY_*`, Helm `warranty.*`): looked up when a server is created, on
+  "Fetch now" and by a monthly sync. The UI shows Expired / Expiring soon (90 days) / Active and
+  filters on it; it never changes a server's health
+  ([ADR-0070](docs/adr/0070-server-warranty-from-an-outside-collection.md)).
 - **`None` means "not read this run".** A collector never turns a failed read into zero, so
   good stored data is not overwritten ([ADR-0016](docs/adr/0016-redfish-standalone-collector.md)).
 
@@ -93,7 +98,7 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
 | Page | Shows |
 |---|---|
 | **Sites** (`/`) | Per-site cards: totals, a health bar, physical/VM and vendor mix (each row links into the inventory), installation types, available vs installed. |
-| **Servers** (`/servers`) | The whole fleet, filtered, sorted (by name, model, BMC address and more; a search for an address lists in address order) and searched in the browser; fixed column widths; maintenance switch; sidebar filters by MCE and cluster. Click a row for the detail page: hardware, NICs, BMC link, health reasons, history. |
+| **Servers** (`/servers`) | The whole fleet, filtered, sorted (by name, model, BMC address and more; a search for an address lists in address order) and searched in the browser; fixed column widths; maintenance switch; sidebar filters by MCE and cluster; a Reason filter (most servers first) and a separate Warranty filter. Click a row for the detail page: hardware, NICs, BMC link, health reasons, warranty, history. |
 | **Clusters** (`/clusters`) | Admin only. The OpenShift and MCE membership jobs: count, type and status filters, name search, most servers held first; decommission a destroyed cluster ([ADR-0067](docs/adr/0067-decommission-a-destroyed-cluster.md)). |
 | **Confs** (`/confs`) | Server configurations (specs), read from the `confs` collection; search, expand a row for the full spec. Read-only ([ADR-0061](docs/adr/0061-confs.md)). |
 | **Events** (`/events`) | The audit trail, filterable by type, server, user and time range. |

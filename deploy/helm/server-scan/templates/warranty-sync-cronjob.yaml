@@ -1,0 +1,63 @@
+{{- /* Monthly warranty sync, physical servers only (ADR-0070). Renders when a warranty URI or Secret is set; every key is optional. */ -}}
+{{- $w := .Values.warranty | default dict }}
+{{- $pr := $w.sync | default dict }}
+{{- $c := .Values.collectors | default dict }}
+{{- $on := ternary $pr.enabled true (hasKey $pr "enabled") }}
+{{- if and $on (or $w.mongoUri $w.existingSecret) }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-warranty-sync
+  labels:
+    server-scan.io/triggerable: "true"
+    app.kubernetes.io/name: {{ .Release.Name }}-warranty-sync
+    app.kubernetes.io/component: maintenance
+    app.kubernetes.io/part-of: server-scan
+spec:
+  schedule: {{ $pr.schedule | default "0 4 1 * *" | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ $pr.suspend | default false }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ ternary $pr.backoffLimit 2 (hasKey $pr "backoffLimit") }}
+      activeDeadlineSeconds: {{ $pr.activeDeadlineSeconds | default 1800 }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: warranty-sync
+              image: {{ include "serverScan.apiImage" . | quote }}
+              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              command:
+                - python3
+                - -m
+                - tools.sync_warranty
+              env:
+                - name: INVENTORY_ENVIRONMENT
+                  value: production
+                {{- include "serverScan.dbEnv" . | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ .Release.Name }}-api-config
+                - secretRef:
+                    name: {{ (.Values.auth | default dict).existingSecret | default (printf "%s-auth-credentials" .Release.Name) }}
+              resources:
+                {{- toYaml ($pr.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+{{- end }}

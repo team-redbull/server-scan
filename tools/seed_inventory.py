@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import time
+from typing import Any
 
 import structlog
+from pymongo import AsyncMongoClient
 
 from app.application.services.audit_service import AuditService
 from app.application.services.bootstrap import (
@@ -26,7 +28,8 @@ from app.application.services.classification_service import ClassificationServic
 from app.application.services.health_policy_service import HealthPolicyService
 from app.application.services.ingest import IngestService
 from app.config import get_settings
-from app.domain.enums import OpenShiftState
+from app.config.settings import Settings
+from app.domain.enums import OpenShiftState, Vendor
 from app.domain.models.manager import LEGACY_KUBEVIRT_MANAGER_ID, ManagerRun
 from app.domain.services.health.metrics import build_default_registry
 from app.domain.services.regex_engine import RegexModuleEngine
@@ -44,11 +47,14 @@ from app.infrastructure.mongodb.indexes import ensure_indexes
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
+from app.infrastructure.mongodb.warranty_source import warranty_source
 from app.infrastructure.providers.fake.confs import generate_confs
 from app.infrastructure.providers.fake.generator import list_managers, list_sites
 from app.infrastructure.providers.fake.openshift import openshift_for
 from app.infrastructure.providers.fake.provider import fake_providers
+from app.infrastructure.providers.fake.warranty import SEED_MARKER, fake_warranty_docs
 from app.utils.timeutil import utcnow
+from tools.sync_warranty import sync_warranty
 
 logger = structlog.get_logger(__name__)
 
@@ -92,6 +98,46 @@ def resolve_epoch(value: str, *, now: float | None = None) -> int:
     if value == "auto":
         return int((time.time() if now is None else now) // 21600) % 8
     return int(value)
+
+
+async def _seed_warranty(settings: Settings, repo: MongoServerRepository) -> int:
+    """
+    Replace the seeded warranty documents for this fleet, then run the monthly sync (ADR-0070).
+
+    Only when the warranty URI is the inventory's own (dev) Mongo, and only seed-marked documents
+    are deleted, so a real warranty collection is never written.
+
+    Args:
+        settings (Settings): Where the warranty collection is.
+        repo (MongoServerRepository): The servers, for their serials.
+
+    Returns:
+        int: How many warranty documents were written (0 when warranty is off).
+    """
+    if not settings.warranty_mongo_uri or settings.warranty_mongo_uri != settings.mongo_uri:
+        return 0
+    serials = sorted(
+        identity["serial"]
+        for doc in await repo.warranty_targets()
+        if (identity := doc.get("identity") or {}).get("serial")
+        and identity.get("vendor") != Vendor.KUBEVIRT.value
+    )
+    docs = fake_warranty_docs(serials, utcnow().date())
+    client: AsyncMongoClient[dict[str, Any]] = AsyncMongoClient(settings.warranty_mongo_uri)
+    try:
+        collection = client[settings.warranty_database][settings.warranty_collection]
+        await collection.delete_many({SEED_MARKER: True})
+        if docs:
+            await collection.insert_many(docs)
+    finally:
+        await client.close()
+    source = warranty_source(
+        settings.warranty_mongo_uri, settings.warranty_database, settings.warranty_collection
+    )
+    records = await source.all() if source is not None else None
+    if records is not None:
+        await sync_warranty(repo, records)
+    return len(docs)
 
 
 async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
@@ -138,6 +184,11 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
                 registry=registry,
             ),
             audit=AuditService(repo=MongoAuditEventRepository(mongo)),
+            warranty=warranty_source(
+                settings.warranty_mongo_uri,
+                settings.warranty_database,
+                settings.warranty_collection,
+            ),
         )
         # One pass per collector, so `Server.source_provider` varies across the fleet.
         fetched = created = updated = errors = 0
@@ -174,6 +225,9 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
                     await manager_repo.record_run(manager.id, run)
 
         confs = await MongoConfRepository(mongo).upsert_many(generate_confs())
+        warranties = await _seed_warranty(
+            settings, MongoServerRepository(mongo, cursor_secret=settings.cursor_secret)
+        )
 
         reported = await _seed_openshift(
             MongoServerRepository(mongo, cursor_secret=settings.cursor_secret)
@@ -187,6 +241,7 @@ async def _run(*, count: int, seed: int, epoch: int = 0) -> None:
             errors=errors,
             openshift_reported=reported,
             confs_written=confs,
+            warranty_documents=warranties,
         )
         print(f"fetched={fetched} created={created} updated={updated} errors={errors}")
     finally:

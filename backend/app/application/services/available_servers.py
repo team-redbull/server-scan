@@ -426,6 +426,7 @@ async def fetch_live(
     provider: ServerInventoryProvider,
     ingest: IngestService,
     log_event: str,
+    refresh_warranty: bool = False,
 ) -> Server | None:
     """
     Read one server from its vendor manager now and persist it through `IngestService.ingest_one`.
@@ -438,6 +439,7 @@ async def fetch_live(
         provider (ServerInventoryProvider): That collector, built for this process.
         ingest (IngestService): Persists the fresh record (classify, health, audit, CAS write).
         log_event (str): The log event and metric context, e.g. `available.recheck`.
+        refresh_warranty (bool): Also look the warranty up again ("Fetch now", ADR-0070).
 
     Returns:
         Server | None: The persisted server, or `None` when the manager no longer finds it
@@ -473,7 +475,9 @@ async def fetch_live(
         if fresh is None:
             outcome = "not_found"
             return None
-        updated = await ingest.ingest_one(fresh, provider_type=manager_type.value)
+        updated = await ingest.ingest_one(
+            fresh, provider_type=manager_type.value, refresh_warranty=refresh_warranty
+        )
         outcome = "verified"
         return updated
     finally:

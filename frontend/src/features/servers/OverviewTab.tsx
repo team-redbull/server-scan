@@ -5,6 +5,11 @@ import { Badge } from "@/components/Badge";
 import { HealthBadge } from "@/components/HealthBadge";
 import { InstallationBadge } from "@/components/InstallationBadge";
 import { ReservationBadge } from "@/components/ReservationBadge";
+import {
+  localToday,
+  WARRANTY_LABELS,
+  warrantyStatus,
+} from "@/features/inventory/rows";
 import { useVmHostQuery } from "@/features/servers/hooks";
 import { actorIdLabel } from "@/lib/actor";
 import { formatRelative, formatTimestamp } from "@/lib/datetime";
@@ -15,6 +20,7 @@ import type {
   ServerDetail,
   UnreachableReason,
   VmHost,
+  Warranty,
 } from "@/types/server";
 
 interface OverviewTabProps {
@@ -65,6 +71,17 @@ export function OverviewTab({ server }: OverviewTabProps) {
             />
           }
         />
+        {server.warranty && (
+          <Field
+            label="Warranty"
+            value={
+              <WarrantyValue
+                warranty={server.warranty}
+                expiringDays={server.warranty_expiring_days ?? 90}
+              />
+            }
+          />
+        )}
         {/* Relative so staleness reads at a glance; the exact instant is the hover. */}
         <Field
           label="Last seen"
@@ -391,6 +408,47 @@ function HealthBreakdown({
         </ul>
       )}
     </div>
+  );
+}
+
+/** The warranty's end date and status; informational, it never changes the State (ADR-0070). */
+function WarrantyValue({
+  warranty,
+  expiringDays,
+}: {
+  warranty: Warranty;
+  expiringDays: number;
+}) {
+  const status = warrantyStatus(
+    {
+      warranty_found: warranty.found,
+      warranty_expires_on: warranty.expires_on,
+    },
+    localToday(),
+    expiringDays,
+  );
+  const date = warranty.expires_on
+    ? warranty.expires_on.split("-").reverse().join("/")
+    : null;
+  const text =
+    status === "NO_RECORD"
+      ? "No warranty record for this serial"
+      : status === "NOT_READ"
+        ? "The warranty record has no readable date"
+        : status === "EXPIRED"
+          ? `Expired on ${date}`
+          : status === "EXPIRING"
+            ? `Expires on ${date}`
+            : `Active until ${date}`;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {status && (
+        <Badge tone={status === "ACTIVE" ? "neutral" : "warning"}>
+          {WARRANTY_LABELS[status]}
+        </Badge>
+      )}
+      <span>{text}</span>
+    </span>
   );
 }
 

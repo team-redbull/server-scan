@@ -2008,6 +2008,19 @@ Real authentication landed 2026-09-22 — see "Authentication and
 authorization" above and ADR-0034, rather than the placeholder this
 paragraph used to be.
 
+## Warranty (ADR-0070)
+
+A physical server's warranty end date comes from the operator's `warranty-excel-new` collection
+(`MongoDB-Nitur`), which Server Scan only reads (`app.infrastructure.mongodb.warranty_source`, one shared
+client per event loop, `_id` never read). It is matched by normalized serial; the latest of several
+documents wins; an empty or non-`DD-MM-YYYY` date is "not read" (`warranty.date_unread`). It is stored as
+`Server.warranty` (`found`, `expires_on`) and looked up only when a collector creates a server (or adopts a
+serial-less stub), on "Fetch now" (`ingest_one(refresh_warranty=True)`), and by the monthly
+`tools.sync_warranty` CronJob (revision CAS, writes only a changed server, refuses an empty collection);
+every other run carries it forward. A source that fails once stops trying for the rest of its run. A VM never has one. Expiry is derived in
+the UI from today's date (`withWarrantyStatus`, window `INVENTORY_WARRANTY_EXPIRING_DAYS` served on
+`GET /servers/rows`) and is never a health reason, so it cannot change a server's State.
+
 ## Confs: server configurations (ADR-0061)
 
 `GET /api/v1/confs` and `GET /api/v1/confs/{conf_id}` read the `confs` collection,
@@ -2046,7 +2059,7 @@ two adapters in `app/infrastructure/jobs/`: `KubernetesJobRunner` (plain `httpx`
 `manifest.py` builds the Job from `spec.jobTemplate` as `kubectl create job --from` does) and `FakeJobRunner`
 (dev and tests). `INVENTORY_JOBS_BACKEND` (`kubernetes`/`fake`/`off`, `app/config/jobs.py`) picks one in the
 lifespan; `off` makes `GET /jobs` answer `enabled: false` and the others 404. A CronJob is triggerable only with
-the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace (the prunes, and the collectors
+the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace (the prunes, the warranty sync, and the collectors
 of a `server-scan-collectors` release in that namespace, ADR-0060); a running Job gives 409.
 `JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
 `useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane

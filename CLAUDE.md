@@ -291,6 +291,9 @@ long form of each entry is in the 2026-09-13 archive.
   `REDFISH_STANDALONE`'s per-host TOML files (CronJob-only, so BMC passwords
   stay out of the Route-exposed pod). The POST's lock is what stops
   two callers drawing one server; it is not idempotent by `workflow_id` (ADR-0063).
+- **A server's warranty is copied, never joined, and never a health reason** (ADR-0070): `Server.warranty` comes from the
+  operator's read-only collection on create, "Fetch now" and the monthly `tools.sync_warranty` only (every other run carries it
+  forward); the sync refuses an empty collection (a misnamed one reads empty); expiry is computed in the UI against today.
 - **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
   (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
 - **Every call on the login path has a timeout, and a 503 says why** (ADR-0042). ldap3's sync
@@ -365,7 +368,7 @@ long form of each entry is in the 2026-09-13 archive.
   back to the profile's org DN. Known collision: a code that is a substring of
   `infra` makes every `-infra-` server ambiguous.
 - **"Run job" creates a real Job from a CronJob's `jobTemplate` through the Kubernetes API** (ADR-0055, plain `httpx` + ServiceAccount
-  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 2 prunes and the
+  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 2 prunes, the warranty sync and the
   hub `server-scan-collectors` release's collectors, never `nodes-status` or a KubeVirt cluster's), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
   triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
   `jobTrigger.enabled` (on by default, absent = on) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
@@ -472,14 +475,13 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-26 — The inventory table wraps long names instead of cutting them (`.claude/rules/frontend.md`).**
-Moved to `docs/notes/session-log.md`: the OneView NIC link-state unit (ADR-0022/0027 updates, PR #41).
+**2026-11-26 — Warranty from the operator's collection (ADR-0070), and the Reason dropdown sorted by count.**
+Moved to `docs/notes/session-log.md`: the inventory column-width unit (PR #42).
 
-**Shipped (branch `fix/table-column-widths`):** fixed 112-128 px MCE/Cluster/Model columns cut real names. They are now as wide as their
-longest value in the whole fleet (`features/inventory/columnWidths.ts`, canvas-measured), and because the ~1090 px box at 1440 px cannot hold
-every value on one line, Name, MCE, Cluster and Model **wrap** rather than truncate: Name keeps at least 220 px and `shrinkToFit` narrows the
-widest of the other three first, so nothing is cut and nothing scrolls sideways. The "Contested with" chip wraps under the cluster name instead
-of spilling into Model (a bug on `main` too). Rows with a long name are two lines tall, so about 8 rows show at 1440x900 instead of 10.
+**Uncommitted, branch `feat/reason-filter-by-count`** (the user asked not to commit or open a PR yet). The Reason options are
+most servers first. Each physical server's warranty end date is copied from `MongoDB-Nitur.warranty-excel-new`
+(`INVENTORY_WARRANTY_*`, Helm `warranty.*`), looked up on create, "Fetch now" and a monthly `warranty-sync` CronJob, stored as
+`Server.warranty`; the UI derives Expired / Expiring soon (90 days) / Active / Date not read / No record, a Warranty filter and a
+line on the Overview tab; never health. Reviewed by five agents (Python, TypeScript, stored shape, Helm, Codex) and fixed.
 
-**Open:** the operator's real names are longer than the seeded ones; if most rows end up two lines tall, a collapsible cluster sidebar
-(~250 px) is the next lever. The Clusters page was not changed (its Name column has ~540 px).
+**Open:** the user is choosing between the separate Warranty filter (built) and putting it inside Reason, and has a second request.

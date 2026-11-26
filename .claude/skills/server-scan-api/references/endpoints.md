@@ -35,18 +35,22 @@ changes, not on every collector run; `last_seen_at` is the per-run "confirmed" s
 `auth_rejected`, `tls_error`, `timeout`, `protocol_error`, `not_an_idrac`, `collection_error` (the manager listed the server but its record could not be processed);
 `unreachable_detail` is the cause in words (null when `reachable` is true).
 
-`GET /api/v1/servers/rows` - whole fleet as flat rows, `{items: [ServerRow], generated_at}` (`generated_at` = newest `updated_at` or `last_seen_at`).
+`GET /api/v1/servers/rows` - whole fleet as flat rows, `{items: [ServerRow], generated_at, warranty_expiring_days}` (`generated_at` = newest `updated_at` or `last_seen_at`; `warranty_expiring_days` = the "expiring soon" window, default 90).
 Weak ETag: send `If-None-Match` to get a bodiless 304 when nothing changed.
 `ServerRow`: `id, name, vendor, server_type (physical|vm; vm = a KubeVirt VM), model, site_id, source_provider, installation_type, health,
 health_reasons[] ({severity, message, policy_key, policy_name}: each fired policy, message = its policy name when it has none; empty for HEALTHY),
 maintenance, reservation, openshift_state, cluster_name, mce_name, openshift_reported_name,
-contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[]`.
+contested_with, profile_template_name, last_seen_at, stale, reachable, serial, bmc_host, macs[], warranty_found, warranty_expires_on`.
+Warranty (ADR-0070): `warranty_found` null = never looked up (a VM, warranty off), false = no record for the serial;
+`warranty_expires_on` is an ISO date, null when the record's date was empty. Expired / expiring is computed by the
+caller against today and `warranty_expiring_days`; it is never part of `health`. There is no server-side warranty filter: use `jq`.
 Note `health` here is the overall severity string, not an object. `UNKNOWN` also means every NIC link (OneView excepted) or every drive health was unread, or a stopped KubeVirt VM.
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail` (also carries `server_type`): hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
 Each `network.interfaces[]` item has `link_state_kept` (true: the last collection could not read that link and
 `link_state` is an earlier reading; also listed as `network.interfaces.link_state` in `unread_fields`).
+`warranty` is `{found, expires_on}` or null (never looked up), plus `warranty_expiring_days`.
 `vm_host` is `{cluster_name, node_name}` for a KubeVirt VM (`node_name` null when stopped), null otherwise.
 `profile_deployment` is `{last_run_status, last_run_status_name}` (OME ids: 2060 `Completed`, 2070 `Failed`) for a
 Dell `OPENMANAGE` server, both null for any other collector; a `Failed` one makes `health.profile` and `overall` CRITICAL (ADR-0066).

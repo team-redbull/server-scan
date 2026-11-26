@@ -157,11 +157,28 @@ export interface ServerRow {
   serial: string | null;
   bmc_host: string | null;
   macs: string[];
+  /** ADR-0070: null = never looked up (a VM, no serial); false = no warranty document. */
+  warranty_found?: boolean | null;
+  /** The warranty's end date (`YYYY-MM-DD`); null with `warranty_found` = the date was not read. */
+  warranty_expires_on?: string | null;
+  /** Set client-side from the two above and today (`withWarrantyStatus`), never sent by the API. */
+  warranty_status?: WarrantyStatus | null;
 }
 
 export interface ServerRowsResponse {
   items: ServerRow[];
   generated_at: string;
+  /** How many days ahead an end date counts as "expiring soon" (`INVENTORY_WARRANTY_EXPIRING_DAYS`). */
+  warranty_expiring_days?: number;
+}
+
+export type WarrantyStatus =
+  "EXPIRED" | "EXPIRING" | "ACTIVE" | "NOT_READ" | "NO_RECORD";
+
+/** What the warranty collection said when the server was last looked up (ADR-0070). */
+export interface Warranty {
+  found: boolean;
+  expires_on: string | null;
 }
 
 // Detail shape — GET /api/v1/servers/{id}
@@ -354,6 +371,8 @@ export interface ServerDetail {
   openshift: OpenShiftLifecycle;
   /** Where a KubeVirt VM runs (ADR-0059); `null` for every physical server. */
   vm_host: VmHost | null;
+  warranty?: Warranty | null;
+  warranty_expiring_days?: number;
   /** Dotted paths the most recent collection could not read; the stored
    * value there is carried forward or the model's zero, never a reading. */
   unread_fields: string[];

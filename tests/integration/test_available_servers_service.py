@@ -95,7 +95,9 @@ class DegradingIngest(IngestService):
         self._repo = repo
         self._healths = healths
 
-    async def ingest_one(self, ps: ProviderServer, *, provider_type: str) -> Server:
+    async def ingest_one(
+        self, ps: ProviderServer, *, provider_type: str, refresh_warranty: bool = False
+    ) -> Server:
         """
         Ingest, then overwrite the health this server's name maps to.
 
