@@ -262,7 +262,8 @@ long form of each entry is in the 2026-09-13 archive.
   2026-10-12: a server taken out of its SPT kept the old template).
   `IngestService` carries the stored value forward and lists the path in
   `Server.unread_fields`; `reachable=False` (+ `unreachable_reason`) is the
-  whole-server version; a `REDFISH_STANDALONE` stub has no serial (ADR-0037,
+  whole-server version, `ProviderNic.link_state_read=False` the one-port version for link state
+  (kept per port, never per server: ADR-0022 2026-11-26); a `REDFISH_STANDALONE` stub has no serial (ADR-0037,
   ADR-0016: a 404'd sub-resource once took a server CRITICAL to HEALTHY).
 - **A fleet-sized response never goes through `Server.model_validate`**
   (ADR-0033: 544 ms vs 16 ms for 2,504 servers). `GET /servers/rows` reads a
@@ -471,19 +472,18 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-25 — The live OME lookup matches exactly and joins on `TargetId` (ADR-0069).**
-Moved to `docs/notes/session-log.md`: the Reason-filter unit (ADR-0033 update), the State badge's health-reason hover, and the Cisco degraded-drive unit (ADR-0068).
+**2026-11-26 — OneView reports NIC link state from `/networkAdapters` (ADR-0022 and ADR-0027 updates).**
+Moved to `docs/notes/session-log.md`: the OME exact-match unit (ADR-0069), with its /servers and /clusters work and the Cisco missing-disk policy.
 
-**Shipped (branch `fix/ome-exact-profile-match`):** on the operator's OME, `$filter=TargetName eq '10.0.0.1'` is a **prefix match** returning
-`10.0.0.1` and `10.0.0.10`-`.18` unsorted, and `OpenManageProvider._discover_one` (the `get_one` behind "Fetch now" and the
-`/servers/available` recheck) took `profiles[0]`, so a refresh could name a server after its neighbour. Now every filtered result is
-re-checked for equality (`_exact`), the profile joins its device by `TargetId == Device.Id` (OME cannot filter on `TargetId`: 501
-`CGEN1006`), and an ambiguous match is refused. The scheduled collector joins in Python and was never affected. **A vendor
-`$filter eq` result is a candidate list, never `[0]`.**
+**Shipped (branch `feat/oneview-nic-link-state`):** `portMap` has no link state, so each HP server's `/networkAdapters` (verified live by
+the operator, `X-Api-Version: 6000`) is read as a third bounded per-server fan-out (`_Fanout`, shared with PSUs and processors;
+`INVENTORY_ONEVIEW_COLLECT_NIC_LINKS`, `_NIC_LINKS_CONCURRENCY`, Helm `collectNicLinks`/`nicLinksConcurrency`, absent = on), in `get_one` too.
+`Ports[].LinkStatus` is joined onto the `portMap` NICs by MAC, then by a unique `deviceName`/`portNumber`; the NIC list and `nic_macs` are
+untouched. **Unread is per port** (`ProviderNic.link_state_read=False`): ingest keeps that port's stored state and lists
+`network.interfaces.link_state` unread; the interface is stored `link_state_kept: true`, the Network tab marks it "unconfirmed" and
+`/servers/available` serves it as `UNKNOWN` (operator's call). The reviewers caught that a per-server flag let one stub
+adapter flap a bonded server CRITICAL. The `network.all_unknown` OneView exemption is kept on purpose (rollout order, ADR-0027 update).
 
-**Also on this branch:** /servers sorts by BMC (`bmc_host`; an address search defaults to it) and the inventory and Clusters tables use fixed column widths so a long name no longer resizes them (`.claude/rules/frontend.md`); the Clusters page got a cluster count, a type filter (cluster nodes / MCE agents), a status filter, a name search and the order most servers held first (ties alphabetical), all client-side.
-
-**Cisco:** a `missing` UCS disk is now CRITICAL (`raid.drive_missing`, ADR-0068 update) and leads the reasons; a degraded-but-present disk stays MAJOR; a present disk that is itself failed is still MAJOR (open question for the operator).
-
-**Open:** the id equivalence was checked on one server; the audit left the UCS Central name fallback, Redfish `servers[0]`, the UCSM serial
-check and Intersight `Serial eq` first-wins (ADR-0069, "Other lookups audited"), each its own decision.
+**Open:** how many HP servers turn CRITICAL on the first run (all links down or exactly one up) is unknown until it runs against the real
+estate; a `--dry-run` there would tell (operator accepted). The fake keeps the same ~1 in 25 OneView servers unread every epoch, so a kept state never shows in dev.
+`tools/verify_oneview.py` has no `/networkAdapters` probe.

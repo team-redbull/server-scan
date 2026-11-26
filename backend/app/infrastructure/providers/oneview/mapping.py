@@ -34,6 +34,7 @@ from app.infrastructure.providers.redfish.mapping import (
     health_detail_of,
     health_of,
     is_absent,
+    link_state_of,
     media_type_of,
     psu_health,
 )
@@ -51,6 +52,7 @@ LOCAL_STORAGE_V2 = "LocalStorageV2"
 # docs/hpe-collectors.md, "Power supplies" and "CPU threads".
 POWER_SUPPLIES = "PowerSupplies"
 PROCESSORS = "Processors"
+NETWORK_ADAPTERS = "NetworkAdapters"
 
 # `Psu.health` vocabulary, never `HealthSeverity` — docs/hpe-collectors.md, "Power supplies".
 _PSU_STATE_HEALTH: dict[str, str] = {
@@ -236,20 +238,95 @@ def management_processor_address(hardware: dict[str, Any]) -> str | None:
     return _opt_str(info.get("mpHostName"))
 
 
-def _nics(hardware: dict[str, Any]) -> tuple[tuple[ProviderNic, ...], tuple[str, ...]] | None:
+@dataclass(frozen=True, slots=True)
+class _PortLinks:
     """
-    Read the server's physical network ports out of `portMap`.
+    The link states one server's `networkAdapters` reported, keyed both ways it can join `portMap`.
 
-    `physicalPorts` only, never FlexNIC `virtualPorts`; no speed or link
-    state exists there (docs/hpe-collectors.md, "NICs — `portMap`").
+    Attributes:
+        by_mac (dict[str, str]): Normalized MAC -> UP/DOWN/UNKNOWN; a MAC two ports share is
+            left out.
+        by_model_port (dict[tuple[str, str], str]): `(Model, PortId)` -> state; a key two
+            adapters share (two identical cards) is left out, never guessed.
+    """
+
+    by_mac: dict[str, str]
+    by_model_port: dict[tuple[str, str], str]
+
+
+def _unique[K](pairs: list[tuple[K, str]]) -> dict[K, str]:
+    """
+    Index `pairs` by key, dropping every key that appears more than once.
+
+    Args:
+        pairs (list[tuple[K, str]]): `(key, state)` in report order.
+
+    Returns:
+        dict[K, str]: Each key seen exactly once, with its state.
+    """
+    seen: dict[K, str] = {}
+    shared: set[K] = set()
+    for key, state in pairs:
+        if key in seen:
+            shared.add(key)
+        seen[key] = state
+    return {key: state for key, state in seen.items() if key not in shared}
+
+
+def _port_links(adapters: list[dict[str, Any]]) -> _PortLinks:
+    """
+    Index every port of every adapter by MAC and by `(Model, PortId)`.
+
+    Top-level `Ports[].LinkStatus` only, never Oem or speed; a stub adapter with no `Ports` is
+    skipped (docs/hpe-collectors.md, "NIC link state — `networkAdapters`").
+
+    Args:
+        adapters (list[dict[str, Any]]): The subresource's `data` rows.
+
+    Returns:
+        _PortLinks: Both indexes.
+    """
+    by_mac: list[tuple[str, str]] = []
+    by_model_port: list[tuple[tuple[str, str], str]] = []
+    for adapter in adapters:
+        ports = adapter.get("Ports")
+        if not isinstance(ports, list):
+            continue
+        model = _opt_str(adapter.get("Model"))
+        for port in ports:
+            if not isinstance(port, dict):
+                continue
+            state = link_state_of(port.get("LinkStatus"))
+            ethernet = port.get("Ethernet")
+            macs = ethernet.get("AssociatedMACAddresses") if isinstance(ethernet, dict) else None
+            for raw in macs if isinstance(macs, list) else ():
+                mac = normalize_mac(_opt_str(raw))
+                if mac:
+                    by_mac.append((mac, state))
+            port_id = _opt_str(port.get("PortId"))
+            if model and port_id:
+                by_model_port.append(((model, port_id), state))
+    return _PortLinks(by_mac=_unique(by_mac), by_model_port=_unique(by_model_port))
+
+
+def _nics(
+    hardware: dict[str, Any], adapters: list[dict[str, Any]] | None = None
+) -> tuple[tuple[ProviderNic, ...], tuple[str, ...]] | None:
+    """
+    Read the server's physical ports out of `portMap`, with link state joined from `adapters`.
+
+    `physicalPorts` only, never FlexNIC `virtualPorts`; the join is MAC first, then a unique
+    `deviceName`/`portNumber` (docs/hpe-collectors.md, "NIC link state — `networkAdapters`").
 
     Args:
         hardware (dict[str, Any]): One `/rest/server-hardware` member.
+        adapters (list[dict[str, Any]] | None): The server's `networkAdapters` rows, or `None`
+            when they could not be read.
 
     Returns:
-        tuple[tuple[ProviderNic, ...], tuple[str, ...]] | None: The NICs
-            and their MACs, or `None` when the server reports no
-            `portMap` at all.
+        tuple[tuple[ProviderNic, ...], tuple[str, ...]] | None: The NICs and their MACs; a NIC
+            not joined to an UP/DOWN reading has `link_state_read=False`. `None` when the
+            server reports no `portMap` at all.
     """
     port_map = hardware.get("portMap")
     if not isinstance(port_map, dict):
@@ -258,12 +335,17 @@ def _nics(hardware: dict[str, Any]) -> tuple[tuple[ProviderNic, ...], tuple[str,
     if not isinstance(slots, list):
         return None
 
+    links = _port_links(adapters) if adapters is not None else None
+    device_names = [_opt_str(slot.get("deviceName")) for slot in slots if isinstance(slot, dict)]
     nics: list[ProviderNic] = []
     macs: list[str] = []
     for slot in slots:
         if not isinstance(slot, dict):
             continue
-        device = _opt_str(slot.get("deviceName")) or f"slot {slot.get('slotNumber')}"
+        device_name = _opt_str(slot.get("deviceName"))
+        device = device_name or f"slot {slot.get('slotNumber')}"
+        # Two identical cards in portMap cannot be told apart by name either.
+        fallback_ok = device_name is not None and device_names.count(device_name) == 1
         ports = slot.get("physicalPorts")
         if not isinstance(ports, list):
             continue
@@ -271,12 +353,19 @@ def _nics(hardware: dict[str, Any]) -> tuple[tuple[ProviderNic, ...], tuple[str,
             if not isinstance(port, dict):
                 continue
             mac = normalize_mac(_opt_str(port.get("mac")))
+            state = None
+            if links is not None:
+                state = links.by_mac.get(mac) if mac else None
+                port_number = _opt_str(port.get("portNumber"))
+                if state is None and fallback_ok and port_number and device_name:
+                    state = links.by_model_port.get((device_name, port_number))
             nics.append(
                 ProviderNic(
                     name=f"{device} port {port.get('portNumber')}",
                     mac=mac,
                     speed_mbps=None,
-                    link_state="UNKNOWN",
+                    link_state=state or "UNKNOWN",
+                    link_state_read=state in ("UP", "DOWN"),
                 )
             )
             if mac and mac not in macs:
@@ -587,6 +676,7 @@ def server_from(
     manager_id: str | None,
     power_supplies: list[dict[str, Any]] | None = None,
     processors: list[dict[str, Any]] | None = None,
+    network_adapters: list[dict[str, Any]] | None = None,
 ) -> ProviderServer:
     """
     Map one server-hardware member and its profile onto a `ProviderServer`.
@@ -607,6 +697,10 @@ def server_from(
             appliance includes them, otherwise from the per-server
             `/processors` call. `None` means unread; the only field this
             currently feeds is `cpu_threads`.
+        network_adapters (list[dict[str, Any]] | None): This server's
+            `networkAdapters` rows, the only source of NIC link state.
+            `None` means unread: every NIC is sent with
+            `link_state_read=False` and ingest keeps the stored states.
 
     Returns:
         ProviderServer: The server as this collector sees it. Every
@@ -616,7 +710,7 @@ def server_from(
     sockets = _opt_int(hardware.get("processorCount"))
     cores_per_socket = _opt_int(hardware.get("processorCoreCount"))
     memory_mib = _opt_int(hardware.get("memoryMb"))
-    nics = _nics(hardware)
+    nics = _nics(hardware, network_adapters)
     drives, storage_total = _storage(hardware)
     address = management_processor_address(hardware)
 

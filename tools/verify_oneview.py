@@ -1,6 +1,7 @@
 """Read-only probe answering questions `docs/adr/0022` could not settle without live HPE OneView.
 
-No OneView call has ever been made against this code. There is no HPE
+Written before any OneView call had been made against this code (the first live run was
+2026-09-07, ADR-0022 "Results"). There is no HPE
 equivalent of Cisco's UCS Platform Emulator — the 60-day OneView trial is
 a real appliance, not a hardware simulator, so with no HPE hardware
 attached it enumerates nothing — which puts this collector in the same

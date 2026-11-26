@@ -1,7 +1,7 @@
 """`/servers/available` lists a server's interfaces in natural order of their own name."""
 
 from app.api.v1.schemas import AvailableServerItem
-from app.domain.enums import Vendor
+from app.domain.enums import LinkState, Vendor
 from app.domain.models.network import NetworkInfo, NetworkInterface
 from app.domain.models.server import Identity, Server
 from app.domain.value_objects.nic_names import nic_name_catalog
@@ -42,3 +42,25 @@ def test_sort_uses_the_name_never_the_cisco_os_name() -> None:
     item = _item(Vendor.CISCO, ["eth10", "eth2", "eth1"])
     assert [i.name for i in item.interfaces] == ["eth1", "eth2", "eth10"]
     assert [i.os_name for i in item.interfaces] == ["eno7", "eno6", "eno5"]
+
+
+def test_a_link_state_kept_from_an_earlier_run_is_served_unknown() -> None:
+    """bmhgen bonds only UP ports; a reading the last run could not confirm is not one."""
+    now = utcnow()
+    server = Server(
+        _id="srv_y",
+        name="y",
+        identity=Identity(vendor=Vendor.HP),
+        network=NetworkInfo(
+            interfaces=[
+                NetworkInterface(name="p1", link_state=LinkState.UP),
+                NetworkInterface(name="p2", link_state=LinkState.UP, link_state_kept=True),
+            ]
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+    item = AvailableServerItem.from_server(
+        server, nic_names=nic_name_catalog(""), live_recheck_performed=False
+    )
+    assert [i.link_state for i in item.interfaces] == [LinkState.UP, LinkState.UNKNOWN]

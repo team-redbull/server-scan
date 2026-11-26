@@ -119,7 +119,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   `REDFISH_STANDALONE`) take the token, since only an FQDD-shaped
   interface can agree with it; UCS/Intersight servers get `eth<N>` with
   no location, no speed and `UNKNOWN` link state (ADR-0009's 99.75%
-  figure), and OneView servers `Physical Port <N>` at `1:<N>`.
+  figure), and OneView servers `<adapter> port <N>` with no location or
+  speed, about one in 25 with its link states unread (as the real collector).
 - **Component health speaks each collector's real vocabulary.** Drives
   and GPUs carry `HealthSeverity` (`HEALTHY`/`WARNING`/`CRITICAL`, the
   value every provider boundary normalizes to — the seeded storage policy
@@ -626,7 +627,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   verdict — `UNKNOWN` ranks lowest and never drags a server down, with one
   exception: a server whose every listed NIC link state is `UNKNOWN` is
   `UNKNOWN` overall unless another category is worse (`network.all_unknown`;
-  OneView is exempt because it never reads links; ADR-0027, 2026-10-21).
+  OneView is exempt because an all-`UNKNOWN` OneView server is one whose links
+  were never read, e.g. iLO 4; ADR-0027, 2026-10-21 and 2026-11-26).
   Every listed drive health `UNKNOWN` (`storage.all_unknown`) only turns the
   **storage** row `UNKNOWN`; the server stays as healthy as its other
   categories say (ADR-0027, 2026-10-29).
@@ -747,7 +749,8 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
     case; a server with one link up beside unreadable ones is CRITICAL too,
     because the second uplink has to be *observed*, not assumed.
   - **`network.has_data` requires a readable link state, not just an
-    interface (2026-09-26).** OneView's portMap carries no link state and
+    interface (2026-09-26).** OneView's portMap carries no link state (it
+    reads link state from `/networkAdapters` since 2026-11-26) and
     most Intersight vNICs report none, so those servers arrive with
     interfaces present and every state `UNKNOWN`. That counted as data, so
     both network policies ran, neither could fire (each needs a readable
@@ -1060,7 +1063,12 @@ Smaller ingest facts, moved here from `ingest.py`'s comments 2026-09-13:
   `_carry_forward`. **`network.interfaces` (2026-11-05)** has the same two-state `nics`, so it is
   carried forward (and listed as `network.interfaces` in `unread_fields`) only when the provider read
   neither NICs nor `nic_macs`: an unreachable server keeps its last NICs. An unreachable server also
-  keeps its last BMC MAC (`network.bmc.mac`). The Network tab marks both "unconfirmed". Upgrade path
+  keeps its last BMC MAC (`network.bmc.mac`). The Network tab marks both "unconfirmed".
+  **Link state alone (2026-11-26)**: a NIC whose link this run could not read is sent with
+  `ProviderNic.link_state_read=False` (OneView's `/networkAdapters`, per port); it keeps its stored state by
+  MAC (by name only when it has no MAC), is stored with `link_state_kept: true`, and
+  `network.interfaces.link_state` is listed unread; the Network tab marks such a state "unconfirmed" and
+  `/servers/available` serves it as `UNKNOWN` (ADR-0022, 2026-11-26). Upgrade path
   for the rest: `nics: tuple[ProviderNic, ...] | None = None`, the same for `attachments`.
 
 ## What's implemented vs. planned
@@ -1432,7 +1440,7 @@ integration that isn't `FakeProvider`. See
     result is threaded into each factory, because three collectors prune
     on the pattern *before* the wrapper sees anything — OME skips BMCs,
     UCS Central skips domains, OneView skips its per-server
-    `/powerSupplies` and `/processors` calls — and a factory reading
+    `/powerSupplies`, `/processors` and `/networkAdapters` calls — and a factory reading
     `Settings` for itself could prune on the global while the wrapper
     filtered on the override, silently collecting the intersection.
   - `_NameFilteredProvider` is the authoritative filter, applied as a
@@ -1810,9 +1818,11 @@ and listed in `Server.unread_fields` — never zero.
 The cost is three bulk calls per appliance: `GET /rest/server-hardware`
 returns the complete object per member rather than a summary, and
 `expand=all` folds each server's DIMMs, drives, GPUs and PCI devices into
-the same response. The one exception is power supplies, which OneView
-will not expand reliably and which therefore cost one request per server
-(`INVENTORY_ONEVIEW_COLLECT_PSUS`, on by default).
+the same response. The exceptions are power supplies, processors (for
+`cpu_threads`) and network adapters (for NIC link state): each is read from
+the expanded payload where it is there and otherwise costs one request per
+server (`INVENTORY_ONEVIEW_COLLECT_PSUS`, `_COLLECT_CPU_THREADS`,
+`_COLLECT_NIC_LINKS`, each on by default).
 
 Four traps are worth knowing before touching the mapping, each with its
 HPE source in `docs/hpe-collectors.md`:

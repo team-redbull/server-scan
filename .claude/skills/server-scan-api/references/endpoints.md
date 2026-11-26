@@ -45,6 +45,8 @@ Note `health` here is the overall severity string, not an object. `UNKNOWN` also
 
 `GET /api/v1/servers/{server_id}` - full `ServerDetail` (also carries `server_type`): hardware (CPU, memory, storage,
 GPUs, PSUs), network interfaces, BMC info, identity, health with per-category reasons.
+Each `network.interfaces[]` item has `link_state_kept` (true: the last collection could not read that link and
+`link_state` is an earlier reading; also listed as `network.interfaces.link_state` in `unread_fields`).
 `vm_host` is `{cluster_name, node_name}` for a KubeVirt VM (`node_name` null when stopped), null otherwise.
 `profile_deployment` is `{last_run_status, last_run_status_name}` (OME ids: 2060 `Completed`, 2070 `Failed`) for a
 Dell `OPENMANAGE` server, both null for any other collector; a `Failed` one makes `health.profile` and `overall` CRITICAL (ADR-0066).
@@ -67,7 +69,7 @@ case-insensitive) or `pattern` (MongoDB regex on the name). Optional: `count` (p
 `min_nic_macs` (0-16; pass 1+ for a BMH, 2 for bonding).
 Response: `{items, mode, requested, returned}`; item: `id, name, vendor, source_provider,
 bmc_vendor (HP/DELL/CISCO/INTERSIGHT; null for a STANDALONE server and a KUBEVIRT VM), bmc{host, scheme, port, mac...}, nic_macs[],
-interfaces[{name, mac, location, os_name, link_state, speed_mbps}] (natural order of `name`, `eno2` before `eno10`; never rely on stored or `os_name` order), site_id,
+interfaces[{name, mac, location, os_name, link_state, speed_mbps}] (natural order of `name`, `eno2` before `eno10`; never rely on stored or `os_name` order; a link the last collection could not read is `UNKNOWN` here even when an earlier reading is stored), site_id,
 health_overall, live_recheck_performed`.
 Errors: `AVAILABLE_LOOKUP_CONFLICTING_PARAMS` (neither/both of name/pattern, a bad `max_health`, `health`),
 `AVAILABLE_COUNT_TOO_LARGE`, ambiguous name, nothing found (404 `AVAILABLE_SERVER_NOT_FOUND`: `detail` says why,

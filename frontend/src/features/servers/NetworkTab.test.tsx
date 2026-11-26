@@ -52,6 +52,45 @@ describe("NetworkTab carried-forward values", () => {
     expect(screen.getAllByText("unconfirmed")).toHaveLength(2);
   });
 
+  it("marks a kept link state unconfirmed, but never an Unknown one", () => {
+    const network: NetworkInfo = {
+      bmc: { address_raw: null, scheme: null, host: null, port: null, mac: null },
+      interfaces: [
+        {
+          name: "Adptr port 1",
+          mac: "00:00:5e:00:53:01",
+          speed_mbps: null,
+          link_state: "DOWN",
+          link_state_kept: true,
+          location: null,
+        },
+        {
+          name: "Adptr port 2",
+          mac: "00:00:5e:00:53:02",
+          speed_mbps: null,
+          link_state: "UNKNOWN",
+          link_state_kept: true,
+          location: null,
+        },
+        {
+          name: "Adptr port 3",
+          mac: "00:00:5e:00:53:03",
+          speed_mbps: null,
+          link_state: "UP",
+          location: null,
+        },
+      ],
+    };
+    render(
+      <NetworkTab
+        network={network}
+        unreadFields={["network.interfaces.link_state"]}
+      />,
+    );
+
+    expect(screen.getAllByText("unconfirmed")).toHaveLength(1);
+  });
+
   it("marks nothing unconfirmed on a server that answered", () => {
     render(<NetworkTab network={partialNetwork()} unreadFields={[]} />);
 

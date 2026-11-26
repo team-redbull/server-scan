@@ -24,10 +24,10 @@ from app.domain.models.server import Server
 # Failed, in either vocabulary: Redfish `HealthSeverity` or Cisco oper-state.
 _FAILED = frozenset({"CRITICAL", "DOWN"})
 
-# Degraded or dead, counted together for the disk and DIMM checks.
+# An all-UNKNOWN OneView server is one whose links were never read — ADR-0027, 2026-11-26 update.
+_LINK_STATE_NOT_READ = frozenset({"ONEVIEW"})
 # Collectors whose BMC is actually checked (docs/adr/0037); UCS and Intersight
 # reach servers through an aggregator and are never probed.
-_LINK_STATE_NOT_READ = frozenset({"ONEVIEW"})  # ADR-0027, 2026-10-21 update
 _BMC_CHECKED = frozenset({"REDFISH_STANDALONE", "OPENMANAGE", "ONEVIEW"})
 
 # OME job-status ids (ADR-0066): only a finished run is a verdict; the rest is UNKNOWN.
@@ -38,6 +38,7 @@ _PROFILE_JUDGED = frozenset({2060, _PROFILE_FAILED})
 # so it is in neither the OS nor the data bucket.
 _LOST_LEG = "missing"
 
+# Degraded or dead, counted together for the disk and DIMM checks.
 _NOT_GOOD = frozenset({"CRITICAL", "WARNING", "DOWN"})
 
 # Storage builds only the server's name records; one boolean fact each.

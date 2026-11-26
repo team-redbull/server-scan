@@ -566,11 +566,12 @@ class TestNetwork:
         assert len(server.nics) == 2
 
     def test_link_speed_and_state_are_never_synthesised(self) -> None:
-        """Neither exists anywhere in `portMap`."""
+        """Neither exists in `portMap`; with no `networkAdapters` read, links are unread."""
         server = _mapped()
 
         assert all(nic.speed_mbps is None for nic in server.nics)
         assert all(nic.link_state == "UNKNOWN" for nic in server.nics)
+        assert not any(nic.link_state_read for nic in server.nics)
 
     def test_an_absent_port_map_reports_unread_not_empty(self) -> None:
         server = _mapped(portMap=None)
@@ -602,6 +603,167 @@ class TestNetwork:
     def test_no_address_at_all_is_reported_as_none(self) -> None:
         assert management_processor_address({"mpHostInfo": {}}) is None
         assert management_processor_address({}) is None
+
+
+_ADAPTER_MODEL = "HPE Eth 10Gb 2p 562FLR-T Adptr"
+
+
+def _port(port_id: str, status: object, *macs: str) -> dict[str, Any]:
+    """
+    One `networkAdapters` `Ports[]` entry.
+
+    Args:
+        port_id (str): `PortId`.
+        status (object): `LinkStatus`.
+        *macs (str): `Ethernet.AssociatedMACAddresses`.
+
+    Returns:
+        dict[str, Any]: The port.
+    """
+    return {
+        "PortId": port_id,
+        "LinkStatus": status,
+        "CurrentSpeedGbps": 0.0,
+        "Ethernet": {"AssociatedMACAddresses": list(macs)},
+    }
+
+
+def _links(adapters: list[dict[str, Any]] | None) -> tuple[list[str], list[bool]]:
+    """
+    Map the sample server with these adapters and read back its link states.
+
+    Args:
+        adapters (list[dict[str, Any]] | None): The `networkAdapters` rows.
+
+    Returns:
+        tuple[list[str], list[bool]]: Each NIC's link state and `link_state_read`.
+    """
+    server = server_from(
+        hardware=_hardware(),
+        profile=_profile(),
+        manager_id="mgr_oneview",
+        network_adapters=adapters,
+    )
+    return [nic.link_state for nic in server.nics], [nic.link_state_read for nic in server.nics]
+
+
+class TestNicLinkState:
+    """`networkAdapters` joined onto `portMap` (docs/hpe-collectors.md, "NIC link state")."""
+
+    def test_joins_by_mac_whatever_the_case(self) -> None:
+        adapters = [
+            {
+                "Model": "something else",
+                "Ports": [
+                    _port("9", "LinkUp", "aa:bb:cc:dd:ee:01"),
+                    _port("8", "LinkDown", "aa:bb:cc:dd:ee:02"),
+                ],
+            }
+        ]
+
+        assert _links(adapters) == (["UP", "DOWN"], [True, True])
+
+    def test_falls_back_to_model_and_port_number(self) -> None:
+        adapters = [
+            {"Model": _ADAPTER_MODEL, "Ports": [_port("1", "LinkDown"), _port("2", "LinkUp")]}
+        ]
+
+        assert _links(adapters) == (["DOWN", "UP"], [True, True])
+
+    def test_a_model_two_adapters_share_is_never_guessed(self) -> None:
+        adapters = [
+            {"Model": _ADAPTER_MODEL, "Ports": [_port("1", "LinkUp")]},
+            {"Model": _ADAPTER_MODEL, "Ports": [_port("1", "LinkDown")]},
+        ]
+
+        assert _links(adapters) == (["UNKNOWN", "UNKNOWN"], [False, False])
+
+    def test_a_resource_missing_stub_is_skipped(self) -> None:
+        adapters = [
+            {
+                "@odata.id": "/redfish/v1/Chassis/1/NetworkAdapters/DE07A000/",
+                "@Message.ExtendedInfo": [{"MessageId": "Base.1.4.ResourceMissingAtURI"}],
+            },
+            {"Model": "x", "Ports": [_port("1", "LinkUp", "aa:bb:cc:dd:ee:01")]},
+        ]
+
+        assert _links(adapters) == (["UP", "UNKNOWN"], [True, False])
+
+    def test_the_oem_link_status_is_never_read(self) -> None:
+        """`Oem.Hpe.PhysicalPorts[].LinkStatus` was `null` on ports the top level reported down."""
+        adapters = [
+            {
+                "Model": "x",
+                "Ports": [_port("1", None, "aa:bb:cc:dd:ee:01")],
+                "Oem": {
+                    "Hpe": {
+                        "PhysicalPorts": [{"MacAddress": "aa:bb:cc:dd:ee:01", "LinkStatus": "Up"}]
+                    }
+                },
+            }
+        ]
+
+        assert _links(adapters) == (["UNKNOWN", "UNKNOWN"], [False, False])
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            ("LinkUp", "UP"),
+            ("Up", "UP"),
+            ("LinkDown", "DOWN"),
+            ("NoLink", "DOWN"),
+            ("Sideways", "UNKNOWN"),
+        ],
+    )
+    def test_link_status_vocabulary(self, status: str, expected: str) -> None:
+        adapters = [{"Model": "x", "Ports": [_port("1", status, "aa:bb:cc:dd:ee:01")]}]
+
+        assert _links(adapters)[0][0] == expected
+
+    def test_a_port_map_device_name_two_slots_share_is_never_guessed(self) -> None:
+        member = _hardware()
+        slot = member["portMap"]["deviceSlots"][0]
+        twin = {**slot, "slotNumber": "1", "physicalPorts": [{"portNumber": 1, "mac": None}]}
+        member["portMap"]["deviceSlots"] = [
+            {**slot, "physicalPorts": [{"portNumber": 1, "mac": None}]},
+            twin,
+        ]
+        adapters = [{"Model": _ADAPTER_MODEL, "Ports": [_port("1", "LinkUp")]}]
+        server = server_from(
+            hardware=member, profile=_profile(), manager_id="mgr_oneview", network_adapters=adapters
+        )
+
+        assert [(n.link_state, n.link_state_read) for n in server.nics] == [("UNKNOWN", False)] * 2
+
+    def test_a_mac_two_ports_share_is_never_guessed(self) -> None:
+        adapters = [
+            {"Model": "x", "Ports": [_port("1", "LinkUp", "aa:bb:cc:dd:ee:01")]},
+            {"Model": "y", "Ports": [_port("1", "LinkDown", "aa:bb:cc:dd:ee:01")]},
+        ]
+
+        assert _links(adapters)[1][0] is False
+
+    def test_read_and_empty_is_unread_links_not_down(self) -> None:
+        """`data: []` joins no port: nothing was learned about these links, so ingest keeps them."""
+        assert _links([]) == (["UNKNOWN", "UNKNOWN"], [False, False])
+
+    def test_unread_adapters_leave_the_nics_and_macs_intact(self) -> None:
+        server = server_from(hardware=_hardware(), profile=_profile(), manager_id="mgr_oneview")
+
+        assert server.nic_macs == ("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02")
+        assert not any(nic.link_state_read for nic in server.nics)
+
+    def test_speed_is_never_taken_from_adapters(self) -> None:
+        """`CurrentSpeedGbps` read 0 on a port that was up."""
+        adapters = [{"Model": "x", "Ports": [_port("1", "LinkUp", "aa:bb:cc:dd:ee:01")]}]
+        server = server_from(
+            hardware=_hardware(),
+            profile=_profile(),
+            manager_id="mgr_oneview",
+            network_adapters=adapters,
+        )
+
+        assert all(nic.speed_mbps is None for nic in server.nics)
 
 
 class TestIloGeneration:

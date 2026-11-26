@@ -201,8 +201,13 @@ the global and filter on the override, silently.
   pass, no BMC credentials, `mpModel` reported but never branched on. An
   explicit operator decision for a mixed iLO 4/5/6 estate; not up for
   re-litigation in code. Three bulk calls (`expand=all`) plus bounded
-  per-server `/powerSupplies` and `/processors` fallbacks, each switchable
-  off; `/processors` is the only source of `cpu_threads`. Traps: the name
+  per-server `/powerSupplies`, `/processors` and `/networkAdapters` fallbacks
+  (one `_Fanout` each), each switchable off; `/processors` is the only source
+  of `cpu_threads`, `/networkAdapters` of link state (joined onto `portMap` by
+  MAC, never rebuilding the NIC list; a port not joined to an UP/DOWN reading
+  is `ProviderNic.link_state_read=False` and ingest keeps its stored state —
+  per port, never per server, or one stub adapter flaps a bond; ADR-0022
+  2026-11-26). Traps: the name
   comes from the **profile** (`server-hardware.name` is a bay location);
   `cpu_cores = processorCount * processorCoreCount`; `count=-1` means 64
   with a 256 ceiling; `InsufficientFirmware`/`CollectedStale` are `None`,

@@ -15,7 +15,12 @@ from app.application.services.ingest import IngestService
 from app.domain.enums import HealthSeverity, MediaType
 from app.domain.models.health import Health
 from app.domain.models.server import Server
-from app.domain.ports.provider import ProviderServer, ServerIdentity, ServerInventoryProvider
+from app.domain.ports.provider import (
+    ProviderNic,
+    ProviderServer,
+    ServerIdentity,
+    ServerInventoryProvider,
+)
 from app.domain.value_objects.site import site_catalog
 from app.infrastructure.mongodb import MongoClientHolder
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
@@ -744,3 +749,155 @@ async def test_a_cpu_model_read_as_empty_clears_it_and_none_keeps_it(
     server = await _stored(mongo_holder, "sn-cpu-model")
     assert server.hardware.cpu.model is None
     assert "hardware.cpu.model" not in server.unread_fields
+
+
+def _nic(port: int, state: str, *, read: bool = True, mac: bool = True) -> ProviderNic:
+    """
+    One OneView-shaped NIC.
+
+    Args:
+        port (int): Its port number, which also picks its MAC.
+        state (str): `link_state`.
+        read (bool): `link_state_read`.
+        mac (bool): Whether it has a MAC.
+
+    Returns:
+        ProviderNic: The NIC.
+    """
+    return ProviderNic(
+        name=f"Adptr port {port}",
+        mac=f"00:00:5e:00:53:{port:02x}" if mac else None,
+        speed_mbps=None,
+        link_state=state,
+        link_state_read=read,
+    )
+
+
+def _states(server: Any) -> dict[str, str]:
+    return {i.name: i.link_state.value for i in server.network.interfaces}
+
+
+async def test_unread_link_states_keep_the_stored_ones_and_are_flagged(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A failed OneView `/networkAdapters` read keeps each port's last reading (ADR-0022)."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OneShotProvider(_fully_read(serial="SN-LINK-1", nics=(_nic(1, "UP"), _nic(2, "DOWN"))))
+    )
+
+    unread = tuple(_nic(p, "UNKNOWN", read=False) for p in (2, 1, 3))
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-LINK-1", nics=unread)))
+
+    server = await _stored(mongo_holder, "sn-link-1")
+    assert _states(server) == {
+        "Adptr port 2": "DOWN",
+        "Adptr port 1": "UP",
+        "Adptr port 3": "UNKNOWN",
+    }
+    assert "network.interfaces.link_state" in server.unread_fields
+
+    await service.ingest(
+        _OneShotProvider(_fully_read(serial="SN-LINK-1", nics=(_nic(1, "UP"), _nic(2, "DOWN"))))
+    )
+
+    server = await _stored(mongo_holder, "sn-link-1")
+    assert "network.interfaces.link_state" not in server.unread_fields
+
+
+async def test_a_partial_read_keeps_only_the_unjoined_ports(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """One stub adapter must not turn its ports UNKNOWN and flip `single_link_up` for one run."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OneShotProvider(_fully_read(serial="SN-LINK-3", nics=(_nic(1, "UP"), _nic(2, "UP"))))
+    )
+
+    await service.ingest(
+        _OneShotProvider(
+            _fully_read(serial="SN-LINK-3", nics=(_nic(1, "DOWN"), _nic(2, "UNKNOWN", read=False)))
+        )
+    )
+
+    server = await _stored(mongo_holder, "sn-link-3")
+    assert _states(server) == {"Adptr port 1": "DOWN", "Adptr port 2": "UP"}
+    assert [i.link_state_kept for i in server.network.interfaces] == [False, True]
+    assert "network.interfaces.link_state" in server.unread_fields
+
+
+async def test_a_run_whose_links_stay_unread_writes_nothing(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """ADR-0044: kept states equal the stored ones, so a repeated unread run is only a touch."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OneShotProvider(_fully_read(serial="SN-LINK-4", nics=(_nic(1, "UP"), _nic(2, "DOWN"))))
+    )
+    unread = tuple(_nic(p, "UNKNOWN", read=False) for p in (1, 2))
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-LINK-4", nics=unread)))
+    revision = (await _stored(mongo_holder, "sn-link-4")).revision
+
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-LINK-4", nics=unread)))
+
+    assert (await _stored(mongo_holder, "sn-link-4")).revision == revision
+
+
+async def test_a_kept_state_matches_by_name_only_without_a_mac(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OneShotProvider(
+            _fully_read(serial="SN-LINK-5", nics=(_nic(1, "UP", mac=False), _nic(2, "UP")))
+        )
+    )
+
+    renamed_mac = ProviderNic(
+        name="Adptr port 2",
+        mac="00:00:5e:00:53:99",
+        speed_mbps=None,
+        link_state="UNKNOWN",
+        link_state_read=False,
+    )
+    await service.ingest(
+        _OneShotProvider(
+            _fully_read(
+                serial="SN-LINK-5", nics=(_nic(1, "UNKNOWN", read=False, mac=False), renamed_mac)
+            )
+        )
+    )
+
+    assert _states(await _stored(mongo_holder, "sn-link-5")) == {
+        "Adptr port 1": "UP",
+        "Adptr port 2": "UNKNOWN",
+    }
+
+
+async def test_a_port_whose_mac_went_missing_keeps_its_state_by_name(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A port read with a MAC, then reported MAC-less in an unread run, must not flap to UNKNOWN."""
+    service = _service(mongo_holder)
+    await service.ingest(
+        _OneShotProvider(_fully_read(serial="SN-LINK-6", nics=(_nic(1, "DOWN"), _nic(2, "UP"))))
+    )
+
+    nics = (_nic(1, "UNKNOWN", read=False, mac=False), _nic(2, "UNKNOWN", read=False))
+    await service.ingest(_OneShotProvider(_fully_read(serial="SN-LINK-6", nics=nics)))
+
+    assert _states(await _stored(mongo_holder, "sn-link-6")) == {
+        "Adptr port 1": "DOWN",
+        "Adptr port 2": "UP",
+    }
+
+
+async def test_unread_link_states_on_a_new_server_are_unknown(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    await _service(mongo_holder).ingest(
+        _OneShotProvider(_fully_read(serial="SN-LINK-2", nics=(_nic(1, "UP", read=False),)))
+    )
+
+    server = await _stored(mongo_holder, "sn-link-2")
+    assert [i.link_state.value for i in server.network.interfaces] == ["UNKNOWN"]

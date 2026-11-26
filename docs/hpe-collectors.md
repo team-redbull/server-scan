@@ -34,8 +34,9 @@ file doesn't already say was checked. See
 There is no Redfish pass, no BMC login and no per-generation branch. An
 iLO 4 server and a Gen11 go through the identical code. This is a
 deliberate decision for a mixed iLO 4/5/6 fleet — one collection standard
-for all HP hardware — and what it costs on the newer half (thread counts,
-NIC speed and link state, PSUs, GPU telemetry) is tabulated in ADR-0022.
+for all HP hardware — and what it costs on the newer half (NIC speed, GPU
+telemetry, component temperature; thread counts, PSUs and link state cost a
+per-server call each) is tabulated in ADR-0022.
 
 Do not "fix" this by adding a Redfish hand-off. If a future change adds
 one, it must be additive for iLO 5+ and must not change what OneView
@@ -64,15 +65,19 @@ whole appliance is a handful of requests:
 - `GET /rest/server-hardware?expand=all` — serials, models, addresses,
   CPU/memory, `portMap`, **and** every subresource's data (DIMMs, drives
   in both schemas, PCI devices including GPUs) inline.
-- `GET /rest/server-hardware/{id}/powerSupplies` — the one per-server
-  call, gated by `INVENTORY_ONEVIEW_COLLECT_PSUS`.
+- `GET /rest/server-hardware/{id}/powerSupplies`, `/processors` and
+  `/networkAdapters` — the per-server calls, each made only for servers the
+  expanded payload did not cover and gated by `INVENTORY_ONEVIEW_COLLECT_PSUS`,
+  `_COLLECT_CPU_THREADS` and `_COLLECT_NIC_LINKS`.
 
 With `N` servers on the appliance:
 
 | Tier | Calls | Yields |
 |---|---|---|
-| Bulk | `1` + `⌈profiles/256⌉` + `⌈N/25⌉` + `1` | everything except PSUs |
+| Bulk | `1` + `⌈profiles/256⌉` + `⌈N/25⌉` + `1` | everything except the three below where not expanded |
 | + PSUs | `+ N` | `ProviderServer.psus` |
+| + CPU threads | `+ N` | `ProviderServer.cpu_threads` |
+| + NIC link state | `+ N` | `ProviderNic.link_state` |
 
 That bulk tier is two orders of magnitude cheaper than ADR-0020's Dell
 design, which costs ~25 round trips *per server*.
@@ -81,8 +86,8 @@ design, which costs ~25 round trips *per server*.
 `ProviderServer` cannot carry, and the reasoning is in ADR-0022:
 fleet firmware (`GET /rest/server-hardware/*/firmware`, one bulk call —
 but there is no system-firmware field), fans (`/thermal`),
-temperature and power draw (`/utilization`), and `/processors` for
-`cpu_threads`.
+and temperature and power draw (`/utilization`). (`/processors` was on this
+list until the 2026-09-07 live run; it is collected now, see "CPU threads".)
 
 ## Sessions
 
@@ -438,8 +443,47 @@ for UCS. Feeding both levels into `nic_macs` flat would inflate a set
 ingest correlates identity on.
 
 **No link speed and no link state exist anywhere in `portMap`.** There is
-no `speedMbps` and no up/down field. `ProviderNic.speed_mbps` is `None`
-and `link_state` is `"UNKNOWN"`; neither is synthesised.
+no `speedMbps` and no up/down field. `ProviderNic.speed_mbps` is `None`;
+link state comes from `/networkAdapters` (next section), never synthesised.
+
+A port's name is `<deviceName> port <portNumber>`, with `slot <slotNumber>`
+when the slot has no `deviceName`.
+
+## NIC link state — `networkAdapters`
+
+`GET /rest/server-hardware/{id}/networkAdapters` (session token,
+`X-Api-Version`) returns a `SubResource` envelope whose `data` is a list of
+Redfish-shaped `HpeBaseNetworkAdapter` rows. **Verified live by the operator,
+2026-11-26, `X-Api-Version: 6000`**, every rule below included:
+
+- **Read `Ports[].LinkStatus` only** — `LinkUp`/`LinkDown`, mapped with the
+  Redfish collector's own table (`..redfish.mapping.link_state_of`: `LinkUp`/`Up`
+  UP, `LinkDown`/`Down`/`NoLink` DOWN, anything else UNKNOWN).
+  `Oem.Hpe.PhysicalPorts[].LinkStatus` is **not** read: it was `null` on
+  ports the top level reported `LinkDown`.
+- **No speed.** `CurrentSpeedGbps` and Oem `SpeedMbps` both read `0` on a
+  port that was `LinkUp`, so `speed_mbps` stays `None`.
+- **An adapter can be a stub**: only `@odata.id` and a
+  `Base.1.4.ResourceMissingAtURI` message, no `Ports`. It is skipped.
+
+**The join onto `portMap`'s ports**, so the NIC list and `nic_macs` keep
+coming from `portMap`: normalized MAC first (`physicalPorts[].mac` ==
+`Ports[].Ethernet.AssociatedMACAddresses[]`; the two sources disagree on
+case), then `deviceSlots[].deviceName` == adapter `Model` and
+`physicalPorts[].portNumber` == `PortId`. Both keys were seen to align on
+real hardware. A MAC two ports share, a `(Model, PortId)` two adapters share
+(two identical cards) or a `deviceName` two `portMap` slots share is dropped
+rather than guessed. An unjoined port is `UNKNOWN`.
+
+**Unread versus read, per port.** A port counts as read only when it joined
+an `UP` or `DOWN` reading. Every other port (a failed call, any
+`collectionState` but `Collected`, iLO 4's `InsufficientFirmware`, the switch
+off, `data: []`, a stub adapter, no join, an unrecognized `LinkStatus`) is
+sent with `ProviderNic.link_state_read=False` and ingest keeps that port's
+stored state (ADR-0022, 2026-11-26 update: per server, one stub adapter
+flapped a bonded server CRITICAL). Failures are aggregated into one
+`oneview.network_adapters_unreadable` warning; `oneview.network_adapter_source`
+counts expanded versus per-server reads, as for power supplies.
 
 `interconnectUri` / `interconnectPort` would be the natural
 `ProviderAttachment` source for blades in an enclosure, mirroring UCS
@@ -633,8 +677,8 @@ matching `SubResourceName` enum value** — the enum has exactly eight
 (`AdvancedMemoryProtection`, `Devices`, `LocalStorage`,
 `LocalStorageV2`, `MPSettings`, `Memory`, `MemoryList`, `Unknown`) and
 `/powerSupplies`, `/thermal`, `/processors` and `/networkAdapters` are
-none of them. So whether `expand=all` already returns power supplies is
-undetermined in HPE's own documentation.
+none of them. So whether `expand=all` already returns power supplies (or
+processors, or network adapters) is undetermined in HPE's own documentation.
 
 The collector reads the expanded payload first and only calls per server
 for what is missing, then logs `oneview.power_supply_source` with
@@ -667,7 +711,9 @@ documented subresource schema. Each of these is reported as `None` /
 
 - **Thread / logical-processor count** at server level — only
   `/processors`, per server.
-- **NIC link speed and link state** — absent from `portMap` entirely.
+- **NIC link speed** — absent from `portMap`, and `/networkAdapters`
+  reports `0` for a port that is up. (Link *state* is read from
+  `/networkAdapters` since 2026-11-26.)
 - **CPU or component temperature.** `/thermal` is **fans only**: the
   documented schema has five properties (`Name`, `Reading`,
   `ReadingUnits`, `Status`, `MemberId`) and no `Temperatures[]`, and

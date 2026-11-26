@@ -121,7 +121,17 @@ export function NetworkTab({
                           : "—"}
                       </span>
                       <span aria-hidden>·</span>
-                      <LinkStateBadge state={iface.link_state} />
+                      {/* A link state kept from an earlier run (ADR-0022, 2026-11-26). */}
+                      <Reported
+                        unread={
+                          iface.link_state_kept === true &&
+                          iface.link_state !== "UNKNOWN"
+                        }
+                        empty={false}
+                        inline
+                      >
+                        <LinkStateBadge state={iface.link_state} />
+                      </Reported>
                     </div>
                     {osName && (
                       /* Labelled as derived: configuration, not a BMC reading. */
