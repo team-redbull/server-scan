@@ -475,6 +475,13 @@ collectors:
     collectCpuThreads: true
     cpuThreadsConcurrency: 8
 
+    # Same shape again, for /networkAdapters — the only source of NIC link
+    # state (UP/DOWN); portMap has none. Off, or a failed read (iLO 4
+    # answers InsufficientFirmware), keeps each server's stored link states.
+    # Absent = on (the collector's default).
+    collectNicLinks: true
+    nicLinksConcurrency: 8
+
     # Optional per-call timeout (seconds) for OneView requests, used by this CronJob. Unset
     # keeps the shared 15 s default (INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS). Not
     # activeDeadlineSeconds: that bounds the whole job, not one call. The API's live

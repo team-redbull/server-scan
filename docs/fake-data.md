@@ -77,7 +77,10 @@ is reachable.
   UCS Central servers now (docs/cisco-collectors.md). Only the 152
   Intersight servers still report `UNKNOWN` for every vNIC — no equivalent
   field is known for it yet — which makes 8 of them `UNKNOWN` overall where
-  nothing worse fired (2026-10-21 rule).
+  nothing worse fired (2026-10-21 rule). About 1 in 25 OneView servers (4 at
+  seed 42) also seed with every link `UNKNOWN`, as if their `/networkAdapters`
+  read failed; their network row is `UNKNOWN` but OneView is exempt from the
+  overall rule (ADR-0027, 2026-11-26).
 * **32 servers have an unreachable BMC, and all of them read `CRITICAL`.**
   About 4% of the OpenManage (10), standalone Redfish (12) and OneView (10)
   servers carry an `unreachable_reason`, which the `bmc` category's

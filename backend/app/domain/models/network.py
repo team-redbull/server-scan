@@ -34,6 +34,8 @@ class NetworkInterface(BaseModel):
     mac: str | None = None
     speed_mbps: int | None = None
     link_state: LinkState = LinkState.UNKNOWN
+    # True: this run could not read the link; `link_state` was kept from an earlier one (ADR-0022).
+    link_state_kept: bool = False
     # `controller/port/partition` on Dell (`1/1/1`), the BMC's own raw
     # identifier elsewhere. See `app.domain.ports.provider.ProviderNic`.
     location: str | None = None

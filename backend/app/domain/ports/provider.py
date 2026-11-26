@@ -99,6 +99,8 @@ class ProviderNic:
     speed_mbps: int | None
     link_state: str
     location: str | None = None  # the BMC's own placement id (an iDRAC FQDD), or None
+    # False: `link_state` is a placeholder; ingest keeps the stored one (ONEVIEW, ADR-0022).
+    link_state_read: bool = True
 
 
 @dataclass(frozen=True, slots=True)

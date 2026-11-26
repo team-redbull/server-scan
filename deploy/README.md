@@ -835,15 +835,17 @@ few percent of servers' health and `HEALTH_CHANGED` events accrue.
 And never enable it alongside a real collector: one estate, two
 sources of truth.
 
-`ONEVIEW` is one appliance like the rest. Power supplies and CPU thread
-counts are its two potentially-per-server costs — each tried the cheap
-way first (most servers' bulk sweep already carries both), falling back
-to one request per server for whatever it doesn't. Every other collector
-reads both out of a response it already fetches for other reasons;
-OneView is the only one where either can cost something extra.
-`collectors.oneview.collectPsus: false` and
-`collectors.oneview.collectCpuThreads: false` turn each off
-independently — the rest of the sweep is three bulk calls either way.
+`ONEVIEW` is one appliance like the rest. Power supplies, CPU thread
+counts and NIC link state are its three potentially-per-server costs —
+each tried the cheap way first (most servers' bulk sweep already carries
+PSUs and processors), falling back to one request per server for whatever
+it doesn't. Every other collector reads them out of a response it already
+fetches for other reasons; OneView is the only one where any can cost
+something extra. `collectors.oneview.collectPsus: false`,
+`collectors.oneview.collectCpuThreads: false` and
+`collectors.oneview.collectNicLinks: false` turn each off independently
+(absent `collectNicLinks` = on) — the rest of the sweep is three bulk calls
+either way. With link reads off, each server keeps its stored link states.
 
 Note that Intersight's three fields mean something different: it signs
 requests with an API key rather than logging in, so `username` is the API

@@ -85,7 +85,12 @@ from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
 from app.domain.models.server import Identity, ProfileDeployment, ProfileTemplate, Server, VmHost
 from app.domain.models.site import Site
-from app.domain.ports.provider import ProviderServer, ServerInventoryProvider, redact_secrets
+from app.domain.ports.provider import (
+    ProviderNic,
+    ProviderServer,
+    ServerInventoryProvider,
+    redact_secrets,
+)
 from app.domain.ports.repository import ServerRepository
 from app.domain.services.bmc_reset import reset_trigger
 from app.domain.services.classification import ClassifiableServer
@@ -330,6 +335,37 @@ def _link_state(value: str) -> LinkState:
         return LinkState(value)
     except ValueError:
         return LinkState.UNKNOWN
+
+
+def _link_states(
+    nics: tuple[ProviderNic, ...], previous: list[NetworkInterface] | None
+) -> list[LinkState]:
+    """
+    Each NIC's link state: the reported one, or the stored one where this run could not read it.
+
+    A kept state is matched by MAC; a NIC reported without one, by a name stored exactly once.
+    No stored match is `UNKNOWN` (ADR-0022, 2026-11-26).
+
+    Args:
+        nics (tuple[ProviderNic, ...]): This run's NICs, in order.
+        previous (list[NetworkInterface] | None): The stored interfaces, or `None` for a new server.
+
+    Returns:
+        list[LinkState]: One state per entry of `nics`.
+    """
+    stored = previous or []
+    by_mac = {i.mac: i.link_state for i in stored if i.mac}
+    names = [i.name for i in stored]
+    by_name = {i.name: i.link_state for i in stored if names.count(i.name) == 1}
+    states: list[LinkState] = []
+    for nic in nics:
+        if nic.link_state_read:
+            states.append(_link_state(nic.link_state))
+            continue
+        mac = normalize_mac(nic.mac)
+        state = by_mac.get(mac) if mac else by_name.get(nic.name)
+        states.append(state or LinkState.UNKNOWN)
+    return states
 
 
 def _opt_float(value: object) -> float | None:
@@ -1178,6 +1214,11 @@ class IngestService:
         )
         if not ps.reachable and ps.bmc_address_raw is None and existing is not None:
             bmc_info = existing.network.bmc  # a stub read no address: keep the stored one
+        link_states = _link_states(
+            ps.nics, existing.network.interfaces if existing is not None else None
+        )
+        if any(not nic.link_state_read for nic in ps.nics):
+            unread.append("network.interfaces.link_state")
         network = NetworkInfo(
             bmc=bmc_info,
             interfaces=_carry_forward(
@@ -1186,10 +1227,11 @@ class IngestService:
                         name=nic.name,
                         mac=normalize_mac(nic.mac),
                         speed_mbps=nic.speed_mbps,
-                        link_state=_link_state(nic.link_state),
+                        link_state=state,
+                        link_state_kept=not nic.link_state_read,
                         location=nic.location,
                     )
-                    for nic in ps.nics
+                    for nic, state in zip(ps.nics, link_states, strict=True)
                 ]
                 if ps.nics or ps.nic_macs is not None
                 else None,  # neither NICs nor MACs read: the interfaces were not read either

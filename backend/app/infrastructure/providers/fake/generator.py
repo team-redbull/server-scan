@@ -903,6 +903,28 @@ def _nic_port_count(rng: random.Random, collector: ManagerType, *, slot: int | N
     return rng.randint(2, 4)
 
 
+_ONEVIEW_ADAPTER = "HPE Eth 10/25Gb 2p 640FLR-SFP28 Adptr"
+
+# One OneView server in this many whose `/networkAdapters` read fails (a real iLO 5/6 does, rarely).
+_ONEVIEW_LINKS_UNREAD_EVERY = 25
+
+
+def _oneview_links_read(collector: ManagerType, macs: tuple[str, ...]) -> bool:
+    """
+    Whether a OneView server's `/networkAdapters` read succeeded; keyed off the MAC, not `rng`.
+
+    Args:
+        collector (ManagerType): The collector that owns this server.
+        macs (tuple[str, ...]): The server's MACs.
+
+    Returns:
+        bool: False for about one OneView server in `_ONEVIEW_LINKS_UNREAD_EVERY`.
+    """
+    if collector is not ManagerType.ONEVIEW or not macs:
+        return True
+    return zlib.crc32(macs[-1].encode()) % _ONEVIEW_LINKS_UNREAD_EVERY != 0
+
+
 def _link_states(macs: tuple[str, ...]) -> tuple[str, ...]:
     """
     Real UP/DOWN readings for one server's ports, faults included.
@@ -960,14 +982,15 @@ def _nics_for(
             for i, (mac, state) in enumerate(zip(macs, states, strict=True))
         )
     if collector is ManagerType.ONEVIEW:
-        # HPE names a port by its adapter and port number, not an FQDD.
+        # `<deviceName> port <N>` from portMap, no speed and no location — docs/hpe-collectors.md.
+        for _ in macs:
+            rng.choice((10_000, 25_000))  # old per-port speed draw, kept so the fleet stays put
         return tuple(
             ProviderNic(
-                name=f"Physical Port {port}",
+                name=f"{_ONEVIEW_ADAPTER} port {port}",
                 mac=mac,
-                speed_mbps=rng.choice((10_000, 25_000)),
+                speed_mbps=None,
                 link_state=state,
-                location=f"1:{port}",
             )
             for port, (mac, state) in enumerate(zip(macs, states, strict=True), start=1)
         )
@@ -1444,6 +1467,8 @@ def generate_servers(
         nic_count = _nic_port_count(rng, collector, slot=nic_slot)
         nic_macs = tuple(_random_mac(rng) for _ in range(nic_count))
         nics = _nics_for(rng, collector, nic_macs, slot=nic_slot)
+        if not _oneview_links_read(collector, nic_macs):
+            nics = tuple(replace(n, link_state="UNKNOWN", link_state_read=False) for n in nics)
         bmc_mac = _random_mac(rng)
         bmc_ip = _fake_ip(site_index, index)
 

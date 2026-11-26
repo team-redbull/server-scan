@@ -210,7 +210,17 @@ def test_storage_all_unknown_counts_unread_and_unknown_drives() -> None:
     assert extract_facts(_server_with())["storage.all_unknown"] is False
 
 
-def test_oneview_never_reads_link_state_so_it_is_exempt_from_the_nic_rule() -> None:
+def test_an_all_unknown_oneview_server_was_never_read_so_it_is_exempt_from_the_nic_rule() -> None:
+    """Ingest keeps a read link state, so all-UNKNOWN on OneView means never read (iLO 4)."""
     server = _server_with(links=(LinkState.UNKNOWN, LinkState.UNKNOWN))
     server.source_provider = "ONEVIEW"
     assert extract_facts(server)["network.all_unknown"] is False
+
+
+def test_a_oneview_server_with_link_readings_is_judged_like_any_other() -> None:
+    server = _server_with(links=(LinkState.UP, LinkState.DOWN, LinkState.DOWN))
+    server.source_provider = "ONEVIEW"
+    facts = extract_facts(server)
+    assert facts["network.has_data"] is True
+    assert facts["network.links_known_count"] == 3
+    assert facts["network.links_up_count"] == 1

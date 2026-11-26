@@ -804,3 +804,18 @@ class TestKubeVirtTail:
             s for s in generate_servers(seed=42, count=1000, epoch=3) if s.vendor == "kubevirt"
         ]
         assert base == later
+
+
+def test_oneview_nics_look_like_the_real_collector() -> None:
+    """No speed, a `<deviceName> port <N>` name, and a few servers whose links were not read."""
+    hp = [
+        s
+        for s in generate_servers(seed=42, count=2000)
+        if provider_type_for(s) == ManagerType.ONEVIEW.value and s.nics
+    ]
+    assert hp
+    assert all(n.speed_mbps is None and " port " in n.name for s in hp for n in s.nics)
+    unread = [s for s in hp if not any(n.link_state_read for n in s.nics)]
+    assert unread
+    assert all(n.link_state == "UNKNOWN" for s in unread for n in s.nics)
+    assert {n.link_state for s in hp for n in s.nics if n.link_state_read} >= {"UP", "DOWN"}

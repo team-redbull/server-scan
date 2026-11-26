@@ -345,6 +345,8 @@ def _oneview_provider(
         psu_concurrency=settings.oneview_psu_concurrency,
         collect_cpu_threads=settings.oneview_collect_cpu_threads,
         cpu_threads_concurrency=settings.oneview_cpu_threads_concurrency,
+        collect_nic_links=settings.oneview_collect_nic_links,
+        nic_links_concurrency=settings.oneview_nic_links_concurrency,
         api_version=settings.oneview_api_version,
         verify_tls=settings.oneview_verify_tls,
     )

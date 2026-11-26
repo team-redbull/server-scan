@@ -20,7 +20,7 @@ from app.domain.enums import ManagerType
 from app.domain.models.common import AuditFields
 from app.domain.models.manager import Manager
 from app.domain.ports.credentials import ManagerConnection
-from app.domain.ports.provider import ProviderServer
+from app.domain.ports.provider import ProviderServer, ServerIdentity
 from app.infrastructure.providers.oneview.client import OneViewClient, OneViewConnectionError
 from app.infrastructure.providers.oneview.provider import OneViewProvider
 
@@ -94,6 +94,7 @@ def _appliance(
     templates: list[dict[str, Any]] | None = None,
     power_supplies: httpx.Response | None = None,
     processors: httpx.Response | None = None,
+    network_adapters: httpx.Response | None = None,
     fail: bool = False,
     seen: list[httpx.Request] | None = None,
 ) -> Callable[[httpx.Request], httpx.Response]:
@@ -108,6 +109,8 @@ def _appliance(
             `/powerSupplies` call answers. `None` answers 404.
         processors (httpx.Response | None): What every `/processors` call
             answers. `None` answers 404.
+        network_adapters (httpx.Response | None): What every
+            `/networkAdapters` call answers. `None` answers 404.
         fail (bool): When true, every request is refused at the socket.
         seen (list[httpx.Request] | None): Collects every request made.
 
@@ -131,6 +134,11 @@ def _appliance(
             return power_supplies or httpx.Response(404, json={})
         if path.endswith("/processors"):
             return processors or httpx.Response(404, json={})
+        if path.endswith("/networkAdapters"):
+            return network_adapters or httpx.Response(404, json={})
+        by_uri = {str(m.get("uri")): m for m in (*profiles, *hardware)}
+        if path in by_uri:
+            return httpx.Response(200, json=by_uri[path])
         members = {
             "/rest/server-profiles": profiles,
             "/rest/server-profile-templates": templates or [],
@@ -227,6 +235,7 @@ def _provider(handler: Callable[[httpx.Request], httpx.Response], **kwargs: Any)
         # Off by default so every other test measures the cheap path.
         "collect_psus": False,
         "collect_cpu_threads": False,
+        "collect_nic_links": False,
         "client_factory": lambda: OneViewClient(
             endpoint=_ENDPOINT,
             username="collector",
@@ -860,6 +869,210 @@ class TestProcessors:
         source = next(e for e in events if e["event"] == "oneview.processor_source")
         assert source["from_expand"] == 0
         assert source["per_server_calls"] == 1
+
+
+_MAC_1 = "aa:bb:cc:00:11:01"
+_MAC_2 = "aa:bb:cc:00:11:02"
+
+
+def _with_ports(member: dict[str, Any]) -> dict[str, Any]:
+    """
+    Give a hardware member a two-port `portMap`, MACs in upper case as OneView reports them.
+
+    Args:
+        member (dict[str, Any]): A `_hardware` member.
+
+    Returns:
+        dict[str, Any]: The same member, with `portMap`.
+    """
+    member["portMap"] = {
+        "deviceSlots": [
+            {
+                "deviceName": "HPE Eth 1Gb 2p 368FLR-MMT Adptr",
+                "slotNumber": 1,
+                "physicalPorts": [
+                    {"portNumber": 1, "mac": _MAC_1.upper()},
+                    {"portNumber": 2, "mac": _MAC_2.upper()},
+                ],
+            }
+        ]
+    }
+    return member
+
+
+def _adapters_response() -> httpx.Response:
+    """
+    A `/networkAdapters` envelope as the live appliance returned it, stub adapter included.
+
+    Returns:
+        httpx.Response: Port 1 down, port 2 up, plus a `ResourceMissingAtURI` stub.
+    """
+    return httpx.Response(
+        200,
+        json={
+            "collectionState": "Collected",
+            "data": [
+                {
+                    "Id": "1",
+                    "Model": "HPE Eth 1Gb 2p 368FLR-MMT Adptr",
+                    "Ports": [
+                        {
+                            "PortId": "1",
+                            "LinkStatus": "LinkDown",
+                            "Ethernet": {"AssociatedMACAddresses": [_MAC_1]},
+                        },
+                        {
+                            "PortId": "2",
+                            "LinkStatus": "LinkUp",
+                            "Ethernet": {"AssociatedMACAddresses": [_MAC_2]},
+                        },
+                    ],
+                },
+                {
+                    "@odata.id": "/redfish/v1/Chassis/1/NetworkAdapters/DE07A000/",
+                    "@Message.ExtendedInfo": [{"MessageId": "Base.1.4.ResourceMissingAtURI"}],
+                },
+            ],
+        },
+    )
+
+
+class TestNicLinks:
+    """`/networkAdapters` is the only source of NIC link state (docs/hpe-collectors.md)."""
+
+    async def test_the_per_server_call_fills_link_state(self) -> None:
+        provider = _provider(
+            _appliance(
+                profiles=[_PROFILE_A],
+                hardware=[
+                    _with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a"))
+                ],
+                network_adapters=_adapters_response(),
+            ),
+            collect_nic_links=True,
+        )
+
+        servers = await _collect(provider)
+
+        assert [n.link_state for n in servers[0].nics] == ["DOWN", "UP"]
+        assert all(n.link_state_read for n in servers[0].nics)
+        assert servers[0].nic_macs == (_MAC_1, _MAC_2)
+
+    async def test_a_failed_call_leaves_links_unread_and_the_nics_listed(self) -> None:
+        provider = _provider(
+            _appliance(
+                profiles=[_PROFILE_A],
+                hardware=[
+                    _with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a"))
+                ],
+            ),
+            collect_nic_links=True,
+        )
+
+        with capture_logs() as events:
+            servers = await _collect(provider)
+
+        assert [n.link_state for n in servers[0].nics] == ["UNKNOWN", "UNKNOWN"]
+        assert not any(n.link_state_read for n in servers[0].nics)
+        assert servers[0].nic_macs == (_MAC_1, _MAC_2)
+        unreadable = [e for e in events if e["event"] == "oneview.network_adapters_unreadable"]
+        assert unreadable and unreadable[0]["servers"] == 1
+
+    async def test_switching_it_off_makes_no_call_and_reports_unread(self) -> None:
+        seen: list[httpx.Request] = []
+        provider = _provider(
+            _appliance(
+                profiles=[_PROFILE_A],
+                hardware=[
+                    _with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a"))
+                ],
+                network_adapters=_adapters_response(),
+                seen=seen,
+            ),
+            collect_nic_links=False,
+        )
+
+        servers = await _collect(provider)
+
+        assert not [r for r in seen if r.url.path.endswith("/networkAdapters")]
+        assert not any(n.link_state_read for n in servers[0].nics)
+
+    async def test_calls_are_bounded_and_one_per_server(self) -> None:
+        seen: list[httpx.Request] = []
+        hardware = [
+            _with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a")),
+            _with_ports(_hardware(_HARDWARE_B, profile_uri="/rest/server-profiles/b")),
+        ]
+        provider = _provider(
+            _appliance(
+                profiles=[_PROFILE_A, _PROFILE_B],
+                hardware=hardware,
+                network_adapters=_adapters_response(),
+                seen=seen,
+            ),
+            collect_nic_links=True,
+            nic_links_concurrency=1,
+        )
+
+        await _collect(provider)
+
+        assert sorted(r.url.path for r in seen if r.url.path.endswith("/networkAdapters")) == [
+            f"{_HARDWARE_A}/networkAdapters",
+            f"{_HARDWARE_B}/networkAdapters",
+        ]
+
+    async def test_an_expanded_payload_that_carries_them_costs_nothing(self) -> None:
+        seen: list[httpx.Request] = []
+        member = _with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a"))
+        member["subResources"]["NetworkAdapters"] = {
+            "name": "NetworkAdapters",
+            "collectionState": "Collected",
+            "data": _adapters_response().json()["data"],
+        }
+        provider = _provider(
+            _appliance(profiles=[_PROFILE_A], hardware=[member], seen=seen),
+            collect_nic_links=True,
+        )
+
+        servers = await _collect(provider)
+
+        assert not [r for r in seen if r.url.path.endswith("/networkAdapters")]
+        assert [n.link_state for n in servers[0].nics] == ["DOWN", "UP"]
+
+    async def test_get_one_reads_link_state_like_a_full_run(self) -> None:
+        handler = _appliance(
+            profiles=[_PROFILE_A],
+            hardware=[_with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a"))],
+            network_adapters=_adapters_response(),
+        )
+        provider = _provider(handler, collect_nic_links=True)
+
+        one = await provider.get_one(ServerIdentity(external_id=_HARDWARE_A))
+        full = await _collect(_provider(handler, collect_nic_links=True))
+
+        assert one is not None
+        assert one.nics == full[0].nics
+        assert all(n.link_state_read for n in one.nics)
+
+
+class TestNicLinksGetOne:
+    async def test_get_one_with_unreadable_adapters_sends_links_unread(self) -> None:
+        provider = _provider(
+            _appliance(
+                profiles=[_PROFILE_A],
+                hardware=[
+                    _with_ports(_hardware(_HARDWARE_A, profile_uri="/rest/server-profiles/a"))
+                ],
+            ),
+            collect_nic_links=True,
+        )
+
+        with capture_logs() as events:
+            one = await provider.get_one(ServerIdentity(external_id=_HARDWARE_A))
+
+        assert one is not None
+        assert not any(n.link_state_read for n in one.nics)
+        assert any(e["event"] == "oneview.network_adapters_unreadable" for e in events)
 
 
 class TestConfiguration:

@@ -260,3 +260,23 @@ Operator's call. Only `network.all_unknown` turns `overall` from `HEALTHY` into 
 categories, so the server stays `HEALTHY` and `/servers/available` no longer drops it for that reason. A real
 storage failure still wins. The iDRAC reset trigger (ADR-0050) reads the fact directly and is unchanged: it still
 fires on all-UNKNOWN disks.
+
+## Update (2026-11-26): OneView reads links now; the exemption keeps a narrower meaning
+
+OneView reports real link state from `/networkAdapters` (ADR-0022, 2026-11-26
+update), so its servers are judged by `network.all_links_down` and
+`network.single_link_up` like any other. `_LINK_STATE_NOT_READ` still exempts
+OneView from `network.all_unknown`, but now because of what an all-`UNKNOWN`
+OneView server *is*: ingest keeps each port's last `UP`/`DOWN` across a run
+that could not read it, and an unrecognized `LinkStatus` is not a reading, so
+every link `UNKNOWN` means no port has ever been read (iLO 4 answers
+`InsufficientFirmware` for every subresource; also a NIC replaced while reads
+fail), not that a read came back empty.
+
+Why the exemption was not replaced with a per-server "links unread" check: an
+API pod running this version evaluates documents the previous collector wrote,
+which carry no such marker, and the collectors chart is bumped by hand *after*
+server-scan (ADR-0060). A per-server check would have turned every HP server
+`UNKNOWN` (and out of `/servers/available`) on any health recalculation in that
+window. Because an unrecognized `LinkStatus` is kept-as-unread rather than
+stored as `UNKNOWN`, the exemption gives up nothing a reading could have shown.

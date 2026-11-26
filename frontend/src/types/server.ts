@@ -291,6 +291,9 @@ export interface NetworkInterface {
   mac: string | null;
   speed_mbps: number | null;
   link_state: LinkState;
+  /** True: the last collection could not read this link; `link_state` is an earlier reading.
+   * Optional for a document written before the field existed. */
+  link_state_kept?: boolean;
   /** `controller/port/partition` on Dell (`1/1/1`), the BMC's raw id elsewhere. */
   location: string | null;
 }

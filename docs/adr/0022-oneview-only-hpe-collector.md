@@ -593,3 +593,56 @@ pending its own decision.
   instead of `health_of`. See `docs/hpe-collectors.md`, "Power supplies"
   — including why this is the third time this exact vocabulary
   confusion has shipped in this codebase.
+
+## Update (2026-11-26): NIC link state from `/networkAdapters`
+
+`portMap` still has no link state, but each server-hardware resource has a
+`/networkAdapters` subresource whose `Ports[].LinkStatus` (`LinkUp`/`LinkDown`)
+the operator verified live on their appliance (`X-Api-Version: 6000`). The
+collector now reads it as a third bounded per-server fan-out, the same
+two-tier shape as `/powerSupplies` and `/processors` (expanded payload first,
+one call per server for the rest; `INVENTORY_ONEVIEW_COLLECT_NIC_LINKS`,
+`_NIC_LINKS_CONCURRENCY`, Helm `collectors.oneview.collectNicLinks` /
+`nicLinksConcurrency`), and `get_one` reads it too, so "Fetch now" matches a
+full run. Still no Redfish/iLO pass: this is OneView's own API.
+
+- **The NIC list still comes from `portMap`**; link state is joined onto it,
+  never rebuilt from `networkAdapters`, so `nic_macs` (identity correlation)
+  is unchanged. The join is MAC first, then `deviceName`/`portNumber` ==
+  `Model`/`PortId`; a MAC two ports share, a `(Model, PortId)` two adapters
+  share, or a `deviceName` two `portMap` slots share is never guessed. Details and the fields deliberately not read (Oem `LinkStatus`,
+  every speed): `docs/hpe-collectors.md`, "NIC link state — `networkAdapters`".
+- **A port this run learned nothing about keeps its stored state; the
+  decision is per port, not per server.** A port the read did not join to an
+  `UP`/`DOWN` reading (a failed call, `InsufficientFirmware` on iLO 4, the
+  switch turned off, a stub adapter, an unrecognized `LinkStatus`) is sent
+  with `ProviderNic.link_state_read=False`; `IngestService` then takes that
+  port's stored state by MAC (by name only for a MAC-less port whose name is
+  stored once), `UNKNOWN` for a port never read, and lists
+  `network.interfaces.link_state` in `unread_fields`. Per port because the
+  code review found the per-server version flapped: one stub adapter on a
+  two-card bond turned its port `UNKNOWN`, `links_up_count` fell to 1 and
+  `single_link_up` fired CRITICAL for one run. A run whose links stay unread
+  writes nothing new (ADR-0044 skip-unchanged).
+- **A kept state is marked per interface and is never served to bmhgen.**
+  Each stored interface carries `link_state_kept` (true: this run could not
+  read it). The Network tab marks such a state "unconfirmed", and
+  `AvailableServerItem.interfaces[].link_state` (what bmhgen bonds on) serves
+  it as `UNKNOWN`: a reading the last run could not confirm is not a reading
+  to bond on (operator's call, 2026-11-26). The POST's live recheck reads
+  `/networkAdapters` too, so this applies only when that read also failed.
+- **The `network.all_unknown` exemption stays, with a narrower meaning**
+  (ADR-0027, 2026-11-26 update): a OneView server whose links are all
+  `UNKNOWN` is one that has never been read.
+
+**What an operator sees on rollout:** HP servers with real link faults (every
+link down, or exactly one up) turn CRITICAL on the first collector run with
+this version, one `HEALTH_CHANGED` event each — the same policies Dell and
+UCS servers have always had — and every HP server with NICs takes one
+revision bump as its real link states are written. iLO 4 servers are
+unchanged. Between upgrading server-scan and bumping the collectors chart
+(ADR-0060 does it by hand, after), a "Fetch now" or `/servers/available`
+recheck on an HP server writes real link states from the API pod and the
+still-old collector writes `UNKNOWN` back on its next run, so such a server
+can flip health once per run until the collectors are bumped; bump them
+promptly.

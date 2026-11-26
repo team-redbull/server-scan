@@ -7,7 +7,7 @@
     "column_fit": "spread",
     "viewBox": [
       1060,
-      850
+      888
     ],
     "views": [
       {
@@ -89,17 +89,17 @@
     },
     {
       "from": 314,
-      "to": 574,
+      "to": 612,
       "label": "Bulk enumeration + bounded fan-out + logout"
     },
     {
-      "from": 580,
-      "to": 650,
+      "from": 618,
+      "to": 688,
       "label": "BMC probe"
     },
     {
-      "from": 656,
-      "to": 766,
+      "from": 694,
+      "to": 804,
       "label": "Ingest"
     }
   ],
@@ -185,10 +185,18 @@
       "variant": "dashed"
     },
     {
-      "id": "logout",
+      "id": "nics",
       "from": "cronjob",
       "to": "oneview",
       "y": 560,
+      "label": "GET {hardware}/networkAdapters \u2014 the source of NIC link state, joined onto portMap by MAC",
+      "variant": "dashed"
+    },
+    {
+      "id": "logout",
+      "from": "cronjob",
+      "to": "oneview",
+      "y": 598,
       "label": "DELETE /rest/login-sessions, before any iLO probe or ingest (failure logged)",
       "variant": "security"
     },
@@ -196,7 +204,7 @@
       "id": "probe",
       "from": "cronjob",
       "to": "ilo",
-      "y": 598,
+      "y": 636,
       "label": "GET https://<iLO>/redfish/v1, unauthenticated (BmcProbedProvider)",
       "variant": "emphasis",
       "note": "one shared httpx client, batches of 64, 5 s; interleaved with ingest"
@@ -205,7 +213,7 @@
       "id": "probe-ok",
       "from": "ilo",
       "to": "cronjob",
-      "y": 636,
+      "y": 674,
       "label": "HTTP or TLS error = reachable; refused/timeout = unreachable, not PARTIAL",
       "variant": "return"
     },
@@ -213,7 +221,7 @@
       "id": "normalise",
       "from": "cronjob",
       "to": "ingest",
-      "y": 674,
+      "y": 712,
       "label": "ProviderServer per matched profile (server_from)",
       "variant": "emphasis"
     },
@@ -221,7 +229,7 @@
       "id": "upsert",
       "from": "ingest",
       "to": "mongo",
-      "y": 712,
+      "y": 750,
       "label": "classify + health + audit; changed: revision CAS, else touch_seen",
       "variant": "emphasis"
     },
@@ -229,7 +237,7 @@
       "id": "upsert-ok",
       "from": "mongo",
       "to": "ingest",
-      "y": 750,
+      "y": 788,
       "label": "IngestSummary (created / updated / errors)",
       "variant": "return"
     }
@@ -238,31 +246,31 @@
     {
       "participant": "cronjob",
       "from": 174,
-      "to": 756,
+      "to": 794,
       "type": "backend"
     },
     {
       "participant": "oneview",
       "from": 252,
-      "to": 568,
+      "to": 606,
       "type": "external"
     },
     {
       "participant": "ilo",
-      "from": 592,
-      "to": 642,
+      "from": 630,
+      "to": 680,
       "type": "external"
     },
     {
       "participant": "ingest",
-      "from": 668,
-      "to": 756,
+      "from": 706,
+      "to": 794,
       "type": "backend"
     },
     {
       "participant": "mongo",
-      "from": 706,
-      "to": 754,
+      "from": 744,
+      "to": 792,
       "type": "database"
     }
   ],
@@ -272,7 +280,7 @@
       "title": "One source for every HPE server",
       "items": [
         "OneView is the only HPE source whatever the iLO generation (4, 5 or 6): no BMC login, no per-generation branch; iLO is only probed for reachability (ADR-0022, ADR-0037)",
-        "What that costs on Gen10/Gen11 is written down, not worked around: cpu_threads only via /processors, GPU VRAM from the catalog",
+        "What that costs on Gen10/Gen11 is written down, not worked around: cpu_threads only via /processors, link state only via /networkAdapters, GPU VRAM from the catalog",
         "One appliance: for 821 servers about 33 hardware pages (25 each) and 3 profile pages (256 each), plus templates; the 2500-server ceiling is documented, not coded"
       ]
     },

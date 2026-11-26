@@ -13,19 +13,20 @@ docs/adr/0022-oneview-only-hpe-collector.md rather than worked around.
 summary, and `expand=all` folds each server's DIMMs, drives and PCI
 devices into that same response. So three paginated calls — profiles,
 profile templates, expanded hardware — cover everything except power
-supplies and, for some servers, processors.
+supplies, NIC link state and, for some servers, processors.
 
-Power supplies and processors are the two potentially-per-server calls,
-each tried the cheap way first (many servers' `expand=all` response
-already carries both — confirmed on a live appliance 2026-09-07). PSUs
+Power supplies, processors and network adapters are the three
+potentially-per-server calls, each tried the cheap way first (many servers' `expand=all` response
+already carries PSUs and processors — confirmed on a live appliance 2026-09-07). PSUs
 are worth it because `IngestService` had no provider populating `psus`
 before OneView shipped, while the health engine had carried
 `power.psu_count`/`power.failed_psu_count` the whole time. Processors are
 the only source for `cpu_threads` — `server-hardware`'s own fields carry
-`processorCount`/`processorCoreCount` but no thread count. Each fan-out
+`processorCount`/`processorCoreCount` but no thread count — and
+`/networkAdapters` the only source for NIC link state. Each fan-out
 is bounded by its own semaphore and can be switched off independently
-(`INVENTORY_ONEVIEW_COLLECT_PSUS`, `INVENTORY_ONEVIEW_COLLECT_CPU_THREADS`),
-because either one is the difference between ~15 requests and ~2500 for
+(`INVENTORY_ONEVIEW_COLLECT_PSUS`, `_COLLECT_CPU_THREADS`, `_COLLECT_NIC_LINKS`),
+because any one is the difference between ~15 requests and ~2500 for
 whatever fraction of the estate its bulk sweep didn't already cover.
 
 One appliance, one endpoint, exactly like every other vendor here — see
@@ -39,6 +40,7 @@ import asyncio
 import re
 from collections import Counter
 from collections.abc import AsyncGenerator, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -55,6 +57,7 @@ from app.infrastructure.providers.oneview.client import (
 )
 from app.infrastructure.providers.oneview.mapping import (
     DEVICES,
+    NETWORK_ADAPTERS,
     POWER_SUPPLIES,
     PROCESSORS,
     OneViewProfile,
@@ -93,12 +96,12 @@ async def _fetch_subresource(
     """
     Fetch one server's own per-server subresource collection, containing its failure.
 
-    Shared by `_power_supplies`, `_processors` and `get_one` (docs/hpe-collectors.md).
+    Shared by every `_Fanout`, in `_list_servers` and `get_one` (docs/hpe-collectors.md).
 
     Args:
         client (OneViewClient): The logged-in client.
         uri (str): The owning server-hardware URI.
-        resource (str): `"powerSupplies"` or `"processors"`.
+        resource (str): `"powerSupplies"`, `"processors"` or `"networkAdapters"`.
         failures (dict[str, str] | None): Filled with `uri -> cause` when the read fails.
 
     Returns:
@@ -133,6 +136,30 @@ _SERVER_PROFILE_TEMPLATES = "/rest/server-profile-templates"
 _SERVER_HARDWARE = "/rest/server-hardware"
 
 
+@dataclass(frozen=True, slots=True)
+class _Fanout:
+    """
+    One per-server subresource fan-out: what to read and how hard.
+
+    Attributes:
+        name (str): The subresource's name in the `expand=all` payload.
+        resource (str): The per-server path segment, e.g. `"powerSupplies"`.
+        enabled (bool): Whether to call per server for what the expanded payload lacked.
+        concurrency (int): How many of those calls run at once.
+        switch (str): The log key naming `enabled`.
+        source_event (str): The info event counting expanded vs per-server reads.
+        unreadable_event (str): The warning event aggregating failures.
+    """
+
+    name: str
+    resource: str
+    enabled: bool
+    concurrency: int
+    switch: str
+    source_event: str
+    unreadable_event: str
+
+
 class OneViewProvider(ServerInventoryProvider):
     """
     Collects one HPE OneView appliance's inventory.
@@ -154,6 +181,8 @@ class OneViewProvider(ServerInventoryProvider):
         psu_concurrency: int = 8,
         collect_cpu_threads: bool = True,
         cpu_threads_concurrency: int = 8,
+        collect_nic_links: bool = True,
+        nic_links_concurrency: int = 8,
         api_version: int = 0,
         verify_tls: bool = False,
         client_factory: Callable[[], OneViewClient] | None = None,
@@ -191,6 +220,11 @@ class OneViewProvider(ServerInventoryProvider):
                 for `psus`.
             cpu_threads_concurrency (int): How many of those calls run at
                 once.
+            collect_nic_links (bool): Whether to make the per-server
+                `/networkAdapters` call, the only source of NIC link state.
+                Off sends every server's link states as unread, so ingest
+                keeps the stored ones.
+            nic_links_concurrency (int): How many of those calls run at once.
             api_version (int): `X-Api-Version` override; `0` discovers
                 and clamps it.
             verify_tls (bool): Whether to verify the appliance's TLS
@@ -211,10 +245,35 @@ class OneViewProvider(ServerInventoryProvider):
         self._timeout_seconds = timeout_seconds
         self._pattern = re.compile(name_pattern) if name_pattern else None
         self._page_size = page_size
-        self._collect_psus = collect_psus
-        self._psu_concurrency = max(1, psu_concurrency)
-        self._collect_cpu_threads = collect_cpu_threads
-        self._cpu_threads_concurrency = max(1, cpu_threads_concurrency)
+        self._fanouts = (
+            _Fanout(
+                POWER_SUPPLIES,
+                "powerSupplies",
+                collect_psus,
+                max(1, psu_concurrency),
+                "collect_psus",
+                "oneview.power_supply_source",
+                "oneview.power_supplies_unreadable",
+            ),
+            _Fanout(
+                PROCESSORS,
+                "processors",
+                collect_cpu_threads,
+                max(1, cpu_threads_concurrency),
+                "collect_cpu_threads",
+                "oneview.processor_source",
+                "oneview.processors_unreadable",
+            ),
+            _Fanout(
+                NETWORK_ADAPTERS,
+                "networkAdapters",
+                collect_nic_links,
+                max(1, nic_links_concurrency),
+                "collect_nic_links",
+                "oneview.network_adapter_source",
+                "oneview.network_adapters_unreadable",
+            ),
+        )
         self._api_version = api_version
         self._verify_tls = verify_tls
         self._client_factory = client_factory or self._new_client
@@ -295,19 +354,18 @@ class OneViewProvider(ServerInventoryProvider):
             if profile is None:
                 return None
 
-            power_supplies = subresource_data(hardware, POWER_SUPPLIES)
-            if power_supplies is None and self._collect_psus:
-                power_supplies = await _fetch_subresource(client, hardware_uri, "powerSupplies")
-            processors = subresource_data(hardware, PROCESSORS)
-            if processors is None and self._collect_cpu_threads:
-                processors = await _fetch_subresource(client, hardware_uri, "processors")
+            rows = {
+                spec.name: (await self._subresources(client, [hardware], spec)).get(hardware_uri)
+                for spec in self._fanouts
+            }
 
         return server_from(
             hardware=hardware,
             profile=profile,
             manager_id=self._manager.id,
-            power_supplies=power_supplies,
-            processors=processors,
+            power_supplies=rows[POWER_SUPPLIES],
+            processors=rows[PROCESSORS],
+            network_adapters=rows[NETWORK_ADAPTERS],
         )
 
     @staticmethod
@@ -359,8 +417,10 @@ class OneViewProvider(ServerInventoryProvider):
                 _SERVER_HARDWARE, page_size=EXPANDED_PAGE_SIZE, params={"expand": "all"}
             )
             matched = self._matched(profiles=profiles, templates=templates, hardware=hardware)
-            power_supplies = await self._power_supplies(client, [member for member, _ in matched])
-            processors = await self._processors(client, [member for member, _ in matched])
+            members = [member for member, _ in matched]
+            rows = {
+                spec.name: await self._subresources(client, members, spec) for spec in self._fanouts
+            }
             # Truncation is PARTIAL — docs/hpe-collectors.md, "Pagination".
             for message in client.truncations:
                 self._record_error(message)
@@ -379,8 +439,9 @@ class OneViewProvider(ServerInventoryProvider):
                     hardware=member,
                     profile=profile,
                     manager_id=self._manager.id,
-                    power_supplies=power_supplies.get(uri),
-                    processors=processors.get(uri),
+                    power_supplies=rows[POWER_SUPPLIES].get(uri),
+                    processors=rows[PROCESSORS].get(uri),
+                    network_adapters=rows[NETWORK_ADAPTERS].get(uri),
                 )
             except Exception as exc:
                 stub = self._contain_server_failure(
@@ -503,50 +564,50 @@ class OneViewProvider(ServerInventoryProvider):
             )
         return matched
 
-    async def _power_supplies(
-        self, client: OneViewClient, hardware: list[dict[str, Any]]
+    async def _subresources(
+        self, client: OneViewClient, hardware: list[dict[str, Any]], spec: _Fanout
     ) -> dict[str, list[dict[str, Any]]]:
         """
-        Collect each matched server's power supplies, the cheap way first.
+        Collect one subresource for each matched server, the cheap way first.
 
-        The expanded payload where it carried them, a bounded per-server
-        call for the rest (docs/hpe-collectors.md, "Power supplies").
+        The expanded payload where it carried them, a bounded per-server call for the rest
+        (docs/hpe-collectors.md, "Power supplies"); one failed server never fails the others.
 
         Args:
             client (OneViewClient): The logged-in client.
             hardware (list[dict[str, Any]]): The matched members.
+            spec (_Fanout): Which subresource, whether to call per server, and how many at once.
 
         Returns:
-            dict[str, list[dict[str, Any]]]: Server-hardware URI -> its
-                `PowerSupplies` rows. A URI absent from this map is
-                reported as unread, never as no power supplies.
+            dict[str, list[dict[str, Any]]]: Server-hardware URI -> its rows. A URI absent from
+                this map is reported as unread, never as empty.
         """
         collected: dict[str, list[dict[str, Any]]] = {}
         to_fetch: list[str] = []
         for member in hardware:
             uri = str(member.get("uri") or "")
-            rows = subresource_data(member, POWER_SUPPLIES)
+            rows = subresource_data(member, spec.name)
             if rows is None:
                 to_fetch.append(uri)
             else:
                 collected[uri] = rows
 
         logger.info(
-            "oneview.power_supply_source",
+            spec.source_event,
             endpoint=self._endpoint,
             from_expand=len(collected),
-            per_server_calls=len(to_fetch) if self._collect_psus else 0,
-            collect_psus=self._collect_psus,
+            per_server_calls=len(to_fetch) if spec.enabled else 0,
+            **{spec.switch: spec.enabled},
         )
-        if not self._collect_psus or not to_fetch:
+        if not spec.enabled or not to_fetch:
             return collected
 
-        semaphore = asyncio.Semaphore(self._psu_concurrency)
+        semaphore = asyncio.Semaphore(spec.concurrency)
         cause: dict[str, str] = {}
 
         async def fetch(uri: str) -> tuple[str, list[dict[str, Any]] | None]:
             async with semaphore:
-                return uri, await _fetch_subresource(client, uri, "powerSupplies", cause)
+                return uri, await _fetch_subresource(client, uri, spec.resource, cause)
 
         results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)
         for result in results:
@@ -558,71 +619,7 @@ class OneViewProvider(ServerInventoryProvider):
                 collected[uri] = rows
         if cause:
             logger.warning(
-                "oneview.power_supplies_unreadable",
-                endpoint=self._endpoint,
-                servers=len(cause),
-                of=len(to_fetch),
-                causes=dict(Counter(cause.values())),
-                sample_uris=_sample(cause),
-            )
-        return collected
-
-    async def _processors(
-        self, client: OneViewClient, hardware: list[dict[str, Any]]
-    ) -> dict[str, list[dict[str, Any]]]:
-        """
-        Collect each matched server's processors, the cheap way first.
-
-        Same shape as `_power_supplies`; `cpu_threads`' only source
-        (docs/hpe-collectors.md, "CPU threads").
-
-        Args:
-            client (OneViewClient): The logged-in client.
-            hardware (list[dict[str, Any]]): The matched members.
-
-        Returns:
-            dict[str, list[dict[str, Any]]]: Server-hardware URI -> its
-                `Processors` rows. A URI absent from this map is reported
-                as unread, never as zero threads.
-        """
-        collected: dict[str, list[dict[str, Any]]] = {}
-        to_fetch: list[str] = []
-        for member in hardware:
-            uri = str(member.get("uri") or "")
-            rows = subresource_data(member, PROCESSORS)
-            if rows is None:
-                to_fetch.append(uri)
-            else:
-                collected[uri] = rows
-
-        logger.info(
-            "oneview.processor_source",
-            endpoint=self._endpoint,
-            from_expand=len(collected),
-            per_server_calls=len(to_fetch) if self._collect_cpu_threads else 0,
-            collect_cpu_threads=self._collect_cpu_threads,
-        )
-        if not self._collect_cpu_threads or not to_fetch:
-            return collected
-
-        semaphore = asyncio.Semaphore(self._cpu_threads_concurrency)
-        cause: dict[str, str] = {}
-
-        async def fetch(uri: str) -> tuple[str, list[dict[str, Any]] | None]:
-            async with semaphore:
-                return uri, await _fetch_subresource(client, uri, "processors", cause)
-
-        results = await asyncio.gather(*(fetch(uri) for uri in to_fetch), return_exceptions=True)
-        for result in results:
-            if isinstance(result, BaseException):
-                cause[f"<gather {len(cause)}>"] = type(result).__name__
-                continue
-            uri, rows = result
-            if rows is not None:
-                collected[uri] = rows
-        if cause:
-            logger.warning(
-                "oneview.processors_unreadable",
+                spec.unreadable_event,
                 endpoint=self._endpoint,
                 servers=len(cause),
                 of=len(to_fetch),

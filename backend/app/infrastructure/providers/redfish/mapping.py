@@ -916,6 +916,21 @@ _LINK_STATUS = {
 }
 
 
+def link_state_of(status: object) -> str:
+    """
+    One port's Redfish `LinkStatus`, in the platform's UP/DOWN/UNKNOWN vocabulary.
+
+    Public because `..oneview.mapping` reuses it for `networkAdapters` ports.
+
+    Args:
+        status (object): The raw `LinkStatus` value, or `None` when absent.
+
+    Returns:
+        str: `"UP"`, `"DOWN"` or `"UNKNOWN"` for anything else.
+    """
+    return _LINK_STATUS.get(str(status or ""), "UNKNOWN")
+
+
 # `Psu.health` vocabulary, never `HealthSeverity` — ADR-0016, 2026-09-13 update.
 _PSU_STATE = {
     "Enabled": "UP",
@@ -1079,7 +1094,7 @@ def nics_from_interfaces(interfaces: list[dict[str, Any]] | None) -> tuple[Provi
                 speed_mbps=(
                     speed if isinstance(speed, int) and not isinstance(speed, bool) else None
                 ),
-                link_state=_LINK_STATUS.get(str(interface.get("LinkStatus") or ""), "UNKNOWN"),
+                link_state=link_state_of(interface.get("LinkStatus")),
                 location=identifier or None,
             )
         )
