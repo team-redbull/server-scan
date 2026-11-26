@@ -215,8 +215,11 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   `/events/actors` and `/servers/{id}/events`; `AUDITOR` is read-only plus that. The SPA
   mirrors it with `useCanReadAudit()` (nav link, `AuditGate` on `/events`, the History tab).
   **Every authenticated login is on that trail** (ADR-0047): `LOGIN_SUCCEEDED` with the resolved
-  role, `LOGIN_DENIED` for a valid AD account in no list (`NO_PERMISSION`); a wrong password writes
-  nothing, and the best-effort write never blocks the login.
+  role, `LOGIN_DENIED` for a valid AD account in no list (`NO_PERMISSION`) or on the blocked list
+  (`BLOCKED`); a wrong password writes nothing, and the best-effort write never blocks the login.
+  **`INVENTORY_BLOCKED_USERS`** (ADR-0072, `auth_service.blocked_usernames`, live file first) is checked
+  after the bind and before every list; `get_current_actor` and `/auth/me` also refuse a blocked user's
+  session or personal token, so blocking takes effect on the next request.
 - **The session is a stateless, HMAC-signed cookie** (`app.domain.services.
   session`), the same scheme `app.domain.services.cursor` already uses for
   pagination cursors, with its own secret. Chosen over a Redis-backed
@@ -529,6 +532,9 @@ documents. `--epoch auto` is `floor(unix_time / 21600) % 8`.
   — the tie-break `classify()`'s `_sort_key` applies after priority and
   specificity — is the only thing keeping a hosted-cluster or MCE name
   from being swallowed by UPI, whose own pattern would claim it too.
+  **2026-11-26 (operator's call):** MCE's pattern is `-(mce|seed)-` (an MCE hub's nodes and seed hosts,
+  dashes required) and its rule moved to order 1, ahead of the `^ocp-` hosted-cluster rule (now 2), so
+  `ocp-mce-...` is MCE; `^ocp4-hypershift` stays 0. Bootstrap re-syncs the stored rules on the next start.
   Reordering them is a behaviour change. All four are `system=True`
   (enabled-only edits) because they encode a fleet-wide naming
   convention, not a per-vendor preference; a vendor-scoped rule is what
@@ -937,13 +943,14 @@ on demand, for "I edited a rule/policy, show me the effect on this server
 now" without waiting for the next ingest cycle. `app.application.services.
 bootstrap` seeds the platform spec's own acceptance-scenario rules and
 policies (four `InstallationType` system defaults — `^ocp4-hypershift`
-and `^ocp-` prefixes for `HOSTED_CLUSTER`, an `mce` substring for `MCE`,
+and `^ocp-` prefixes for `HOSTED_CLUSTER`, `-(mce|seed)-` for `MCE` (between the two since 2026-11-26),
 and an unconditional `.*` catch-all for `UPI` (2026-09-10 — used to be
-`^ocp4`), checked in that order — Dell vendor overrides, the Cisco
+`^ocp4`), checked hypershift, MCE, `^ocp-`, UPI — Dell vendor overrides, the Cisco
 one-path-down/two-paths-down fabric policies)
-idempotently at startup — "seed only if missing, by name" specifically so
-an admin's edit to a system default's `enabled` flag survives every
-restart rather than being silently re-armed. See "Classification
+idempotently at startup, by name: a missing default is seeded and a drifted one
+(pattern, order, ...) is rewritten in place, keeping only the admin-owned `enabled`
+flag, so it survives every restart rather than being silently re-armed (this said
+"seed only if missing" until 2026-11-26, already wrong since the re-sync landed). See "Classification
 engine" above for why the patterns are broad, overlapping catch-alls
 rather than mutually exclusive by construction, and why that makes
 `order` load-bearing.
@@ -2025,7 +2032,7 @@ the UI from today's date (`withWarrantyStatus`, window `INVENTORY_WARRANTY_EXPIR
 
 `tools.rename_fleet` (CronJob `rename-fleet`, every 5 minutes) reads free (`AVAILABLE`), reachable,
 out-of-maintenance Dell and Cisco servers (`MongoServerRepository.rename_candidates`), then skips in Python, counting
-each: a name already matching `app.domain.value_objects.fleet_name`, a collector the renamer does not manage (only
+each: a name containing an excluded string (`INVENTORY_RENAMER_SKIP_NAME_CONTAINS`, default `-mce-,-seed-`), a name already matching `app.domain.value_objects.fleet_name`, a collector the renamer does not manage (only
 `OPENMANAGE` and `UCS_CENTRAL`/`UCS_MANAGER`), a live reservation, a Dell without an IP BMC host, a server in
 cooldown, and anything past `maxPerRun`. It calls the renamer's batch routes through
 `app.infrastructure.renamer.client` (HTTP Basic, `chunkSize` per request; a connect failure is retried twice, a read timeout never, as the renamer may have acted)

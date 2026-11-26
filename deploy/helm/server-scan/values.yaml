@@ -546,6 +546,12 @@ auth:
   # view (docs/adr/0043). A viewer sees everything else but not the audit trail.
   auditorGroups: ""
   auditorUsers: ""
+  # Comma-separated usernames refused even when a list or group above admits them, e.g.
+  # "user1,user2". Checked after the password, so a blocked user's wrong password is still
+  # "wrong password". Their open sessions and personal API token stop working too. An edit
+  # takes effect with no pod restart once kubelet syncs the mounted file (typically within a
+  # minute). Static apiTokens below are not blocked by it; rotate one a blocked person knows.
+  blockedUsers: ""
 
   # Signs the login session cookie. Blank keeps the backend's own
   # committed dev-insecure default, which it refuses to start with once
@@ -610,7 +616,8 @@ warranty:
 
 # The fleet rename sweep (ADR-0071): every 5 minutes, free (AVAILABLE, not in maintenance, not
 # reserved, reachable) Dell servers from OpenManage and Cisco servers from UCS Central whose name is
-# not ocp-c<conf_id><marker>-mtl-<site>-<serial> are sent to the renamer service, which picks the name.
+# not ocp-c<conf_id><marker>-mtl-<site>-<serial> and contains none of job.skipNameContains are sent to
+# the renamer service, which picks the name.
 # Renders only when url is set and either username and password, or existingSecret, are. Report-only (the
 # renamer's dry_run) until reportOnly: false; every answer is a RENAME_REQUESTED audit event.
 renamer:
@@ -635,6 +642,8 @@ renamer:
     # A server the renamer answered (renamed, dry run, no conf, failed) is not sent again for this long.
     cooldownHours: 24
     maxPerRun: 50
+    # A server whose name contains any of these (comma-separated, any case) is never sent.
+    skipNameContains: "-mce-,-seed-"
     chunkSize: 5
     # No new chunk is sent after this many seconds; one chunk can take up to 310 s, so keep
     # runBudgetSeconds + 310 under activeDeadlineSeconds.

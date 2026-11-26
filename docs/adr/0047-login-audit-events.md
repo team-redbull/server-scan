@@ -19,6 +19,7 @@ metric. The operator asked to see every login, whatever its outcome, with the ro
 |---|---|---|---|
 | `LOGIN_SUCCEEDED` | credentials valid, role resolved | `ADMIN` / `AUDITOR` / `VIEWER` | `{"user": "<username>", "role": "<role>"}` |
 | `LOGIN_DENIED` | credentials valid, listed in no admin/auditor/viewer list (the 403) | `null` | `{"user": "<username>", "role": "NO_PERMISSION"}` |
+| `LOGIN_DENIED` | credentials valid, on `INVENTORY_BLOCKED_USERS` (the 403, added 2026-11-26, ADR-0072) | `null` | `{"user": "<username>", "role": "BLOCKED"}` |
 
 The actor is the normalised username (`USER`), repeated as `data.user` so the event's details show who and which role at a glance. The events carry no server, so they appear on the Events
 page (filter "LOGIN_SUCCEEDED" / "LOGIN_DENIED") and not in a server's History tab; like the rest of the

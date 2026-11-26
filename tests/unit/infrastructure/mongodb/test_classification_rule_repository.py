@@ -88,12 +88,16 @@ def test_hosted_cluster_hostnames_classify_as_hosted_cluster(name: str) -> None:
         "ocp4-mce-nyc-07",
         "ocp4-prod-mce-tlv-03",
         "OCP4-MCE-FIVE-01",  # ignore_case is the shared default for every rule
+        # 2026-11-26: "-seed-" too, and MCE now sorts ahead of the "ocp-" hosted-cluster rule.
+        "ocp4-seed-tlv-01",
+        "lab-SEED-02",
+        "ocp-mce-hub-01",
+        "ocp-seed-host-03",
     ],
 )
 def test_mce_hostnames_classify_as_mce(name: str) -> None:
-    """Every one of these also textually matches UPI's `ocp4` catch-all —
-    MCE's rule sorts ahead of it (order=2 vs. UPI's order=3), so an MCE
-    hub's own nodes are pulled out of the generic UPI bucket.
+    """Any name containing `-mce-` or `-seed-`: MCE sorts ahead of the `ocp-` hosted-cluster
+    rule (order 1 vs. 2) and UPI's catch-all (order 3).
     """
     assert _classify(name) == InstallationType.MCE
 
@@ -121,6 +125,23 @@ def test_upi_hostnames_classify_as_upi(name: str) -> None:
     assert _classify(name) == InstallationType.UPI
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("ocp4mce-01", InstallationType.UPI),
+        ("mce-hub-01", InstallationType.UPI),
+        ("ocp4-seeds-01", InstallationType.UPI),
+        ("ocp-c200-mtl-tlv-4b184et", InstallationType.HOSTED_CLUSTER),
+        ("ocp4-hypershift-mce-01", InstallationType.HOSTED_CLUSTER),
+    ],
+)
+def test_mce_needs_the_dashes_and_hypershift_still_wins(
+    name: str, expected: InstallationType
+) -> None:
+    """`mce`/`seed` without a dash on both sides is not MCE; a hypershift name stays first."""
+    assert _classify(name) == expected
+
+
 def test_nothing_classifies_as_unclassified_any_more() -> None:
     """UPI's pattern matches every string, `""` included, so under the
     system defaults `InstallationType.UNCLASSIFIED` is now unreachable.
@@ -131,7 +152,7 @@ def test_nothing_classifies_as_unclassified_any_more() -> None:
 
 def test_hosted_cluster_and_mce_outrank_the_upi_catch_all() -> None:
     """UPI matches every hostname (deliberate, 2026-09-10); `order` keeps the
-    specific rules winning — HOSTED_CLUSTER (0-1) and MCE (2) sort ahead of
+    specific rules winning — HOSTED_CLUSTER (0, 2) and MCE (1) sort ahead of
     UPI (3), so first-match-wins never reaches UPI for these names.
     """
     names_and_expected = [

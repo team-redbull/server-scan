@@ -10,7 +10,9 @@ function errorMessage(error: unknown): string {
       case 401:
         return "Wrong username or password.";
       case 403:
-        return "Your account has no permission for this app.";
+        return error.problem.detail.includes("blocked")
+          ? "Your account is blocked from this app."
+          : "Your account has no permission for this app.";
       case 503:
         return "The directory is unreachable right now — try again.";
       default:

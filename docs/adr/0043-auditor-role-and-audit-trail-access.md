@@ -26,7 +26,7 @@ srv-12" from the events endpoints, and should not hold an admin token to do it.
   (`INVENTORY_API_TOKEN_AUDITOR`) for the skill.
 - **Order of precedence: admin, then auditor, then viewer**, a user's own list before its groups. A user in
   several lists gets the most privileged role, as before. `require_admin` is unchanged, so an auditor cannot
-  write.
+  write. (2026-11-26: ADR-0072's blocked list is checked before all of these.)
 - **The three API tokens must differ.** `Settings` refuses to start if two are equal, because the first one
   checked (admin) would otherwise silently win for both holders.
 - **Frontend:** `useCanReadAudit()` (admin or auditor) hides the Events nav link, replaces the `/events` route

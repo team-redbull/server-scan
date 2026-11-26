@@ -16,7 +16,9 @@ which servers are free, so it decides *who* is sent; it never builds a name.
   (`renamer.*`, operator's choice: like `nodes-status`, not nightly). `concurrencyPolicy: Forbid`,
   `backoffLimit: 0` (the next run is the retry), triggerable from the Jobs page.
 - **Candidates:** `identity.vendor` dell or cisco, `openshift.lifecycle_state` `AVAILABLE`, not in
-  maintenance, `reachable`, and then in Python (each skip is counted): name not already matching
+  maintenance, `reachable`, and then in Python (each skip is counted): name not containing an excluded
+  string (`renamer.job.skipNameContains`, default `-mce-,-seed-`, any case: MCE hubs and seed hosts keep their
+  names, operator's call 2026-11-26), name not already matching
   `^ocp-c[0-9]+(\.[0-9]+)?[dn]?-mtl-[a-z0-9]+-[a-z0-9]+$` (`app.domain.value_objects.fleet_name`, kept in
   sync with the renamer), collected by a collector the renamer manages (Dell `OPENMANAGE`, Cisco
   `UCS_CENTRAL`/`UCS_MANAGER`; Intersight and Redfish standalone would only 404), no live reservation (a
@@ -25,7 +27,8 @@ which servers are free, so it decides *who* is sent; it never builds a name.
   300 s route limit; a Cisco rename takes up to ~40 s), **at most `maxPerRun` servers per run** (default 50,
   the blast radius of one run; the rest wait for the next run 5 minutes later). No new chunk starts after
   `runBudgetSeconds` (540) so a run ends inside `activeDeadlineSeconds` (900).
-- **Each chunk is re-read just before it is sent** (still free, reachable, out of maintenance, unreserved);
+- **Each chunk is re-read just before it is sent** (still free, reachable, out of maintenance, unreserved, and not
+  renamed since to an excluded or in-convention name);
   a server that changed since selection is dropped. A reservation taken *during* the chunk's request is not
   seen: the window is one request, not the whole run.
 - **Each chunk is audited as soon as it returns**, so a run killed later keeps the earlier answers' cooldown.

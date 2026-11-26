@@ -204,6 +204,9 @@ describe("describeEvent", () => {
     ).toBe(
       "Login refused: authenticated, but in no admin, auditor or viewer list",
     );
+    expect(describeEvent({ ...ev("LOGIN_DENIED"), data: { role: "BLOCKED" } })).toBe(
+      "Login refused: the user is on the blocked list",
+    );
   });
 
   it("describes creating and revoking a personal token", () => {

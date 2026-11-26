@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoginPage } from "@/features/auth/LoginPage";
 
-function jsonErrorResponse(status: number, code: string) {
+function jsonErrorResponse(
+  status: number,
+  code: string,
+  detail = "irrelevant — the page maps by status code",
+) {
   return Promise.resolve({
     ok: false,
     status,
@@ -13,7 +17,7 @@ function jsonErrorResponse(status: number, code: string) {
         type: `/problems/${code.toLowerCase()}`,
         title: code,
         status,
-        detail: "irrelevant — the page maps by status code",
+        detail,
         instance: "/api/v1/auth/login",
         code,
         request_id: null,
@@ -57,6 +61,26 @@ describe("LoginPage", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(message);
+    });
+  });
+
+  it("tells a blocked user they are blocked (403 with the blocked detail)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(() =>
+          jsonErrorResponse(403, "FORBIDDEN", "Your account is blocked from this app."),
+        ),
+    );
+    renderLoginPage();
+
+    await submit("jdoe", "right");
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Your account is blocked from this app.",
+      );
     });
   });
 

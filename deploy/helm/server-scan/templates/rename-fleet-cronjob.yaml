@@ -75,6 +75,8 @@ spec:
                   value: {{ $j.cooldownHours | default 24 | quote }}
                 - name: INVENTORY_RENAMER_MAX_PER_RUN
                   value: {{ $j.maxPerRun | default 50 | quote }}
+                - name: INVENTORY_RENAMER_SKIP_NAME_CONTAINS
+                  value: {{ ternary $j.skipNameContains "-mce-,-seed-" (hasKey $j "skipNameContains") | quote }}
                 - name: INVENTORY_RENAMER_CHUNK_SIZE
                   value: {{ $j.chunkSize | default 5 | quote }}
               envFrom:

@@ -37,6 +37,7 @@ from app.domain.models.server import Identity, Server
 from app.domain.services.authz import LoginResult
 from app.domain.services.normalize import normalize_text
 from app.domain.services.search_tokens import build_search_tokens
+from app.domain.services.session import encode_session
 from app.errors import ServiceUnavailableError
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
@@ -167,6 +168,64 @@ class TestMeWithAuthEnabled:
             resp = await client.get("/api/v1/servers")
             assert resp.status_code == 401
             assert resp.json()["code"] == "UNAUTHORIZED"
+
+
+class TestBlockedUsers:
+    """`INVENTORY_BLOCKED_USERS` refuses a login and every later request of that user."""
+
+    async def test_a_blocked_login_is_403_and_recorded(self) -> None:
+        app = _auth_enabled_app(LoginResult.BLOCKED)
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            mongo: MongoClientHolder = app.state.mongo
+            await mongo.db["audit_events"].delete_many({"actor.id": "blocked.login"})
+            resp = await client.post(
+                "/api/v1/auth/login", json={"username": "Blocked.Login", "password": "x"}
+            )
+            docs = await mongo.db["audit_events"].find({"actor.id": "blocked.login"}).to_list(10)
+            await mongo.db["audit_events"].delete_many({"actor.id": "blocked.login"})
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Your account is blocked from this app."
+        assert "server_scan_session" not in resp.cookies
+        assert [d["event_type"] for d in docs] == ["LOGIN_DENIED"]
+        assert docs[0]["data"] == {"user": "blocked.login", "role": "BLOCKED"}
+
+    async def test_an_existing_session_stops_working_once_blocked(self) -> None:
+        """Logged in before being blocked: the next request is 401 and /me says logged out."""
+        session = encode_session(
+            username="later.blocked",
+            role=Role.ADMIN,
+            secret=get_settings().session_secret,
+            ttl_seconds=600,
+        )
+        app = _auth_enabled_app(Role.ADMIN, blocked_users="someone,Later.Blocked")
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            client.cookies.set("server_scan_session", session)
+            servers = await client.get("/api/v1/servers")
+            me = (await client.get("/api/v1/auth/me")).json()
+        assert servers.status_code == 401
+        assert me["authenticated"] is False
+
+    async def test_an_unblocked_session_still_works(self) -> None:
+        session = encode_session(
+            username="fine.user",
+            role=Role.VIEWER,
+            secret=get_settings().session_secret,
+            ttl_seconds=600,
+        )
+        app = _auth_enabled_app(Role.ADMIN, blocked_users="someone")
+        async with (
+            AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+            app.router.lifespan_context(app),
+        ):
+            client.cookies.set("server_scan_session", session)
+            resp = await client.get("/api/v1/auth/me")
+        assert resp.json()["authenticated"] is True
 
 
 class TestLoginThrottle:

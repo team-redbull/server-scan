@@ -187,7 +187,9 @@ export function describeEvent(event: AuditEventResponse): string {
     case "LOGIN_SUCCEEDED":
       return `Logged in as ${str(d.role)?.toLowerCase() ?? "?"}`;
     case "LOGIN_DENIED":
-      return "Login refused: authenticated, but in no admin, auditor or viewer list";
+      return str(d.role) === "BLOCKED"
+        ? "Login refused: the user is on the blocked list"
+        : "Login refused: authenticated, but in no admin, auditor or viewer list";
     case "TOKEN_CREATED":
       return `Created a personal API token (${str(d.role)?.toLowerCase() ?? "?"}, expires ${str(d.expires_at)?.slice(0, 10) ?? "?"})`;
     case "TOKEN_REVOKED":

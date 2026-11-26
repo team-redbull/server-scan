@@ -423,7 +423,7 @@
     { "id": 113, "type": "row", "title": "Login and external calls", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 111 }, "collapsed": false, "panels": [] },
     {
       "id": 114, "type": "timeseries", "title": "Logins by outcome",
-      "description": "server_scan:auth_logins:rate5m — success, wrong_password, no_permission, throttled, unavailable (LDAP or the AD API failed), error.",
+      "description": "server_scan:auth_logins:rate5m — success, wrong_password, no_permission, blocked (on auth.blockedUsers), throttled, unavailable (LDAP or the AD API failed), error.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 112 },
       "targets": [{ "expr": "max without (prometheus, prometheus_replica) (server_scan:auth_logins:rate5m{namespace=~\"$namespace\"})", "legendFormat": "{{outcome}}", "refId": "A" }],
@@ -471,7 +471,7 @@
     },
     {
       "id": 134, "type": "bargauge", "title": "Logins by outcome (last 24h)",
-      "description": "auth_logins_total over 24 hours, per outcome: success, wrong_password, no_permission (valid login but the account is in no admin, auditor or viewer list), throttled, unavailable (LDAP, the AD API or the login deadline failed) and error. A rare outcome is invisible as a per-second rate; this counts it. Every outcome starts at 0 when the API starts, so a missing bar means that pod has not been scraped yet.",
+      "description": "auth_logins_total over 24 hours, per outcome: success, wrong_password, blocked (on auth.blockedUsers), no_permission (valid login but the account is in no admin, auditor or viewer list), throttled, unavailable (LDAP, the AD API or the login deadline failed) and error. A rare outcome is invisible as a per-second rate; this counts it. Every outcome starts at 0 when the API starts, so a missing bar means that pod has not been scraped yet.",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 6, "w": 24, "x": 0, "y": 128 },
       "targets": [{ "expr": "sum by (outcome) (max without (prometheus, prometheus_replica) (increase(auth_logins_total{namespace=~\"$namespace\"}[24h])))", "legendFormat": "{{outcome}}", "refId": "A", "instant": true }],

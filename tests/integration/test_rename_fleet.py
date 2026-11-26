@@ -120,7 +120,12 @@ async def _seed(mongo: MongoClientHolder) -> None:
 
 
 async def _sweep(
-    mongo: MongoClientHolder, renamer: _Renamer, *, dry_run: bool, max_per_run: int = 50
+    mongo: MongoClientHolder,
+    renamer: _Renamer,
+    *,
+    dry_run: bool,
+    max_per_run: int = 50,
+    skip: frozenset[str] = frozenset(),
 ) -> Any:
     client = _client(renamer)
     try:
@@ -131,6 +136,7 @@ async def _sweep(
             dry_run=dry_run,
             cooldown=timedelta(hours=24),
             max_per_run=max_per_run,
+            skip_name_contains=skip,
         )
     finally:
         await client.close()
@@ -291,3 +297,48 @@ async def test_a_server_reserved_after_selection_is_dropped_before_sending(
     kept = await _still_eligible(repo, candidates, summary)
     assert [c.server_id for c in kept] == ["free"]
     assert summary.dropped_on_recheck == 2
+
+
+async def test_a_server_renamed_after_selection_is_dropped_before_sending(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A collector renaming a selected server to an excluded or in-convention name drops it."""
+    await mongo_holder.db["servers"].insert_many([_doc("free"), _doc("mce"), _doc("done")])
+    await mongo_holder.db["servers"].update_one(
+        {"_id": "mce"}, {"$set": {"name": "ocp-MCE-hub-01"}}
+    )
+    await mongo_holder.db["servers"].update_one(
+        {"_id": "done"}, {"$set": {"name": "ocp-c12-mtl-tlv-abc123"}}
+    )
+    candidates = [
+        Candidate(i, f"old-{i}", "dell", "10.0.0.1", None, None) for i in ("free", "mce", "done")
+    ]
+    summary = SweepSummary()
+    repo = MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret")
+    kept = await _still_eligible(repo, candidates, summary, frozenset({"-mce-", "-seed-"}))
+    assert [c.server_id for c in kept] == ["free"]
+    assert summary.dropped_on_recheck == 2
+
+
+async def test_a_name_with_an_excluded_string_is_never_sent(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """`-mce-` and `-seed-` keep a server out whatever its case; nothing is audited for it."""
+    await mongo_holder.db["servers"].insert_many(
+        [
+            _doc("a", name="ocp-mce-hub-01"),
+            _doc("bb", name="lab-SEED-02"),
+            _doc("ccc", name="plain-server"),
+        ]
+    )
+    renamer = _Renamer()
+    summary = await _sweep(mongo_holder, renamer, dry_run=True, skip=frozenset({"-mce-", "-seed-"}))
+    assert renamer.bodies == [
+        ("/servers/dell/rename-batch", {"idrac_ips": ["10.0.0.3"], "dry_run": True})
+    ]
+    assert summary.skipped_excluded_name == 2
+    assert summary.examples["skipped_excluded_name"] == ["lab-SEED-02", "ocp-mce-hub-01"]
+    assert (
+        await mongo_holder.db["audit_events"].count_documents({"server_id": {"$in": ["a", "bb"]}})
+        == 0
+    )

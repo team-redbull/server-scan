@@ -253,7 +253,8 @@ server only when its warranty changed, and is on the Jobs page ("Run job" recove
 
 Every 5 minutes `<release>-rename-fleet` sends free (`AVAILABLE`, not in maintenance, not reserved, reachable)
 Dell servers from OpenManage (by iDRAC IP) and Cisco servers from UCS Central (by service-profile name) whose
-name is not `ocp-c<conf_id><marker>-mtl-<site>-<serial>` to the renamer service, which matches the hardware to
+name is not `ocp-c<conf_id><marker>-mtl-<site>-<serial>` and contains none of `renamer.job.skipNameContains`
+(default `-mce-,-seed-`, re-checked just before each chunk is sent) to the renamer service, which matches the hardware to
 a conf and picks the name. Renders only when `url` and credentials (username and password, or
 `existingSecret`) are set. The job runs with `INVENTORY_AUTH_ENABLED=false`, so no AD settings reach it:
 
@@ -277,6 +278,7 @@ renamer:
     reportOnly: true                 # the renamer's dry_run; set false for real renames
     cooldownHours: 24                # an answered server is not sent again for this long
     maxPerRun: 50                    # servers sent per run; the rest wait for the next run
+    skipNameContains: "-mce-,-seed-" # a name containing any of these (any case) is never sent
     chunkSize: 5                     # servers per HTTP request (the renamer's route limit is 300 s)
     runBudgetSeconds: 540            # no new chunk after this; one chunk can take up to 310 s
     backoffLimit: 0
@@ -289,7 +291,7 @@ Each answered server gets a `RENAME_REQUESTED` event (Events page) with the outc
 collector run (`SERVER_RENAMED`). A timed-out request is `failed`, never re-sent (the renamer may have acted); a
 renamer that is down or a server its answer left out writes no event and is retried 5 minutes later. **Do not roll
 the API back past this release once the job has run**: an older API cannot decode `RENAME_REQUESTED`. **Debugging** (Jobs page → `rename-fleet` → a run's log, or `oc logs job/<job>`), one line each, in order:
-`rename_fleet.started` (dry run, URL, TLS, chunk size, cap, cooldown, budget) → `rename_fleet.selected` (every
+`rename_fleet.started` (dry run, URL, TLS, chunk size, cap, cooldown, budget, skip list) → `rename_fleet.selected` (every
 count, why each skipped server was skipped, and `to_send`: name and the iDRAC IP or profile sent) →
 `renamer.request` / `renamer.batch` (one HTTP call: identities, status code, seconds) → `rename_fleet.server`
 (one per server: `outcome`, `name_to`, `conf_id`, `error`, `nearest_confs`; a warning when not renamed) →
@@ -981,6 +983,12 @@ or every login resolves to "no permission". **Three roles (ADR-0043):** admin do
 everything; auditor is read-only *plus* the audit trail (the Events page, a server's
 History tab and the `/events` endpoints); viewer is read-only without the audit trail
 (a viewer gets 403 there). A user in several lists gets the most privileged role.
+**`auth.blockedUsers: "user1,user2"`** (ADR-0072) refuses those users whatever list or group admits
+them: login answers 403 "blocked" (after the password check, so a wrong password stays a wrong password,
+recorded as `LOGIN_DENIED` with role `BLOCKED`), and an open session or personal API token of theirs gets
+401. Live-mounted like the lists above: an edit applies with no pod restart, once kubelet syncs the volume
+(typically within a minute). Write bare usernames; a `DOMAIN\user` or `user@domain` entry is reduced to `user`.
+The static `auth.apiTokens.*` are not usernames and are not blocked: rotate them if a blocked person knows one.
 `auth.apiTokens.admin`/`.auditor`/`.viewer` are static bearer tokens for
 a machine caller (the BMH generator; the `server-scan-api` skill uses the auditor one)
 that can't do an interactive login — leave blank to disable each independently of AD
@@ -1130,10 +1138,11 @@ the settings module's comments) because each cost a session:
   symlink swap), never the env vars a Deployment already read at
   container start. `backend-deployment.yaml` now also mounts the same
   `<release>-api-config` ConfigMap as a volume at `/etc/server-scan/
-  config` and points four `INVENTORY_*_FILE` env vars at it;
-  `AuthService._list` (docs/adr/0034) reads the file fresh on every login
-  instead of the static env-sourced field, so a `helm upgrade` alone
-  (no restart) is enough for the very next login to see the change.
-  Scoped to just these four values — connection settings (`ldap.*`/
+  config` and points seven `INVENTORY_*_FILE` env vars at it (the six role
+  lists and the blocked list, ADR-0072; this said four before 2026-11-26);
+  `auth_service.read_list` (docs/adr/0034) reads the file fresh on every login
+  (the blocked list on every request) instead of the static env-sourced field,
+  so a `helm upgrade` alone (no restart) is enough once kubelet has synced the
+  volume, typically within a minute. Scoped to just these values — connection settings (`ldap.*`/
   `adApi.*`) and the secrets stay restart-required by design (ADR-0034's
   2026-09-23 update has the reasoning).

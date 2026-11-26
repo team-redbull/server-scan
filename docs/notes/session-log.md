@@ -8,6 +8,17 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-26 — Fleet rename sweep (ADR-0071), and `cluster-monitoring-config` removed from the chart.**
+Moved to `docs/notes/session-log.md`: warranty (ADR-0070) and the Reason dropdown sorted by count.
+
+**Shipped as PR #46 (v7.0.0), then `renamer.caPem` as PR #47 (v7.1.0).** The server-scan chart no
+longer renders `cluster-monitoring-config` (`metrics.userWorkloadMonitoring` removed; cluster-wide, belongs to whoever
+configures the cluster). New `tools.rename_fleet` + CronJob `rename-fleet` every 5 minutes (Helm `renamer.*`,
+`INVENTORY_RENAMER_*`), report-only by default, `RENAME_REQUESTED` events with a 24 h cooldown.
+
+**Open:** the renamer's batch response is assumed to key each result by `idrac_ip` (Cisco profile names too); verify
+against the live renamer in report-only before setting `reportOnly: false`.
+
 **2026-11-26 — Warranty from the operator's collection (ADR-0070), and the Reason dropdown sorted by count.**
 Moved to `docs/notes/session-log.md`: the inventory column-width unit (PR #42).
 

@@ -74,8 +74,8 @@ Explicit user instructions; violating one is a real mistake, not style.
    enables it needs `INVENTORY_LDAP_*`/`INVENTORY_AD_API_*`. Three roles
    (ADR-0043): `Role.ADMIN`, `Role.AUDITOR` (read-only plus the audit trail) and
    `Role.VIEWER` (read-only, **no audit trail**), from six configured group/user lists, checked
-   in that order; a login matching neither is rejected (403), never silently
-   read-only. Verified against a real LDAP in the air-gapped estate 2026-10-04.
+   in that order, after `INVENTORY_BLOCKED_USERS` (ADR-0072), which refuses a listed user first; a
+   login matching neither is rejected (403), never silently read-only. Verified against a real LDAP in the air-gapped estate 2026-10-04.
 7. **Run the full local gate on every touched file before calling work done**
    (CI runs these as separate steps; skipping `ruff format --check` once
    shipped a commit that failed CI on formatting alone):
@@ -295,7 +295,8 @@ long form of each entry is in the 2026-09-13 archive.
   operator's read-only collection on create, "Fetch now" and the monthly `tools.sync_warranty` only (every other run carries it
   forward); the sync refuses an empty collection (a misnamed one reads empty); expiry is computed in the UI against today.
 - **The rename sweep never builds a name** (ADR-0071): `tools.rename_fleet` (every 5 min) only picks who goes to the
-  renamer service (free, unreserved, Dell `OPENMANAGE`/Cisco `UCS_CENTRAL`, name not matching `fleet_name`) and
+  renamer service (free, unreserved, Dell `OPENMANAGE`/Cisco `UCS_CENTRAL`, name not matching `fleet_name` and
+  not containing `renamer.job.skipNameContains`, default `-mce-,-seed-`) and
   records `RENAME_REQUESTED`, which is also its cooldown ledger; a chunk that failed as a whole is not recorded.
 - **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
   (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
@@ -311,7 +312,9 @@ long form of each entry is in the 2026-09-13 archive.
   Events link, `/events` (`AuditGate`) and the History tab. A new endpoint that returns audit data
   must join that router or add the dependency; a UI-only hide is not a control. The three
   `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise). **Every authenticated login is an event** (ADR-0047): `LOGIN_SUCCEEDED`
-  (role in `data`) and `LOGIN_DENIED` (`NO_PERMISSION`); a wrong password is deliberately *not* recorded.
+  (role in `data`) and `LOGIN_DENIED` (`NO_PERMISSION`, or `BLOCKED`); a wrong password is deliberately *not* recorded.
+  **`INVENTORY_BLOCKED_USERS`** (ADR-0072) beats every list and group, is checked after the bind, and is also
+  checked per request in `get_current_actor` and `/auth/me`, so a blocked user's session and personal token die at once.
 - **A PrometheusRule is evaluated by exactly one of two components, chosen by label** (ADR-0029): with
   `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` the user-workload Prometheus (sees only user
   namespaces: no `kube_*`/`container_*`), without it a Thanos Ruler that may have no Alertmanager or remote-write.
@@ -478,13 +481,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-26 — Fleet rename sweep (ADR-0071), and `cluster-monitoring-config` removed from the chart.**
-Moved to `docs/notes/session-log.md`: warranty (ADR-0070) and the Reason dropdown sorted by count.
+**2026-11-26 — Blocked users (ADR-0072), the renamer's name skip list, and MCE = `-mce-`/`-seed-`.**
+Moved to `docs/notes/session-log.md`: the fleet rename sweep (ADR-0071, PRs #46/#47).
 
-**Uncommitted, branch `chore/remove-cluster-monitoring-config`** (the user asked not to push). The server-scan chart no
-longer renders `cluster-monitoring-config` (`metrics.userWorkloadMonitoring` removed; cluster-wide, belongs to whoever
-configures the cluster). New `tools.rename_fleet` + CronJob `rename-fleet` every 5 minutes (Helm `renamer.*`,
-`INVENTORY_RENAMER_*`), report-only by default, `RENAME_REQUESTED` events with a 24 h cooldown.
+**PR #48, branch `feat/blocked-users-and-rename-skip`.** `INVENTORY_BLOCKED_USERS` (Helm `auth.blockedUsers`) refuses a
+listed user after the bind, and their session and personal token per request; `DOMAIN\user`/`user@domain` entries are
+reduced to `user`. `renamer.job.skipNameContains` (default `-mce-,-seed-`) keeps a server away from the renamer, at
+selection and again before each chunk. The system MCE rule is `-(mce|seed)-` at order 1, ahead of `^ocp-` (2); bootstrap
+re-syncs existing databases. Reviewed by Codex, security, Python, docs-drift, stored-shape, Helm and `/code-review`.
 
-**Open:** the renamer's batch response is assumed to key each result by `idrac_ip` (Cisco profile names too); verify
-against the live renamer in report-only before setting `reportOnly: false`.
+**Open:** a name with `mce` but no dash on each side (`mce-hub-01`) is now UPI and no longer skipped by the renamer; list
+current MCE servers lacking `-mce-`/`-seed-` before deploying. The fake fleet has no `-seed-` name.

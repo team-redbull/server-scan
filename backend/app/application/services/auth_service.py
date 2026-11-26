@@ -40,6 +40,45 @@ class GroupMembershipLookup(Protocol):
         ...
 
 
+def read_list(settings: Settings, field: str) -> str:
+    """
+    Resolve one group-or-user CSV list, live file first.
+
+    Args:
+        settings (Settings): Holds `<field>` and `<field>_file`.
+        field (str): `Settings` field name (`admin_groups`, `auditor_users`, `blocked_users`, ...).
+
+    Returns:
+        str: The mounted file's content if `<field>_file` is set and readable, else the static
+            `Settings` value, so a ConfigMap edit is seen with no API pod restart
+            (deploy/README.md, "Configuration notes").
+    """
+    file_path = getattr(settings, f"{field}_file")
+    if file_path:
+        try:
+            return Path(file_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning("auth.list_file_unreadable", field=field, path=file_path, error=str(exc))
+    return getattr(settings, field)
+
+
+def blocked_usernames(settings: Settings) -> set[str]:
+    """
+    The usernames refused at login and on every request, whatever list or group admits them.
+
+    Args:
+        settings (Settings): Holds `blocked_users` and its live file.
+
+    Returns:
+        set[str]: Lower-cased `sAMAccountName`s; a domain-qualified or `user@domain` entry is
+            reduced to `user`, the only form a login or session carries.
+    """
+    return {
+        entry.rsplit("\\", 1)[-1].split("@", 1)[0]
+        for entry in split_csv_lower(read_list(settings, "blocked_users"))
+    } - {""}
+
+
 class AuthService:
     """Authenticates one login attempt against LDAP + the AD API."""
 
@@ -66,8 +105,8 @@ class AuthService:
         Returns:
             Role | LoginResult | None: `Role.ADMIN`, `Role.AUDITOR` or `Role.VIEWER` if
                 authenticated and permitted, `LoginResult.NO_PERMISSION` if
-                authenticated but listed nowhere, or None for a wrong
-                username/password.
+                authenticated but listed nowhere, `LoginResult.BLOCKED` if on the
+                blocked list (checked first), or None for a wrong username/password.
 
         Raises:
             ServiceUnavailableError: LDAP or the AD API is unreachable or
@@ -102,6 +141,9 @@ class AuthService:
 
         started = time.monotonic()
         uname = username.strip().lower()
+        if uname in blocked_usernames(self._settings):
+            self._log_role(None, "blocked_users", started)
+            return LoginResult.BLOCKED
         admin_users = split_csv_lower(self._list("admin_users"))
         if uname in admin_users:
             self._log_role(Role.ADMIN, "admin_users", started)
@@ -141,25 +183,15 @@ class AuthService:
 
     def _list(self, field: str) -> str:
         """
-        Resolve one admin/viewer group-or-user CSV list, live file first.
+        Resolve one group-or-user CSV list, live file first (`read_list`).
 
         Args:
-            field (str): `Settings` field name (`admin_groups`, `auditor_groups`,
-                `view_groups`, `admin_users`, `auditor_users` or `viewer_users`).
+            field (str): `Settings` field name, e.g. `admin_users`.
 
         Returns:
-            str: The mounted file's content if `<field>_file` is set and
-                readable, else the static `Settings` value — so an operator
-                can edit the ConfigMap and have the next login see it, with
-                no API pod restart (deploy/README.md, "Configuration notes").
+            str: The list's current content.
         """
-        file_path = getattr(self._settings, f"{field}_file")
-        if file_path:
-            try:
-                return Path(file_path).read_text()
-            except OSError:
-                pass
-        return getattr(self._settings, field)
+        return read_list(self._settings, field)
 
     async def _first_matching_group(self, groups_csv: str, uname: str) -> str | None:
         """Return the first configured group `uname` is a member of, or None."""

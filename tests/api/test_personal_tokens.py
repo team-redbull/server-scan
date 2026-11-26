@@ -164,3 +164,23 @@ async def test_listing_tokens_with_login_off_is_not_found() -> None:
         app.router.lifespan_context(app),
     ):
         assert (await client.get("/api/v1/auth/tokens")).status_code == 404
+
+
+async def test_a_blocked_users_token_stops_working() -> None:
+    """A token issued before its user was blocked is refused once the list names them."""
+    issuer = _auth_enabled_app(Role.VIEWER)
+    async with (
+        AsyncClient(transport=ASGITransport(app=issuer), base_url="http://test") as client,
+        issuer.router.lifespan_context(issuer),
+    ):
+        await MongoApiTokenRepository(issuer.state.mongo).delete("tokentester")
+        assert (await client.post("/api/v1/auth/login", json=_USER)).status_code == 200
+        token = (await client.post("/api/v1/auth/token")).json()["token"]
+    blocked = _auth_enabled_app(Role.VIEWER, blocked_users=" someone , CORP\\TokenTester ")
+    async with (
+        AsyncClient(transport=ASGITransport(app=blocked), base_url="http://test") as client,
+        blocked.router.lifespan_context(blocked),
+    ):
+        status = await _bearer(client, token, "/api/v1/servers?page_size=1")
+        await MongoApiTokenRepository(blocked.state.mongo).delete("tokentester")
+    assert status == 401

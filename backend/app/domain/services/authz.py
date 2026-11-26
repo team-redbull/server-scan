@@ -11,9 +11,10 @@ from enum import StrEnum
 
 
 class LoginResult(StrEnum):
-    """The one login outcome `Role` doesn't cover: authenticated, but listed nowhere."""
+    """The login outcomes `Role` doesn't cover: listed nowhere, or on the blocked list."""
 
     NO_PERMISSION = "NO_PERMISSION"
+    BLOCKED = "BLOCKED"
 
 
 def split_csv_lower(value: str) -> set[str]:
