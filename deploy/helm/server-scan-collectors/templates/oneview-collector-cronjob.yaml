@@ -52,6 +52,10 @@ spec:
                   value: {{ $ov.collectCpuThreads | quote }}
                 - name: INVENTORY_ONEVIEW_CPU_THREADS_CONCURRENCY
                   value: {{ $ov.cpuThreadsConcurrency | quote }}
+                {{- if hasKey $ov "nicLinksConcurrency" }}
+                - name: INVENTORY_ONEVIEW_NIC_LINKS_CONCURRENCY
+                  value: {{ $ov.nicLinksConcurrency | quote }}
+                {{- end }}
                 - name: INVENTORY_ONEVIEW_API_VERSION
                   value: {{ $ov.apiVersion | quote }}
                 - name: INVENTORY_ONEVIEW_PAGE_SIZE

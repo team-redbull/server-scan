@@ -844,8 +844,9 @@ fetches for other reasons; OneView is the only one where any can cost
 something extra. `collectors.oneview.collectPsus: false` and
 `collectors.oneview.collectCpuThreads: false` turn those two off
 independently — the rest of the sweep is three bulk calls either way. NIC
-link state has no switch: it is always read, 8 servers at a time (about
-25 rounds for ~200 HP servers). A failed read keeps each server's stored
+link state has no switch: it is always read,
+`collectors.oneview.nicLinksConcurrency` servers at a time (default 8, about
+25 rounds for ~200 HP servers; absent = 8). A failed read keeps each server's stored
 link states.
 
 Note that Intersight's three fields mean something different: it signs

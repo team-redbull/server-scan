@@ -28,7 +28,7 @@ is bounded by its own semaphore, because any one is the difference between
 ~15 requests and ~2500 for whatever fraction of the estate its bulk sweep
 didn't already cover. The PSU and processor reads can be switched off
 (`INVENTORY_ONEVIEW_COLLECT_PSUS`, `_COLLECT_CPU_THREADS`); link state is
-always read, 8 servers at a time (operator's call, 2026-11-26).
+always read (operator's call, 2026-11-26), `_NIC_LINKS_CONCURRENCY` at a time.
 
 One appliance, one endpoint, exactly like every other vendor here — see
 docs/adr/0012. The 2500-server-per-appliance ceiling is documented in

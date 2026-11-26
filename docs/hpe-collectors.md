@@ -69,7 +69,8 @@ whole appliance is a handful of requests:
   `/networkAdapters` — the per-server calls, each made only for servers the
   expanded payload did not cover; the first two are gated by
   `INVENTORY_ONEVIEW_COLLECT_PSUS` and `_COLLECT_CPU_THREADS`, link state is
-  always read (8 servers at a time, no setting).
+  always read (`INVENTORY_ONEVIEW_NIC_LINKS_CONCURRENCY` servers at a time,
+  default 8; no off switch).
 
 With `N` servers on the appliance:
 

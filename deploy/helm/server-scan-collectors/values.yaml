@@ -475,6 +475,10 @@ collectors:
     collectCpuThreads: true
     cpuThreadsConcurrency: 8
 
+    # /networkAdapters, the only source of NIC link state (UP/DOWN), is always
+    # read (no off switch); this is how many servers are read at once.
+    nicLinksConcurrency: 8
+
     # Optional per-call timeout (seconds) for OneView requests, used by this CronJob. Unset
     # keeps the shared 15 s default (INVENTORY_COLLECTOR_CONNECT_TIMEOUT_SECONDS). Not
     # activeDeadlineSeconds: that bounds the whole job, not one call. The API's live
