@@ -56,9 +56,9 @@ def read_list(settings: Settings, field: str) -> str:
     file_path = getattr(settings, f"{field}_file")
     if file_path:
         try:
-            return Path(file_path).read_text()
-        except OSError:
-            pass
+            return Path(file_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning("auth.list_file_unreadable", field=field, path=file_path, error=str(exc))
     return getattr(settings, field)
 
 
@@ -70,9 +70,13 @@ def blocked_usernames(settings: Settings) -> set[str]:
         settings (Settings): Holds `blocked_users` and its live file.
 
     Returns:
-        set[str]: Lower-cased `sAMAccountName`s.
+        set[str]: Lower-cased `sAMAccountName`s; a domain-qualified or `user@domain` entry is
+            reduced to `user`, the only form a login or session carries.
     """
-    return split_csv_lower(read_list(settings, "blocked_users"))
+    return {
+        entry.rsplit("\\", 1)[-1].split("@", 1)[0]
+        for entry in split_csv_lower(read_list(settings, "blocked_users"))
+    } - {""}
 
 
 class AuthService:

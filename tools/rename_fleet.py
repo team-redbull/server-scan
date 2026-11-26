@@ -28,6 +28,7 @@ from app.config import get_settings
 from app.domain.enums import ManagerType, Vendor
 from app.domain.models.audit_event import Actor, ActorType, EventType
 from app.domain.models.reservation import Reservation
+from app.domain.services.authz import split_csv_lower
 from app.domain.value_objects.fleet_name import matches_fleet_convention
 from app.infrastructure.logging import configure_logging
 from app.infrastructure.mongodb import MongoClientHolder
@@ -255,18 +256,23 @@ def _log_result(candidate: Candidate, result: RenameResult, *, dry_run: bool) ->
 
 
 async def _still_eligible(
-    repo: MongoServerRepository, candidates: list[Candidate], summary: SweepSummary
+    repo: MongoServerRepository,
+    candidates: list[Candidate],
+    summary: SweepSummary,
+    skip_name_contains: frozenset[str] = frozenset(),
 ) -> list[Candidate]:
     """
-    Re-read candidates just before sending, dropping any reserved, claimed or paused since.
+    Re-read candidates just before sending, dropping any reserved, claimed, paused or renamed since.
 
     Args:
         repo (MongoServerRepository): The servers collection.
         candidates (list[Candidate]): One chunk's servers.
         summary (SweepSummary): `dropped_on_recheck` is updated in place.
+        skip_name_contains (frozenset[str]): Lower-cased; a name now containing one is dropped.
 
     Returns:
-        list[Candidate]: Those still free, reachable, out of maintenance and unreserved.
+        list[Candidate]: Those still free, reachable, out of maintenance, unreserved and not
+            renamed to an excluded or in-convention name.
     """
     now = utcnow()
     docs = await repo.rename_candidates(list(_MANAGED), ids=[c.server_id for c in candidates])
@@ -274,6 +280,8 @@ async def _still_eligible(
         d["_id"]
         for d in docs
         if not Reservation.model_validate(d.get("reservation") or {}).is_live(now=now)
+        and not any(part in str(d.get("name") or "").lower() for part in skip_name_contains)
+        and not matches_fleet_convention(str(d.get("name") or ""))
     }
     kept = [c for c in candidates if c.server_id in free]
     for candidate in candidates:
@@ -283,7 +291,7 @@ async def _still_eligible(
                 "rename_fleet.dropped_on_recheck",
                 server_id=candidate.server_id,
                 server_name=candidate.name,
-                reason="reserved, claimed, in maintenance or unreachable since selection",
+                reason="reserved, claimed, in maintenance, unreachable or renamed since selection",
             )
     return kept
 
@@ -297,6 +305,7 @@ async def _send(
     *,
     dry_run: bool,
     summary: SweepSummary,
+    skip_name_contains: frozenset[str] = frozenset(),
 ) -> None:
     """
     Send one vendor's candidates chunk by chunk, re-checked just before and audited just after.
@@ -311,6 +320,7 @@ async def _send(
         candidates (list[Candidate]): That vendor's servers.
         dry_run (bool): Report-only.
         summary (SweepSummary): Updated in place.
+        skip_name_contains (frozenset[str]): Lower-cased strings, re-checked before each chunk.
     """
     by_identity: dict[str, list[Candidate]] = {}
 
@@ -350,7 +360,9 @@ async def _send(
 
     send = client.rename_batch_dell if vendor == Vendor.DELL.value else client.rename_batch_cisco
     for start in range(0, len(candidates), client.chunk_size):
-        chunk = await _still_eligible(repo, candidates[start : start + client.chunk_size], summary)
+        chunk = await _still_eligible(
+            repo, candidates[start : start + client.chunk_size], summary, skip_name_contains
+        )
         by_identity.clear()
         for candidate in chunk:
             by_identity.setdefault(candidate.identity, []).append(candidate)
@@ -404,7 +416,16 @@ async def sweep(
     for vendor in (Vendor.DELL.value, Vendor.CISCO.value):
         mine = [c for c in picked if c.vendor == vendor]
         if mine:
-            await _send(repo, client, audit, vendor, mine, dry_run=dry_run, summary=summary)
+            await _send(
+                repo,
+                client,
+                audit,
+                vendor,
+                mine,
+                dry_run=dry_run,
+                summary=summary,
+                skip_name_contains=skip_name_contains,
+            )
     return summary
 
 
@@ -457,11 +478,7 @@ async def _run() -> int:
             dry_run=settings.renamer_report_only,
             cooldown=timedelta(hours=settings.renamer_cooldown_hours),
             max_per_run=settings.renamer_max_per_run,
-            skip_name_contains=frozenset(
-                p.strip().lower()
-                for p in settings.renamer_skip_name_contains.split(",")
-                if p.strip()
-            ),
+            skip_name_contains=frozenset(split_csv_lower(settings.renamer_skip_name_contains)),
         )
     except PyMongoError:
         logger.exception("rename_fleet.mongo_failed")

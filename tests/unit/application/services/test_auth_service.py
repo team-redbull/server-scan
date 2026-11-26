@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import app.application.services.auth_service as auth_service_module
-from app.application.services.auth_service import AuthService
+from app.application.services.auth_service import AuthService, blocked_usernames
 from app.config.settings import Settings
 from app.domain.models.audit_event import Role
 from app.domain.services.authz import LoginResult
@@ -264,3 +264,17 @@ class TestBlockedUsers:
         )
         service = AuthService(settings, _FakeAdApi())
         assert await service.authenticate("jdoe", "x") is LoginResult.BLOCKED
+
+    def test_a_domain_qualified_entry_blocks_the_bare_username(self) -> None:
+        """A domain-qualified or `@domain` entry blocks the bare username a login carries."""
+        settings = _settings(blocked_users=r"CORP\JDoe, ann@corp.example, ,@x, bob")
+        assert blocked_usernames(settings) == {"jdoe", "ann", "bob"}
+
+    def test_an_unreadable_live_file_falls_back_to_the_setting(self, tmp_path: Path) -> None:
+        """A non-UTF-8 file is treated like a missing one, never a 500 on every request."""
+        live = tmp_path / "blocked"
+        live.write_bytes(b"\xff\xfe\x00bad")
+        settings = _settings(blocked_users="jdoe").model_copy(
+            update={"blocked_users_file": str(live)}
+        )
+        assert blocked_usernames(settings) == {"jdoe"}

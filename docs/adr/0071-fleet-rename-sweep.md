@@ -27,7 +27,8 @@ which servers are free, so it decides *who* is sent; it never builds a name.
   300 s route limit; a Cisco rename takes up to ~40 s), **at most `maxPerRun` servers per run** (default 50,
   the blast radius of one run; the rest wait for the next run 5 minutes later). No new chunk starts after
   `runBudgetSeconds` (540) so a run ends inside `activeDeadlineSeconds` (900).
-- **Each chunk is re-read just before it is sent** (still free, reachable, out of maintenance, unreserved);
+- **Each chunk is re-read just before it is sent** (still free, reachable, out of maintenance, unreserved, and not
+  renamed since to an excluded or in-convention name);
   a server that changed since selection is dropped. A reservation taken *during* the chunk's request is not
   seen: the window is one request, not the whole run.
 - **Each chunk is audited as soon as it returns**, so a run killed later keeps the earlier answers' cooldown.

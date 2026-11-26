@@ -548,8 +548,9 @@ auth:
   auditorUsers: ""
   # Comma-separated usernames refused even when a list or group above admits them, e.g.
   # "user1,user2". Checked after the password, so a blocked user's wrong password is still
-  # "wrong password". Their open sessions and personal API token stop working at once; an edit
-  # takes effect with no pod restart (live-mounted, like the lists above).
+  # "wrong password". Their open sessions and personal API token stop working too. An edit
+  # takes effect with no pod restart once kubelet syncs the mounted file (typically within a
+  # minute). Static apiTokens below are not blocked by it; rotate one a blocked person knows.
   blockedUsers: ""
 
   # Signs the login session cookie. Blank keeps the backend's own
@@ -615,7 +616,8 @@ warranty:
 
 # The fleet rename sweep (ADR-0071): every 5 minutes, free (AVAILABLE, not in maintenance, not
 # reserved, reachable) Dell servers from OpenManage and Cisco servers from UCS Central whose name is
-# not ocp-c<conf_id><marker>-mtl-<site>-<serial> are sent to the renamer service, which picks the name.
+# not ocp-c<conf_id><marker>-mtl-<site>-<serial> and contains none of job.skipNameContains are sent to
+# the renamer service, which picks the name.
 # Renders only when url is set and either username and password, or existingSecret, are. Report-only (the
 # renamer's dry_run) until reportOnly: false; every answer is a RENAME_REQUESTED audit event.
 renamer:

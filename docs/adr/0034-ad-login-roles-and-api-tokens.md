@@ -47,6 +47,8 @@ credentials).
 
 ### 2. Priority and matching (`AuthService.authenticate`)
 
+*Superseded in part (2026-11-26):* ADR-0072's blocked list is checked between the bind and the first list.
+
 1. `ldap_validate` binds `f"{LDAP_DOMAIN}\\{username}"` with the given
    password (`app.infrastructure.ad.client`). `invalidCredentials` returns
    `False`; any other `LDAPException` raises `ServiceUnavailableError` (503)

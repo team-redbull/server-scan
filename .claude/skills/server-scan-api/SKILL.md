@@ -65,7 +65,7 @@ Values are case-sensitive:
 - `vendor`: `dell` `cisco` `hp` `standalone` `kubevirt` (HPE is `hp`; `kubevirt` is an OpenShift Virtualization VM)
 - `site_id`: the lowercase site code, e.g. `tlv`; `unassigned` for servers whose name has no site. List the real codes with `GET /api/v1/sites`.
 - `health_overall`: `HEALTHY` `WARNING` `MAJOR` `CRITICAL` `UNKNOWN`
-- `installation_type`: `UPI` `HOSTED_CLUSTER` `MCE` `UNCLASSIFIED`
+- `installation_type`: `UPI` `HOSTED_CLUSTER` `MCE` `UNCLASSIFIED` (`MCE` = the name contains `-mce-` or `-seed-`)
 - `openshift_state`: `AVAILABLE` (no cluster is using it) or `INSTALLED`
 - `source_provider`: `UCS_CENTRAL` `INTERSIGHT` `OPENMANAGE` `ONEVIEW` `REDFISH_STANDALONE` `KUBEVIRT`
 
@@ -109,7 +109,7 @@ grouping, counting or filtering on a field the list endpoint lacks.
 - **`GET /servers/available` reads the stored data only** (no vendor call, no lock), so it is safe to answer "which servers could I use" with it: give exactly one of `name` (exact) or `pattern` (regex), keep `count` small (max 20), and use `max_health` (the worst acceptable tier, never `health`). **`POST /servers/available` locks a server and needs an admin token: never call it to answer a question**, only when the user is actually provisioning. Otherwise answer "which are free" with the `openshift_state=AVAILABLE` filter above.
 - **Health is a verdict, not a reading.** `UNKNOWN` means nothing could be read, not "fine". A server with `reachable=false` (BMC down, or its record could not be processed: read `unreachable_reason` and `unreachable_detail` on the detail endpoint) is `CRITICAL`. `stale=true` means the collectors have not seen it for 12 h - say so rather than presenting old data as current.
 - **Availability is about clusters, not names.** A server named `ocp4-prod-...` can be `AVAILABLE`; trust `openshift_state`.
-- **Errors are RFC 9457 JSON** (`application/problem+json`) with a stable `code`. Read `code` and `detail` (cut to 1,000 characters, ending `… [N more characters cut …]`; the full text is in the server log under `request_id`), fix the request, and retry once: `UNKNOWN_FILTER`, `PAGE_SIZE_TOO_LARGE`, `CURSOR_FILTER_MISMATCH` (cursor reused with different filters), `NOT_FOUND`. `401` means the token is wrong or expired; `403` means a write was attempted with a read-only token, or events were read with a viewer token. Do not retry either - tell the user.
+- **Errors are RFC 9457 JSON** (`application/problem+json`) with a stable `code`. Read `code` and `detail` (cut to 1,000 characters, ending `… [N more characters cut …]`; the full text is in the server log under `request_id`), fix the request, and retry once: `UNKNOWN_FILTER`, `PAGE_SIZE_TOO_LARGE`, `CURSOR_FILTER_MISMATCH` (cursor reused with different filters), `NOT_FOUND`. `401` means the token is wrong or expired, or (a personal `ssk_` token) its user is on the blocked list; `403` means a write was attempted with a read-only token, or events were read with a viewer token. Do not retry either - tell the user.
 - Keep output small: pipe through `jq` to the fields the user asked about instead of dumping full documents.
 
 ## More detail

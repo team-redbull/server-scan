@@ -224,6 +224,31 @@ async def test_bootstrap_resyncs_a_stale_system_rule_but_keeps_its_enabled_flag(
     assert stored.revision == stale.revision + 1
 
 
+async def test_bootstrap_moves_mce_ahead_of_the_ocp_rule_on_an_existing_database(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A database seeded before the 2026-11-26 MCE change (substring `mce` at order 2, `^ocp-`
+    at order 1) is re-synced in place to MCE `-(mce|seed)-` at 1, `^ocp-` at 2.
+    """
+    repo = MongoClassificationRuleRepository(mongo_holder)
+    rules = {r.name: r for r in default_system_rules(SITES)}
+    old_hw = rules["system-default-hardware-hosted-cluster"].model_copy(update={"order": 1})
+    old_mce = rules["system-default-mce"].model_copy(update={"order": 2, "pattern": "mce"})
+    await repo.upsert(old_hw)
+    await repo.upsert(old_mce)
+
+    await ensure_default_classification_rules(repo, SITES, engine=ENGINE)
+
+    stored = {r.name: r for r in await repo.list_all(enabled_only=True) if r.system}
+    assert stored["system-default-mce"].order == 1
+    assert stored["system-default-mce"].pattern == r"-(mce|seed)-"
+    assert stored["system-default-mce"].id == old_mce.id
+    assert stored["system-default-hardware-hosted-cluster"].order == 2
+    assert stored["system-default-hardware-hosted-cluster"].id == old_hw.id
+    assert sorted(r.order for r in stored.values()) == [0, 1, 2, 3]
+    assert await ensure_default_classification_rules(repo, SITES, engine=ENGINE) == 0
+
+
 async def test_bootstrap_is_a_no_op_once_the_rules_match_the_code(
     mongo_holder: MongoClientHolder,
 ) -> None:

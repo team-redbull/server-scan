@@ -299,6 +299,27 @@ async def test_a_server_reserved_after_selection_is_dropped_before_sending(
     assert summary.dropped_on_recheck == 2
 
 
+async def test_a_server_renamed_after_selection_is_dropped_before_sending(
+    mongo_holder: MongoClientHolder,
+) -> None:
+    """A collector renaming a selected server to an excluded or in-convention name drops it."""
+    await mongo_holder.db["servers"].insert_many([_doc("free"), _doc("mce"), _doc("done")])
+    await mongo_holder.db["servers"].update_one(
+        {"_id": "mce"}, {"$set": {"name": "ocp-MCE-hub-01"}}
+    )
+    await mongo_holder.db["servers"].update_one(
+        {"_id": "done"}, {"$set": {"name": "ocp-c12-mtl-tlv-abc123"}}
+    )
+    candidates = [
+        Candidate(i, f"old-{i}", "dell", "10.0.0.1", None, None) for i in ("free", "mce", "done")
+    ]
+    summary = SweepSummary()
+    repo = MongoServerRepository(mongo_holder, cursor_secret="test-cursor-secret")
+    kept = await _still_eligible(repo, candidates, summary, frozenset({"-mce-", "-seed-"}))
+    assert [c.server_id for c in kept] == ["free"]
+    assert summary.dropped_on_recheck == 2
+
+
 async def test_a_name_with_an_excluded_string_is_never_sent(
     mongo_holder: MongoClientHolder,
 ) -> None:

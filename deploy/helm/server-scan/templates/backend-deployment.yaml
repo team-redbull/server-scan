@@ -54,8 +54,8 @@ spec:
             # A volume mount (below), not envFrom: kubelet keeps a mounted
             # ConfigMap's files in sync with no pod restart, unlike env
             # vars (deploy/README.md, "Configuration notes"). AuthService
-            # re-reads these on every login, so an admin/viewer group or
-            # user-list edit takes effect on the next login attempt.
+            # re-reads these on every login (the blocked list on every
+            # request), so a list edit applies without a pod restart.
             - name: INVENTORY_ADMIN_GROUPS_FILE
               value: /etc/server-scan/config/INVENTORY_ADMIN_GROUPS
             - name: INVENTORY_VIEW_GROUPS_FILE

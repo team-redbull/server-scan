@@ -137,7 +137,7 @@ async def login(
     Raises:
         RateLimitedError: Too many recent failures for this username (429).
         UnauthorizedError: Wrong username or password.
-        ForbiddenError: Valid credentials, but not admin/viewer listed.
+        ForbiddenError: Valid credentials, but in no role list, or on the blocked list.
         ServiceUnavailableError: LDAP or the AD API is unreachable.
     """
     started = time.monotonic()

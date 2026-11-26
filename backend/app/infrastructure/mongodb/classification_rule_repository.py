@@ -145,13 +145,12 @@ def default_system_rules(sites: SiteCatalog) -> list[ClassificationRule]:
     The four unscoped SYSTEM_DEFAULT rules, as ready-to-persist rules.
 
     Order is load-bearing — see the comment above the patterns. Fresh ids
-    on every call; `bootstrap` seeds by name, so it is called once.
+    on every call; `bootstrap` seeds and re-syncs by name, so it is called once.
 
     Args:
         sites (SiteCatalog): The configured sites. Kept for signature
             stability with existing callers, but unused: since 2026-09-08
-            every default pattern is a plain prefix/substring match with
-            no site token to interpolate.
+            no default pattern has a site token to interpolate.
 
     Returns:
         list[ClassificationRule]: The four seeded rules.

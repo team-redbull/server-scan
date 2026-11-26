@@ -74,8 +74,8 @@ Explicit user instructions; violating one is a real mistake, not style.
    enables it needs `INVENTORY_LDAP_*`/`INVENTORY_AD_API_*`. Three roles
    (ADR-0043): `Role.ADMIN`, `Role.AUDITOR` (read-only plus the audit trail) and
    `Role.VIEWER` (read-only, **no audit trail**), from six configured group/user lists, checked
-   in that order; a login matching neither is rejected (403), never silently
-   read-only. Verified against a real LDAP in the air-gapped estate 2026-10-04.
+   in that order, after `INVENTORY_BLOCKED_USERS` (ADR-0072), which refuses a listed user first; a
+   login matching neither is rejected (403), never silently read-only. Verified against a real LDAP in the air-gapped estate 2026-10-04.
 7. **Run the full local gate on every touched file before calling work done**
    (CI runs these as separate steps; skipping `ruff format --check` once
    shipped a commit that failed CI on formatting alone):
@@ -481,13 +481,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-26 — Fleet rename sweep (ADR-0071), and `cluster-monitoring-config` removed from the chart.**
-Moved to `docs/notes/session-log.md`: warranty (ADR-0070) and the Reason dropdown sorted by count.
+**2026-11-26 — Blocked users (ADR-0072), the renamer's name skip list, and MCE = `-mce-`/`-seed-`.**
+Moved to `docs/notes/session-log.md`: the fleet rename sweep (ADR-0071, PRs #46/#47).
 
-**Uncommitted, branch `chore/remove-cluster-monitoring-config`** (the user asked not to push). The server-scan chart no
-longer renders `cluster-monitoring-config` (`metrics.userWorkloadMonitoring` removed; cluster-wide, belongs to whoever
-configures the cluster). New `tools.rename_fleet` + CronJob `rename-fleet` every 5 minutes (Helm `renamer.*`,
-`INVENTORY_RENAMER_*`), report-only by default, `RENAME_REQUESTED` events with a 24 h cooldown.
+**PR #48, branch `feat/blocked-users-and-rename-skip`.** `INVENTORY_BLOCKED_USERS` (Helm `auth.blockedUsers`) refuses a
+listed user after the bind, and their session and personal token per request; `DOMAIN\user`/`user@domain` entries are
+reduced to `user`. `renamer.job.skipNameContains` (default `-mce-,-seed-`) keeps a server away from the renamer, at
+selection and again before each chunk. The system MCE rule is `-(mce|seed)-` at order 1, ahead of `^ocp-` (2); bootstrap
+re-syncs existing databases. Reviewed by Codex, security, Python, docs-drift, stored-shape, Helm and `/code-review`.
 
-**Open:** the renamer's batch response is assumed to key each result by `idrac_ip` (Cisco profile names too); verify
-against the live renamer in report-only before setting `reportOnly: false`.
+**Open:** a name with `mce` but no dash on each side (`mce-hub-01`) is now UPI and no longer skipped by the renamer; list
+current MCE servers lacking `-mce-`/`-seed-` before deploying. The fake fleet has no `-seed-` name.

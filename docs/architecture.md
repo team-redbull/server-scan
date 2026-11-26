@@ -947,9 +947,10 @@ and `^ocp-` prefixes for `HOSTED_CLUSTER`, `-(mce|seed)-` for `MCE` (between the
 and an unconditional `.*` catch-all for `UPI` (2026-09-10 — used to be
 `^ocp4`), checked hypershift, MCE, `^ocp-`, UPI — Dell vendor overrides, the Cisco
 one-path-down/two-paths-down fabric policies)
-idempotently at startup — "seed only if missing, by name" specifically so
-an admin's edit to a system default's `enabled` flag survives every
-restart rather than being silently re-armed. See "Classification
+idempotently at startup, by name: a missing default is seeded and a drifted one
+(pattern, order, ...) is rewritten in place, keeping only the admin-owned `enabled`
+flag, so it survives every restart rather than being silently re-armed (this said
+"seed only if missing" until 2026-11-26, already wrong since the re-sync landed). See "Classification
 engine" above for why the patterns are broad, overlapping catch-alls
 rather than mutually exclusive by construction, and why that makes
 `order` load-bearing.

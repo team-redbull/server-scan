@@ -131,15 +131,16 @@ async def get_current_actor(
     Args:
         request (Request): Carries the `Authorization` header and the
             session cookie.
-        settings (Settings): Supplies `auth_enabled`, the two API tokens,
-            and the session secret.
+        settings (Settings): Supplies `auth_enabled`, the API tokens, the
+            session secret and the blocked list.
 
     Returns:
         Actor: The resolved caller, with its `role` set.
 
     Raises:
         UnauthorizedError: `auth_enabled` is true and neither a valid
-            token nor a valid session cookie was presented.
+            token nor a valid session cookie was presented, or the session's
+            or personal token's user is on `INVENTORY_BLOCKED_USERS`.
     """
     if not settings.auth_enabled:
         return _DEV_ACTOR
@@ -165,7 +166,7 @@ async def get_current_actor(
                     "auth.rejected", reason="personal_token_invalid", path=request.url.path
                 )
                 raise UnauthorizedError("Login required.")
-            _refuse_blocked(settings, personal.id.removeprefix("token:"), request)
+            _refuse_blocked(settings, personal.display or "", request)
             return personal
 
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
