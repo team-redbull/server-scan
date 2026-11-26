@@ -796,6 +796,7 @@ export function InventoryPage() {
               <InventoryTable
                 servers={servers}
                 withMce={matched.some((row) => row.mce_name)}
+                fleet={data?.items ?? []}
                 sortField={sortField}
                 sortDesc={sortDesc}
                 onSortChange={handleSortChange}

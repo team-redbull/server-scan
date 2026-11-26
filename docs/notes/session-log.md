@@ -8,6 +8,22 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-26 — OneView reports NIC link state from `/networkAdapters` (ADR-0022 and ADR-0027 updates).**
+Moved to `docs/notes/session-log.md`: the OME exact-match unit (ADR-0069), with its /servers and /clusters work and the Cisco missing-disk policy.
+
+**Shipped (branch `feat/oneview-nic-link-state`):** `portMap` has no link state, so each HP server's `/networkAdapters` (verified live by
+the operator, `X-Api-Version: 6000`) is read as a third bounded per-server fan-out (`_Fanout`, shared with PSUs and processors;
+`INVENTORY_ONEVIEW_COLLECT_NIC_LINKS`, `_NIC_LINKS_CONCURRENCY`, Helm `collectNicLinks`/`nicLinksConcurrency`, absent = on), in `get_one` too.
+`Ports[].LinkStatus` is joined onto the `portMap` NICs by MAC, then by a unique `deviceName`/`portNumber`; the NIC list and `nic_macs` are
+untouched. **Unread is per port** (`ProviderNic.link_state_read=False`): ingest keeps that port's stored state and lists
+`network.interfaces.link_state` unread; the interface is stored `link_state_kept: true`, the Network tab marks it "unconfirmed" and
+`/servers/available` serves it as `UNKNOWN` (operator's call). The reviewers caught that a per-server flag let one stub
+adapter flap a bonded server CRITICAL. The `network.all_unknown` OneView exemption is kept on purpose (rollout order, ADR-0027 update).
+
+**Open:** how many HP servers turn CRITICAL on the first run (all links down or exactly one up) is unknown until it runs against the real
+estate; a `--dry-run` there would tell (operator accepted). The fake keeps the same ~1 in 25 OneView servers unread every epoch, so a kept state never shows in dev.
+`tools/verify_oneview.py` has no `/networkAdapters` probe.
+
 **2026-11-25 — The live OME lookup matches exactly and joins on `TargetId` (ADR-0069).**
 
 **Shipped (branch `fix/ome-exact-profile-match`):** on the operator's OME, `$filter=TargetName eq '10.0.0.1'` is a **prefix match** returning

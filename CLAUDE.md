@@ -472,18 +472,14 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-26 — OneView reports NIC link state from `/networkAdapters` (ADR-0022 and ADR-0027 updates).**
-Moved to `docs/notes/session-log.md`: the OME exact-match unit (ADR-0069), with its /servers and /clusters work and the Cisco missing-disk policy.
+**2026-11-26 — The inventory table wraps long names instead of cutting them (`.claude/rules/frontend.md`).**
+Moved to `docs/notes/session-log.md`: the OneView NIC link-state unit (ADR-0022/0027 updates, PR #41).
 
-**Shipped (branch `feat/oneview-nic-link-state`):** `portMap` has no link state, so each HP server's `/networkAdapters` (verified live by
-the operator, `X-Api-Version: 6000`) is read as a third bounded per-server fan-out (`_Fanout`, shared with PSUs and processors;
-`INVENTORY_ONEVIEW_COLLECT_NIC_LINKS`, `_NIC_LINKS_CONCURRENCY`, Helm `collectNicLinks`/`nicLinksConcurrency`, absent = on), in `get_one` too.
-`Ports[].LinkStatus` is joined onto the `portMap` NICs by MAC, then by a unique `deviceName`/`portNumber`; the NIC list and `nic_macs` are
-untouched. **Unread is per port** (`ProviderNic.link_state_read=False`): ingest keeps that port's stored state and lists
-`network.interfaces.link_state` unread; the interface is stored `link_state_kept: true`, the Network tab marks it "unconfirmed" and
-`/servers/available` serves it as `UNKNOWN` (operator's call). The reviewers caught that a per-server flag let one stub
-adapter flap a bonded server CRITICAL. The `network.all_unknown` OneView exemption is kept on purpose (rollout order, ADR-0027 update).
+**Shipped (branch `fix/table-column-widths`):** fixed 112-128 px MCE/Cluster/Model columns cut real names. They are now as wide as their
+longest value in the whole fleet (`features/inventory/columnWidths.ts`, canvas-measured), and because the ~1090 px box at 1440 px cannot hold
+every value on one line, Name, MCE, Cluster and Model **wrap** rather than truncate: Name keeps at least 220 px and `shrinkToFit` narrows the
+widest of the other three first, so nothing is cut and nothing scrolls sideways. The "Contested with" chip wraps under the cluster name instead
+of spilling into Model (a bug on `main` too). Rows with a long name are two lines tall, so about 8 rows show at 1440x900 instead of 10.
 
-**Open:** how many HP servers turn CRITICAL on the first run (all links down or exactly one up) is unknown until it runs against the real
-estate; a `--dry-run` there would tell (operator accepted). The fake keeps the same ~1 in 25 OneView servers unread every epoch, so a kept state never shows in dev.
-`tools/verify_oneview.py` has no `/networkAdapters` probe.
+**Open:** the operator's real names are longer than the seeded ones; if most rows end up two lines tall, a collapsible cluster sidebar
+(~250 px) is the next lever. The Clusters page was not changed (its Name column has ~540 px).
