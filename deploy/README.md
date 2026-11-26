@@ -651,6 +651,10 @@ Every `collectors.*` key below is a `server-scan-collectors` value unless it say
 `jobTtlSeconds` exist in both charts (server-scan's apply to its prunes), and `prune`/`auditRetention` are
 server-scan's.
 
+**Pausing one collector:** `collectors.<name>.suspend: true` (every collector, default `false`) keeps its CronJob
+but schedules no new run; a Job already running finishes, and history and "Run job" stay. `enabled: false` instead
+deletes the CronJob. `redfishStandalone` ships suspended.
+
 Real vendor collectors run as Kubernetes `CronJob`s, one per manager
 *type*, invoking `tools/run_collector.py --manager-type <TYPE>` in the
 same image as the API (`Containerfile` copies `tools/` alongside `app/`
@@ -730,7 +734,8 @@ Those values render into a single `Secret`
 Deployment mounts this same Secret too** — `GET /api/v1/servers/available`'s live
 recheck needs the same manager credentials a collector does, and so does `POST /api/v1/servers/{id}/refresh`
 (ADR-0064). Since ADR-0060 it is another release's Secret:
-server-scan's `recheck.credentialsSecret` (default `server-scan-collectors-collector-credentials`), mounted with
+server-scan's `recheck.credentialsSecret` (default `server-scan-collector-credentials`, the hub release's name with
+`fullnameOverride: server-scan`), mounted with
 `optional: true`. This is not
 a separate toggle: an unconfigured value (or no Secret at all) degrades to the API trusting
 Mongo for that candidate (the refresh answers 409 `SERVER_REFRESH_UNSUPPORTED` instead), the same way a collector already treats it, so

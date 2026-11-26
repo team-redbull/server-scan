@@ -488,7 +488,7 @@ collector does, and never call this platform's API.
   ADR-0012** (ADR-0032): `backend-deployment.yaml` now also mounts
   the Secret every collector CronJob already reads (since ADR-0060 another
   release's: `recheck.credentialsSecret`, default
-  `server-scan-collectors-collector-credentials`, `optional: true`), so `GET /servers/available` can live-recheck a
+  `server-scan-collector-credentials`, `optional: true`), so `GET /servers/available` can live-recheck a
   candidate before returning it. Not gated behind a values toggle — an
   unconfigured value degrades to trusting Mongo (`ManagerNotConfiguredError`),
   the same way a collector treats one today. The standalone Redfish

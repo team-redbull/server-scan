@@ -72,9 +72,8 @@
 
 {{- /* `ternary`, not `default true`: `default` reads an explicit false as unset. */ -}}
 {{- define "collectors.labels" -}}
-{{- if ternary .Values.triggerable true (hasKey .Values "triggerable") }}
-server-scan.io/triggerable: "true"
-{{- end }}
+{{- if ternary .Values.triggerable true (hasKey .Values "triggerable") }}server-scan.io/triggerable: "true"
+{{ end -}}
 app.kubernetes.io/component: collector
 app.kubernetes.io/part-of: server-scan
 {{- end -}}

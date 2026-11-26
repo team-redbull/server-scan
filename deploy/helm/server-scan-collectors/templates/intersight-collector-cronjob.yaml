@@ -13,6 +13,7 @@ spec:
   {{- with $c.timeZone }}
   timeZone: {{ . | quote }}
   {{- end }}
+  suspend: {{ $is.suspend | default false }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5

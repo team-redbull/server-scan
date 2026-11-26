@@ -435,7 +435,7 @@ recheck:
   # (or whatever it names as `collectors.existingSecret`). Mounted optional:
   # until it exists every manager is unconfigured and the API trusts Mongo,
   # which is also what a KubeVirt VM always gets (the hub never rechecks one).
-  credentialsSecret: server-scan-collectors-collector-credentials
+  credentialsSecret: server-scan-collector-credentials
   # Seconds per ManagerType, as INVENTORY_AVAILABLE_RECHECK_TIMEOUTS: keep each
   # equal to that collector's own per-call timeout (`collectors.ucsCentral.
   # timeoutSeconds`, `collectors.intersight.connectTimeoutSeconds`, ... in the

@@ -14,7 +14,7 @@ spec:
   {{- with $c.timeZone }}
   timeZone: {{ . | quote }}
   {{- end }}
-  suspend: {{ $rf.suspend }}
+  suspend: {{ $rf.suspend | default false }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
