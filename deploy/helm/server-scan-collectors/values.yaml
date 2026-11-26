@@ -475,11 +475,8 @@ collectors:
     collectCpuThreads: true
     cpuThreadsConcurrency: 8
 
-    # Same shape again, for /networkAdapters — the only source of NIC link
-    # state (UP/DOWN); portMap has none. Off, or a failed read (iLO 4
-    # answers InsufficientFirmware), keeps each server's stored link states.
-    # Absent = on (the collector's default).
-    collectNicLinks: true
+    # /networkAdapters, the only source of NIC link state (UP/DOWN), is always
+    # read (no off switch); this is how many servers are read at once.
     nicLinksConcurrency: 8
 
     # Optional per-call timeout (seconds) for OneView requests, used by this CronJob. Unset

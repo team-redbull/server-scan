@@ -12,8 +12,8 @@ is the narrative a session reads to pick up where the last one stopped.
 Moved to `docs/notes/session-log.md`: the OME exact-match unit (ADR-0069), with its /servers and /clusters work and the Cisco missing-disk policy.
 
 **Shipped (branch `feat/oneview-nic-link-state`):** `portMap` has no link state, so each HP server's `/networkAdapters` (verified live by
-the operator, `X-Api-Version: 6000`) is read as a third bounded per-server fan-out (`_Fanout`, shared with PSUs and processors;
-`INVENTORY_ONEVIEW_COLLECT_NIC_LINKS`, `_NIC_LINKS_CONCURRENCY`, Helm `collectNicLinks`/`nicLinksConcurrency`, absent = on), in `get_one` too.
+the operator, `X-Api-Version: 6000`) is read as a third bounded per-server fan-out (`_Fanout`, shared with PSUs and processors; always on — the on/off switch shipped in PR #41
+was removed the same day at the operator's request; `_NIC_LINKS_CONCURRENCY` / Helm `nicLinksConcurrency`, default 8, stays), in `get_one` too.
 `Ports[].LinkStatus` is joined onto the `portMap` NICs by MAC, then by a unique `deviceName`/`portNumber`; the NIC list and `nic_macs` are
 untouched. **Unread is per port** (`ProviderNic.link_state_read=False`): ingest keeps that port's stored state and lists
 `network.interfaces.link_state` unread; the interface is stored `link_state_kept: true`, the Network tab marks it "unconfirmed" and

@@ -601,9 +601,12 @@ pending its own decision.
 the operator verified live on their appliance (`X-Api-Version: 6000`). The
 collector now reads it as a third bounded per-server fan-out, the same
 two-tier shape as `/powerSupplies` and `/processors` (expanded payload first,
-one call per server for the rest; `INVENTORY_ONEVIEW_COLLECT_NIC_LINKS`,
-`_NIC_LINKS_CONCURRENCY`, Helm `collectors.oneview.collectNicLinks` /
-`nicLinksConcurrency`), and `get_one` reads it too, so "Fetch now" matches a
+one call per server for the rest, 8 servers at a time). Unlike the other two
+it has **no off switch** (operator's call, 2026-11-26: link state is always
+collected); only how many servers are read at once is configurable
+(`INVENTORY_ONEVIEW_NIC_LINKS_CONCURRENCY`, Helm
+`collectors.oneview.nicLinksConcurrency`, default 8; ~200 HP servers is
+about 25 rounds of 8). `get_one` reads it too, so "Fetch now" matches a
 full run. Still no Redfish/iLO pass: this is OneView's own API.
 
 - **The NIC list still comes from `portMap`**; link state is joined onto it,

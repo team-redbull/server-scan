@@ -1821,8 +1821,9 @@ returns the complete object per member rather than a summary, and
 the same response. The exceptions are power supplies, processors (for
 `cpu_threads`) and network adapters (for NIC link state): each is read from
 the expanded payload where it is there and otherwise costs one request per
-server (`INVENTORY_ONEVIEW_COLLECT_PSUS`, `_COLLECT_CPU_THREADS`,
-`_COLLECT_NIC_LINKS`, each on by default).
+server (`INVENTORY_ONEVIEW_COLLECT_PSUS` and `_COLLECT_CPU_THREADS`, on by
+default; link state has no switch and is always read,
+`INVENTORY_ONEVIEW_NIC_LINKS_CONCURRENCY` (default 8) at a time).
 
 Four traps are worth knowing before touching the mapping, each with its
 HPE source in `docs/hpe-collectors.md`:
