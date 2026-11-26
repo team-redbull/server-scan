@@ -719,11 +719,15 @@ collectors:
         # keeps them to mapped fields only; 1Gi covers ~10,000 servers.
         memory: 1Gi
 
-# The warranty lookup for a server a collector creates (ADR-0070). The URI is set once, in the
-# server-scan release's `warranty.mongoUri`; this chart reads that release's Secret by name
-# (optional: absent = warranty off). A KubeVirt release needs nothing here: VMs have no warranty.
+# The warranty lookup for a server a collector creates (ADR-0070); the monthly sync is
+# server-scan's. Self-contained, nothing read from the server-scan release: set mongoUri
+# (rendered into <fullname>-collector-warranty-db) or name a Secret in this namespace with
+# existingSecret (the hub may reuse server-scan's `server-scan-warranty-db`). Neither = off,
+# and a new server gets its warranty at the next sync or "Fetch now". A KubeVirt release
+# needs nothing: VMs have no warranty.
 warranty:
-  secretName: server-scan-warranty-db
-  secretKey: mongo-uri
+  mongoUri: ""
+  existingSecret: ""
+  existingSecretKey: mongo-uri
   database: MongoDB-Nitur
   collection: warranty-excel-new

@@ -208,7 +208,8 @@ not carry it.
 
 ## Warranty (ADR-0070)
 
-The warranty URI is set **once**, in the `server-scan` release; an absent block means warranty off:
+Each chart is configured on its own; an absent block means warranty off. In `server-scan` (the API's
+"Fetch now" and the monthly sync):
 
 ```yaml
 warranty:
@@ -226,12 +227,23 @@ warranty:
 ```
 
 `INVENTORY_WARRANTY_*` reaches every pod that gets the database settings (the API for "Fetch now", the
-prunes, the sync). `server-scan-collectors` renders no warranty Secret: its collectors read the server-scan
-release's Secret by name (`warranty.secretName`, default `server-scan-warranty-db`, optional, so warranty
-off is no error) and use it only for a server they create. A KubeVirt release needs nothing: VMs have no
-warranty. If the server-scan release is not named `server-scan`, or uses `existingSecret`, set the
-collectors' `warranty.secretName` to that Secret's name (and `warranty.secretKey` to its `existingSecretKey`: a
-wrong name or key silently turns warranty off for the collectors). Use a read-only MongoDB user on that collection.
+prunes, the sync).
+
+`server-scan-collectors` reads nothing from the server-scan release, so it works in another cluster too. Its
+collectors look up the warranty of a server they create; give them the URI one of two ways:
+
+```yaml
+warranty:
+  mongoUri: "mongodb://user:pass@host:27017"   # rendered into <fullname>-collector-warranty-db
+  existingSecret: ""                            # or a Secret in this namespace (the hub may name
+  existingSecretKey: mongo-uri                  #   server-scan's own server-scan-warranty-db)
+  database: MongoDB-Nitur
+  collection: warranty-excel-new
+```
+
+Neither set: the collectors skip the lookup and a new server gets its warranty at the next sync or "Fetch
+now". The two Secrets have different names, so both releases can render one in the same namespace. A
+KubeVirt release needs nothing: VMs have no warranty. Use a read-only MongoDB user on that collection.
 **Enable it after the collectors release runs the same image** (an older collector drops the field when it
 rewrites a server), then **run `warranty-sync` once from the Jobs page**: until the first sync, existing
 servers show no warranty. The sync covers physical servers only, writes a
