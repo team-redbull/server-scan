@@ -8,11 +8,15 @@
 {{- $w := .Values.warranty | default dict }}
 {{- $ws := $w.sync | default dict }}
 {{- $wsOn := not (not (and (ternary $ws.enabled true (hasKey $ws "enabled")) (or $w.mongoUri $w.existingSecret))) }}
+{{- $rn := .Values.renamer | default dict }}
+{{- $rj := $rn.job | default dict }}
+{{- $rnOn := not (not (and (ternary $rj.enabled true (hasKey $rj "enabled")) $rn.url (or (and $rn.username $rn.password) $rn.existingSecret))) }}
 {{- $rel := .Release.Name }}
 {{- $jobs := list
   (dict "name" (printf "%s-prune-servers" $rel) "enabled" ($pr.enabled | default false))
   (dict "name" (printf "%s-prune-events" $rel) "enabled" (ternary $ar.enabled true (hasKey $ar "enabled")))
   (dict "name" (printf "%s-warranty-sync" $rel) "enabled" $wsOn)
+  (dict "name" (printf "%s-rename-fleet" $rel) "enabled" $rnOn)
 }}
 apiVersion: v1
 kind: ConfigMap

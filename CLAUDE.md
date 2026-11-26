@@ -294,6 +294,9 @@ long form of each entry is in the 2026-09-13 archive.
 - **A server's warranty is copied, never joined, and never a health reason** (ADR-0070): `Server.warranty` comes from the
   operator's read-only collection on create, "Fetch now" and the monthly `tools.sync_warranty` only (every other run carries it
   forward); the sync refuses an empty collection (a misnamed one reads empty); expiry is computed in the UI against today.
+- **The rename sweep never builds a name** (ADR-0071): `tools.rename_fleet` (every 5 min) only picks who goes to the
+  renamer service (free, unreserved, Dell `OPENMANAGE`/Cisco `UCS_CENTRAL`, name not matching `fleet_name`) and
+  records `RENAME_REQUESTED`, which is also its cooldown ledger; a chunk that failed as a whole is not recorded.
 - **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
   (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
 - **Every call on the login path has a timeout, and a 503 says why** (ADR-0042). ldap3's sync
@@ -368,7 +371,7 @@ long form of each entry is in the 2026-09-13 archive.
   back to the profile's org DN. Known collision: a code that is a substring of
   `infra` makes every `-infra-` server ambiguous.
 - **"Run job" creates a real Job from a CronJob's `jobTemplate` through the Kubernetes API** (ADR-0055, plain `httpx` + ServiceAccount
-  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 2 prunes, the warranty sync and the
+  token, `app/infrastructure/jobs`). Only CronJobs labelled `server-scan.io/triggerable: "true"` in the API pod's own namespace (the 2 prunes, the warranty sync, the rename sweep and the
   hub `server-scan-collectors` release's collectors, never `nodes-status` or a KubeVirt cluster's), admin-only on every route including reads, 409 while any owned Job is active, `JOB_TRIGGERED` audited. A new
   triggerable CronJob needs that label. `INVENTORY_JOBS_BACKEND` is `kubernetes|fake|off` (unset: fake in dev, off in production); Helm
   `jobTrigger.enabled` (on by default, absent = on) adds a ServiceAccount and a namespaced Role. A personal token is never ADMIN, so it gets 403.
@@ -475,13 +478,13 @@ When you finish yours, move this entry to the top of
 `git log`, and the ADR each entry names are the record; this is the
 handoff.
 
-**2026-11-26 — Warranty from the operator's collection (ADR-0070), and the Reason dropdown sorted by count.**
-Moved to `docs/notes/session-log.md`: the inventory column-width unit (PR #42).
+**2026-11-26 — Fleet rename sweep (ADR-0071), and `cluster-monitoring-config` removed from the chart.**
+Moved to `docs/notes/session-log.md`: warranty (ADR-0070) and the Reason dropdown sorted by count.
 
-**Uncommitted, branch `feat/reason-filter-by-count`** (the user asked not to commit or open a PR yet). The Reason options are
-most servers first. Each physical server's warranty end date is copied from `MongoDB-Nitur.warranty-excel-new`
-(`INVENTORY_WARRANTY_*`, Helm `warranty.*`), looked up on create, "Fetch now" and a monthly `warranty-sync` CronJob, stored as
-`Server.warranty`; the UI derives Expired / Expiring soon (90 days) / Active / Date not read / No record, a Warranty filter and a
-line on the Overview tab; never health. Reviewed by five agents (Python, TypeScript, stored shape, Helm, Codex) and fixed.
+**Uncommitted, branch `chore/remove-cluster-monitoring-config`** (the user asked not to push). The server-scan chart no
+longer renders `cluster-monitoring-config` (`metrics.userWorkloadMonitoring` removed; cluster-wide, belongs to whoever
+configures the cluster). New `tools.rename_fleet` + CronJob `rename-fleet` every 5 minutes (Helm `renamer.*`,
+`INVENTORY_RENAMER_*`), report-only by default, `RENAME_REQUESTED` events with a 24 h cooldown.
 
-**Open:** the user is choosing between the separate Warranty filter (built) and putting it inside Reason, and has a second request.
+**Open:** the renamer's batch response is assumed to key each result by `idrac_ip` (Cisco profile names too); verify
+against the live renamer in report-only before setting `reportOnly: false`.

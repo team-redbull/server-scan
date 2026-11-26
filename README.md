@@ -90,6 +90,10 @@ everything with `docker compose down` (or `scripts/dev-up.sh down`) when done.
   "Fetch now" and by a monthly sync. The UI shows Expired / Expiring soon (90 days) / Active and
   filters on it; it never changes a server's health
   ([ADR-0070](docs/adr/0070-server-warranty-from-an-outside-collection.md)).
+- **Fleet rename sweep.** Every 5 minutes, free Dell (OpenManage) and Cisco (UCS Central) servers not
+  named `ocp-c<conf_id><marker>-mtl-<site>-<serial>` are sent to the renamer service, which picks the name
+  (`INVENTORY_RENAMER_*`, Helm `renamer.*`); report-only until `renamer.job.reportOnly: false`, each answer a
+  `RENAME_REQUESTED` event ([ADR-0071](docs/adr/0071-fleet-rename-sweep.md)).
 - **`None` means "not read this run".** A collector never turns a failed read into zero, so
   good stored data is not overwritten ([ADR-0016](docs/adr/0016-redfish-standalone-collector.md)).
 

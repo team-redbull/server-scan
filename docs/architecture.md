@@ -2021,6 +2021,20 @@ every other run carries it forward. A source that fails once stops trying for th
 the UI from today's date (`withWarrantyStatus`, window `INVENTORY_WARRANTY_EXPIRING_DAYS` served on
 `GET /servers/rows`) and is never a health reason, so it cannot change a server's State.
 
+## Fleet rename sweep (ADR-0071)
+
+`tools.rename_fleet` (CronJob `rename-fleet`, every 5 minutes) reads free (`AVAILABLE`), reachable,
+out-of-maintenance Dell and Cisco servers (`MongoServerRepository.rename_candidates`), then skips in Python, counting
+each: a name already matching `app.domain.value_objects.fleet_name`, a collector the renamer does not manage (only
+`OPENMANAGE` and `UCS_CENTRAL`/`UCS_MANAGER`), a live reservation, a Dell without an IP BMC host, a server in
+cooldown, and anything past `maxPerRun`. It calls the renamer's batch routes through
+`app.infrastructure.renamer.client` (HTTP Basic, `chunkSize` per request; a connect failure is retried twice, a read timeout never, as the renamer may have acted)
+with `dry_run` = report-only, and records one `RENAME_REQUESTED` per answered server. The cooldown is
+`AuditService.server_ids_with_event_since` (one `distinct` on the `event_type_created_at_id` index); a chunk whose
+request failed as a whole, or a server the answer left out, is not recorded, so it is retried next run. Each chunk is
+re-read just before it is sent (a server reserved, claimed or paused since selection is dropped) and recorded as soon
+as it returns; no new chunk starts after `runBudgetSeconds`. The job never builds a name.
+
 ## Confs: server configurations (ADR-0061)
 
 `GET /api/v1/confs` and `GET /api/v1/confs/{conf_id}` read the `confs` collection,
@@ -2059,7 +2073,7 @@ two adapters in `app/infrastructure/jobs/`: `KubernetesJobRunner` (plain `httpx`
 `manifest.py` builds the Job from `spec.jobTemplate` as `kubectl create job --from` does) and `FakeJobRunner`
 (dev and tests). `INVENTORY_JOBS_BACKEND` (`kubernetes`/`fake`/`off`, `app/config/jobs.py`) picks one in the
 lifespan; `off` makes `GET /jobs` answer `enabled: false` and the others 404. A CronJob is triggerable only with
-the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace (the prunes, the warranty sync, and the collectors
+the label `server-scan.io/triggerable: "true"` and only in the API pod's namespace (the prunes, the warranty sync, the rename sweep, and the collectors
 of a `server-scan-collectors` release in that namespace, ADR-0060); a running Job gives 409.
 `JobTriggerService` records `JOB_TRIGGERED`. The SPA's `/jobs` page (`features/jobs/`, hidden from non-admins by
 `useIsAdmin()`, which is not the control) lists CronJobs, their Jobs and pods, a confirm dialog and a log pane

@@ -89,6 +89,19 @@ class AuditService:
         """
         return await self._repo.has_event_since(event_type, server_id, since)
 
+    async def server_ids_with_event_since(self, event_type: EventType, since: datetime) -> set[str]:
+        """
+        Every server with an event of one type at or after a time.
+
+        Args:
+            event_type (EventType): The kind of event to look for.
+            since (datetime): Inclusive lower bound on when it was recorded.
+
+        Returns:
+            set[str]: The servers' ids.
+        """
+        return await self._repo.server_ids_with_event_since(event_type, since)
+
 
 # A fixed id, so the pipeline's history is one `actor.id`-filtered query.
 SYSTEM_INGEST_ACTOR = Actor(type=ActorType.SYSTEM, id="ingestion")

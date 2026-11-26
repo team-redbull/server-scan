@@ -393,18 +393,6 @@ metrics:
     # unmatched hostname is worth investigating (ADR-0029's 2026-09-24
     # update) — raise it for an estate with a known, accepted gap.
     membershipUnmatchedThreshold: 0
-  # Turns on OpenShift's user-workload monitoring by writing the
-  # `cluster-monitoring-config` ConfigMap into openshift-monitoring —
-  # the only thing that makes the ServiceMonitor above get scraped. OFF
-  # by default for three reasons that all apply at once: it is
-  # OpenShift-specific, it is a cluster-wide setting written from an
-  # application chart into a namespace the chart does not otherwise
-  # own, and a cluster that already has that ConfigMap (the OpenShift
-  # docs tell admins to hand-write it) will collide unless it is adopted
-  # first — the template says how. Turn it on when this chart is the
-  # one place monitoring is meant to be configured from.
-  userWorkloadMonitoring:
-    enabled: false
 
 route:
   enabled: true
@@ -619,3 +607,36 @@ warranty:
     # A failed run otherwise waits a month; "Run job" on the Jobs page also recovers it.
     backoffLimit: 2
     activeDeadlineSeconds: 1800
+
+# The fleet rename sweep (ADR-0071): every 5 minutes, free (AVAILABLE, not in maintenance, not
+# reserved, reachable) Dell servers from OpenManage and Cisco servers from UCS Central whose name is
+# not ocp-c<conf_id><marker>-mtl-<site>-<serial> are sent to the renamer service, which picks the name.
+# Renders only when url is set and either username and password, or existingSecret, are. Report-only (the
+# renamer's dry_run) until reportOnly: false; every answer is a RENAME_REQUESTED audit event.
+renamer:
+  url: ""
+  # Rendered into a Secret (<release>-renamer-credentials); or set existingSecret with the keys below.
+  username: ""
+  password: ""
+  existingSecret: ""
+  existingSecretUsernameKey: username
+  existingSecretPasswordKey: password
+  # false = no certificate check. Or keep true and trust a private CA from a ConfigMap in this namespace.
+  verifyTls: true
+  caConfigMap: ""
+  caConfigMapKey: ca-bundle.crt
+  job:
+    enabled: true
+    suspend: false
+    schedule: "*/5 * * * *"
+    reportOnly: true
+    # A server the renamer answered (renamed, dry run, no conf, failed) is not sent again for this long.
+    cooldownHours: 24
+    maxPerRun: 50
+    chunkSize: 5
+    # No new chunk is sent after this many seconds; one chunk can take up to 310 s, so keep
+    # runBudgetSeconds + 310 under activeDeadlineSeconds.
+    runBudgetSeconds: 540
+    # A run every 5 minutes is its own retry.
+    backoffLimit: 0
+    activeDeadlineSeconds: 900

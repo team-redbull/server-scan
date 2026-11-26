@@ -560,6 +560,43 @@ class MongoServerRepository:
         cursor = self._collection.find({}, _ROW_PROJECTION).sort("name_normalized", 1)
         return await cursor.to_list(length=None)
 
+    async def rename_candidates(
+        self, vendors: Sequence[str], ids: Sequence[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Free, reachable, out-of-maintenance servers of some vendors, for the rename sweep.
+
+        Reservation, collector and name are left to the caller, which counts skips (ADR-0071).
+
+        Args:
+            vendors (Sequence[str]): `identity.vendor` values.
+            ids (Sequence[str] | None): Only these servers (the re-check just before sending).
+
+        Returns:
+            list[dict[str, Any]]: Projected documents, `_id` included.
+        """
+        query: dict[str, Any] = {
+            "identity.vendor": {"$in": list(vendors)},
+            "openshift.lifecycle_state": OpenShiftState.AVAILABLE.value,
+            "maintenance.enabled": {"$ne": True},
+            "reachable": True,
+        }
+        if ids is not None:
+            query["_id"] = {"$in": list(ids)}
+        cursor = self._collection.find(
+            query,
+            {
+                "name": 1,
+                "identity.vendor": 1,
+                "identity.serial": 1,
+                "network.bmc.host": 1,
+                "network.bmc.host_is_ip": 1,
+                "source_provider": 1,
+                "reservation": 1,
+            },
+        )
+        return await cursor.to_list(length=None)
+
     async def warranty_targets(self) -> list[dict[str, Any]]:
         """
         Every physical server's identity, revision and stored warranty, for the monthly sync.
