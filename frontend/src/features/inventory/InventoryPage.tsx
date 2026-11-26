@@ -223,7 +223,8 @@ export function InventoryPage() {
   const reasonCatalog = useMemo(() => reasonOptions(data?.items ?? []), [data]);
   const reasonName = (key: string) =>
     reasonCatalog.find((r) => r.key === key)?.name ?? key;
-  /* Only reasons the other filters leave a row for, plus any ticked one, so it can be unticked. */
+  /* Only reasons the other filters leave a row for, plus any ticked one, so it can be unticked.
+     Most servers first; a tie keeps the catalog's worst-severity-then-name order (a stable sort). */
   const reasonChoices = [
     ...reasonCatalog
       .filter(
@@ -236,7 +237,8 @@ export function InventoryPage() {
         value: r.key,
         label: r.name,
         count: facets ? (facets.reason[r.key] ?? 0) : undefined,
-      })),
+      }))
+      .sort((a, b) => (b.count ?? 0) - (a.count ?? 0)),
     ...reasonKeys
       .filter((key) => !reasonCatalog.some((r) => r.key === key))
       .map((key) => ({

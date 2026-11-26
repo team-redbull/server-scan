@@ -877,9 +877,10 @@ describe("InventoryPage", () => {
     const options = within(
       screen.getByRole("group", { name: "Reason options" }),
     ).getAllByRole("checkbox");
+    // Most servers first, whatever the severity.
     expect(options.map((o) => o.closest("label")?.textContent)).toEqual([
-      "GPU failed 1",
       "Data disk degraded 2",
+      "GPU failed 1",
     ]);
 
     pick("Reason", /^GPU failed/);

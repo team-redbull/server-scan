@@ -155,7 +155,8 @@ Loaded only when a `frontend/` file is open.
   scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with
   headed Playwright Firefox + `GTK_OVERLAY_SCROLLING=0`; headless Firefox always uses overlay scrollbars).
 - **The Reason dropdown filters on fired policies by `policy_key`** (`?reason=`, ADR-0033 2026-11-24 update), never
-  on the message (per-server text). Options come from the rows (`reasonOptions`), worst severity first; a ticked reason
+  on the message (per-server text). Options come from the rows (`reasonOptions`), **most servers first** (the count shown,
+  under the other filters; 2026-11-26), ties worst severity then name; a ticked reason
   follows `matchesHealth`'s in-service rule like a severity. It is the row's last field, so its panel opens right-aligned
   (`MultiSelect alignRight`): measured at 1440 the panel spans 1056-1408 px with no page overflow.
 - **The inventory's filter block is one unit in the table's column**
