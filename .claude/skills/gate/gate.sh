@@ -68,7 +68,7 @@ if [ "$want_helm" = 1 ]; then
     sh -c 'helm template ci-lint deploy/helm/server-scan \
       --set frontend.enabled=true --set route.host=scan.apps.example.com \
       --set metrics.serviceMonitor.enabled=true --set metrics.prometheusRule.enabled=true \
-      --set renamer.url=https://renamer.example --set renamer.username=ci --set renamer.password=ci > /dev/null'
+      --set renamer.url=https://renamer.example --set renamer.username=ci --set renamer.password=ci --set renamer.caPem=ci-ca > /dev/null'
   step "helm template server-scan-collectors (every collector)" \
     sh -c 'helm template ci-lint deploy/helm/server-scan-collectors \
       --set collectors.redfishStandalone.enabled=true \

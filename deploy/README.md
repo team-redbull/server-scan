@@ -266,8 +266,10 @@ renamer:
   existingSecretUsernameKey: username
   existingSecretPasswordKey: password
   verifyTls: true                    # false = no certificate check
-  caConfigMap: ""                    # or keep true and trust a private CA from this ConfigMap
-  caConfigMapKey: ca-bundle.crt      #   (e.g. one with config.openshift.io/inject-trusted-cabundle)
+  caPem: ""                          # or keep true and paste the CA's PEM (caPem: |, BEGIN to END);
+                                     #   rendered into the ConfigMap <release>-renamer-ca
+  caConfigMap: ""                    # or name an existing ConfigMap (wins over caPem), e.g. one with
+  caConfigMapKey: ca-bundle.crt      #   config.openshift.io/inject-trusted-cabundle
   job:
     enabled: true
     suspend: false
