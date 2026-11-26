@@ -175,7 +175,8 @@ jobs:
             --set metrics.serviceMonitor.enabled=true \
             --set metrics.prometheusRule.enabled=true \
             --set renamer.url=https://renamer.example \
-            --set renamer.username=ci --set renamer.password=ci > /dev/null
+            --set renamer.username=ci --set renamer.password=ci \
+            --set renamer.caPem=ci-ca > /dev/null
           # Every collector at once (the hub release with a fake estate on top).
           helm template ci-lint deploy/helm/server-scan-collectors \
             --set collectors.redfishStandalone.enabled=true \

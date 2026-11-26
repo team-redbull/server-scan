@@ -621,8 +621,10 @@ renamer:
   existingSecret: ""
   existingSecretUsernameKey: username
   existingSecretPasswordKey: password
-  # false = no certificate check. Or keep true and trust a private CA from a ConfigMap in this namespace.
+  # false = no certificate check. Or keep true and trust a private CA: paste its PEM into caPem
+  # (rendered into the ConfigMap <release>-renamer-ca), or name an existing ConfigMap (wins over caPem).
   verifyTls: true
+  caPem: ""
   caConfigMap: ""
   caConfigMapKey: ca-bundle.crt
   job:

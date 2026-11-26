@@ -5,6 +5,8 @@
 {{- $on := ternary $j.enabled true (hasKey $j "enabled") }}
 {{- if and $on $r.url (or (and $r.username $r.password) $r.existingSecret) }}
 {{- $secret := $r.existingSecret | default (printf "%s-renamer-credentials" .Release.Name) }}
+{{- $caCM := $r.caConfigMap | default (ternary (printf "%s-renamer-ca" .Release.Name) "" (not (empty $r.caPem))) }}
+{{- $caKey := ternary ($r.caConfigMapKey | default "ca-bundle.crt") "ca-bundle.crt" (not (empty $r.caConfigMap)) }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -66,7 +68,7 @@ spec:
                 - name: INVENTORY_RENAMER_VERIFY_TLS
                   value: {{ ternary $r.verifyTls true (hasKey $r "verifyTls") | quote }}
                 - name: INVENTORY_RENAMER_CA_BUNDLE
-                  value: {{ ternary (printf "/etc/renamer-ca/%s" ($r.caConfigMapKey | default "ca-bundle.crt")) "" (not (empty $r.caConfigMap)) | quote }}
+                  value: {{ ternary (printf "/etc/renamer-ca/%s" $caKey) "" (not (empty $caCM)) | quote }}
                 - name: INVENTORY_RENAMER_RUN_BUDGET_SECONDS
                   value: {{ $j.runBudgetSeconds | default 540 | quote }}
                 - name: INVENTORY_RENAMER_COOLDOWN_HOURS
@@ -80,7 +82,7 @@ spec:
                     name: {{ .Release.Name }}-api-config
               resources:
                 {{- toYaml ($j.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 16 }}
-              {{- with $r.caConfigMap }}
+              {{- with $caCM }}
               volumeMounts:
                 - name: renamer-ca
                   mountPath: /etc/renamer-ca
@@ -94,7 +96,7 @@ spec:
                 runAsNonRoot: true
                 seccompProfile:
                   type: RuntimeDefault
-          {{- with $r.caConfigMap }}
+          {{- with $caCM }}
           volumes:
             - name: renamer-ca
               configMap:

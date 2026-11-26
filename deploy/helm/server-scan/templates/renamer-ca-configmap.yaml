@@ -1,0 +1,17 @@
+{{- /* The renamer's CA pasted into values (renamer.caPem, ADR-0071); renamer.caConfigMap wins when both are set. */ -}}
+{{- $r := .Values.renamer | default dict }}
+{{- $j := $r.job | default dict }}
+{{- $on := ternary $j.enabled true (hasKey $j "enabled") }}
+{{- if and $on $r.url $r.caPem (not $r.caConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-renamer-ca" .Release.Name }}
+  labels:
+    app.kubernetes.io/name: {{ printf "%s-renamer-ca" .Release.Name }}
+    app.kubernetes.io/component: maintenance
+    app.kubernetes.io/part-of: server-scan
+data:
+  ca-bundle.crt: |
+{{ $r.caPem | trim | indent 4 }}
+{{- end }}

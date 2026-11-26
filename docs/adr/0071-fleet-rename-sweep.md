@@ -49,6 +49,7 @@ which servers are free, so it decides *who* is sent; it never builds a name.
 - A conf mismatch is re-asked once per cooldown until a human adds a conf or fixes the server.
 - The renamer's batch response is matched by `idrac_ip` (also carrying the Cisco profile name, as its request
   field does); an identity missing from the response is counted `failed`.
-- `renamer.verifyTls: false` turns certificate checks off; `caConfigMap` trusts a private CA instead.
+- `renamer.verifyTls: false` turns certificate checks off; `caPem` (pasted into values, rendered into
+  `<release>-renamer-ca`) or `caConfigMap` (an existing one, which wins) trusts a private CA instead.
 - **Do not roll the API back past this release once the job has run** (report-only included): an older API
   cannot decode `RENAME_REQUESTED` events, so the events page and History tab would fail on them.

@@ -408,6 +408,7 @@ OpenShift namespace       (charts: deploy/helm/server-scan + the hub release of
 ├── CronJob  rename-fleet                   (every 5 min, on when renamer.url and credentials are set;
 │      asks the renamer to rename free Dell/Cisco servers, report-only by default, ADR-0071)
 ├── Secret   <release>-renamer-credentials  (from renamer.username/password, or renamer.existingSecret)
+├── ConfigMap <release>-renamer-ca          (from renamer.caPem, when no renamer.caConfigMap is named)
 ├── Secret   <collectors-release>-collector-credentials  (rendered from values, or bring your own)
 ├── MongoDB  ─┐  platform-provided, not deployed by this chart
 └── Redis    ─┘
