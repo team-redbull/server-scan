@@ -295,7 +295,8 @@ long form of each entry is in the 2026-09-13 archive.
   operator's read-only collection on create, "Fetch now" and the monthly `tools.sync_warranty` only (every other run carries it
   forward); the sync refuses an empty collection (a misnamed one reads empty); expiry is computed in the UI against today.
 - **The rename sweep never builds a name** (ADR-0071): `tools.rename_fleet` (every 5 min) only picks who goes to the
-  renamer service (free, unreserved, Dell `OPENMANAGE`/Cisco `UCS_CENTRAL`, name not matching `fleet_name`) and
+  renamer service (free, unreserved, Dell `OPENMANAGE`/Cisco `UCS_CENTRAL`, name not matching `fleet_name` and
+  not containing `renamer.job.skipNameContains`, default `-mce-,-seed-`) and
   records `RENAME_REQUESTED`, which is also its cooldown ledger; a chunk that failed as a whole is not recorded.
 - **`GET /servers/{id}` is cached per that server's revision, so it never embeds another document.** A VM's host
   (ADR-0059) is resolved by the uncached `GET /servers/{id}/vm-host`; the detail carries only `vm_host`'s names.
@@ -311,7 +312,9 @@ long form of each entry is in the 2026-09-13 archive.
   Events link, `/events` (`AuditGate`) and the History tab. A new endpoint that returns audit data
   must join that router or add the dependency; a UI-only hide is not a control. The three
   `INVENTORY_API_TOKEN_*` must differ (`Settings` refuses to start otherwise). **Every authenticated login is an event** (ADR-0047): `LOGIN_SUCCEEDED`
-  (role in `data`) and `LOGIN_DENIED` (`NO_PERMISSION`); a wrong password is deliberately *not* recorded.
+  (role in `data`) and `LOGIN_DENIED` (`NO_PERMISSION`, or `BLOCKED`); a wrong password is deliberately *not* recorded.
+  **`INVENTORY_BLOCKED_USERS`** (ADR-0072) beats every list and group, is checked after the bind, and is also
+  checked per request in `get_current_actor` and `/auth/me`, so a blocked user's session and personal token die at once.
 - **A PrometheusRule is evaluated by exactly one of two components, chosen by label** (ADR-0029): with
   `openshift.io/prometheus-rule-evaluation-scope: leaf-prometheus` the user-workload Prometheus (sees only user
   namespaces: no `kube_*`/`container_*`), without it a Thanos Ruler that may have no Alertmanager or remote-write.

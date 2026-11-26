@@ -16,7 +16,9 @@ which servers are free, so it decides *who* is sent; it never builds a name.
   (`renamer.*`, operator's choice: like `nodes-status`, not nightly). `concurrencyPolicy: Forbid`,
   `backoffLimit: 0` (the next run is the retry), triggerable from the Jobs page.
 - **Candidates:** `identity.vendor` dell or cisco, `openshift.lifecycle_state` `AVAILABLE`, not in
-  maintenance, `reachable`, and then in Python (each skip is counted): name not already matching
+  maintenance, `reachable`, and then in Python (each skip is counted): name not containing an excluded
+  string (`renamer.job.skipNameContains`, default `-mce-,-seed-`, any case: MCE hubs and seed hosts keep their
+  names, operator's call 2026-11-26), name not already matching
   `^ocp-c[0-9]+(\.[0-9]+)?[dn]?-mtl-[a-z0-9]+-[a-z0-9]+$` (`app.domain.value_objects.fleet_name`, kept in
   sync with the renamer), collected by a collector the renamer manages (Dell `OPENMANAGE`, Cisco
   `UCS_CENTRAL`/`UCS_MANAGER`; Intersight and Redfish standalone would only 404), no live reservation (a

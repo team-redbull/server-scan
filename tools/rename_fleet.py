@@ -84,6 +84,7 @@ class SweepSummary:
     Attributes:
         candidates (int): Free, reachable, out-of-maintenance Dell and Cisco servers.
         already_in_convention (int): Named by the convention already.
+        skipped_excluded_name (int): The name contains an excluded string (e.g. `-mce-`, `-seed-`).
         skipped_unmanaged (int): From a collector the renamer does not manage.
         skipped_reserved (int): Held by a live reservation.
         skipped_no_bmc_ip (int): Dell servers whose BMC host is not an IP.
@@ -101,6 +102,7 @@ class SweepSummary:
 
     candidates: int = 0
     already_in_convention: int = 0
+    skipped_excluded_name: int = 0
     skipped_unmanaged: int = 0
     skipped_reserved: int = 0
     skipped_no_bmc_ip: int = 0
@@ -145,6 +147,7 @@ def select_candidates(
     now: datetime,
     max_per_run: int,
     summary: SweepSummary,
+    skip_name_contains: frozenset[str] = frozenset(),
 ) -> list[Candidate]:
     """
     Pick the servers to send this run, counting every one skipped.
@@ -155,6 +158,7 @@ def select_candidates(
         now (datetime): The run's clock, for reservations.
         max_per_run (int): The most servers sent in one run.
         summary (SweepSummary): Updated in place.
+        skip_name_contains (frozenset[str]): Lower-cased strings; a name containing one is skipped.
 
     Returns:
         list[Candidate]: Ordered by name, at most `max_per_run`.
@@ -166,6 +170,9 @@ def select_candidates(
         identity_doc = doc.get("identity") or {}
         vendor = str(identity_doc.get("vendor") or "")
         bmc = (doc.get("network") or {}).get("bmc") or {}
+        if any(part in name.lower() for part in skip_name_contains):
+            summary.skip("skipped_excluded_name", name)
+            continue
         if matches_fleet_convention(name):
             summary.skip("already_in_convention", name)
             continue
@@ -359,6 +366,7 @@ async def sweep(
     dry_run: bool,
     cooldown: timedelta,
     max_per_run: int,
+    skip_name_contains: frozenset[str] = frozenset(),
 ) -> SweepSummary:
     """
     One rename sweep: select, send per vendor, audit every answered server.
@@ -370,6 +378,7 @@ async def sweep(
         dry_run (bool): Report-only.
         cooldown (timedelta): How long an answered server is left alone.
         max_per_run (int): The most servers sent in one run.
+        skip_name_contains (frozenset[str]): Lower-cased strings that keep a server out.
 
     Returns:
         SweepSummary: The counts.
@@ -379,7 +388,12 @@ async def sweep(
     docs = await repo.rename_candidates(list(_MANAGED))
     cooled = await audit.server_ids_with_event_since(EventType.RENAME_REQUESTED, now - cooldown)
     picked = select_candidates(
-        docs, cooled=cooled, now=now, max_per_run=max_per_run, summary=summary
+        docs,
+        cooled=cooled,
+        now=now,
+        max_per_run=max_per_run,
+        summary=summary,
+        skip_name_contains=skip_name_contains,
     )
     logger.info(
         "rename_fleet.selected",
@@ -430,6 +444,7 @@ async def _run() -> int:
         max_per_run=settings.renamer_max_per_run,
         cooldown_hours=settings.renamer_cooldown_hours,
         run_budget_seconds=settings.renamer_run_budget_seconds,
+        skip_name_contains=settings.renamer_skip_name_contains,
     )
     started = time.monotonic()
     mongo = MongoClientHolder(settings)
@@ -442,6 +457,11 @@ async def _run() -> int:
             dry_run=settings.renamer_report_only,
             cooldown=timedelta(hours=settings.renamer_cooldown_hours),
             max_per_run=settings.renamer_max_per_run,
+            skip_name_contains=frozenset(
+                p.strip().lower()
+                for p in settings.renamer_skip_name_contains.split(",")
+                if p.strip()
+            ),
         )
     except PyMongoError:
         logger.exception("rename_fleet.mongo_failed")

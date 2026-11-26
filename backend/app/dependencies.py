@@ -23,6 +23,7 @@ from typing import Annotated
 import structlog
 from fastapi import Depends, Request
 
+from app.application.services.auth_service import blocked_usernames
 from app.application.services.personal_token import TOKEN_PREFIX
 from app.application.services.personal_token import authenticate as authenticate_personal_token
 from app.config import Settings, get_settings
@@ -102,6 +103,23 @@ async def _personal_token_actor(request: Request, token: str) -> Actor | None:
         return None
 
 
+def _refuse_blocked(settings: Settings, username: str, request: Request) -> None:
+    """
+    Refuse a session or personal token whose user was blocked after it was issued.
+
+    Args:
+        settings (Settings): Holds the blocked list (re-read live from its file).
+        username (str): The session's or token's user.
+        request (Request): For the log line.
+
+    Raises:
+        UnauthorizedError: The user is on `INVENTORY_BLOCKED_USERS`.
+    """
+    if username.strip().lower() in blocked_usernames(settings):
+        logger.warning("auth.rejected", reason="blocked_user", user=username, path=request.url.path)
+        raise UnauthorizedError("Login required.")
+
+
 async def get_current_actor(
     request: Request, settings: Annotated[Settings, Depends(get_settings)]
 ) -> Actor:
@@ -147,11 +165,13 @@ async def get_current_actor(
                     "auth.rejected", reason="personal_token_invalid", path=request.url.path
                 )
                 raise UnauthorizedError("Login required.")
+            _refuse_blocked(settings, personal.id.removeprefix("token:"), request)
             return personal
 
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     claims = decode_session(cookie, secret=settings.session_secret) if cookie else None
     if claims is not None:
+        _refuse_blocked(settings, claims.username, request)
         return Actor(type=ActorType.USER, id=claims.username, role=claims.role)
 
     if bearer_presented:

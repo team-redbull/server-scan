@@ -68,6 +68,8 @@ spec:
               value: /etc/server-scan/config/INVENTORY_AUDITOR_GROUPS
             - name: INVENTORY_AUDITOR_USERS_FILE
               value: /etc/server-scan/config/INVENTORY_AUDITOR_USERS
+            - name: INVENTORY_BLOCKED_USERS_FILE
+              value: /etc/server-scan/config/INVENTORY_BLOCKED_USERS
             # The live recheck waits as long as each collector's own CronJob does
             # (ADR-0032): without these the API used the shared 15 s default, which UCS
             # Central's service-profile read exceeds (the CronJob runs with 240 s).

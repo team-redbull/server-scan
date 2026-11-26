@@ -44,6 +44,7 @@ LOGIN_OUTCOMES = (
     "success",
     "wrong_password",
     "no_permission",
+    "blocked",
     "throttled",
     "unavailable",
     "error",

@@ -46,6 +46,7 @@ def _settings(
     viewer_users: str = "",
     auditor_groups: str = "",
     auditor_users: str = "",
+    blocked_users: str = "",
 ) -> Settings:
     return Settings(
         _env_file=None,
@@ -58,6 +59,7 @@ def _settings(
         viewer_users=viewer_users,
         auditor_groups=auditor_groups,
         auditor_users=auditor_users,
+        blocked_users=blocked_users,
     )
 
 
@@ -235,3 +237,30 @@ class TestLoginDeadline:
             await service.authenticate("jdoe", "pw")
         assert raised.value.dependency == "auth"
         assert raised.value.reason == "login_deadline"
+
+
+class TestBlockedUsers:
+    async def test_a_blocked_admin_is_refused_without_any_group_lookup(self) -> None:
+        """The blocked list beats every user list and group, and is matched case-insensitively."""
+        ad_api = _FakeAdApi({"admins": {"jdoe"}})
+        service = AuthService(_settings(admin_users="jdoe", blocked_users="other, JDoe"), ad_api)
+        assert await service.authenticate("jdoe", "x") is LoginResult.BLOCKED
+        assert ad_api.queried == []
+
+    async def test_a_blocked_user_with_a_wrong_password_is_still_a_wrong_password(
+        self, request: pytest.FixtureRequest
+    ) -> None:
+        """The bind runs first, so the blocked list never tells an attacker a username exists."""
+        request.node._bind_ok = False
+        service = AuthService(_settings(blocked_users="jdoe"), _FakeAdApi())
+        assert await service.authenticate("jdoe", "wrong") is None
+
+    async def test_the_live_file_wins_over_the_setting(self, tmp_path: Path) -> None:
+        """A ConfigMap edit blocks the next login with no pod restart."""
+        live = tmp_path / "blocked"
+        live.write_text("jdoe")
+        settings = _settings(admin_users="jdoe").model_copy(
+            update={"blocked_users_file": str(live)}
+        )
+        service = AuthService(settings, _FakeAdApi())
+        assert await service.authenticate("jdoe", "x") is LoginResult.BLOCKED

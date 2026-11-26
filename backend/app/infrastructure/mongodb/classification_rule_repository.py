@@ -132,11 +132,11 @@ class MongoClassificationRuleRepository:
 
 
 # ORDER-DEPENDENT: UPI's `.*` would claim every name, so `order` (0/1/2/3)
-# is the only thing keeping HOSTED_CLUSTER/MCE out of it. Why the four are
-# overlapping catch-alls: docs/architecture.md, "Classification engine".
+# is the only thing keeping HOSTED_CLUSTER/MCE out of it, and MCE sits before
+# the `^ocp-` hosted-cluster rule so `ocp-mce-...` is MCE (docs/architecture.md).
 _HOSTED_CLUSTER_HYPERSHIFT_PATTERN = r"^ocp4-hypershift"
 _HOSTED_CLUSTER_HARDWARE_PATTERN = r"^ocp-"
-_MCE_PATTERN = "mce"
+_MCE_PATTERN = r"-(mce|seed)-"
 _UPI_PATTERN = r".*"
 
 
@@ -189,7 +189,7 @@ def default_system_rules(sites: SiteCatalog) -> list[ClassificationRule]:
             pattern=_HOSTED_CLUSTER_HARDWARE_PATTERN,
             source="SYSTEM_DEFAULT",
             priority=100,
-            order=1,
+            order=2,
             created_at=now,
             updated_at=now,
         ),
@@ -197,10 +197,9 @@ def default_system_rules(sites: SiteCatalog) -> list[ClassificationRule]:
             id=new_id("classification_rule"),
             name="system-default-mce",
             description=(
-                'An MCE hub\'s own nodes: any name containing "mce", checked '
-                "before the UPI catch-all below since an MCE hub is itself "
-                "UPI-installed and would otherwise be indistinguishable "
-                "from it by name alone."
+                'An MCE hub\'s own nodes and seed hosts: any name containing "-mce-" or '
+                '"-seed-", checked before the "ocp-" hosted-cluster rule and the UPI '
+                "catch-all, which would otherwise claim them by name alone."
             ),
             enabled=True,
             system=True,
@@ -210,7 +209,7 @@ def default_system_rules(sites: SiteCatalog) -> list[ClassificationRule]:
             pattern=_MCE_PATTERN,
             source="SYSTEM_DEFAULT",
             priority=100,
-            order=2,
+            order=1,
             created_at=now,
             updated_at=now,
         ),

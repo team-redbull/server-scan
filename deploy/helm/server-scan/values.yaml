@@ -546,6 +546,11 @@ auth:
   # view (docs/adr/0043). A viewer sees everything else but not the audit trail.
   auditorGroups: ""
   auditorUsers: ""
+  # Comma-separated usernames refused even when a list or group above admits them, e.g.
+  # "user1,user2". Checked after the password, so a blocked user's wrong password is still
+  # "wrong password". Their open sessions and personal API token stop working at once; an edit
+  # takes effect with no pod restart (live-mounted, like the lists above).
+  blockedUsers: ""
 
   # Signs the login session cookie. Blank keeps the backend's own
   # committed dev-insecure default, which it refuses to start with once
@@ -635,6 +640,8 @@ renamer:
     # A server the renamer answered (renamed, dry run, no conf, failed) is not sent again for this long.
     cooldownHours: 24
     maxPerRun: 50
+    # A server whose name contains any of these (comma-separated, any case) is never sent.
+    skipNameContains: "-mce-,-seed-"
     chunkSize: 5
     # No new chunk is sent after this many seconds; one chunk can take up to 310 s, so keep
     # runBudgetSeconds + 310 under activeDeadlineSeconds.

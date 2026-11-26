@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     renamer_max_per_run: int = Field(default=50, ge=1)
     renamer_timeout_seconds: float = Field(default=310.0, gt=0)
     renamer_run_budget_seconds: float = Field(default=540.0, gt=0)
+    # Comma-separated; a server whose name contains any of these (case-insensitive) is never sent.
+    renamer_skip_name_contains: str = "-mce-,-seed-"
 
     # --- Collectors (tools/run_collector.py, not the API process) ---
     ucs_manager_username: str = ""
@@ -283,6 +285,8 @@ class Settings(BaseSettings):
     # Read-only plus the audit trail (docs/adr/0043); checked after admin, before viewer.
     auditor_groups: str = ""
     auditor_users: str = ""
+    # Refused at login and on every request even when a list or group above admits them.
+    blocked_users: str = ""
 
     # A live-mounted file (ConfigMap volume, not envFrom) holding the same
     # CSV list, re-read on every login instead of once at startup — see
@@ -293,6 +297,7 @@ class Settings(BaseSettings):
     viewer_users_file: str = ""
     auditor_groups_file: str = ""
     auditor_users_file: str = ""
+    blocked_users_file: str = ""
 
     session_secret: str = _INSECURE_DEV_SESSION_SECRET
     session_ttl_seconds: int = 28_800

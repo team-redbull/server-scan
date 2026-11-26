@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.v1.auth_schemas import LoginRequest, LoginResponse, MeResponse
 from app.application.services.audit_service import AuditService
-from app.application.services.auth_service import AuthService
+from app.application.services.auth_service import AuthService, blocked_usernames
 from app.application.services.group_membership_cache import CachedGroupMembership
 from app.config import Settings, get_settings
 from app.dependencies import get_mongo_holder, get_redis_holder
@@ -93,9 +93,9 @@ async def _record_login(audit: AuditService, username: str, result: Role | Login
     Args:
         audit (AuditService): Where the event goes.
         username (str): The normalised username that authenticated.
-        result (Role | LoginResult): Its role, or `NO_PERMISSION`.
+        result (Role | LoginResult): Its role, `NO_PERMISSION` or `BLOCKED`.
     """
-    denied = result is LoginResult.NO_PERMISSION
+    denied = isinstance(result, LoginResult)
     try:
         async with asyncio.timeout(_AUDIT_WRITE_TIMEOUT_SECONDS):
             await audit.record(
@@ -153,6 +153,9 @@ async def login(
                 raise UnauthorizedError("Wrong username or password.")
             await throttle.reset(payload.username)
             await _record_login(audit, payload.username.strip().lower(), result)
+            if result is LoginResult.BLOCKED:
+                outcome = "blocked"
+                raise ForbiddenError("Your account is blocked from this app.")
             if result is LoginResult.NO_PERMISSION:
                 outcome = "no_permission"
                 raise ForbiddenError("Your account has no permission for this app.")
@@ -224,7 +227,7 @@ async def me(
 
     token = request.cookies.get(SESSION_COOKIE_NAME)
     claims = decode_session(token, secret=settings.session_secret) if token else None
-    if claims is None:
+    if claims is None or claims.username.strip().lower() in blocked_usernames(settings):
         return MeResponse(login_required=True, authenticated=False)
     return MeResponse(
         login_required=True, authenticated=True, username=claims.username, role=claims.role
