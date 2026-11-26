@@ -47,13 +47,18 @@ Loaded only when a `frontend/` file is open.
   row `onClick`'s `navigate()` must pass it; either one bypassing it
   loses the filter for that click path only, silently.
 - **The inventory and Clusters tables are `table-fixed` with set column widths** (2026-11-25): with `table-layout: auto` a column is as wide as
-  its widest cell among the rows showing, so a sort that brought `ocp-eres-sfdf-q-rer-gs--ser-s` into view resized every column. Widths live in
-  `COLUMN_WIDTH` on the `th`; Name takes the rest and truncates, the full value in `title`. The MCE column is decided by the whole filtered set
-  (`withMce` prop), never the current page. Measured in Chromium: one width set across 12 sorts and 3 pages. A new column needs a width there. **BMC
+  its widest cell among the rows showing, so a sort that brought `ocp-eres-sfdf-q-rer-gs--ser-s` into view resized every column. Widths are px
+  `style`s on the `th`: icon/badge columns fixed (`FIXED_WIDTH`), and since 2026-11-26 MCE, Cluster and Model **fitted to their longest value in
+  the whole fleet** (`features/inventory/columnWidths.ts`, canvas `measureText` in the cell font, + padding, cap 224 px), never the page or
+  filtered set, so no sort, page or filter moves them. At 1440 px the box (beside the cluster sidebar) is ~1090 px and cannot hold every value
+  on one line, so **Name, MCE, Cluster and Model wrap instead of truncating** (break at hyphens, `overflow-wrap:anywhere` for a long token):
+  Name keeps at least `NAME_MIN` (220 px), and `shrinkToFit` (a `ResizeObserver` on the box) narrows the widest of the three first, never
+  below its floor, so the table never scrolls sideways. The "Contested with" chip wraps under the cluster name (it once spilled into Model). The MCE column is decided by the whole filtered set
+  (`withMce` prop), never the current page. Measured in Chromium at 1440 px (2026-11-26): one width set across sorts and pages, no sideways scroll, nothing cut. A new column needs a width there. **BMC
   is sortable** (`bmc_host`, natural order, servers with none last), and a search that is an IPv4 address or the start of one (`10.0.0.1`) sorts by it
   when the URL names no `sort` (`defaultSortField`); an explicit `?sort=` wins.
 - **The inventory table has no width to spare at 1440px** — with the MCE
-  column showing it overflowed its wrapper by ~14px (measured 2026-09, under `table-layout: auto`, before the fixed widths; re-measure). A new column
+  column showing it overflowed its wrapper by ~14px (measured 2026-09, under `table-layout: auto`; since 2026-11-26 the row is sized to the box, so a new column now costs Name and the wrapped columns their width). A new column
   pushes Maintenance off-screen (a `Seen` column was built, measured and
   removed for exactly that on 2026-09-13); put row-level signals in the
   State cell as a chip that wraps under the badge (`StateBadge`'s

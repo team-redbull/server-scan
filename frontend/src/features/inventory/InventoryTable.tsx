@@ -1,5 +1,5 @@
 import { flexRender } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SortingState } from "@tanstack/react-table";
 // v9's `/legacy` entry point keeps the v8 hook shape (`useReactTable` /
 // `createColumnHelper`) — the officially supported migration path, not a
@@ -22,6 +22,15 @@ import { RowRefreshButton } from "@/features/inventory/RowRefreshButton";
 import { StateBadge } from "@/components/StateBadge";
 import type { HealthSeverity, OpenShiftState } from "@/types/server";
 import type { ServerRow } from "@/types/server";
+import {
+  FIXED_WIDTH,
+  canvasMeasure,
+  FITTED_COLUMNS,
+  fitColumnWidths,
+  shrinkToFit,
+  tableMinWidth,
+} from "@/features/inventory/columnWidths";
+import type { FittedColumn } from "@/features/inventory/columnWidths";
 
 /**
  * The inventory columns. Name is left-aligned, everything else centred;
@@ -47,19 +56,16 @@ const ROW_ACCENT: Record<HealthSeverity, string> = {
   UNKNOWN: "border-l-2 border-l-transparent",
 };
 
-/** Fixed column widths: with `table-fixed` the layout never depends on which rows are showing, so
- * sorting does not make the columns jump. Name takes the remaining width and truncates. */
-const COLUMN_WIDTH: Record<string, string> = {
-  refresh: "w-11",
-  bmc_host: "w-[5.5rem]",
-  openshift_state: "w-28",
-  mce_name: "w-28",
-  cluster_name: "w-32",
-  model: "w-32",
-  health: "w-40",
-  maintenance: "w-28",
-};
-const TRUNCATED_COLUMNS = new Set([
+/** The cells' font for measuring: `text-sm` (0.875rem) in the page's family. */
+function cellFont(): string {
+  if (typeof window === "undefined" || navigator.userAgent.includes("jsdom")) {
+    return "";
+  }
+  const root = getComputedStyle(document.documentElement);
+  const px = 0.875 * parseFloat(root.fontSize || "16");
+  return `400 ${px}px ${root.fontFamily}`;
+}
+const WRAPPED_COLUMNS = new Set([
   "name",
   "mce_name",
   "cluster_name",
@@ -73,6 +79,8 @@ interface InventoryTableProps {
   onSortChange: (field: SortableField, desc: boolean) => void;
   /** Whether any server in the whole filtered set has an MCE; decided there, not from this page, so paging never adds or drops the column. */
   withMce?: boolean;
+  /** Every row in the fleet, unfiltered: the fitted columns are as wide as its longest value, so no sort, page or filter moves them. */
+  fleet?: readonly ServerRow[];
   /** Names the active filters in the empty state. */
   emptyMessage?: string;
 }
@@ -107,7 +115,7 @@ function buildColumns(
             to={`/servers/${info.row.original.id}`}
             state={{ from }}
             title={info.getValue()}
-            className="min-w-0 truncate font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
+            className="min-w-0 font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-status-info)]"
           >
             {info.getValue()}
           </Link>
@@ -180,15 +188,15 @@ function buildColumns(
       id: "cluster_name",
       header: "Cluster",
       cell: (info) => (
-        <span className="inline-flex max-w-full flex-wrap items-center gap-1.5 text-[var(--text-secondary)]">
+        <span className="inline-flex max-w-full flex-col items-center gap-1 text-[var(--text-secondary)]">
           <span
-            className="min-w-0 truncate"
+            className="min-w-0"
             title={info.getValue() || undefined}
           >
             {info.getValue() || "—"}
           </span>
           {info.row.original.contested_with && (
-            <span className="inline-flex items-center rounded-full bg-[var(--tint-warning)] px-2 py-0.5 text-xs font-medium whitespace-nowrap text-[var(--text-on-warning)]">
+            <span className="inline-block max-w-full rounded-lg bg-[var(--tint-warning)] px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere] whitespace-normal text-[var(--text-on-warning)]">
               Contested with {info.row.original.contested_with}
             </span>
           )}
@@ -245,6 +253,7 @@ export function InventoryTable({
   onSortChange,
   emptyMessage,
   withMce: withMceProp,
+  fleet,
 }: InventoryTableProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -252,8 +261,35 @@ export function InventoryTable({
   const sorting: SortingState = [{ id: sortField, desc: sortDesc }];
   const withMce = withMceProp ?? servers.some((server) => server.mce_name);
   const columns = useMemo(() => buildColumns(withMce, from), [withMce, from]);
-
   const fill = useFillViewport<HTMLDivElement>(servers.length);
+  const sizingRows = fleet ?? servers;
+  const fitted = useMemo(() => {
+    const font = cellFont();
+    return fitColumnWidths(
+      sizingRows,
+      font ? canvasMeasure(font) : (text) => text.length * 7.5,
+    );
+  }, [sizingRows]);
+  const [box, setBox] = useState(0);
+  useEffect(() => {
+    const el = fill.ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setBox(el.clientWidth));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fill.ref]);
+  const ids = columns.map((column) => column.id ?? "");
+  const shown = FITTED_COLUMNS.filter((c) => ids.includes(c));
+  const fixed = ids.reduce((sum, id) => sum + (FIXED_WIDTH[id] ?? 0), 0);
+  const sized = shrinkToFit(fitted, shown, fixed, box);
+  const widthOf = (id: string): number | undefined =>
+    FIXED_WIDTH[id] ?? sized[id as FittedColumn];
+  const minWidth = tableMinWidth(
+    columns
+      .map((column) => widthOf(column.id ?? ""))
+      .filter((width): width is number => width !== undefined),
+  );
+
 
   const table = useLegacyTable({
     data: servers,
@@ -281,9 +317,7 @@ export function InventoryTable({
       style={fill.style}
       className="relative overflow-auto overscroll-contain rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)]"
     >
-      <table
-        className={`w-full ${withMce ? "min-w-[67.5rem]" : "min-w-[61rem]"} table-fixed text-sm`}
-      >
+      <table className="w-full table-fixed text-sm" style={{ minWidth }}>
         <thead className="sticky top-0 z-10 bg-[var(--surface-sunken)]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
@@ -291,7 +325,8 @@ export function InventoryTable({
                 <th
                   key={header.id}
                   scope="col"
-                  className={`${COLUMN_WIDTH[header.column.id] ?? ""} border-b border-[var(--border-subtle)] px-2 py-2.5 text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase ${header.column.id === "name" ? "text-left" : "text-center"} ${index === 0 ? "rounded-tl-[var(--radius-card)]" : ""} ${index === headerGroup.headers.length - 1 ? "rounded-tr-[var(--radius-card)]" : ""}`}
+                  style={{ width: widthOf(header.column.id) }}
+                  className={`border-b border-[var(--border-subtle)] px-2 py-2.5 text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase ${header.column.id === "name" ? "text-left" : "text-center"} ${index === 0 ? "rounded-tl-[var(--radius-card)]" : ""} ${index === headerGroup.headers.length - 1 ? "rounded-tr-[var(--radius-card)]" : ""}`}
                 >
                   {header.column.getCanSort() ? (
                     <button
@@ -347,7 +382,7 @@ export function InventoryTable({
               {row.getVisibleCells().map((cell) => (
                 <td
                   key={cell.id}
-                  className={`px-2 py-2.5 whitespace-nowrap ${TRUNCATED_COLUMNS.has(cell.column.id) ? "overflow-hidden text-ellipsis" : ""} ${cell.column.id === "name" ? "text-left" : "text-center"}`}
+                  className={`px-2 py-2.5 ${WRAPPED_COLUMNS.has(cell.column.id) ? "[overflow-wrap:anywhere] whitespace-normal" : "whitespace-nowrap"} ${cell.column.id === "name" ? "text-left" : "text-center"}`}
                 >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
