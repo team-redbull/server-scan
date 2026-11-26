@@ -9,6 +9,8 @@ os.environ.setdefault("INVENTORY_MONGO_URI", "mongodb://localhost:27017")
 os.environ.setdefault("INVENTORY_REDIS_URI", "redis://localhost:6379/0")
 os.environ.setdefault("INVENTORY_ENVIRONMENT", "test")
 os.environ.setdefault("INVENTORY_MONGO_DB", "server-scan-test")
+# Warranty off unless a test wires its own source: a developer's .env must not reach the suite.
+os.environ["INVENTORY_WARRANTY_MONGO_URI"] = ""
 
 
 def _isolate_xdist_worker() -> None:

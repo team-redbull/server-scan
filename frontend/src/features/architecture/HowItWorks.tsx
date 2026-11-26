@@ -121,6 +121,17 @@ export function HowItWorks() {
         />
       </Section>
 
+      <Section title="Warranty">
+        <Bullets
+          items={[
+            "Each physical server's warranty end date is copied from the operator's warranty collection, matched by serial. A VM has none.",
+            "It is looked up when a collector creates a server, when an admin presses Fetch now, and by a monthly warranty-sync job. Every other run keeps the stored date.",
+            "The page works out Expired, Expiring soon and Active from today's date, and the inventory has its own Warranty filter.",
+            "Warranty is information only: it never changes a server's health or State.",
+          ]}
+        />
+      </Section>
+
       <Section title="Pruning: how servers leave the inventory">
         <Bullets
           items={[

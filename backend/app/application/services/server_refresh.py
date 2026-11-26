@@ -101,6 +101,7 @@ class ServerRefreshService:
                 provider=provider,
                 ingest=self._ingest,
                 log_event="server.refresh",
+                refresh_warranty=True,
             )
         except NotThisManagersServerError as exc:
             raise ServerRefreshUnsupportedError(

@@ -88,7 +88,7 @@ spec:
             # server-scan-collectors release holds (ADR-0032). Optional: until that
             # release exists every manager is unconfigured and the API trusts Mongo.
             - secretRef:
-                name: {{ $recheck.credentialsSecret | default "server-scan-collectors-collector-credentials" }}
+                name: {{ $recheck.credentialsSecret | default "server-scan-collector-credentials" }}
                 optional: true
             # AD login (docs/adr/0034). Blank when auth.enabled is false
             # (this chart's own default), which the backend reads as no

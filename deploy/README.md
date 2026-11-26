@@ -1,7 +1,8 @@
 # Deployment
 
 Three Helm charts. `helm/server-scan` is the platform — API, frontend,
-an optional MCP server, an optional "Run job" RBAC and the two prune CronJobs. `helm/server-scan-collectors`
+an optional MCP server, an optional "Run job" RBAC, the two prune CronJobs and an optional monthly
+warranty-sync CronJob (ADR-0070). `helm/server-scan-collectors`
 holds every collector CronJob (ADR-0060): one release beside the platform for the vendor collectors, and one in
 every KubeVirt cluster for its VMs. This document covers both. `helm/nodes-status` is the pair of jobs that
 run *inside* every OpenShift cluster to report what it is using, one
@@ -205,6 +206,37 @@ credentials: it calls `<release>-api` with each caller's own `Authorization` hea
 (2), `mcp.port` (8090), `mcp.resources`. The key is read with `default`, so the Deploy job's `values.yaml` need
 not carry it.
 
+## Warranty (ADR-0070)
+
+The warranty URI is set **once**, in the `server-scan` release; an absent block means warranty off:
+
+```yaml
+warranty:
+  mongoUri: "mongodb://user:pass@host:27017"   # rendered into the Secret <release>-warranty-db
+  existingSecret: ""                            # or a Secret you manage (preferred in production)
+  existingSecretKey: mongo-uri
+  database: MongoDB-Nitur
+  collection: warranty-excel-new
+  expiringDays: 90                              # "Expiring soon" window in the UI
+  sync:
+    enabled: true
+    schedule: "0 4 1 * *"                       # monthly CronJob <release>-warranty-sync
+    backoffLimit: 2
+    activeDeadlineSeconds: 1800
+```
+
+`INVENTORY_WARRANTY_*` reaches every pod that gets the database settings (the API for "Fetch now", the
+prunes, the sync). `server-scan-collectors` renders no warranty Secret: its collectors read the server-scan
+release's Secret by name (`warranty.secretName`, default `server-scan-warranty-db`, optional, so warranty
+off is no error) and use it only for a server they create. A KubeVirt release needs nothing: VMs have no
+warranty. If the server-scan release is not named `server-scan`, or uses `existingSecret`, set the
+collectors' `warranty.secretName` to that Secret's name (and `warranty.secretKey` to its `existingSecretKey`: a
+wrong name or key silently turns warranty off for the collectors). Use a read-only MongoDB user on that collection.
+**Enable it after the collectors release runs the same image** (an older collector drops the field when it
+rewrites a server), then **run `warranty-sync` once from the Jobs page**: until the first sync, existing
+servers show no warranty. The sync covers physical servers only, writes a
+server only when its warranty changed, and is on the Jobs page ("Run job" recovers a failed month).
+
 ## Running a CronJob from the UI (ADR-0055)
 
 `jobTrigger.enabled` (default **true**; an absent key counts as true, so the Deploy job's `values.yaml` gets it without carrying it; set `false` to remove the ServiceAccount, Role and catalog) lets an admin start a collector or prune CronJob from the UI's **Jobs** page, like
@@ -212,9 +244,9 @@ not carry it.
 ServiceAccount, mounts its token into the API pod (`automountServiceAccountToken` is otherwise `false`) and
 binds a Role **in the release namespace only**: `cronjobs` get/list, `jobs` get/list/create, `pods`
 get/list, `pods/log` get. It sets `INVENTORY_JOBS_BACKEND=kubernetes` and `INVENTORY_JOBS_NAMESPACE` (downward
-API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the two prune jobs of this chart and
+API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the two prune jobs and the warranty sync of this chart and
 the collectors of a `server-scan-collectors` release **in the same namespace** (`triggerable: true`, its default),
-never the `nodes-status` jobs or a KubeVirt cluster's collectors (ADR-0060). The catalog names only the prunes: this
+never the `nodes-status` jobs or a KubeVirt cluster's collectors (ADR-0060). The catalog names only this chart's own jobs: this
 chart cannot read the collectors release's values, so a collector switched off there is simply absent from the page. `server-scan.io/trigger-warning` on a CronJob is the
 text of the UI's confirm dialog (set on `openmanage` and both prunes). The API pod can then create Jobs in its
 namespace; read the trade-off in ADR-0055 before enabling it.
@@ -619,6 +651,10 @@ Every `collectors.*` key below is a `server-scan-collectors` value unless it say
 `jobTtlSeconds` exist in both charts (server-scan's apply to its prunes), and `prune`/`auditRetention` are
 server-scan's.
 
+**Pausing one collector:** `collectors.<name>.suspend: true` (every collector, default `false`) keeps its CronJob
+but schedules no new run; a Job already running finishes, and history and "Run job" stay. `enabled: false` instead
+deletes the CronJob. `redfishStandalone` ships suspended.
+
 Real vendor collectors run as Kubernetes `CronJob`s, one per manager
 *type*, invoking `tools/run_collector.py --manager-type <TYPE>` in the
 same image as the API (`Containerfile` copies `tools/` alongside `app/`
@@ -698,7 +734,8 @@ Those values render into a single `Secret`
 Deployment mounts this same Secret too** — `GET /api/v1/servers/available`'s live
 recheck needs the same manager credentials a collector does, and so does `POST /api/v1/servers/{id}/refresh`
 (ADR-0064). Since ADR-0060 it is another release's Secret:
-server-scan's `recheck.credentialsSecret` (default `server-scan-collectors-collector-credentials`), mounted with
+server-scan's `recheck.credentialsSecret` (default `server-scan-collector-credentials`, the hub release's name with
+`fullnameOverride: server-scan`), mounted with
 `optional: true`. This is not
 a separate toggle: an unconfigured value (or no Secret at all) degrades to the API trusting
 Mongo for that candidate (the refresh answers 409 `SERVER_REFRESH_UNSUPPORTED` instead), the same way a collector already treats it, so

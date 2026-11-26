@@ -137,8 +137,8 @@ Loaded only when a `frontend/` file is open.
   URL's `?search=` went through an async router round trip per key, so deleting mid-text threw the caret to
   the end and fast typing lost characters (`1.2.3.4` became `?search=4`). The URL only flows back into the box
   when something else changed it (chip, Clear filters, a pasted link). jsdom cannot reproduce the caret jump
-  (a unit test passed on the broken code), so the guard is the `inventory.spec.ts` e2e. **The seven filters (Vendor, Source,
-  Site, Classification, Installation, Health, Reason) are `MultiSelect` dropdowns** taking several values (repeated URL
+  (a unit test passed on the broken code), so the guard is the `inventory.spec.ts` e2e. **The eight filters (Vendor, Source,
+  Site, Classification, Installation, Health, Reason, Warranty) are `MultiSelect` dropdowns** taking several values (repeated URL
   params, OR within, AND across; ADR-0033 2026-10-12): a tick is applied to the live URL via `toggleMulti`, never
   to the rendered list, and an E2E clicks `#filter-<name>` then a checkbox in the group named `"<Label> options"`
   (not `selectOption`; the group's name differs from the button's so `getByLabel` stays unique). **Maintenance
@@ -155,11 +155,17 @@ Loaded only when a `frontend/` file is open.
   scrollbar's ~15 px, so the scrollbar squeezed the names and sat 4 px from the 3-digit counts (measured with
   headed Playwright Firefox + `GTK_OVERLAY_SCROLLING=0`; headless Firefox always uses overlay scrollbars).
 - **The Reason dropdown filters on fired policies by `policy_key`** (`?reason=`, ADR-0033 2026-11-24 update), never
-  on the message (per-server text). Options come from the rows (`reasonOptions`), worst severity first; a ticked reason
-  follows `matchesHealth`'s in-service rule like a severity. It is the row's last field, so its panel opens right-aligned
-  (`MultiSelect alignRight`): measured at 1440 the panel spans 1056-1408 px with no page overflow.
+  on the message (per-server text). Options come from the rows (`reasonOptions`), **most servers first** (the count shown,
+  under the other filters; 2026-11-26), ties worst severity then name; a ticked reason
+  follows `matchesHealth`'s in-service rule like a severity. Its panel opens right-aligned (`MultiSelect alignRight`).
+- **The Warranty dropdown (ADR-0070) is the row's last field** (right-aligned too; measured at 1440 with no page overflow,
+  2026-11-26). Its status is derived in the browser from `warranty_expires_on`, the viewer's local date (`useLocalToday`,
+  re-read every minute, a dependency of the derived rows so a tab open past midnight moves on) and the response's
+  `warranty_expiring_days`; it is never sent and never touches health or State. Options sorted by count; a VM or a
+  server never looked up has no status and matches no option. The detail page's Warranty line reads the window from
+  `ServerDetail.warranty_expiring_days`, never the fleet query.
 - **The inventory's filter block is one unit in the table's column**
-  (2026-09-21): Search and the seven dropdowns on one row, the toggles
+  (2026-09-21): Search and the eight dropdowns on one row, the toggles
   beneath, then the "Filtered by" chips — left and right edges equal to
   the table's (measured 240/1408 px at 1440), with the sidebar beside it.
   It is not above the sidebar; do not move Search back into a separate

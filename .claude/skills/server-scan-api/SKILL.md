@@ -1,6 +1,6 @@
 ---
 name: server-scan-api
-description: Queries the Server Scan REST API to answer questions about the bare-metal server fleet - list or count servers by vendor, site, health, role, OpenShift cluster or availability, look up one server, read audit events, site overviews, health policies and server configurations (confs, the hardware specs). Use whenever the user asks for servers ("all Dell servers in bat yam", "which servers are available", "what changed on server-12", "how many critical servers per site") or mentions Server Scan, the inventory API, or the fleet.
+description: Queries the Server Scan REST API to answer questions about the bare-metal server fleet - list or count servers by vendor, site, health, role, OpenShift cluster or availability, look up one server, read audit events, site overviews, health policies, server configurations (confs, the hardware specs) and warranty end dates. Use whenever the user asks for servers ("all Dell servers in bat yam", "which servers are available", "what changed on server-12", "how many critical servers per site") or mentions Server Scan, the inventory API, or the fleet.
 when_to_use: Also for questions about a server's BMC address, MACs, maintenance state, cluster membership or why its health changed.
 allowed-tools: Bash(curl *) Bash(jq *)
 ---
@@ -88,6 +88,10 @@ api "/api/v1/servers?site_id=tlv&openshift_state=AVAILABLE&health_overall=HEALTH
 # Fleet-wide breakdown the list endpoint cannot filter: Cisco servers by model
 api /api/v1/servers/rows | jq -r '.items[] | select(.vendor=="cisco") | .model' | sort | uniq -c
 
+# Physical servers whose warranty has expired (warranty_found null = never looked up, e.g. a VM)
+api /api/v1/servers/rows | jq -r --arg today "$(date +%F)" \
+  '.items[] | select(.warranty_found and .warranty_expires_on != null and .warranty_expires_on < $today) | "\(.name) \(.warranty_expires_on)"'
+
 # Per-site totals and health in one call
 api /api/v1/sites | jq '.items[] | {site_id, total, by_health}'
 ```
@@ -95,7 +99,8 @@ api /api/v1/sites | jq '.items[] | {site_id, total, by_health}'
 `/servers/rows` returns the whole fleet (~190 KB gzipped) in one response with flat fields
 (`name, vendor, server_type (physical|vm), model, site_id, health, health_reasons[] ({severity, message, policy_key,
 policy_name}: the fired policies), installation_type, openshift_state, cluster_name,
-mce_name, bmc_host, serial, macs, maintenance, reservation, stale, reachable`). Prefer it for
+mce_name, bmc_host, serial, macs, maintenance, reservation, stale, reachable, warranty_found, warranty_expires_on`,
+plus `warranty_expiring_days` on the response). Prefer it for
 grouping, counting or filtering on a field the list endpoint lacks.
 
 ## Gotchas

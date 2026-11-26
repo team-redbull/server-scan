@@ -549,7 +549,7 @@
       "items": [
         "Vendor \u2192 collector \u2192 ingest \u2192 MongoDB \u2192 API \u2192 UI.",
         "Classify and health-evaluate happen inside that one upsert; an unchanged server is only touched (ADR-0044).",
-        "Other writers bypass ingest: nodes-status jobs (ADR-0024, ADR-0036), the prune jobs, and admin actions in the API."
+        "Other writers bypass ingest: nodes-status jobs (ADR-0024, ADR-0036), the prune jobs, the monthly warranty sync from the operator's warranty collection (ADR-0070), and admin actions in the API."
       ]
     },
     {

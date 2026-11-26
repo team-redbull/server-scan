@@ -117,6 +117,7 @@ from app.infrastructure.mongodb.health_policy_repository import MongoHealthPolic
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
+from app.infrastructure.mongodb.warranty_source import warranty_source
 from app.infrastructure.providers.factory import (
     build_provider_for_manager_type,
     recheck_budget_seconds,
@@ -353,6 +354,9 @@ async def _ingest_service(
         classification_service=classification_service,
         health_service=health_service,
         audit=audit,
+        warranty=warranty_source(
+            settings.warranty_mongo_uri, settings.warranty_database, settings.warranty_collection
+        ),
     )
 
 
@@ -621,7 +625,9 @@ async def server_rows(
 
         async def _compute() -> bytes:
             response = ServerRowsResponse.from_docs(
-                await repo.list_rows(), stale_before=_stale_before(settings)
+                await repo.list_rows(),
+                stale_before=_stale_before(settings),
+                warranty_expiring_days=settings.warranty_expiring_days,
             )
             encoded = response.model_dump_json().encode()
             await cache.set_raw(key, encoded, ttl_seconds=LIST_PAGE_TTL_SECONDS)
@@ -951,7 +957,10 @@ async def get_server(
         raise NotFoundError(f"No server with id {server_id!r}.", details={"server_id": server_id})
 
     detail = ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
     detail_key = server_key(server_id, server.revision)
     await cache.set(pointer_key, server.revision, ttl_seconds=SERVER_DETAIL_TTL_SECONDS)
@@ -1070,6 +1079,7 @@ async def refresh_server(
         outcome.server,
         nic_name_catalog(settings.nic_os_names),
         stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
 
 
@@ -1179,7 +1189,10 @@ async def reclassify_server(
             data=classification_changed_data(previous_type, server.classification),
         )
     return ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
 
 
@@ -1242,7 +1255,10 @@ async def recalculate_server_health(
             data=health_change_data(previous_health, state, policies),
         )
     return ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
 
 
@@ -1284,7 +1300,10 @@ async def enable_maintenance(
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
     return ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
 
 
@@ -1318,7 +1337,10 @@ async def disable_maintenance(
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
     return ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
 
 
@@ -1369,7 +1391,10 @@ async def reserve_server(
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
     return ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )
 
 
@@ -1416,5 +1441,8 @@ async def release_server(
     await _invalidate_detail_cache(server_id, cache)
     await _invalidate_list_cache(cache)
     return ServerDetail.from_server(
-        server, nic_name_catalog(settings.nic_os_names), stale_before=_stale_before(settings)
+        server,
+        nic_name_catalog(settings.nic_os_names),
+        stale_before=_stale_before(settings),
+        warranty_expiring_days=settings.warranty_expiring_days,
     )

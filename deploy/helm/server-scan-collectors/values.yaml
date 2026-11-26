@@ -194,6 +194,8 @@ collectors:
     # Every 3 hours (2026-10-04; was 6). With epoch "0" nothing about the data changes between
     # runs — the point is a fresh `last_seen_at` and a live audit trail.
     schedule: "0 */3 * * *"
+    # true pauses this CronJob without deleting it (no new runs; history and a running Job stay).
+    suspend: false
     backoffLimit: 1
     activeDeadlineSeconds: 1800
     resources:
@@ -253,6 +255,7 @@ collectors:
     # opens a session against every collected domain, so it is also the
     # more expensive job on both sides of the wire.
     schedule: "0 */3 * * *"
+    suspend: false
     backoffLimit: 1
     # Generous: one run covers every domain, several at a time.
     activeDeadlineSeconds: 1800
@@ -503,6 +506,7 @@ collectors:
     # appliance, so the wire cost would support more often than this if
     # a future need for tighter freshness ever outweighs the uniformity.
     schedule: "0 */3 * * *"
+    suspend: false
     backoffLimit: 1
     activeDeadlineSeconds: 3600
     resources:
@@ -534,6 +538,7 @@ collectors:
     # The facade blocks an IP after 10 failed logins in 5 minutes; a rejected
     # login is never retried and fails the run (exit 1).
     schedule: "0 */3 * * *"
+    suspend: false
     backoffLimit: 1
     activeDeadlineSeconds: 2400
     # VMs read at once. Each PVC-backed disk costs the facade one live API GET
@@ -613,6 +618,7 @@ collectors:
     # requests against embedded hardware that degrades when polled, so
     # this one specifically should not go tighter even if others do.
     schedule: "0 */3 * * *"
+    suspend: false
     backoffLimit: 1
     # Generous: one run sweeps the whole Dell estate a batch of BMCs at a
     # time. Keep it above redfish's runBudgetSeconds so the in-process
@@ -694,6 +700,7 @@ collectors:
     # more often than this — unlike the per-BMC Redfish sweep, which
     # genuinely must not be scheduled tighter.
     schedule: "0 */3 * * *"
+    suspend: false
     backoffLimit: 1
 
     # In-process budget, so a throttled run ends with a summary naming
@@ -711,3 +718,12 @@ collectors:
         # with the fleet — the one collector whose memory does. `$select`
         # keeps them to mapped fields only; 1Gi covers ~10,000 servers.
         memory: 1Gi
+
+# The warranty lookup for a server a collector creates (ADR-0070). The URI is set once, in the
+# server-scan release's `warranty.mongoUri`; this chart reads that release's Secret by name
+# (optional: absent = warranty off). A KubeVirt release needs nothing here: VMs have no warranty.
+warranty:
+  secretName: server-scan-warranty-db
+  secretKey: mongo-uri
+  database: MongoDB-Nitur
+  collection: warranty-excel-new

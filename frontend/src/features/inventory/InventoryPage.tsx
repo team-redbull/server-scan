@@ -17,7 +17,7 @@ import {
   SOURCE_PROVIDERS,
   VENDORS,
 } from "@/api/sites";
-import { useServerRowsQuery } from "@/features/inventory/hooks";
+import { useLocalToday, useServerRowsQuery } from "@/features/inventory/hooks";
 import {
   clusterFacets,
   dropdownFacetCounts,
@@ -25,12 +25,15 @@ import {
   paginate,
   parseSearch,
   reasonOptions,
+  WARRANTY_LABELS,
+  withWarrantyStatus,
   sortRows,
 } from "@/features/inventory/rows";
 import type { RowFilters } from "@/features/inventory/rows";
 import { useSitesQuery } from "@/features/sites/hooks";
 import { formatTimestamp } from "@/lib/datetime";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
+import type { WarrantyStatus } from "@/types/server";
 
 const INSTALLATION_TYPES = [
   "HOSTED_CLUSTER",
@@ -147,6 +150,10 @@ export function InventoryPage() {
     () => searchParams.getAll("reason"),
     [searchParams],
   );
+  const warrantySel = useMemo(
+    () => searchParams.getAll("warranty"),
+    [searchParams],
+  );
   const staleOnly = searchParams.get("stale") === "true";
   const duplicateOnly = searchParams.get("duplicate") === "true";
   const contestedOnly = searchParams.get("contested") === "true";
@@ -177,6 +184,7 @@ export function InventoryPage() {
     if (openshiftStates.length) next.openshift_state = openshiftStates;
     if (healthSeverities.length) next.health = healthSeverities;
     if (reasonKeys.length) next.reason = reasonKeys;
+    if (warrantySel.length) next.warranty = warrantySel;
     if (maintenanceMode !== "include") next.maintenance = maintenanceMode;
     if (staleOnly) next.stale = true;
     if (duplicateOnly) next.duplicate = true;
@@ -196,6 +204,7 @@ export function InventoryPage() {
     openshiftStates,
     healthSeverities,
     reasonKeys,
+    warrantySel,
     maintenanceMode,
     staleOnly,
     duplicateOnly,
@@ -211,7 +220,21 @@ export function InventoryPage() {
     [searchInput],
   );
 
-  const { data, isPending, isError, error } = useServerRowsQuery();
+  const { data: response, isPending, isError, error } = useServerRowsQuery();
+  const today = useLocalToday();
+  /* Warranty status depends on today, so it is derived here, never sent (ADR-0070). */
+  const data = useMemo(
+    () =>
+      response && {
+        ...response,
+        items: withWarrantyStatus(
+          response.items,
+          response.warranty_expiring_days ?? 90,
+          today,
+        ),
+      },
+    [response, today],
+  );
   const matched = useMemo(
     () => sortRows(filterRows(data?.items ?? [], filters), sortField, sortDesc),
     [data, filters, sortField, sortDesc],
@@ -220,10 +243,33 @@ export function InventoryPage() {
     () => (data ? dropdownFacetCounts(data.items, filters) : undefined),
     [data, filters],
   );
+  const warrantyChoices = (Object.keys(WARRANTY_LABELS) as WarrantyStatus[])
+    .map((status) => ({
+      value: status,
+      label: WARRANTY_LABELS[status],
+      count: facets ? (facets.warranty[status] ?? 0) : undefined,
+    }))
+    .filter(
+      (option) =>
+        option.count === undefined ||
+        option.count > 0 ||
+        warrantySel.includes(option.value),
+    )
+    .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+    .concat(
+      warrantySel
+        .filter((value) => !(value in WARRANTY_LABELS))
+        .map((value) => ({
+          value: value as WarrantyStatus,
+          label: value,
+          count: facets ? 0 : undefined,
+        })),
+    );
   const reasonCatalog = useMemo(() => reasonOptions(data?.items ?? []), [data]);
   const reasonName = (key: string) =>
     reasonCatalog.find((r) => r.key === key)?.name ?? key;
-  /* Only reasons the other filters leave a row for, plus any ticked one, so it can be unticked. */
+  /* Only reasons the other filters leave a row for, plus any ticked one, so it can be unticked.
+     Most servers first; a tie keeps the catalog's worst-severity-then-name order (a stable sort). */
   const reasonChoices = [
     ...reasonCatalog
       .filter(
@@ -236,7 +282,8 @@ export function InventoryPage() {
         value: r.key,
         label: r.name,
         count: facets ? (facets.reason[r.key] ?? 0) : undefined,
-      })),
+      }))
+      .sort((a, b) => (b.count ?? 0) - (a.count ?? 0)),
     ...reasonKeys
       .filter((key) => !reasonCatalog.some((r) => r.key === key))
       .map((key) => ({
@@ -377,6 +424,12 @@ export function InventoryPage() {
       label: `Reason ${reasonName(key)}`,
       value: key,
     });
+  for (const status of warrantySel)
+    activeFilters.push({
+      key: "warranty",
+      label: `Warranty ${WARRANTY_LABELS[status as WarrantyStatus] ?? status}`,
+      value: status,
+    });
   if (maintenanceMode !== "include")
     activeFilters.push({
       key: "maintenance",
@@ -413,6 +466,7 @@ export function InventoryPage() {
       openshift_state: null,
       health_overall: null,
       reason: null,
+      warranty: null,
       maintenance: null,
       stale: null,
       duplicate: null,
@@ -648,6 +702,24 @@ export function InventoryPage() {
                     }}
                     onClear={() => {
                       updateFilters({ reason: null });
+                    }}
+                  />
+                </FilterField>
+
+                <FilterField id="filter-warranty" label="Warranty">
+                  <MultiSelect
+                    id="filter-warranty"
+                    label="Warranty"
+                    className={FIELD_CLASS}
+                    allLabel={allLabel("Any")}
+                    selected={warrantySel}
+                    options={warrantyChoices}
+                    alignRight
+                    onToggle={(value) => {
+                      toggleMulti("warranty", value);
+                    }}
+                    onClear={() => {
+                      updateFilters({ warranty: null });
                     }}
                   />
                 </FilterField>

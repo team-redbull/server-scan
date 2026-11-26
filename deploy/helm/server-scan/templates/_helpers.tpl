@@ -42,6 +42,7 @@
       name: {{ .Values.backend.existingCursorSecret | default (printf "%s-cursor-secret" .Release.Name) }}
       key: cursor-secret
 {{- end }}
+{{- include "serverScan.warrantyEnv" . | nindent 0 }}
 {{- end -}}
 
 {{- /* Blank tag means the chart's appVersion. Never `latest` — see deploy/README.md. */ -}}
@@ -64,4 +65,22 @@ block at all (the platform repo's, until it adds one) gets values.yaml's default
 {{- $parts := list -}}
 {{- range $type, $seconds := $t }}{{- $parts = append $parts (printf "%s:%v" $type $seconds) }}{{- end -}}
 {{- join "," $parts -}}
+{{- end -}}
+
+{{- /* The operator's warranty collection (ADR-0070). Every key is optional: the platform repo's values.yaml may lack `warranty`. No URI = warranty off. */ -}}
+{{- define "serverScan.warrantyEnv" -}}
+{{- $w := .Values.warranty | default dict -}}
+{{- if or $w.mongoUri $w.existingSecret }}
+- name: INVENTORY_WARRANTY_MONGO_URI
+  valueFrom:
+    secretKeyRef:
+      name: {{ $w.existingSecret | default (printf "%s-warranty-db" .Release.Name) }}
+      key: {{ $w.existingSecretKey | default "mongo-uri" }}
+{{- end }}
+- name: INVENTORY_WARRANTY_DATABASE
+  value: {{ $w.database | default "MongoDB-Nitur" | quote }}
+- name: INVENTORY_WARRANTY_COLLECTION
+  value: {{ $w.collection | default "warranty-excel-new" | quote }}
+- name: INVENTORY_WARRANTY_EXPIRING_DAYS
+  value: {{ ternary $w.expiringDays 90 (hasKey $w "expiringDays") | quote }}
 {{- end -}}

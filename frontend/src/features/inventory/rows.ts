@@ -1,6 +1,6 @@
 import { UNASSIGNED_SITE_ID } from "@/api/sites";
 import type { SortableField } from "@/features/inventory/sorting";
-import type { HealthSeverity, ServerRow } from "@/types/server";
+import type { HealthSeverity, ServerRow, WarrantyStatus } from "@/types/server";
 import { SEVERITY_ORDER } from "@/components/severity";
 import { isDonor } from "@/lib/donor";
 
@@ -21,6 +21,8 @@ export interface RowFilters {
   health?: string[];
   /** Fired policies by `policy_key`: a row matches when any of its health reasons is one of them. */
   reason?: string[];
+  /** `WarrantyStatus` values (ADR-0070); never a health verdict, so maintenance does not affect it. */
+  warranty?: string[];
   /** Unset shows servers in maintenance with the rest; "only" keeps just them, "exclude" hides them.
    * Healthy servers in maintenance are the exception: Healthy shows them only with "only". */
   maintenance?: "only" | "exclude";
@@ -66,6 +68,8 @@ export interface FacetCounts {
   health: Record<string, number>;
   /** Rows per fired `policy_key`; a row counts once per policy. */
   reason: Record<string, number>;
+  /** Rows per `WarrantyStatus`; a server with no status (a VM) is not counted. */
+  warranty: Record<string, number>;
   maintenance: Record<string, number>;
   stale: Record<string, number>;
 }
@@ -155,6 +159,9 @@ export function filterRows(
       (!filters.openshift_state?.length ||
         filters.openshift_state.includes(row.openshift_state)) &&
       matchesHealth(row, filters) &&
+      (!filters.warranty?.length ||
+        (row.warranty_status != null &&
+          filters.warranty.includes(row.warranty_status))) &&
       (filters.maintenance === undefined ||
         (filters.maintenance === "only") === row.maintenance.enabled) &&
       (!filters.reserved || row.reservation.held) &&
@@ -335,6 +342,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     openshift_state: {},
     health: {},
     reason: {},
+    warranty: {},
     maintenance: {},
     stale: {},
   };
@@ -348,6 +356,7 @@ export function facetCounts(rows: ServerRow[]): FacetCounts {
     count(facets.health, row.health);
     for (const key of new Set(row.health_reasons.map((r) => r.policy_key)))
       if (key) count(facets.reason, key);
+    if (row.warranty_status) count(facets.warranty, row.warranty_status);
     count(facets.maintenance, String(row.maintenance.enabled));
     count(facets.stale, String(row.stale));
   }
@@ -364,6 +373,7 @@ const DIMENSIONS = [
   ["openshift_state", "openshift_state"],
   ["health", "health"],
   ["reason", "reason"],
+  ["warranty", "warranty"],
 ] as const;
 
 /**
@@ -553,4 +563,74 @@ export function clusterFacets(
     hosted: hosted.sort(byCount),
     upi: upi.sort(byCount),
   };
+}
+
+/** The Warranty dropdown's labels, in the order they are explained. */
+export const WARRANTY_LABELS: Record<WarrantyStatus, string> = {
+  EXPIRED: "Expired",
+  EXPIRING: "Expiring soon",
+  ACTIVE: "Active",
+  NOT_READ: "Date not read",
+  NO_RECORD: "No warranty record",
+};
+
+/**
+ * A row's warranty status on `today`, from its end date (ADR-0070).
+ *
+ * Args:
+ *   row (ServerRow): One inventory row.
+ *   today (string): Today as `YYYY-MM-DD`, in the viewer's time zone.
+ *   expiringDays (number): How many days ahead counts as "expiring soon".
+ *
+ * Returns:
+ *   WarrantyStatus | null: null for a server never looked up (a VM, no serial).
+ */
+export function warrantyStatus(
+  row: Pick<ServerRow, "warranty_found" | "warranty_expires_on">,
+  today: string,
+  expiringDays: number,
+): WarrantyStatus | null {
+  if (row.warranty_found == null) return null;
+  if (!row.warranty_found) return "NO_RECORD";
+  const expires = row.warranty_expires_on;
+  if (!expires) return "NOT_READ";
+  if (expires < today) return "EXPIRED";
+  const soon = new Date(`${today}T00:00:00Z`);
+  soon.setUTCDate(soon.getUTCDate() + expiringDays);
+  return expires <= soon.toISOString().slice(0, 10) ? "EXPIRING" : "ACTIVE";
+}
+
+/**
+ * Today as `YYYY-MM-DD` in the viewer's time zone.
+ *
+ * Returns:
+ *   string: The local date.
+ */
+export function localToday(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * The rows with `warranty_status` set, so filtering and counting read one field.
+ *
+ * Args:
+ *   rows (ServerRow[]): The fleet as the API sent it.
+ *   expiringDays (number): The "expiring soon" window.
+ *   today (string): Today as `YYYY-MM-DD`.
+ *
+ * Returns:
+ *   ServerRow[]: New row objects carrying their status.
+ */
+export function withWarrantyStatus(
+  rows: ServerRow[],
+  expiringDays: number,
+  today: string = localToday(),
+): ServerRow[] {
+  return rows.map((row) => ({
+    ...row,
+    warranty_status: warrantyStatus(row, today, expiringDays),
+  }));
 }

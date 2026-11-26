@@ -37,6 +37,7 @@ from app.domain.services.search import (
 from app.errors import NotFoundError, RevisionConflictError
 from app.infrastructure.mongodb.client import MongoClientHolder
 from app.infrastructure.mongodb.indexes import SERVERS_COLLECTION
+from app.utils.timeutil import utcnow
 
 _Document = dict[str, Any]
 
@@ -91,6 +92,8 @@ def _cursor_position_clause(
     return {"$or": legs}
 
 
+# Stored exactly as `Server.model_dump(mode="json")` writes a datetime (ADR-0006).
+
 _ROW_PROJECTION: dict[str, int] = {
     "name": 1,
     "identity.vendor": 1,
@@ -120,6 +123,7 @@ _ROW_PROJECTION: dict[str, int] = {
     "openshift.reported_name": 1,
     "openshift.contested_with": 1,
     "profile_template.name": 1,
+    "warranty": 1,
     "last_seen_at": 1,
     "updated_at": 1,
     "reachable": 1,
@@ -555,6 +559,47 @@ class MongoServerRepository:
         """
         cursor = self._collection.find({}, _ROW_PROJECTION).sort("name_normalized", 1)
         return await cursor.to_list(length=None)
+
+    async def warranty_targets(self) -> list[dict[str, Any]]:
+        """
+        Every physical server's identity, revision and stored warranty, for the monthly sync.
+
+        A VM (`KUBEVIRT`) has no warranty and is never read here (ADR-0070).
+
+        Returns:
+            list[dict[str, Any]]: Projected documents, `_id` included.
+        """
+        cursor = self._collection.find(
+            {"identity.vendor": {"$ne": Vendor.KUBEVIRT.value}},
+            {"identity.vendor": 1, "identity.serial": 1, "revision": 1, "warranty": 1},
+        )
+        return await cursor.to_list(length=None)
+
+    async def set_warranty(
+        self, server_id: str, warranty: dict[str, Any] | None, *, expected_revision: int
+    ) -> bool:
+        """
+        Write one server's warranty with a revision CAS, bumping `revision` and `updated_at`.
+
+        Args:
+            server_id (str): The server's `_id`.
+            warranty (dict[str, Any] | None): The new `Server.warranty`, as JSON.
+            expected_revision (int): The revision the caller read.
+
+        Returns:
+            bool: False when the revision moved (a concurrent write); the caller retries.
+        """
+        result = await self._collection.update_one(
+            {"_id": server_id, "revision": expected_revision},
+            {
+                "$set": {
+                    "warranty": warranty,
+                    "updated_at": _stored_form(utcnow()),
+                },
+                "$inc": {"revision": 1},
+            },
+        )
+        return result.matched_count == 1
 
     async def count(self, filters: dict[str, object]) -> int:
         """

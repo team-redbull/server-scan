@@ -93,6 +93,7 @@ sense against them.
 | HPE OneView (one appliance) | in | Server profiles and complete per-server hardware over its REST API. The **only** HPE source — no iLO/Redfish pass at any generation (ADR-0022) |
 | Standalone BMCs | in | Per-server inventory over DMTF Redfish |
 | kubevirt-redfish (one facade per cluster) | in | OpenShift Virtualization VMs as Redfish ComputerSystems, HTTP Basic, one listing then per-VM reads (ADR-0058) |
+| Operator's warranty collection (`MongoDB-Nitur.warranty-excel-new`, possibly another cluster) | in | `Serial` and `Warranty` (end date) per server, read-only (ADR-0070) |
 | Operator | in/out | React admin UI over the REST API |
 | Prometheus | out | `/metrics` |
 
@@ -110,7 +111,9 @@ read-only, and that is a safety property rather than a missing feature.
   — from collector pods for collection, and since ADR-0032 from the API
   pod for two purposes: `POST /servers/available`'s per-candidate live
   recheck and, since ADR-0064, the admin's one-server `POST /servers/{id}/refresh`
-  (both `get_one()`, a single-object read, never a bulk one).
+  (both `get_one()`, a single-object read, never a bulk one). The operator's
+  warranty collection, read-only, from the API pod ("Fetch now"), the
+  collectors (a server they create) and the monthly sync (ADR-0070).
 - **A collector never talks to the API, and the API reaches a vendor only
   through `ServerInventoryProvider.get_one()` on those two endpoints.**
   MongoDB is otherwise the only thing connecting them. This is the single
@@ -143,6 +146,7 @@ read-only, and that is a safety property rather than a missing feature.
 | **nodes-status jobs** (`tools/collect_openshift.py`, chart `deploy/helm/nodes-status`) | Two per cluster at most, on a schedule. Run *inside* each OpenShift cluster, not beside the API, and deployed from their own chart. Read that cluster's own Kubernetes API and write only `Server.openshift`. Never contact a vendor, never serve traffic, never use `IngestService`. |
 | **Prune tool** (`tools/prune_servers.py`) | Helm CronJob `collectors.prune`, off and report-only by default (or run by hand). Deletes servers no manager has listed for `INVENTORY_PRUNE_AFTER_SECONDS` (`listed_at`), dry-run unless `--apply`, guarded by a per-manager clean-run check and a deletion cap, one `SERVER_PRUNED` audit event each (ADR-0037). |
 | **Audit retention tool** (`tools/prune_events.py`) | Helm CronJob `collectors.auditRetention`, weekly, report-only until `reportOnly: false`. Deletes audit events (any type, `SERVER_PRUNED` included) older than `retentionDays` (default 180, 0 keeps everything), in bounded batches, and records one `AUDIT_PURGED` event (ADR-0045). |
+| **Warranty sync** (`tools/sync_warranty.py`) | Helm CronJob `warranty.sync`, monthly, on when a warranty URI or Secret is set. Copies each physical server's warranty end date from the operator's collection with a revision CAS, writing only a changed server; exits 1 on an unreadable or empty collection (ADR-0070). |
 | **Frontend** (`frontend/`) | React admin UI. Talks only to the backend API. |
 | **MongoDB** | Source of truth. |
 | **Redis** | Cache only, cache-aside, never authoritative. |
@@ -228,8 +232,8 @@ Three rules of this seam matter more than the rest:
 ### Frontend
 
 React 19 + react-router 8, TanStack Query for server state, TanStack
-Table, Tailwind 4, Vite. Pages: sites overview (landing), inventory,
-server detail (overview/hardware/network/connectivity tabs),
+Table, Tailwind 4, Vite. Pages: sites overview (landing), inventory
+(Reason and Warranty filters, ADR-0070), server detail (overview/hardware/network/connectivity tabs),
 confs (server configurations, read-only, ADR-0061), classification rules,
 health policies, and an audit history panel.
 
@@ -380,6 +384,7 @@ OpenShift namespace       (charts: deploy/helm/server-scan + the hub release of
 │               the collectors release's Secret
 │      envFrom: <release>-auth-credentials         ← ADR-0034, blank unless auth.enabled
 │      env:     Mongo/Redis URIs from a Secret      │
+│      env:     warranty URI from <release>-warranty-db (optional, ADR-0070)
 ├── Deployment  frontend (nginx + SPA)  ── Service ──┴── Route  ← the ONLY one
 │      nginx proxies /api/ and /health/ to the API Service, so the
 │      API has no Route of its own (frontend off: the API takes it)
@@ -396,6 +401,9 @@ OpenShift namespace       (charts: deploy/helm/server-scan + the hub release of
 ├── CronJob  prune-events                   (weekly, report-only until
 │      collectors.auditRetention.reportOnly=false; deletes audit events past
 │      retentionDays, ADR-0045)
+├── CronJob  warranty-sync                  (1st of the month 04:00, on when a warranty
+│      URI or Secret is set; copies warranty end dates, ADR-0070)
+├── Secret   <release>-warranty-db          (from warranty.mongoUri, or warranty.existingSecret)
 ├── Secret   <collectors-release>-collector-credentials  (rendered from values, or bring your own)
 ├── MongoDB  ─┐  platform-provided, not deployed by this chart
 └── Redis    ─┘
@@ -480,7 +488,7 @@ collector does, and never call this platform's API.
   ADR-0012** (ADR-0032): `backend-deployment.yaml` now also mounts
   the Secret every collector CronJob already reads (since ADR-0060 another
   release's: `recheck.credentialsSecret`, default
-  `server-scan-collectors-collector-credentials`, `optional: true`), so `GET /servers/available` can live-recheck a
+  `server-scan-collector-credentials`, `optional: true`), so `GET /servers/available` can live-recheck a
   candidate before returning it. Not gated behind a values toggle — an
   unconfigured value degrades to trusting Mongo (`ManagerNotConfiguredError`),
   the same way a collector treats one today. The standalone Redfish
@@ -620,6 +628,7 @@ of it.
 | 0067 | `GET /openshift/clusters` lists membership jobs by recency (silent after `INVENTORY_OPENSHIFT_SILENT_AFTER_SECONDS`, 7 days); `POST /openshift/clusters/{kind}/{name}/decommission` (admin) frees a destroyed cluster's servers and drops its run record (gauges and alerts clear); `CLUSTER_DECOMMISSIONED` audited; the Clusters page and "not reporting" banners |
 | 0068 | A degraded UCS virtual drive is a finding: `raid.volume_degraded` (MAJOR), `raid.drive_missing` (CRITICAL, 2026-11-25) and `raid.volume_failed` (CRITICAL), UCS collectors only, from new facts `raid.degraded_volume_count`/`raid.missing_drive_count`/`raid.failed_volume_count`; a `presence=missing` disk beside a non-optimal virtual drive is reported as a CRITICAL drive instead of dropped |
 | 0069 | The live OME lookup (`get_one`, i.e. "Fetch now" and the `/servers/available` recheck) treats every `$filter ... eq` result as a candidate list, because OME matches a name by prefix and returns rows unsorted: exact equality is mandatory, the profile joins its device by `TargetId == Device.Id`, an ambiguous match is refused |
+| 0070 | A physical server's warranty end date is copied from the operator's read-only `warranty-excel-new` collection (`MongoDB-Nitur`, `INVENTORY_WARRANTY_*`, Helm `warranty.*`), matched by serial, latest date winning, an empty date "not read": looked up when a collector creates a server, on "Fetch now" and by a monthly `warranty-sync` CronJob; stored as `Server.warranty`, never a health reason; the UI derives Expired / Expiring soon (90 days) / Active / Date not read / No record and filters on it |
 
 ---
 
@@ -684,6 +693,7 @@ go stale — treat its date as load-bearing.
 | Rolling back past ADR-0058 | An image older than the `KUBEVIRT` collector cannot load a `vendor: kubevirt` document (`Vendor` is a validated enum). Delete them (`source_provider: KUBEVIRT`) before rolling back. |
 | Manual dependency maintenance | Dependabot was deliberately removed (ADR-0013), making pin currency and CVE checks a standing quarterly chore. |
 | **OneView's GPU field mapping is still unverified** | Validated against a live appliance 2026-09-07 (821 servers) — core count and profile paging both confirmed correct, and a real storage-mapping bug was found and fixed the same day — but that estate has no GPU-bearing HPE server, so the GPU product-name-matching rules (ADR-0022, "GPU matching") remain built against realistic spellings, not observed ones. Demoted from High: every other headline unknown that ADR listed is now settled. |
+| **Warranty depends on a collection another team writes** | ADR-0070 reads `MongoDB-Nitur.warranty-excel-new` as-is: a change of date format shows every date as "not read" (logged as `warranty.date_unread`), and a misnamed or emptied collection makes the monthly sync refuse to write (exit 1) rather than mark every server "no record". Renewals show only after the next sync or a "Fetch now". |
 | **Four live-lookup paths still take the first match** | ADR-0069 (2026-11-25) fixed OpenManage's prefix-matching `$filter eq`, and its audit left the UCS Central name fallback (case-insensitive, first-wins), Redfish `get_one` (`servers[0]` when a serial matches nothing), the UCS Manager read at a stored DN (serial never compared) and Intersight's `Serial eq` (first row, not re-checked). Only the live recheck and "Fetch now" are affected, never the bulk collectors. |
 | **Intersight's `get_one()` owner-relation filters are unverified** | `ComputeBlade.Moid eq '...'`-style nested-property `$filter`s (ADR-0032) mirror the relation shape the fleet-wide join already parses from full rows, but have never been exercised as a filter expression against a live tenant. Affects only `GET /servers/available`'s live recheck for Intersight-sourced servers — the bulk collector's own join is untouched and unaffected. |
 | A new SSH credential and network path for the nodes-status job | ADR-0036: a private key shared across every node in a cluster, mounted into the nodes-status CronJob pod, with host-key verification deliberately off (matching the operator's own existing tooling). Scoped to the internal node network these jobs already run on; a spoofed node can at worst report a wrong `openshift.reported_name`, not execute anything with a different credential than the shared key already grants. |

@@ -26,6 +26,7 @@ from app.domain.models.maintenance import Maintenance
 from app.domain.models.network import NetworkInfo
 from app.domain.models.openshift import OpenShiftLifecycle
 from app.domain.models.reservation import Reservation
+from app.domain.models.warranty import Warranty
 
 
 class Identity(BaseModel):
@@ -102,6 +103,7 @@ class Server(BaseModel):
     reservation: Reservation = Field(default_factory=Reservation)
     openshift: OpenShiftLifecycle = Field(default_factory=OpenShiftLifecycle)
     vm_host: VmHost | None = None  # set for a VM only (ADR-0059)
+    warranty: Warranty | None = None  # None: never looked up (ADR-0070)
 
     # A plain `str`, not an enum, so a document outlives a site rename (ADR-0018).
     site_id: str | None = None

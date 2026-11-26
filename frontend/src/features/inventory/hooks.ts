@@ -1,8 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
 import { queryKeys } from "@/api/queryKeys";
-import { disableMaintenance, enableMaintenance, listServerRows } from "@/api/servers";
+import {
+  disableMaintenance,
+  enableMaintenance,
+  listServerRows,
+} from "@/api/servers";
 import type { ServerRowsResponse } from "@/types/server";
+
+import { localToday } from "./rows";
+
+/** Today's local date, re-read every minute so a page left open past midnight moves on. */
+export function useLocalToday(): string {
+  const [today, setToday] = useState(localToday);
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(localToday()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return today;
+}
 
 /** The whole fleet as rows, re-polled every 30 s even on an unfocused wall
  * display. An unchanged fleet is a 304 the browser answers from its own
@@ -28,8 +45,18 @@ export function useServerRowsQuery() {
 export function useToggleMaintenanceMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, enable, reason }: { id: string; enable: boolean; reason?: string }) =>
-      enable ? enableMaintenance(id, reason ? { reason } : {}) : disableMaintenance(id),
+    mutationFn: ({
+      id,
+      enable,
+      reason,
+    }: {
+      id: string;
+      enable: boolean;
+      reason?: string;
+    }) =>
+      enable
+        ? enableMaintenance(id, reason ? { reason } : {})
+        : disableMaintenance(id),
     onSuccess: (server) => {
       queryClient.setQueryData(queryKeys.servers.detail(server.id), server);
       // Patch, then refetch: under the Maintenance filter the row must
@@ -40,7 +67,9 @@ export function useToggleMaintenanceMutation() {
           rows && {
             ...rows,
             items: rows.items.map((row) =>
-              row.id === server.id ? { ...row, maintenance: server.maintenance } : row,
+              row.id === server.id
+                ? { ...row, maintenance: server.maintenance }
+                : row,
             ),
           },
       );

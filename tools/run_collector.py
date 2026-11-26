@@ -70,6 +70,7 @@ from app.infrastructure.mongodb.indexes import ensure_indexes
 from app.infrastructure.mongodb.manager_repository import MongoManagerRepository
 from app.infrastructure.mongodb.server_repository import MongoServerRepository
 from app.infrastructure.mongodb.site_repository import MongoSiteRepository
+from app.infrastructure.mongodb.warranty_source import warranty_source
 from app.infrastructure.providers.factory import (
     DEBUG_HTTP_VAR,
     ENDPOINTLESS_TYPES,
@@ -861,6 +862,11 @@ async def _run(
                 ),
                 audit=audit,
                 bmc_reset=_bmc_reset_service(manager_type, settings, audit),
+                warranty=warranty_source(
+                    settings.warranty_mongo_uri,
+                    settings.warranty_database,
+                    settings.warranty_collection,
+                ),
             )
             run_start = time.monotonic()
             run_started_at = utcnow()
