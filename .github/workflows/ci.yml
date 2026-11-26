@@ -174,7 +174,8 @@ jobs:
             --set route.host=scan.apps.example.com \
             --set metrics.serviceMonitor.enabled=true \
             --set metrics.prometheusRule.enabled=true \
-            --set metrics.userWorkloadMonitoring.enabled=true > /dev/null
+            --set renamer.url=https://renamer.example \
+            --set renamer.username=ci --set renamer.password=ci > /dev/null
           # Every collector at once (the hub release with a fake estate on top).
           helm template ci-lint deploy/helm/server-scan-collectors \
             --set collectors.redfishStandalone.enabled=true \

@@ -48,6 +48,7 @@ token, everything works except events, which answer `403`.
 | One server in full detail (hardware, NICs, BMC, health reasons) | `GET /api/v1/servers/{id}` (id comes from a list result) |
 | The physical server (and CPU) a KubeVirt VM runs on | `GET /api/v1/servers/{id}/vm-host` |
 | What happened to a server or the fleet | `GET /api/v1/events`, `GET /api/v1/servers/{id}/events` |
+| What the rename sweep did (renamed, dry run, no conf matched) | `GET /api/v1/events?event_type=RENAME_REQUESTED` (`data.outcome`, `data.name_to`, `data.nearest_confs`) |
 | Servers to provision a BareMetalHost on | `GET /api/v1/servers/available` to look, `POST` to take one - see the warning below |
 | Server configurations (specs) | `GET /api/v1/confs`, `GET /api/v1/confs/{conf_id}` |
 | Why a health verdict exists | `GET /api/v1/health-policies`, `GET /api/v1/classification-rules` |

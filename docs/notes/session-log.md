@@ -8,6 +8,17 @@ is the narrative a session reads to pick up where the last one stopped.
 
 ---
 
+**2026-11-26 — Warranty from the operator's collection (ADR-0070), and the Reason dropdown sorted by count.**
+Moved to `docs/notes/session-log.md`: the inventory column-width unit (PR #42).
+
+**Shipped in PR #44 and PR #45 (v6.14.0).** The Reason options are
+most servers first. Each physical server's warranty end date is copied from `MongoDB-Nitur.warranty-excel-new`
+(`INVENTORY_WARRANTY_*`, Helm `warranty.*`), looked up on create, "Fetch now" and a monthly `warranty-sync` CronJob, stored as
+`Server.warranty`; the UI derives Expired / Expiring soon (90 days) / Active / Date not read / No record, a Warranty filter and a
+line on the Overview tab; never health. Reviewed by five agents (Python, TypeScript, stored shape, Helm, Codex) and fixed.
+
+**Decided:** the Warranty filter stays separate from Reason; the collectors chart got its own `warranty.mongoUri`/`existingSecret` (PR #45).
+
 **2026-11-26 — The inventory table wraps long names instead of cutting them (`.claude/rules/frontend.md`).**
 
 **Shipped (branch `fix/table-column-widths`):** fixed 112-128 px MCE/Cluster/Model columns cut real names. They are now as wide as their

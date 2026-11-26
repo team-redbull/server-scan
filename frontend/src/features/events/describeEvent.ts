@@ -28,6 +28,7 @@ export const WRITTEN_EVENT_TYPES = [
   "TOKEN_REVOKED",
   "JOB_TRIGGERED",
   "SERVER_REFRESHED",
+  "RENAME_REQUESTED",
 ] as const;
 
 function str(value: unknown): string | null {
@@ -53,6 +54,32 @@ const RESET_TRIGGER: Record<string, string> = {
   nics: "every NIC",
   both: "every disk and every NIC",
 };
+
+/** The sentence for a RENAME_REQUESTED event: what the renamer answered for this server. */
+function renameRequested(d: Record<string, unknown>): string {
+  const to = str(d.name_to) ?? "?";
+  const confs = Array.isArray(d.nearest_confs)
+    ? d.nearest_confs
+        .map((c) =>
+          c && typeof c === "object"
+            ? str((c as Record<string, unknown>).conf_id)
+            : null,
+        )
+        .filter((c): c is string => c !== null)
+    : [];
+  switch (str(d.outcome)) {
+    case "renamed":
+      return `Renamed to ${to} by the renamer (conf ${str(d.conf_id) ?? "?"})`;
+    case "unchanged":
+      return `Rename sent; it was already named ${to}`;
+    case "would_rename":
+      return `Dry run: the renamer would rename it to ${to} (conf ${str(d.conf_id) ?? "?"})`;
+    case "conf_mismatch":
+      return `Not renamed: no conf matches its hardware${confs.length ? ` (nearest ${confs.join(", ")})` : ""}`;
+    default:
+      return `Rename failed${paren(d.error)}`;
+  }
+}
 
 /** The sentence for an IDRAC_RESET event: what triggered it and how the restart went. */
 function idracReset(d: Record<string, unknown>): string {
@@ -186,6 +213,8 @@ export function describeEvent(event: AuditEventResponse): string {
     }
     case "IDRAC_RESET":
       return idracReset(d);
+    case "RENAME_REQUESTED":
+      return renameRequested(d);
     case "OPENSHIFT_STATE_CHANGED":
       return `${change("OpenShift state", d)}${paren(d.cluster_name)}`;
     case "MAINTENANCE_ENABLED":

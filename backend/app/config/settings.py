@@ -117,6 +117,19 @@ class Settings(BaseSettings):
     idrac_reset_cooldown_hours: float = Field(default=12.0, gt=0)
     idrac_reset_max_per_run: int = Field(default=10, ge=0)  # 0 turns the reset off
 
+    # --- Fleet rename sweep (tools/rename_fleet.py, ADR-0071); an empty URL turns it off ---
+    renamer_url: str = ""
+    renamer_username: str = ""
+    renamer_password: SecretStr = SecretStr("")
+    renamer_report_only: bool = True
+    renamer_verify_tls: bool = True
+    renamer_ca_bundle: str = ""
+    renamer_chunk_size: int = Field(default=5, ge=1)
+    renamer_cooldown_hours: float = Field(default=24.0, gt=0)
+    renamer_max_per_run: int = Field(default=50, ge=1)
+    renamer_timeout_seconds: float = Field(default=310.0, gt=0)
+    renamer_run_budget_seconds: float = Field(default=540.0, gt=0)
+
     # --- Collectors (tools/run_collector.py, not the API process) ---
     ucs_manager_username: str = ""
     ucs_manager_password: SecretStr = SecretStr("")

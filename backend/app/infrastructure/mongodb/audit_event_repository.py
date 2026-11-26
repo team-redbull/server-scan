@@ -515,6 +515,21 @@ class MongoAuditEventRepository:
         }
         return await self._collection.find_one(query, projection={"_id": 1}) is not None
 
+    async def server_ids_with_event_since(self, event_type: EventType, since: datetime) -> set[str]:
+        """
+        Every server with at least one event of one type at or after a time.
+
+        Args:
+            event_type (EventType): The `event_type` to look for.
+            since (datetime): Inclusive lower bound on `created_at`.
+
+        Returns:
+            set[str]: The `server_id`s.
+        """
+        query = {"event_type": event_type.value, "created_at": {"$gte": _iso(since)}}
+        ids = await self._collection.distinct("server_id", query)
+        return {i for i in ids if isinstance(i, str)}
+
     async def count_by_provider_since(self, event_type: str, since: datetime) -> dict[str, int]:
         """
         Count events of one type since a cutoff, grouped by `data.source_provider`.

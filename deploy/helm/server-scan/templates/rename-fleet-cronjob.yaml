@@ -1,0 +1,103 @@
+{{- /* Fleet rename sweep every 5 minutes (ADR-0071). Renders when a renamer URL and credentials are set; every key is optional. */ -}}
+{{- $r := .Values.renamer | default dict }}
+{{- $j := $r.job | default dict }}
+{{- $c := .Values.collectors | default dict }}
+{{- $on := ternary $j.enabled true (hasKey $j "enabled") }}
+{{- if and $on $r.url (or (and $r.username $r.password) $r.existingSecret) }}
+{{- $secret := $r.existingSecret | default (printf "%s-renamer-credentials" .Release.Name) }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-rename-fleet
+  labels:
+    server-scan.io/triggerable: "true"
+    app.kubernetes.io/name: {{ .Release.Name }}-rename-fleet
+    app.kubernetes.io/component: maintenance
+    app.kubernetes.io/part-of: server-scan
+spec:
+  schedule: {{ $j.schedule | default "*/5 * * * *" | quote }}
+  {{- with $c.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ $j.suspend | default false }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      {{- if $c.jobTtlSeconds }}
+      ttlSecondsAfterFinished: {{ $c.jobTtlSeconds }}
+      {{- end }}
+      backoffLimit: {{ ternary $j.backoffLimit 0 (hasKey $j "backoffLimit") }}
+      activeDeadlineSeconds: {{ $j.activeDeadlineSeconds | default 900 }}
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: rename-fleet
+              image: {{ include "serverScan.apiImage" . | quote }}
+              imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+              command:
+                - python3
+                - -m
+                - tools.rename_fleet
+              env:
+                - name: INVENTORY_ENVIRONMENT
+                  value: production
+                # No login here, so no AD settings or session secret in this pod.
+                - name: INVENTORY_AUTH_ENABLED
+                  value: "false"
+                {{- include "serverScan.dbEnv" . | nindent 16 }}
+                - name: INVENTORY_RENAMER_URL
+                  value: {{ $r.url | quote }}
+                - name: INVENTORY_RENAMER_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secret }}
+                      key: {{ $r.existingSecretUsernameKey | default "username" }}
+                - name: INVENTORY_RENAMER_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secret }}
+                      key: {{ $r.existingSecretPasswordKey | default "password" }}
+                - name: INVENTORY_RENAMER_REPORT_ONLY
+                  value: {{ ternary $j.reportOnly true (hasKey $j "reportOnly") | quote }}
+                - name: INVENTORY_RENAMER_VERIFY_TLS
+                  value: {{ ternary $r.verifyTls true (hasKey $r "verifyTls") | quote }}
+                - name: INVENTORY_RENAMER_CA_BUNDLE
+                  value: {{ ternary (printf "/etc/renamer-ca/%s" ($r.caConfigMapKey | default "ca-bundle.crt")) "" (not (empty $r.caConfigMap)) | quote }}
+                - name: INVENTORY_RENAMER_RUN_BUDGET_SECONDS
+                  value: {{ $j.runBudgetSeconds | default 540 | quote }}
+                - name: INVENTORY_RENAMER_COOLDOWN_HOURS
+                  value: {{ $j.cooldownHours | default 24 | quote }}
+                - name: INVENTORY_RENAMER_MAX_PER_RUN
+                  value: {{ $j.maxPerRun | default 50 | quote }}
+                - name: INVENTORY_RENAMER_CHUNK_SIZE
+                  value: {{ $j.chunkSize | default 5 | quote }}
+              envFrom:
+                - configMapRef:
+                    name: {{ .Release.Name }}-api-config
+              resources:
+                {{- toYaml ($j.resources | default (dict "requests" (dict "cpu" "50m" "memory" "128Mi") "limits" (dict "memory" "512Mi"))) | nindent 16 }}
+              {{- with $r.caConfigMap }}
+              volumeMounts:
+                - name: renamer-ca
+                  mountPath: /etc/renamer-ca
+                  readOnly: true
+              {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+          {{- with $r.caConfigMap }}
+          volumes:
+            - name: renamer-ca
+              configMap:
+                name: {{ . }}
+          {{- end }}
+{{- end }}

@@ -236,6 +236,23 @@ describe("describeEvent", () => {
     ).toBe("Fetched from ONEVIEW on demand (no change)");
   });
 
+  it("describes each rename-sweep outcome", () => {
+    const r = (data: Record<string, unknown>) => describeEvent({ ...ev("RENAME_REQUESTED"), data });
+    expect(r({ outcome: "renamed", name_to: "ocp-c200-mtl-tlv-4b184et", conf_id: "200" })).toBe(
+      "Renamed to ocp-c200-mtl-tlv-4b184et by the renamer (conf 200)",
+    );
+    expect(r({ outcome: "would_rename", name_to: "ocp-c2d-mtl-tlv-x", conf_id: "2" })).toBe(
+      "Dry run: the renamer would rename it to ocp-c2d-mtl-tlv-x (conf 2)",
+    );
+    expect(r({ outcome: "conf_mismatch", nearest_confs: [{ conf_id: "7" }, { conf_id: "9" }] })).toBe(
+      "Not renamed: no conf matches its hardware (nearest 7, 9)",
+    );
+    expect(r({ outcome: "unchanged", name_to: "ocp-c2-mtl-tlv-x" })).toBe(
+      "Rename sent; it was already named ocp-c2-mtl-tlv-x",
+    );
+    expect(r({ outcome: "failed", error: "unknown host" })).toBe("Rename failed (unknown host)");
+  });
+
   it("covers every written type", () => {
     for (const t of WRITTEN_EVENT_TYPES) {
       expect(describeEvent(ev(t))).not.toBe(t);

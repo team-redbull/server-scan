@@ -1,8 +1,8 @@
 # Deployment
 
 Three Helm charts. `helm/server-scan` is the platform — API, frontend,
-an optional MCP server, an optional "Run job" RBAC, the two prune CronJobs and an optional monthly
-warranty-sync CronJob (ADR-0070). `helm/server-scan-collectors`
+an optional MCP server, an optional "Run job" RBAC, the two prune CronJobs, an optional monthly
+warranty-sync CronJob (ADR-0070) and an optional 5-minute rename-fleet CronJob (ADR-0071). `helm/server-scan-collectors`
 holds every collector CronJob (ADR-0060): one release beside the platform for the vendor collectors, and one in
 every KubeVirt cluster for its VMs. This document covers both. `helm/nodes-status` is the pair of jobs that
 run *inside* every OpenShift cluster to report what it is using, one
@@ -249,6 +249,53 @@ rewrites a server), then **run `warranty-sync` once from the Jobs page**: until 
 servers show no warranty. The sync covers physical servers only, writes a
 server only when its warranty changed, and is on the Jobs page ("Run job" recovers a failed month).
 
+## Fleet rename sweep (ADR-0071)
+
+Every 5 minutes `<release>-rename-fleet` sends free (`AVAILABLE`, not in maintenance, not reserved, reachable)
+Dell servers from OpenManage (by iDRAC IP) and Cisco servers from UCS Central (by service-profile name) whose
+name is not `ocp-c<conf_id><marker>-mtl-<site>-<serial>` to the renamer service, which matches the hardware to
+a conf and picks the name. Renders only when `url` and credentials (username and password, or
+`existingSecret`) are set. The job runs with `INVENTORY_AUTH_ENABLED=false`, so no AD settings reach it:
+
+```yaml
+renamer:
+  url: "https://renamer.example"
+  username: "svc-renamer"            # rendered into the Secret <release>-renamer-credentials
+  password: "..."
+  existingSecret: ""                 # or a Secret you manage, keys below
+  existingSecretUsernameKey: username
+  existingSecretPasswordKey: password
+  verifyTls: true                    # false = no certificate check
+  caConfigMap: ""                    # or keep true and trust a private CA from this ConfigMap
+  caConfigMapKey: ca-bundle.crt      #   (e.g. one with config.openshift.io/inject-trusted-cabundle)
+  job:
+    enabled: true
+    suspend: false
+    schedule: "*/5 * * * *"
+    reportOnly: true                 # the renamer's dry_run; set false for real renames
+    cooldownHours: 24                # an answered server is not sent again for this long
+    maxPerRun: 50                    # servers sent per run; the rest wait for the next run
+    chunkSize: 5                     # servers per HTTP request (the renamer's route limit is 300 s)
+    runBudgetSeconds: 540            # no new chunk after this; one chunk can take up to 310 s
+    backoffLimit: 0
+    activeDeadlineSeconds: 900
+```
+
+Each answered server gets a `RENAME_REQUESTED` event (Events page) with the outcome: `would_rename` (dry run),
+`renamed`, `unchanged` (already that name), `conf_mismatch` (no conf matches; the nearest confs are in the event, a human decides) or
+`failed`. Start report-only, read those events, then set `reportOnly: false`. The new name shows after the next
+collector run (`SERVER_RENAMED`). A timed-out request is `failed`, never re-sent (the renamer may have acted); a
+renamer that is down or a server its answer left out writes no event and is retried 5 minutes later. **Do not roll
+the API back past this release once the job has run**: an older API cannot decode `RENAME_REQUESTED`. **Debugging** (Jobs page → `rename-fleet` → a run's log, or `oc logs job/<job>`), one line each, in order:
+`rename_fleet.started` (dry run, URL, TLS, chunk size, cap, cooldown, budget) → `rename_fleet.selected` (every
+count, why each skipped server was skipped, and `to_send`: name and the iDRAC IP or profile sent) →
+`renamer.request` / `renamer.batch` (one HTTP call: identities, status code, seconds) → `rename_fleet.server`
+(one per server: `outcome`, `name_to`, `conf_id`, `error`, `nearest_confs`; a warning when not renamed) →
+`rename_fleet.completed` (counts, `duration_seconds`, `skipped_examples`: up to 10 names per skip reason). A whole
+request that failed is `renamer.batch_failed` (connect error, 401, 5xx, bad body) or `renamer.batch_unanswered` (timed
+out after sending); `rename_fleet.dropped_on_recheck` is a server reserved or paused between selection and sending.
+Exit code 3 (some server failed or unsent) marks the Job failed in the Jobs page; the next run is 5 minutes later.
+
 ## Running a CronJob from the UI (ADR-0055)
 
 `jobTrigger.enabled` (default **true**; an absent key counts as true, so the Deploy job's `values.yaml` gets it without carrying it; set `false` to remove the ServiceAccount, Role and catalog) lets an admin start a collector or prune CronJob from the UI's **Jobs** page, like
@@ -256,7 +303,7 @@ server only when its warranty changed, and is on the Jobs page ("Run job" recove
 ServiceAccount, mounts its token into the API pod (`automountServiceAccountToken` is otherwise `false`) and
 binds a Role **in the release namespace only**: `cronjobs` get/list, `jobs` get/list/create, `pods`
 get/list, `pods/log` get. It sets `INVENTORY_JOBS_BACKEND=kubernetes` and `INVENTORY_JOBS_NAMESPACE` (downward
-API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the two prune jobs and the warranty sync of this chart and
+API). Only CronJobs labelled `server-scan.io/triggerable: "true"` can be run: the two prune jobs, the warranty sync and the rename sweep of this chart and
 the collectors of a `server-scan-collectors` release **in the same namespace** (`triggerable: true`, its default),
 never the `nodes-status` jobs or a KubeVirt cluster's collectors (ADR-0060). The catalog names only this chart's own jobs: this
 chart cannot read the collectors release's values, so a collector switched off there is simply absent from the page. `server-scan.io/trigger-warning` on a CronJob is the
@@ -401,17 +448,11 @@ nothing scrapes is the same as none. Three things have to be true on the
 cluster, none of which this chart can do for you because they live in the
 `openshift-monitoring` namespaces:
 
-1. **Enable user-workload monitoring**, once per cluster. The chart can
-   do this for you — `metrics.userWorkloadMonitoring.enabled: true`
-   writes the `cluster-monitoring-config` ConfigMap into
-   `openshift-monitoring` — so that a single `helm install` of this chart
-   is enough. It is off by default because it is a cluster-wide setting
-   written from an application chart into a namespace it does not
-   otherwise own, and because a cluster that already has that ConfigMap
-   collides: label the existing one with `app.kubernetes.io/instance:
-   <release>` so Argo adopts it, or delete it just before the sync.
-
-   By hand, it is this:
+1. **Enable user-workload monitoring**, once per cluster. This chart does
+   not do it: `cluster-monitoring-config` is a cluster-wide setting in
+   `openshift-monitoring` (it also holds remote-write and retention), so it
+   belongs to whatever configures the cluster, not to an application chart.
+   The minimal form is:
 
    ```yaml
    apiVersion: v1
@@ -459,8 +500,8 @@ cluster, none of which this chart can do for you because they live in the
    Prometheus needs no selector label, which is why
    `metrics.serviceMonitor.labels` is empty by default.
 
-On the sandbox, step 1 is the chart's (`redbull-platform` sets
-`metrics.userWorkloadMonitoring.enabled: true`); step 2 is not configured.
+Step 1 is outside this chart (it rendered `cluster-monitoring-config` until it was removed); step 2 is not
+configured on the sandbox.
 
 **Before pushing a change to this chart, dry-run it against the cluster:**
 

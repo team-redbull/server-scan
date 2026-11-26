@@ -147,6 +147,7 @@ read-only, and that is a safety property rather than a missing feature.
 | **Prune tool** (`tools/prune_servers.py`) | Helm CronJob `collectors.prune`, off and report-only by default (or run by hand). Deletes servers no manager has listed for `INVENTORY_PRUNE_AFTER_SECONDS` (`listed_at`), dry-run unless `--apply`, guarded by a per-manager clean-run check and a deletion cap, one `SERVER_PRUNED` audit event each (ADR-0037). |
 | **Audit retention tool** (`tools/prune_events.py`) | Helm CronJob `collectors.auditRetention`, weekly, report-only until `reportOnly: false`. Deletes audit events (any type, `SERVER_PRUNED` included) older than `retentionDays` (default 180, 0 keeps everything), in bounded batches, and records one `AUDIT_PURGED` event (ADR-0045). |
 | **Warranty sync** (`tools/sync_warranty.py`) | Helm CronJob `warranty.sync`, monthly, on when a warranty URI or Secret is set. Copies each physical server's warranty end date from the operator's collection with a revision CAS, writing only a changed server; exits 1 on an unreadable or empty collection (ADR-0070). |
+| **Fleet rename sweep** (`tools/rename_fleet.py`) | Helm CronJob `renamer.job`, every 5 minutes, on when `renamer.url` and credentials are set. Sends free, reachable, unreserved, out-of-maintenance Dell (OpenManage) and Cisco (UCS Central) servers not named by the fleet convention to the renamer service's batch routes; report-only (`dry_run`) by default; one `RENAME_REQUESTED` event per answered server, which is also the 24 h cooldown (ADR-0071). |
 | **Frontend** (`frontend/`) | React admin UI. Talks only to the backend API. |
 | **MongoDB** | Source of truth. |
 | **Redis** | Cache only, cache-aside, never authoritative. |
@@ -404,6 +405,9 @@ OpenShift namespace       (charts: deploy/helm/server-scan + the hub release of
 ├── CronJob  warranty-sync                  (1st of the month 04:00, on when a warranty
 │      URI or Secret is set; copies warranty end dates, ADR-0070)
 ├── Secret   <release>-warranty-db          (from warranty.mongoUri, or warranty.existingSecret)
+├── CronJob  rename-fleet                   (every 5 min, on when renamer.url and credentials are set;
+│      asks the renamer to rename free Dell/Cisco servers, report-only by default, ADR-0071)
+├── Secret   <release>-renamer-credentials  (from renamer.username/password, or renamer.existingSecret)
 ├── Secret   <collectors-release>-collector-credentials  (rendered from values, or bring your own)
 ├── MongoDB  ─┐  platform-provided, not deployed by this chart
 └── Redis    ─┘
@@ -629,6 +633,7 @@ of it.
 | 0068 | A degraded UCS virtual drive is a finding: `raid.volume_degraded` (MAJOR), `raid.drive_missing` (CRITICAL, 2026-11-25) and `raid.volume_failed` (CRITICAL), UCS collectors only, from new facts `raid.degraded_volume_count`/`raid.missing_drive_count`/`raid.failed_volume_count`; a `presence=missing` disk beside a non-optimal virtual drive is reported as a CRITICAL drive instead of dropped |
 | 0069 | The live OME lookup (`get_one`, i.e. "Fetch now" and the `/servers/available` recheck) treats every `$filter ... eq` result as a candidate list, because OME matches a name by prefix and returns rows unsorted: exact equality is mandatory, the profile joins its device by `TargetId == Device.Id`, an ambiguous match is refused |
 | 0070 | A physical server's warranty end date is copied from the operator's read-only `warranty-excel-new` collection (`MongoDB-Nitur`, `INVENTORY_WARRANTY_*`, Helm `warranty.*`), matched by serial, latest date winning, an empty date "not read": looked up when a collector creates a server, on "Fetch now" and by a monthly `warranty-sync` CronJob; stored as `Server.warranty`, never a health reason; the UI derives Expired / Expiring soon (90 days) / Active / Date not read / No record and filters on it |
+| 0071 | A 5-minute `rename-fleet` CronJob (`tools.rename_fleet`, Helm `renamer.*`, `INVENTORY_RENAMER_*`) sends free, reachable, unreserved, out-of-maintenance Dell (OpenManage, by iDRAC IP) and Cisco (UCS Central, by profile name) servers whose name is not `ocp-c<conf_id><marker>-mtl-<site>-<serial>` to the renamer service's batch routes; report-only (`dry_run`) by default; one `RENAME_REQUESTED` event per answered server, which is also the 24 h cooldown |
 
 ---
 
