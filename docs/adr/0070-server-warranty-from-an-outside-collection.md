@@ -29,9 +29,12 @@ servers only.
    projects `Serial` and `Warranty` only. `Name`, `Site`, `Model`, `RAM`, `Cores` are what Server Scan already
    reads from the hardware, and `Expired` is a derived text that can be stale, so none is read. Settings:
    `INVENTORY_WARRANTY_MONGO_URI` (empty = warranty off), `_DATABASE`, `_COLLECTION`, `_EXPIRING_DAYS`. Helm:
-   the URI is set once, in the `server-scan` release's `warranty.*` (rendered into the Secret
-   `<release>-warranty-db`, or `warranty.existingSecret`); `server-scan-collectors` renders no Secret and reads
-   that one by name (`warranty.secretName`, `optional`), so the two releases never render the same Secret.
+   each chart is configured on its own, `warranty.mongoUri` (rendered into a Secret) or
+   `warranty.existingSecret`: `server-scan` for "Fetch now" and the sync (`<release>-warranty-db`),
+   `server-scan-collectors` for a server a collector creates (`<fullname>-collector-warranty-db`). The
+   collectors chart reads nothing from the server-scan release, so it also works in another cluster, and the
+   two Secret names differ, so both releases can render one in the same namespace. Neither set = that chart's
+   pods do no lookup.
 2. **Matched by serial only**, normalized like `identity.serial_normalized` (case and runs of spaces
    ignored; a serial the import stored as a number matches its digits). `Vendor` is not used: its spelling
    (`Cisco`, `HPE`) is not Server Scan's. A placeholder serial (`To Be Filled By O.E.M.`) is never looked up.
@@ -77,6 +80,7 @@ servers only.
 - **Enable it only after the collectors release runs this image** (ADR-0060 bumps it after server-scan): an
   older collector's `Server` has no `warranty` field, so a server it rewrites loses the stored warranty until
   the next sync.
-- The API pod and every collector read the warranty URI; the collectors only use it for a server they create.
+- The API pod reads the warranty URI, and so does every collector whose release sets it; the collectors only
+  use it for a server they create.
 - If the writer changes the date format, every date reads "not read" and `warranty.date_unread` logs the
   serials; nothing fails.
